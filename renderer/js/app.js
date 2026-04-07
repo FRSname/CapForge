@@ -604,8 +604,6 @@
       barGap: 1,
       barRadius: 2,
       height: 60,
-      responsive: true,
-      backend: "WebAudio",
       url: audioSrc,
     });
 
@@ -631,6 +629,10 @@
 
     wavesurfer.on("ready", () => {
       updatePlayerTime(0, wavesurfer.getDuration());
+    });
+
+    wavesurfer.on("error", (err) => {
+      console.error("WaveSurfer error:", err);
     });
   }
 
