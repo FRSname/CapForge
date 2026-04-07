@@ -7,6 +7,7 @@
   "use strict";
 
   const ALLOWED_EXTENSIONS = ["mp3", "wav", "m4a", "flac", "mp4", "mkv", "ogg", "webm", "aac", "wma"];
+  const VIDEO_EXTENSIONS = ["mp4", "mkv", "webm", "avi", "mov"];
 
   // --- DOM refs ---
   const screens = {
@@ -37,6 +38,7 @@
   const iconPlay = document.getElementById("icon-play");
   const iconPause = document.getElementById("icon-pause");
   const playerTime = document.getElementById("player-time");
+  const videoPlayer = document.getElementById("video-player");
 
   const btnSettingsToggle = document.getElementById("btn-settings-toggle");
   const settingsPanel = document.getElementById("settings-panel");
@@ -587,25 +589,50 @@
     exportedFiles.classList.remove("hidden");
   }
 
-  // --- Audio player ---
+  // --- Media player ---
+  function isVideoFile(path) {
+    const ext = path.split(".").pop().toLowerCase();
+    return VIDEO_EXTENSIONS.includes(ext);
+  }
+
   function initAudioPlayer() {
     destroyWavesurfer();
 
     if (!selectedFilePath) return;
 
     const audioSrc = api.audioUrl(selectedFilePath);
+    const isVideo = isVideoFile(selectedFilePath);
 
-    wavesurfer = WaveSurfer.create({
-      container: "#waveform",
-      waveColor: "#30363d",
-      progressColor: "#58a6ff",
-      cursorColor: "#58a6ff",
-      barWidth: 2,
-      barGap: 1,
-      barRadius: 2,
-      height: 60,
-      url: audioSrc,
-    });
+    if (isVideo) {
+      // Show video element and use it as WaveSurfer's media
+      videoPlayer.src = audioSrc;
+      videoPlayer.classList.remove("hidden");
+      wavesurfer = WaveSurfer.create({
+        container: "#waveform",
+        waveColor: "#30363d",
+        progressColor: "#58a6ff",
+        cursorColor: "#58a6ff",
+        barWidth: 2,
+        barGap: 1,
+        barRadius: 2,
+        height: 60,
+        media: videoPlayer,
+      });
+    } else {
+      // Audio-only: hide video, use normal WaveSurfer
+      videoPlayer.classList.add("hidden");
+      wavesurfer = WaveSurfer.create({
+        container: "#waveform",
+        waveColor: "#30363d",
+        progressColor: "#58a6ff",
+        cursorColor: "#58a6ff",
+        barWidth: 2,
+        barGap: 1,
+        barRadius: 2,
+        height: 60,
+        url: audioSrc,
+      });
+    }
 
     wavesurfer.on("play", () => {
       iconPlay.classList.add("hidden");
@@ -641,6 +668,8 @@
       wavesurfer.destroy();
       wavesurfer = null;
     }
+    videoPlayer.removeAttribute("src");
+    videoPlayer.classList.add("hidden");
     iconPlay.classList.remove("hidden");
     iconPause.classList.add("hidden");
     playerTime.textContent = "00:00 / 00:00";

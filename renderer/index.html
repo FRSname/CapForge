@@ -34,9 +34,9 @@
         <svg class="drop-icon" width="48" height="48" viewBox="0 0 16 16" fill="currentColor">
           <path d="M3.75 1.5a.25.25 0 0 0-.25.25v11.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5Zm5.75 0v2.75c0 .138.112.25.25.25h2.75l-3-3ZM2 1.75C2 .784 2.784 0 3.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 12.25 16h-8.5A1.75 1.75 0 0 1 2 14.25Z"/>
         </svg>
-        <p class="drop-text">Drop audio file here</p>
+        <p class="drop-text">Drop audio or video file here</p>
         <p class="drop-hint">or click to browse</p>
-        <p class="drop-formats">mp3 · wav · m4a · flac · mp4 · mkv</p>
+        <p class="drop-formats">mp3 · wav · m4a · flac · mp4 · mkv · webm</p>
       </div>
       <div id="file-info" class="file-info hidden">
         <div class="file-info-row">
@@ -77,8 +77,9 @@
           Transcription Complete
         </h2>
 
-        <!-- Audio Player -->
+        <!-- Media Player -->
         <div class="audio-player" id="audio-player">
+          <video id="video-player" class="video-player hidden"></video>
           <div class="waveform-container" id="waveform"></div>
           <div class="player-controls">
             <button id="btn-play" class="icon-btn play-btn" title="Play/Pause (Space)">
