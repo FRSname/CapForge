@@ -153,7 +153,7 @@ async def serve_audio(path: str):
     p = Path(path)
     if not p.is_file():
         raise HTTPException(status_code=404, detail="File not found")
-    return FileResponse(p, media_type="audio/mpeg")
+    return FileResponse(p)
 
 
 @app.post("/api/transcribe")
