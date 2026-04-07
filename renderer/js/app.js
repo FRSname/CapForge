@@ -31,7 +31,7 @@
   const resultsPreview = document.getElementById("results-preview");
   const btnExport = document.getElementById("btn-export");
   const btnNew = document.getElementById("btn-new");
-  const subtitleLive = document.getElementById("subtitle-live");
+
   const exportedFiles = document.getElementById("exported-files");
   const exportedList = document.getElementById("exported-list");
   const btnPlay = document.getElementById("btn-play");
@@ -669,11 +669,11 @@
       wavesurfer = null;
     }
     videoPlayer.removeAttribute("src");
+    videoPlayer.load();
     videoPlayer.classList.add("hidden");
     iconPlay.classList.remove("hidden");
     iconPause.classList.add("hidden");
     playerTime.textContent = "00:00 / 00:00";
-    subtitleLive.textContent = "";
   }
 
   function togglePlayPause() {
@@ -694,16 +694,6 @@
   // --- Subtitle sync ---
   function highlightCurrentSubtitle(currentTime) {
     if (!transcriptionResult || !transcriptionResult.segments) return;
-
-    // Find current segment
-    let currentText = "";
-    for (const seg of transcriptionResult.segments) {
-      if (currentTime >= seg.start && currentTime <= seg.end) {
-        currentText = seg.text;
-        break;
-      }
-    }
-    subtitleLive.textContent = currentText;
 
     // Highlight active words in preview
     const words = resultsPreview.querySelectorAll(".word");

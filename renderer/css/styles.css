@@ -323,7 +323,6 @@ body {
 
 .video-player {
   width: 100%;
-  max-height: 320px;
   border-radius: 6px;
   background: #000;
   margin-bottom: 8px;
@@ -355,24 +354,6 @@ body {
   font-size: 12px;
   font-family: "Cascadia Code", "Fira Code", monospace;
   color: var(--text-muted);
-}
-
-/* ===== Subtitle Live Display ===== */
-
-.subtitle-live {
-  width: 100%;
-  min-height: 32px;
-  text-align: center;
-  font-size: 15px;
-  font-weight: 500;
-  color: var(--text);
-  padding: 8px;
-  background: var(--bg-overlay);
-  border-radius: var(--radius);
-}
-
-.subtitle-live:empty {
-  display: none;
 }
 
 /* ===== Transcript Preview ===== */
