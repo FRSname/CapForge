@@ -383,6 +383,11 @@ body {
   user-select: text;
 }
 
+/* Expand preview when editing */
+.results-preview.editing {
+  max-height: 50vh;
+}
+
 .segment-row {
   padding: 4px 6px;
   border-radius: 4px;
@@ -393,6 +398,13 @@ body {
 
 .segment-row.segment-active {
   background: rgba(88, 166, 255, 0.08);
+}
+
+/* Segment editing highlight */
+.segment-row.segment-editing {
+  background: rgba(88, 166, 255, 0.05);
+  outline: 1px solid var(--border);
+  outline-offset: -1px;
 }
 
 .segment-time {
@@ -406,6 +418,17 @@ body {
   color: var(--accent);
 }
 
+/* Loop-play indicator on timestamp */
+.segment-time .loop-icon {
+  display: none;
+  margin-left: 2px;
+  opacity: 0.6;
+}
+
+.editing .segment-time:hover .loop-icon {
+  display: inline;
+}
+
 .segment-speaker {
   color: var(--accent);
   font-weight: 500;
@@ -414,6 +437,28 @@ body {
 
 .segment-text {
   flex: 1;
+}
+
+/* Editable segment text */
+.segment-text[contenteditable="true"] {
+  outline: none;
+  border-bottom: 1px dashed var(--accent);
+  padding-bottom: 1px;
+  cursor: text;
+}
+
+.segment-text[contenteditable="true"]:focus {
+  border-bottom-color: var(--accent-hover);
+  background: rgba(88, 166, 255, 0.04);
+}
+
+/* Mark modified segments */
+.segment-row.segment-modified .segment-time::before {
+  content: "●";
+  color: var(--accent);
+  margin-right: 4px;
+  font-size: 8px;
+  vertical-align: middle;
 }
 
 .word {
@@ -430,6 +475,72 @@ body {
   background: var(--accent);
   color: var(--bg);
   border-radius: 2px;
+}
+
+/* ===== Edit Toolbar ===== */
+
+.edit-toolbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+}
+
+.edit-toolbar-left,
+.edit-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.toolbar-btn:hover {
+  background: var(--bg-overlay);
+  color: var(--text);
+}
+
+.toolbar-btn.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.toolbar-btn-save {
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.toolbar-btn-save:hover {
+  background: rgba(63, 185, 80, 0.12);
+}
+
+.toolbar-btn-discard {
+  color: var(--danger);
+  border-color: transparent;
+}
+
+.toolbar-btn-discard:hover {
+  border-color: var(--danger);
+  background: rgba(248, 81, 73, 0.08);
+}
+
+.edit-status {
+  font-size: 11px;
+  color: var(--text-muted);
 }
 
 /* ===== Exported Files ===== */

@@ -47,12 +47,22 @@
   const btnPickDir = document.getElementById("btn-pick-dir");
   const outputDirDisplay = document.getElementById("output-dir-display");
 
+  // Edit mode
+  const btnEditToggle = document.getElementById("btn-edit-toggle");
+  const editActions = document.getElementById("edit-actions");
+  const btnEditSave = document.getElementById("btn-edit-save");
+  const btnEditDiscard = document.getElementById("btn-edit-discard");
+  const editStatus = document.getElementById("edit-status");
+
   // --- State ---
   let selectedFilePath = null;
   let outputDir = "output";
   let transcriptionResult = null;
   let wavesurfer = null;
   let currentScreen = "file";
+  let editMode = false;
+  let hasEdits = false;
+  let loopSegment = null; // { start, end } for loop-play in edit mode
 
   // --- Init ---
   async function init() {
@@ -146,6 +156,7 @@
     // Results
     btnExport.addEventListener("click", exportFiles);
     btnNew.addEventListener("click", () => {
+      if (editMode) exitEditMode();
       destroyWavesurfer();
       clearFile();
       transcriptionResult = null;
@@ -154,6 +165,11 @@
 
     // Audio player
     btnPlay.addEventListener("click", togglePlayPause);
+
+    // Edit mode
+    btnEditToggle.addEventListener("click", toggleEditMode);
+    btnEditSave.addEventListener("click", saveEdits);
+    btnEditDiscard.addEventListener("click", discardEdits);
 
     // Settings
     btnSettingsToggle.addEventListener("click", () => {
@@ -179,8 +195,8 @@
   }
 
   function onKeyDown(e) {
-    // Ignore if typing in an input
-    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA") return;
+    // Ignore if typing in an input or contenteditable
+    if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) return;
 
     if (e.key === "Enter" && currentScreen === "file" && selectedFilePath) {
       e.preventDefault();
@@ -188,9 +204,18 @@
     } else if (e.key === "Escape" && currentScreen === "progress") {
       e.preventDefault();
       cancelJob();
+    } else if (e.key === "Escape" && currentScreen === "results" && editMode) {
+      e.preventDefault();
+      discardEdits();
     } else if (e.key === " " && currentScreen === "results" && wavesurfer) {
       e.preventDefault();
       togglePlayPause();
+    } else if (e.key === "e" && currentScreen === "results") {
+      e.preventDefault();
+      toggleEditMode();
+    } else if (e.key === "s" && e.ctrlKey && currentScreen === "results" && editMode) {
+      e.preventDefault();
+      saveEdits();
     }
   }
 
@@ -258,10 +283,11 @@
         export_formats: formats,
       });
 
-      // The transcribe endpoint now returns the result directly
-      if (response && response.segments) {
-        transcriptionResult = response;
-        showResults(response, response.exported_files);
+      // Transcribe endpoint returns metadata; fetch full result separately
+      if (response && response.status === "ok") {
+        const fullResult = await api.getResult();
+        transcriptionResult = fullResult;
+        showResults(fullResult, response.exported_files);
       }
     } catch (err) {
       appendLog(`ERROR: ${err.message}`);
@@ -344,7 +370,9 @@
           span.dataset.start = w.start;
           span.dataset.end = w.end;
           span.textContent = w.word + " ";
-          span.addEventListener("click", () => seekTo(w.start));
+          span.addEventListener("click", () => {
+            if (!editMode) seekTo(w.start);
+          });
           text.appendChild(span);
         });
       } else {
@@ -362,11 +390,187 @@
       div.appendChild(time);
       div.appendChild(text);
 
-      // Click segment timestamp to seek
-      time.addEventListener("click", () => seekTo(seg.start));
+      // Click segment timestamp to seek (or loop in edit mode)
+      time.addEventListener("click", () => {
+        if (editMode) {
+          loopPlaySegment(seg.start, seg.end);
+        } else {
+          seekTo(seg.start);
+        }
+      });
 
       resultsPreview.appendChild(div);
     });
+
+    // Apply edit mode state if re-rendering while editing
+    if (editMode) applyEditableState(true);
+  }
+
+  // --- Edit mode ---
+  function toggleEditMode() {
+    if (editMode) {
+      if (hasEdits) {
+        // Ask to save first? For now just exit
+        exitEditMode();
+      } else {
+        exitEditMode();
+      }
+    } else {
+      enterEditMode();
+    }
+  }
+
+  function enterEditMode() {
+    editMode = true;
+    hasEdits = false;
+    btnEditToggle.classList.add("active");
+    editActions.classList.remove("hidden");
+    editStatus.textContent = "";
+    resultsPreview.classList.add("editing");
+    applyEditableState(true);
+  }
+
+  function exitEditMode() {
+    editMode = false;
+    hasEdits = false;
+    loopSegment = null;
+    btnEditToggle.classList.remove("active");
+    editActions.classList.add("hidden");
+    editStatus.textContent = "";
+    resultsPreview.classList.remove("editing");
+    applyEditableState(false);
+  }
+
+  function applyEditableState(editable) {
+    const texts = resultsPreview.querySelectorAll(".segment-text");
+    texts.forEach((el) => {
+      if (editable) {
+        el.contentEditable = "true";
+        el.spellcheck = true;
+        el.addEventListener("input", onSegmentInput);
+        el.addEventListener("keydown", onSegmentKeyDown);
+      } else {
+        el.contentEditable = "false";
+        el.removeEventListener("input", onSegmentInput);
+        el.removeEventListener("keydown", onSegmentKeyDown);
+      }
+    });
+    // Clear modified indicators if leaving edit mode
+    if (!editable) {
+      resultsPreview.querySelectorAll(".segment-modified").forEach((r) => r.classList.remove("segment-modified"));
+    }
+  }
+
+  function onSegmentInput(e) {
+    hasEdits = true;
+    const row = e.target.closest(".segment-row");
+    if (row) row.classList.add("segment-modified");
+    editStatus.textContent = "Unsaved changes";
+  }
+
+  function onSegmentKeyDown(e) {
+    // Tab to next segment, Shift+Tab to prev
+    if (e.key === "Tab") {
+      e.preventDefault();
+      const texts = Array.from(resultsPreview.querySelectorAll(".segment-text"));
+      const current = texts.indexOf(e.target);
+      const next = e.shiftKey ? current - 1 : current + 1;
+      if (next >= 0 && next < texts.length) {
+        texts[next].focus();
+        // Scroll into view
+        const row = texts[next].closest(".segment-row");
+        row.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        // Play the segment audio
+        const start = parseFloat(row.dataset.start);
+        const end = parseFloat(row.dataset.end);
+        loopPlaySegment(start, end);
+      }
+    }
+    // Ctrl+Enter — play/loop the current segment
+    if (e.key === "Enter" && e.ctrlKey) {
+      e.preventDefault();
+      const row = e.target.closest(".segment-row");
+      if (row) {
+        loopPlaySegment(parseFloat(row.dataset.start), parseFloat(row.dataset.end));
+      }
+    }
+  }
+
+  /** Play just this segment's audio range (and loop if played again). */
+  function loopPlaySegment(start, end) {
+    if (!wavesurfer || wavesurfer.getDuration() <= 0) return;
+    loopSegment = { start, end };
+    wavesurfer.seekTo(start / wavesurfer.getDuration());
+    wavesurfer.play();
+  }
+
+  async function saveEdits() {
+    if (!transcriptionResult || !hasEdits) return;
+
+    // Read edited text from DOM and apply back to transcriptionResult
+    const rows = resultsPreview.querySelectorAll(".segment-row");
+    rows.forEach((row) => {
+      const idx = parseInt(row.dataset.index, 10);
+      const textEl = row.querySelector(".segment-text");
+      if (!textEl || idx >= transcriptionResult.segments.length) return;
+
+      const newText = textEl.textContent.trim();
+      const seg = transcriptionResult.segments[idx];
+
+      // Update segment text
+      seg.text = newText;
+
+      // Update individual word texts if the user edited word by word
+      // Since contenteditable flattens word spans, rebuild words from plain text
+      const words = newText.split(/\s+/).filter(Boolean);
+      if (seg.words && seg.words.length > 0) {
+        // Map new words to old word timings (best effort)
+        const newWords = [];
+        for (let i = 0; i < words.length; i++) {
+          if (i < seg.words.length) {
+            newWords.push({ ...seg.words[i], word: words[i] });
+          } else {
+            // Extra words — use last word's end time
+            const lastW = seg.words[seg.words.length - 1];
+            newWords.push({ word: words[i], start: lastW.start, end: lastW.end, score: null, speaker: seg.speaker || null });
+          }
+        }
+        seg.words = newWords;
+      }
+    });
+
+    // Save to backend
+    btnEditSave.disabled = true;
+    btnEditSave.textContent = "Saving…";
+    try {
+      await api.updateResult(transcriptionResult);
+      hasEdits = false;
+      editStatus.textContent = "Saved";
+      showToast("Subtitles saved");
+      // Re-render to reflect clean state with updated word spans
+      renderResults(transcriptionResult);
+    } catch (err) {
+      showToast("Save failed: " + err.message);
+    } finally {
+      btnEditSave.disabled = false;
+      btnEditSave.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg> Save`;
+    }
+  }
+
+  async function discardEdits() {
+    if (hasEdits) {
+      // Re-fetch original from backend
+      try {
+        const fresh = await api.getResult();
+        transcriptionResult = fresh;
+        renderResults(fresh);
+      } catch {
+        // If fetch fails, just re-render current
+        renderResults(transcriptionResult);
+      }
+    }
+    exitEditMode();
+    showToast("Changes discarded");
   }
 
   function renderExportedFiles(files) {
@@ -418,6 +622,11 @@
     wavesurfer.on("timeupdate", (currentTime) => {
       updatePlayerTime(currentTime, wavesurfer.getDuration());
       highlightCurrentSubtitle(currentTime);
+      // Loop enforcement in edit mode
+      if (editMode && loopSegment && currentTime >= loopSegment.end) {
+        wavesurfer.pause();
+        loopSegment = null;
+      }
     });
 
     wavesurfer.on("ready", () => {

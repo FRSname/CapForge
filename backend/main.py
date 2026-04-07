@@ -214,6 +214,16 @@ async def get_result():
     return current_result
 
 
+@app.put("/api/result")
+async def update_result(updated: TranscriptionResult):
+    """Save edited transcription result (subtitle corrections)."""
+    global current_result
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result to update")
+    current_result = updated
+    return {"status": "ok", "segments": len(updated.segments)}
+
+
 @app.post("/api/export")
 async def export_result(request: ExportRequest):
     """Export the latest transcription result to the requested formats."""

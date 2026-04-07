@@ -40,6 +40,20 @@ class SubForgeAPI {
     return res.json();
   }
 
+  /** PUT helper */
+  async _put(path, body) {
+    const res = await fetch(`${this.base}${path}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || res.statusText);
+    }
+    return res.json();
+  }
+
   // --- REST endpoints ---
 
   getSystemInfo() {
@@ -64,6 +78,10 @@ class SubForgeAPI {
 
   startTranscription(params) {
     return this._post("/api/transcribe", params);
+  }
+
+  updateResult(result) {
+    return this._put("/api/result", result);
   }
 
   exportResult(params) {
