@@ -13,7 +13,9 @@ def detect_hardware() -> SystemInfo:
         if torch.cuda.is_available():
             info.has_cuda = True
             info.gpu_name = torch.cuda.get_device_name(0)
-            vram_bytes = torch.cuda.get_device_properties(0).total_mem
+            props = torch.cuda.get_device_properties(0)
+            # total_memory in newer torch, total_mem in older versions
+            vram_bytes = getattr(props, "total_memory", None) or getattr(props, "total_mem", 0)
             info.vram_mb = vram_bytes // (1024 * 1024)
             info.recommended_device = DeviceType.CUDA
 

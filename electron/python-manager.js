@@ -11,7 +11,7 @@ const PORT = 8000;
 
 // Locate the venv Python executable
 function findPython() {
-  const venvPython = path.join(PROJECT_ROOT, "whisperx", "Scripts", "python.exe");
+  const venvPython = path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe");
   const fs = require("fs");
   if (fs.existsSync(venvPython)) return venvPython;
   // Fallback: hope system python has deps
