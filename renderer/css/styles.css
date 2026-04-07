@@ -290,6 +290,10 @@ body {
 
 /* ===== Results ===== */
 
+.results-screen {
+  max-width: 640px;
+}
+
 .results-container {
   width: 100%;
   display: flex;
@@ -299,10 +303,71 @@ body {
 }
 
 .results-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 20px;
   font-weight: 600;
   color: var(--success);
 }
+
+/* ===== Audio Player ===== */
+
+.audio-player {
+  width: 100%;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+}
+
+.waveform-container {
+  width: 100%;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+.player-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.play-btn {
+  color: var(--accent);
+  padding: 4px;
+}
+
+.play-btn:hover {
+  color: var(--accent-hover);
+  background: rgba(88, 166, 255, 0.1);
+}
+
+.player-time {
+  font-size: 12px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  color: var(--text-muted);
+}
+
+/* ===== Subtitle Live Display ===== */
+
+.subtitle-live {
+  width: 100%;
+  min-height: 32px;
+  text-align: center;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  padding: 8px;
+  background: var(--bg-overlay);
+  border-radius: var(--radius);
+}
+
+.subtitle-live:empty {
+  display: none;
+}
+
+/* ===== Transcript Preview ===== */
 
 .results-preview {
   width: 100%;
@@ -318,9 +383,126 @@ body {
   user-select: text;
 }
 
+.segment-row {
+  padding: 4px 6px;
+  border-radius: 4px;
+  display: flex;
+  gap: 8px;
+  transition: background 0.15s;
+}
+
+.segment-row.segment-active {
+  background: rgba(88, 166, 255, 0.08);
+}
+
+.segment-time {
+  color: var(--text-muted);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.segment-time:hover {
+  color: var(--accent);
+}
+
+.segment-speaker {
+  color: var(--accent);
+  font-weight: 500;
+  flex-shrink: 0;
+}
+
+.segment-text {
+  flex: 1;
+}
+
+.word {
+  cursor: pointer;
+  border-radius: 2px;
+  transition: background 0.1s, color 0.1s;
+}
+
+.word:hover {
+  background: rgba(88, 166, 255, 0.15);
+}
+
+.word.word-active {
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 2px;
+}
+
+/* ===== Exported Files ===== */
+
+.exported-files {
+  width: 100%;
+}
+
+.exported-files ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 12px;
+}
+
+.exported-files li {
+  font-size: 12px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  color: var(--text-muted);
+  padding: 2px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .results-actions {
   display: flex;
   gap: 12px;
+}
+
+/* ===== Danger Button ===== */
+
+.danger-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  background: transparent;
+  color: var(--danger);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.danger-btn:hover {
+  background: rgba(248, 81, 73, 0.1);
+}
+
+/* ===== Toast ===== */
+
+.toast {
+  position: fixed;
+  bottom: -60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-overlay);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 20px;
+  font-size: 13px;
+  z-index: 100;
+  transition: bottom 0.3s ease;
+  pointer-events: none;
+}
+
+.toast.toast-visible {
+  bottom: 24px;
 }
 
 /* ===== Settings Panel ===== */

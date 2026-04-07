@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; style-src 'self' 'unsafe-inline';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:*; media-src 'self' http://127.0.0.1:* blob:; style-src 'self' 'unsafe-inline';" />
   <title>SubForge</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
@@ -62,15 +62,45 @@
         </div>
         <div class="progress-pct" id="progress-pct">0%</div>
         <div class="progress-log" id="progress-log"></div>
-        <button id="btn-cancel" class="secondary-btn">Cancel</button>
+        <button id="btn-cancel" class="danger-btn">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>
+          Cancel
+        </button>
       </div>
     </section>
 
     <!-- SCREEN 3: Results -->
-    <section id="screen-results" class="screen">
+    <section id="screen-results" class="screen results-screen">
       <div class="results-container">
-        <h2 class="results-title">Transcription Complete</h2>
+        <h2 class="results-title">
+          <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+          Transcription Complete
+        </h2>
+
+        <!-- Audio Player -->
+        <div class="audio-player" id="audio-player">
+          <div class="waveform-container" id="waveform"></div>
+          <div class="player-controls">
+            <button id="btn-play" class="icon-btn play-btn" title="Play/Pause (Space)">
+              <svg id="icon-play" width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z"/></svg>
+              <svg id="icon-pause" width="20" height="20" viewBox="0 0 16 16" fill="currentColor" class="hidden"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0ZM6 4.75A.75.75 0 0 1 6.75 4h.5a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75Zm4 0a.75.75 0 0 1-.75.75h-.5A.75.75 0 0 1 8 4.75v6.5a.75.75 0 0 1 .75.75h.5a.75.75 0 0 1 .75-.75Z"/></svg>
+            </button>
+            <span class="player-time" id="player-time">00:00 / 00:00</span>
+          </div>
+        </div>
+
+        <!-- Subtitle display synced to audio -->
+        <div class="subtitle-live" id="subtitle-live"></div>
+
+        <!-- Transcript preview (clickable segments) -->
         <div class="results-preview" id="results-preview"></div>
+
+        <!-- Exported files list -->
+        <div class="exported-files hidden" id="exported-files">
+          <div class="setting-label">Exported files</div>
+          <ul id="exported-list"></ul>
+        </div>
+
         <div class="results-actions">
           <button id="btn-export" class="primary-btn">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06Z"/></svg>
@@ -120,6 +150,7 @@
   </aside>
 
   <!-- Scripts -->
+  <script src="js/wavesurfer.min.js"></script>
   <script src="js/api.js"></script>
   <script src="js/app.js"></script>
 </body>

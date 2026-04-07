@@ -14,6 +14,7 @@
     "electron": "^33.0.0"
   },
   "dependencies": {
-    "tree-kill": "^1.2.2"
+    "tree-kill": "^1.2.2",
+    "wavesurfer.js": "^7.12.5"
   }
 }

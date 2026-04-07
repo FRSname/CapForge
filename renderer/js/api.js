@@ -70,6 +70,15 @@ class SubForgeAPI {
     return this._post("/api/export", params);
   }
 
+  cancelTranscription() {
+    return this._post("/api/cancel", {});
+  }
+
+  /** Get URL to stream an audio file through the backend. */
+  audioUrl(filePath) {
+    return `${this.base}/api/serve-audio?path=${encodeURIComponent(filePath)}`;
+  }
+
   // --- WebSocket ---
 
   /** Connect to the progress WebSocket. Calls onProgress(update) on each message. */

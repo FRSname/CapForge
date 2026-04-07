@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 ProgressCallback = Optional[Callable[[ProgressUpdate], Any]]
 
 
+class TranscriptionCancelled(Exception):
+    """Raised when a transcription job is cancelled."""
+
+
 class Transcriber:
     """High-level transcription service wrapping WhisperX."""
 
@@ -36,6 +40,15 @@ class Transcriber:
         self._model_size: Optional[str] = None
         self._device: Optional[str] = None
         self._compute_type: Optional[str] = None
+        self._cancelled = False
+
+    def cancel(self) -> None:
+        """Signal the running transcription to stop."""
+        self._cancelled = True
+
+    def _check_cancelled(self) -> None:
+        if self._cancelled:
+            raise TranscriptionCancelled("Transcription cancelled by user")
 
     def transcribe(
         self,
@@ -43,6 +56,7 @@ class Transcriber:
         on_progress: ProgressCallback = None,
     ) -> TranscriptionResult:
         """Run the full transcription pipeline: transcribe → align → (diarize)."""
+        self._cancelled = False
         audio_path = request.audio_path
         if not Path(audio_path).is_file():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
@@ -60,6 +74,7 @@ class Transcriber:
         self._load_model(model_size, device, compute_type)
 
         # --- Step 2: Transcribe ---
+        self._check_cancelled()
         self._report(on_progress, JobStatus.TRANSCRIBING, 15, "Transcribing audio…")
         audio = whisperx.load_audio(audio_path)
         transcribe_kwargs: dict[str, Any] = {"batch_size": self._pick_batch_size(hw.vram_mb)}
@@ -71,6 +86,7 @@ class Transcriber:
         self._report(on_progress, JobStatus.TRANSCRIBING, 50, f"Transcription complete (language: {detected_language})")
 
         # --- Step 3: Align ---
+        self._check_cancelled()
         self._report(on_progress, JobStatus.ALIGNING, 55, "Loading alignment model…")
         model_a, metadata = whisperx.load_align_model(
             language_code=detected_language, device=device
@@ -88,6 +104,7 @@ class Transcriber:
         self._try_cuda_empty_cache()
 
         # --- Step 4: Diarize (optional) ---
+        self._check_cancelled()
         if request.enable_diarization and request.hf_token:
             self._report(on_progress, JobStatus.DIARIZING, 78, "Running speaker diarization…")
             diarize_model = whisperx.DiarizationPipeline(

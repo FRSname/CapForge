@@ -11,8 +11,10 @@ from typing import Optional
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from fastapi.responses import FileResponse
+
 from backend.engine.hardware import detect_hardware
-from backend.engine.transcriber import Transcriber
+from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.json_export import export_json
 from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
@@ -135,6 +137,25 @@ async def get_status():
     return current_status
 
 
+@app.post("/api/cancel")
+async def cancel_transcription():
+    """Cancel the running transcription job."""
+    if current_status.status in (JobStatus.IDLE, JobStatus.DONE, JobStatus.ERROR):
+        return {"status": "no_job"}
+    transcriber.cancel()
+    await broadcast_progress(ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Cancelled"))
+    return {"status": "cancelled"}
+
+
+@app.get("/api/serve-audio")
+async def serve_audio(path: str):
+    """Serve an audio file for the frontend player. Only serves files that exist."""
+    p = Path(path)
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(p, media_type="audio/mpeg")
+
+
 @app.post("/api/transcribe")
 async def start_transcription(request: TranscribeRequest):
     """Start a transcription job. Runs in a background thread."""
@@ -160,18 +181,25 @@ async def start_transcription(request: TranscribeRequest):
         current_result = result
 
         # Auto-export if formats requested
+        exported_files: list[str] = []
         if request.export_formats:
             await broadcast_progress(ProgressUpdate(
                 status=JobStatus.EXPORTING, progress=95, message="Exporting files…"
             ))
-            _do_export(result, request.export_formats, request.output_dir, request.audio_path)
+            exported_files = _do_export(result, request.export_formats, request.output_dir, request.audio_path)
 
-        await broadcast_progress(ProgressUpdate(status=JobStatus.DONE, progress=100, message="Done"))
-        return {"status": "ok", "segments": len(result.segments)}
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.DONE, progress=100,
+            message="Done" + (f" — exported {len(exported_files)} file(s)" if exported_files else ""),
+        ))
+        return {"status": "ok", "segments": len(result.segments), "exported_files": exported_files}
 
     except FileNotFoundError as e:
         await broadcast_progress(ProgressUpdate(status=JobStatus.ERROR, progress=0, message=str(e)))
         raise HTTPException(status_code=400, detail=str(e))
+    except TranscriptionCancelled:
+        await broadcast_progress(ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Cancelled"))
+        return {"status": "cancelled"}
     except Exception as e:
         logger.exception("Transcription failed")
         await broadcast_progress(ProgressUpdate(status=JobStatus.ERROR, progress=0, message=str(e)))
