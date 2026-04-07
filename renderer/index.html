@@ -79,7 +79,10 @@
 
         <!-- Media Player -->
         <div class="audio-player" id="audio-player">
-          <video id="video-player" class="video-player hidden"></video>
+          <div class="video-wrap" id="video-wrap">
+            <video id="video-player" class="video-player hidden"></video>
+            <canvas id="subtitle-overlay" class="subtitle-overlay hidden"></canvas>
+          </div>
           <div class="waveform-container" id="waveform"></div>
           <div class="player-controls">
             <button id="btn-play" class="icon-btn play-btn" title="Play/Pause (Space)">
@@ -118,6 +121,150 @@
         <div class="exported-files hidden" id="exported-files">
           <div class="setting-label">Exported files</div>
           <ul id="exported-list"></ul>
+        </div>
+
+        <!-- ===== Subtitle Studio ===== -->
+        <div class="subtitle-studio" id="subtitle-studio">
+          <button id="btn-studio-toggle" class="studio-toggle-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0ZM8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0Zm.75 4.75a.75.75 0 0 0-1.5 0v2.5h-2.5a.75.75 0 0 0 0 1.5h2.5v2.5a.75.75 0 0 0 1.5 0v-2.5h2.5a.75.75 0 0 0 0-1.5h-2.5Z"/></svg>
+            Subtitle Video Studio
+          </button>
+
+          <div id="studio-panel" class="studio-panel hidden">
+            <!-- Canvas Preview -->
+            <div class="studio-preview-wrap">
+              <canvas id="studio-canvas" width="960" height="540"></canvas>
+              <div class="studio-preview-controls">
+                <button id="studio-play-btn" class="studio-play-btn" title="Play / Pause">
+                  <svg id="studio-icon-play" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2l10 6-10 6V2z"/></svg>
+                  <svg id="studio-icon-pause" class="hidden" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2h3v12H3zM10 2h3v12h-3z"/></svg>
+                </button>
+                <input type="range" id="studio-scrubber" min="0" max="100" step="0.1" value="0" class="studio-scrubber" />
+                <span id="studio-time" class="studio-time">00:00 / 00:00</span>
+              </div>
+            </div>
+
+            <!-- Style Controls -->
+            <div class="studio-controls">
+              <div class="studio-row">
+                <label>Font</label>
+                <select id="studio-font">
+                  <option value="Arial">Arial</option>
+                  <option value="Arial Black">Arial Black</option>
+                  <option value="Impact">Impact</option>
+                  <option value="Verdana">Verdana</option>
+                  <option value="Tahoma">Tahoma</option>
+                  <option value="Trebuchet MS">Trebuchet MS</option>
+                  <option value="Georgia">Georgia</option>
+                  <option value="Segoe UI">Segoe UI</option>
+                  <option value="Consolas">Consolas</option>
+                  <option value="Calibri">Calibri</option>
+                </select>
+              </div>
+
+              <div class="studio-row">
+                <label>Font Size</label>
+                <input type="range" id="studio-font-size" min="24" max="120" value="64" />
+                <span id="studio-font-size-val" class="range-val">64px</span>
+              </div>
+
+              <div class="studio-row">
+                <label>Text Color</label>
+                <input type="color" id="studio-text-color" value="#FFFFFF" />
+              </div>
+
+              <div class="studio-row">
+                <label>Active Word</label>
+                <input type="color" id="studio-active-color" value="#FFD700" />
+              </div>
+
+              <div class="studio-row">
+                <label>Background</label>
+                <input type="color" id="studio-bg-color" value="#D4952A" />
+              </div>
+
+              <div class="studio-row">
+                <label>BG Opacity</label>
+                <input type="range" id="studio-bg-opacity" min="0" max="100" value="90" />
+                <span id="studio-bg-opacity-val" class="range-val">90%</span>
+              </div>
+
+              <div class="studio-row">
+                <label>BG Padding H</label>
+                <input type="range" id="studio-pad-h" min="0" max="100" value="40" />
+                <span id="studio-pad-h-val" class="range-val">40px</span>
+              </div>
+
+              <div class="studio-row">
+                <label>BG Padding V</label>
+                <input type="range" id="studio-pad-v" min="0" max="60" value="16" />
+                <span id="studio-pad-v-val" class="range-val">16px</span>
+              </div>
+
+              <div class="studio-row">
+                <label>Corner Radius</label>
+                <input type="range" id="studio-radius" min="0" max="50" value="16" />
+                <span id="studio-radius-val" class="range-val">16px</span>
+              </div>
+
+              <div class="studio-row">
+                <label>Words/Group</label>
+                <input type="range" id="studio-wpg" min="1" max="8" value="3" />
+                <span id="studio-wpg-val" class="range-val">3</span>
+              </div>
+
+              <div class="studio-row">
+                <label>Y Position</label>
+                <input type="range" id="studio-pos-y" min="10" max="95" value="82" />
+                <span id="studio-pos-y-val" class="range-val">82%</span>
+              </div>
+
+              <div class="studio-row">
+                <label>Resolution</label>
+                <select id="studio-resolution">
+                  <option value="1920x1080">1920×1080 (16:9 1080p)</option>
+                  <option value="3840x2160">3840×2160 (16:9 4K)</option>
+                  <option value="1280x720">1280×720 (16:9 720p)</option>
+                  <option value="1080x1920">1080×1920 (9:16 1080p)</option>
+                  <option value="1080x1350">1080×1350 (4:5 Instagram)</option>
+                  <option value="1080x1080">1080×1080 (1:1 Square)</option>
+                </select>
+              </div>
+
+              <div class="studio-row">
+                <label>FPS</label>
+                <select id="studio-fps">
+                  <option value="30">30 fps</option>
+                  <option value="25">25 fps</option>
+                  <option value="60">60 fps</option>
+                </select>
+              </div>
+
+              <div class="studio-row">
+                <label>Format</label>
+                <select id="studio-format">
+                  <option value="webm">WebM (VP9 + Alpha)</option>
+                  <option value="mov">MOV (ProRes 4444)</option>
+                </select>
+              </div>
+            </div>
+
+            <!-- Render Button -->
+            <div class="studio-actions">
+              <button id="btn-render-video" class="primary-btn">
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25ZM6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/></svg>
+                Render Subtitle Video
+              </button>
+            </div>
+
+            <!-- Render progress -->
+            <div id="render-progress" class="render-progress hidden">
+              <div class="progress-bar-wrap">
+                <div class="progress-bar" id="render-progress-bar" style="width: 0%"></div>
+              </div>
+              <div class="progress-pct" id="render-progress-label">Ready</div>
+            </div>
+          </div>
         </div>
 
         <div class="results-actions">

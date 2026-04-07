@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy"
+          content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-eval';">
+    <link rel="stylesheet" href="../css/styles.css">
+    <title>SubForge Subtitles</title>
+</head>
+<body>
+
+    <h2>🔥 SubForge Subtitles</h2>
+
+    <!-- Step 1: Load SubForge File -->
+    <div class="section">
+        <div class="section-title">1 — Subtitle Data</div>
+        <div class="file-picker">
+            <button id="btn-load-subforge" class="btn">📂 Load .subforge / .srt file</button>
+            <div id="subforge-path" class="file-path">No file loaded</div>
+        </div>
+        <div id="subtitle-preview" class="preview-list hidden" style="margin-top: 8px;"></div>
+        <div id="subtitle-count" class="hidden" style="font-size: 11px; color: #999; margin-top: 4px;"></div>
+    </div>
+
+    <!-- Step 2: Select MOGRT -->
+    <div class="section">
+        <div class="section-title">2 — MOGRT Template</div>
+        <div class="file-picker">
+            <button id="btn-load-mogrt" class="btn">📁 Select MOGRT file</button>
+            <div id="mogrt-path" class="file-path">No MOGRT selected</div>
+        </div>
+        <div id="mogrt-props" class="hidden" style="margin-top: 8px;">
+            <div class="form-row">
+                <label>Text Property</label>
+                <select id="sel-text-prop"></select>
+            </div>
+        </div>
+    </div>
+
+    <!-- Step 3: Style Options -->
+    <div class="section">
+        <div class="section-title">3 — Display Mode</div>
+        <div class="form-row">
+            <label>Subtitle Mode</label>
+            <select id="sel-display-mode">
+                <option value="groups">Word Groups (2-3 words)</option>
+                <option value="segments">Full Phrases</option>
+                <option value="words">Word by Word</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Step 4: Target Track -->
+    <div class="section">
+        <div class="section-title">4 — Timeline Placement</div>
+        <div class="form-row">
+            <label>Video Track</label>
+            <select id="sel-track">
+                <option value="1">V2 (second track)</option>
+                <option value="2">V3</option>
+                <option value="3">V4</option>
+                <option value="4">V5</option>
+            </select>
+        </div>
+        <div class="form-row">
+            <label>Time Offset</label>
+            <div style="display: flex; gap: 6px; align-items: center;">
+                <input type="number" id="inp-offset" value="0" step="0.1" style="width: 80px;">
+                <span style="font-size: 11px; color: #999;">seconds</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="btn-row">
+        <button id="btn-create" class="btn btn-primary" disabled>
+            ▶ Create Subtitles
+        </button>
+    </div>
+    <div class="btn-row">
+        <button id="btn-clear-track" class="btn btn-danger btn-sm" disabled>
+            🗑 Clear Track
+        </button>
+        <button id="btn-refresh" class="btn btn-sm">
+            🔄 Refresh
+        </button>
+    </div>
+
+    <!-- Progress -->
+    <div id="progress-section" class="hidden" style="margin-top: 10px;">
+        <div class="progress-wrap">
+            <div id="progress-bar" class="progress-bar"></div>
+        </div>
+        <div id="progress-label" class="progress-label">Ready</div>
+    </div>
+
+    <!-- Status Bar -->
+    <div class="status-bar">
+        <div id="status-dot" class="status-dot"></div>
+        <span id="status-text">Checking sequence…</span>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="toast"></div>
+
+    <script src="../js/CSInterface.js"></script>
+    <script src="../js/main.js"></script>
+</body>
+</html>

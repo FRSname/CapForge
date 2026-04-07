@@ -20,6 +20,7 @@ from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
 from backend.exporters.srt_word import export_srt_word
 from backend.exporters.vtt_export import export_vtt
+from backend.exporters.video_render import render_subtitle_video
 from backend.models.schemas import (
     ExportFormat,
     ExportRequest,
@@ -28,6 +29,7 @@ from backend.models.schemas import (
     SystemInfo,
     TranscribeRequest,
     TranscriptionResult,
+    VideoRenderRequest,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -253,6 +255,56 @@ async def ws_progress(websocket: WebSocket):
     finally:
         if websocket in ws_clients:
             ws_clients.remove(websocket)
+
+
+# --- Video render endpoint ---
+
+@app.post("/api/render-video")
+async def render_video(request: VideoRenderRequest):
+    """Render a transparent subtitle overlay video from the current transcription."""
+    global current_result
+
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+
+    if current_status.status in (
+        JobStatus.LOADING_MODEL, JobStatus.TRANSCRIBING, JobStatus.ALIGNING,
+        JobStatus.DIARIZING, JobStatus.RENDERING, JobStatus.ENCODING,
+    ):
+        raise HTTPException(status_code=409, detail="Another job is in progress")
+
+    await broadcast_progress(ProgressUpdate(
+        status=JobStatus.RENDERING, progress=0, message="Starting video render…"
+    ))
+
+    loop = asyncio.get_running_loop()
+    try:
+        output_path = await loop.run_in_executor(
+            None,
+            lambda: render_subtitle_video(
+                current_result,
+                request.config,
+                request.output_dir,
+                on_progress=sync_progress_callback,
+            ),
+        )
+
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.DONE, progress=100, message=f"Video rendered: {output_path}"
+        ))
+        return {"status": "ok", "file": output_path}
+
+    except FileNotFoundError as e:
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.ERROR, progress=0, message=str(e)
+        ))
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.exception("Video render failed")
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.ERROR, progress=0, message=str(e)
+        ))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- Export helpers ---

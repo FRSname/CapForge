@@ -38,7 +38,11 @@
   const iconPlay = document.getElementById("icon-play");
   const iconPause = document.getElementById("icon-pause");
   const playerTime = document.getElementById("player-time");
-  const videoPlayer = document.getElementById("video-player");
+  let videoPlayer = document.getElementById("video-player");
+  const audioPlayerContainer = document.getElementById("audio-player");
+  const waveformContainer = document.getElementById("waveform");
+  const subtitleOverlay = document.getElementById("subtitle-overlay");
+  const subtitleOverlayCtx = subtitleOverlay ? subtitleOverlay.getContext("2d") : null;
 
   const btnSettingsToggle = document.getElementById("btn-settings-toggle");
   const settingsPanel = document.getElementById("settings-panel");
@@ -305,6 +309,12 @@
 
   // --- Progress updates (from WebSocket) ---
   function onProgressUpdate(update) {
+    // Forward render progress to studio
+    if (update.status === "rendering" || update.status === "encoding") {
+      onRenderProgress(update);
+      return;
+    }
+
     if (currentScreen !== "progress") return;
 
     const pct = Math.round(update.progress);
@@ -323,6 +333,8 @@
       aligning: "Aligning words…",
       diarizing: "Identifying speakers…",
       exporting: "Exporting files…",
+      rendering: "Rendering video…",
+      encoding: "Encoding video…",
       done: "Complete!",
       error: "Error",
     };
@@ -604,9 +616,14 @@
     const isVideo = isVideoFile(selectedFilePath);
 
     if (isVideo) {
-      // Show video element and use it as WaveSurfer's media
-      videoPlayer.src = audioSrc;
-      videoPlayer.classList.remove("hidden");
+      // Create a fresh <video> element so old WaveSurfer refs can't overwrite it
+      const freshVideo = document.createElement("video");
+      freshVideo.id = "video-player";
+      freshVideo.className = "video-player";
+      freshVideo.src = audioSrc;
+      audioPlayerContainer.replaceChild(freshVideo, videoPlayer);
+      videoPlayer = freshVideo;
+
       wavesurfer = WaveSurfer.create({
         container: "#waveform",
         waveColor: "#30363d",
@@ -619,7 +636,7 @@
         media: videoPlayer,
       });
     } else {
-      // Audio-only: hide video, use normal WaveSurfer
+      // Audio-only: hide video
       videoPlayer.classList.add("hidden");
       wavesurfer = WaveSurfer.create({
         container: "#waveform",
@@ -652,6 +669,30 @@
         wavesurfer.pause();
         loopSegment = null;
       }
+      // Sync studio preview if open
+      if (studioOpen && studioDuration > 0) {
+        studioScrubTime = currentTime;
+        const pct = (currentTime / studioDuration) * 100;
+        if (studioScrubber) studioScrubber.value = Math.min(pct, 100);
+        if (studioTimeLabel) studioTimeLabel.textContent = `${formatTime(currentTime)} / ${formatTime(studioDuration)}`;
+        drawStudioFrame();
+      }
+    });
+
+    wavesurfer.on("play", () => {
+      if (studioOpen) {
+        studioPlaying = true;
+        if (studioIconPlay) studioIconPlay.classList.add("hidden");
+        if (studioIconPause) studioIconPause.classList.remove("hidden");
+      }
+    });
+
+    wavesurfer.on("pause", () => {
+      if (studioOpen) {
+        studioPlaying = false;
+        if (studioIconPlay) studioIconPlay.classList.remove("hidden");
+        if (studioIconPause) studioIconPause.classList.add("hidden");
+      }
     });
 
     wavesurfer.on("ready", () => {
@@ -668,9 +709,13 @@
       wavesurfer.destroy();
       wavesurfer = null;
     }
-    videoPlayer.removeAttribute("src");
-    videoPlayer.load();
-    videoPlayer.classList.add("hidden");
+    // Replace with a blank video element so any lingering async refs
+    // from the old WaveSurfer write to a detached (orphaned) node.
+    const blank = document.createElement("video");
+    blank.id = "video-player";
+    blank.className = "video-player hidden";
+    audioPlayerContainer.replaceChild(blank, videoPlayer);
+    videoPlayer = blank;
     iconPlay.classList.remove("hidden");
     iconPause.classList.add("hidden");
     playerTime.textContent = "00:00 / 00:00";
@@ -761,6 +806,353 @@
     } finally {
       btnExport.disabled = false;
       btnExport.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06Z"/></svg> Export Files`;
+    }
+  }
+
+  // =========================================================================
+  // SUBTITLE VIDEO STUDIO
+  // =========================================================================
+
+  const btnStudioToggle = document.getElementById("btn-studio-toggle");
+  const studioPanel = document.getElementById("studio-panel");
+  const studioCanvas = document.getElementById("studio-canvas");
+  const studioCtx = studioCanvas ? studioCanvas.getContext("2d") : null;
+  const studioScrubber = document.getElementById("studio-scrubber");
+  const studioTimeLabel = document.getElementById("studio-time");
+  const btnRenderVideo = document.getElementById("btn-render-video");
+  const renderProgressEl = document.getElementById("render-progress");
+  const renderProgressBar = document.getElementById("render-progress-bar");
+  const renderProgressLabel = document.getElementById("render-progress-label");
+
+  // Studio style controls
+  const studioFont = document.getElementById("studio-font");
+  const studioFontSize = document.getElementById("studio-font-size");
+  const studioFontSizeVal = document.getElementById("studio-font-size-val");
+  const studioTextColor = document.getElementById("studio-text-color");
+  const studioActiveColor = document.getElementById("studio-active-color");
+  const studioBgColor = document.getElementById("studio-bg-color");
+  const studioBgOpacity = document.getElementById("studio-bg-opacity");
+  const studioBgOpacityVal = document.getElementById("studio-bg-opacity-val");
+  const studioPadH = document.getElementById("studio-pad-h");
+  const studioPadHVal = document.getElementById("studio-pad-h-val");
+  const studioPadV = document.getElementById("studio-pad-v");
+  const studioPadVVal = document.getElementById("studio-pad-v-val");
+  const studioRadius = document.getElementById("studio-radius");
+  const studioRadiusVal = document.getElementById("studio-radius-val");
+  const studioWpg = document.getElementById("studio-wpg");
+  const studioWpgVal = document.getElementById("studio-wpg-val");
+  const studioPosY = document.getElementById("studio-pos-y");
+  const studioPosYVal = document.getElementById("studio-pos-y-val");
+  const studioResolution = document.getElementById("studio-resolution");
+  const studioFps = document.getElementById("studio-fps");
+  const studioFormat = document.getElementById("studio-format");
+
+  let studioOpen = false;
+  let studioGroups = [];
+  let studioDuration = 0;
+  let studioScrubTime = 0;
+  let studioPlaying = false;
+  let studioAnimFrame = null;
+  const studioPlayBtn = document.getElementById("studio-play-btn");
+  const studioIconPlay = document.getElementById("studio-icon-play");
+  const studioIconPause = document.getElementById("studio-icon-pause");
+
+  // --- Studio controls binding ---
+  if (btnStudioToggle) {
+    btnStudioToggle.addEventListener("click", () => {
+      studioOpen = !studioOpen;
+      studioPanel.classList.toggle("hidden", !studioOpen);
+      btnStudioToggle.classList.toggle("active", studioOpen);
+      if (studioOpen) {
+        buildStudioGroups();
+        drawStudioFrame();
+      }
+    });
+  }
+
+  // All range sliders update their label and redraw
+  const studioRangeInputs = [
+    [studioFontSize, studioFontSizeVal, "px"],
+    [studioBgOpacity, studioBgOpacityVal, "%"],
+    [studioPadH, studioPadHVal, "px"],
+    [studioPadV, studioPadVVal, "px"],
+    [studioRadius, studioRadiusVal, "px"],
+    [studioWpg, studioWpgVal, ""],
+    [studioPosY, studioPosYVal, "%"],
+  ];
+
+  studioRangeInputs.forEach(([input, label, unit]) => {
+    if (input) {
+      input.addEventListener("input", () => {
+        label.textContent = input.value + unit;
+        if (input === studioWpg) buildStudioGroups();
+        drawStudioFrame();
+      });
+    }
+  });
+
+  // Color/select controls redraw
+  [studioFont, studioTextColor, studioActiveColor, studioBgColor, studioResolution].forEach((el) => {
+    if (el) el.addEventListener("input", () => drawStudioFrame());
+  });
+
+  // Scrubber — also seek video/audio
+  if (studioScrubber) {
+    studioScrubber.addEventListener("input", () => {
+      studioScrubTime = (parseFloat(studioScrubber.value) / 100) * studioDuration;
+      studioTimeLabel.textContent = `${formatTime(studioScrubTime)} / ${formatTime(studioDuration)}`;
+      // Seek the underlying media to match
+      if (wavesurfer && wavesurfer.getDuration() > 0) {
+        wavesurfer.seekTo(studioScrubTime / wavesurfer.getDuration());
+      }
+      drawStudioFrame();
+    });
+  }
+
+  // Play/Pause button in studio
+  if (studioPlayBtn) {
+    studioPlayBtn.addEventListener("click", () => {
+      if (!wavesurfer) return;
+      wavesurfer.playPause();
+    });
+  }
+
+  // --- Build word groups from current transcription ---
+  function buildStudioGroups() {
+    studioGroups = [];
+    if (!transcriptionResult || !transcriptionResult.segments) return;
+
+    const wpg = parseInt(studioWpg.value, 10) || 3;
+    studioDuration = transcriptionResult.duration || 0;
+
+    transcriptionResult.segments.forEach((seg) => {
+      if (!seg.words || seg.words.length === 0) {
+        studioGroups.push({
+          text: seg.text,
+          start: seg.start,
+          end: seg.end,
+          words: [{ word: seg.text, start: seg.start, end: seg.end }],
+        });
+        if (seg.end > studioDuration) studioDuration = seg.end;
+        return;
+      }
+
+      for (let i = 0; i < seg.words.length; i += wpg) {
+        const chunk = seg.words.slice(i, i + wpg);
+        if (chunk.length === 0) continue;
+        const group = {
+          text: chunk.map((w) => w.word.trim()).join(" "),
+          start: chunk[0].start,
+          end: chunk[chunk.length - 1].end,
+          words: chunk.map((w) => ({ word: w.word.trim(), start: w.start, end: w.end })),
+        };
+        studioGroups.push(group);
+        if (group.end > studioDuration) studioDuration = group.end;
+      }
+    });
+
+    // Update scrubber range
+    if (studioScrubber) studioScrubber.max = "100";
+    if (studioTimeLabel) studioTimeLabel.textContent = `${formatTime(studioScrubTime)} / ${formatTime(studioDuration)}`;
+  }
+
+  // --- Canvas drawing ---
+  function drawStudioFrame() {
+    if (!studioCtx || !studioCanvas) return;
+
+    const canvasW = studioCanvas.width;
+    const canvasH = studioCanvas.height;
+
+    // Draw video frame as background if available, otherwise checkerboard
+    if (videoPlayer && videoPlayer.readyState >= 2 && !videoPlayer.classList.contains("hidden")) {
+      studioCtx.drawImage(videoPlayer, 0, 0, canvasW, canvasH);
+    } else {
+      drawCheckerboard(canvasW, canvasH);
+    }
+
+    if (studioGroups.length === 0) {
+      studioCtx.fillStyle = "#aaa";
+      studioCtx.font = "16px Arial";
+      studioCtx.textAlign = "center";
+      studioCtx.fillText("No subtitle data — transcribe a file first", canvasW / 2, canvasH / 2);
+      return;
+    }
+
+    // Find active group at current scrub time
+    const t = studioScrubTime;
+    let activeGroup = null;
+    for (const g of studioGroups) {
+      if (g.start <= t && t < g.end) {
+        activeGroup = g;
+        break;
+      }
+    }
+
+    if (!activeGroup) {
+      // Show first group as preview when no active
+      if (studioGroups.length > 0 && t < studioGroups[0].start) {
+        activeGroup = studioGroups[0];
+      } else {
+        return; // Between groups — show nothing
+      }
+    }
+
+    // Read style
+    const fontSize = parseInt(studioFontSize.value, 10);
+    const fontFamily = studioFont.value;
+    const textColor = studioTextColor.value;
+    const activeColor = studioActiveColor.value;
+    const bgColor = studioBgColor.value;
+    const bgOpacity = parseInt(studioBgOpacity.value, 10) / 100;
+    const padH = parseInt(studioPadH.value, 10);
+    const padV = parseInt(studioPadV.value, 10);
+    const radius = parseInt(studioRadius.value, 10);
+    const posY = parseInt(studioPosY.value, 10) / 100;
+
+    // Scale factor: canvas is 960x540, render is 1920x1080 default
+    const [resW, resH] = studioResolution.value.split("x").map(Number);
+    const scaleX = canvasW / resW;
+    const scaleY = canvasH / resH;
+    const scale = Math.min(scaleX, scaleY);
+
+    const scaledFontSize = fontSize * scale;
+    const scaledPadH = padH * scale;
+    const scaledPadV = padV * scale;
+    const scaledRadius = radius * scale;
+
+    const ctx = studioCtx;
+    ctx.font = `bold ${scaledFontSize}px "${fontFamily}", sans-serif`;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+
+    // Measure words
+    const spaceW = ctx.measureText(" ").width;
+    const wordMetrics = activeGroup.words.map((w) => ({
+      word: w.word,
+      width: ctx.measureText(w.word).width,
+      start: w.start,
+      end: w.end,
+    }));
+
+    let totalW = 0;
+    wordMetrics.forEach((wm, i) => {
+      totalW += wm.width;
+      if (i < wordMetrics.length - 1) totalW += spaceW;
+    });
+
+    // Background
+    const bgW = totalW + scaledPadH * 2;
+    const bgH = scaledFontSize + scaledPadV * 2;
+    const centerX = canvasW / 2;
+    const centerY = canvasH * posY;
+
+    if (bgOpacity > 0) {
+      ctx.save();
+      ctx.globalAlpha = bgOpacity;
+      ctx.fillStyle = bgColor;
+      roundRect(ctx, centerX - bgW / 2, centerY - bgH / 2, bgW, bgH, scaledRadius);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    // Draw words
+    let x = centerX - totalW / 2;
+    const y = centerY;
+
+    wordMetrics.forEach((wm, i) => {
+      const isActive = wm.start <= t && t < wm.end;
+      ctx.fillStyle = isActive ? activeColor : textColor;
+      ctx.fillText(wm.word, x, y);
+      x += wm.width;
+      if (i < wordMetrics.length - 1) x += spaceW;
+    });
+  }
+
+  function drawCheckerboard(w, h) {
+    const ctx = studioCtx;
+    const size = 10;
+    for (let y = 0; y < h; y += size) {
+      for (let x = 0; x < w; x += size) {
+        ctx.fillStyle = ((x / size + y / size) % 2 === 0) ? "#1a1a1a" : "#222";
+        ctx.fillRect(x, y, size, size);
+      }
+    }
+  }
+
+  function roundRect(ctx, x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h - r);
+    ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+    ctx.lineTo(x + r, y + h);
+    ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+
+  // --- Render video ---
+  if (btnRenderVideo) {
+    btnRenderVideo.addEventListener("click", renderSubtitleVideo);
+  }
+
+  async function renderSubtitleVideo() {
+    if (!transcriptionResult) {
+      showToast("No transcription result. Transcribe a file first.");
+      return;
+    }
+
+    const [resW, resH] = studioResolution.value.split("x").map(Number);
+
+    const config = {
+      font_family: studioFont.value,
+      font_size: parseInt(studioFontSize.value, 10),
+      text_color: studioTextColor.value,
+      active_word_color: studioActiveColor.value,
+      bg_color: studioBgColor.value,
+      bg_opacity: parseInt(studioBgOpacity.value, 10) / 100,
+      bg_padding_h: parseInt(studioPadH.value, 10),
+      bg_padding_v: parseInt(studioPadV.value, 10),
+      bg_corner_radius: parseInt(studioRadius.value, 10),
+      words_per_group: parseInt(studioWpg.value, 10),
+      position_y: parseInt(studioPosY.value, 10) / 100,
+      resolution_w: resW,
+      resolution_h: resH,
+      fps: parseInt(studioFps.value, 10),
+      output_format: studioFormat.value,
+    };
+
+    btnRenderVideo.disabled = true;
+    btnRenderVideo.textContent = "Rendering…";
+    renderProgressEl.classList.remove("hidden");
+    renderProgressBar.style.width = "0%";
+    renderProgressLabel.textContent = "Starting…";
+
+    try {
+      const res = await api.renderVideo({
+        config: config,
+        output_dir: outputDir,
+      });
+      renderProgressBar.style.width = "100%";
+      renderProgressLabel.textContent = `Done! ${res.file}`;
+      showToast("Subtitle video rendered!");
+    } catch (err) {
+      renderProgressLabel.textContent = `Error: ${err.message}`;
+      showToast(`Render failed: ${err.message}`);
+    } finally {
+      btnRenderVideo.disabled = false;
+      btnRenderVideo.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25ZM6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/></svg> Render Subtitle Video`;
+    }
+  }
+
+  // Listen for render progress via websocket
+  function onRenderProgress(update) {
+    if (update.status === "rendering" || update.status === "encoding") {
+      renderProgressEl.classList.remove("hidden");
+      renderProgressBar.style.width = `${Math.round(update.progress)}%`;
+      renderProgressLabel.textContent = update.message;
     }
   }
 

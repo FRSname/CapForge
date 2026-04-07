@@ -88,6 +88,10 @@ class SubForgeAPI {
     return this._post("/api/export", params);
   }
 
+  renderVideo(params) {
+    return this._post("/api/render-video", params);
+  }
+
   cancelTranscription() {
     return this._post("/api/cancel", {});
   }

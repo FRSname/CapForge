@@ -36,6 +36,8 @@ class JobStatus(str, Enum):
     ALIGNING = "aligning"
     DIARIZING = "diarizing"
     EXPORTING = "exporting"
+    RENDERING = "rendering"
+    ENCODING = "encoding"
     DONE = "done"
     ERROR = "error"
 
@@ -106,4 +108,31 @@ class ProgressUpdate(BaseModel):
 
 class ExportRequest(BaseModel):
     formats: list[ExportFormat]
+    output_dir: str = "output"
+
+
+# --- Video Render ---
+
+class VideoRenderConfig(BaseModel):
+    """Style configuration for subtitle video rendering."""
+    font_family: str = Field("Arial", description="Font family name")
+    font_size: int = Field(64, ge=12, le=200)
+    text_color: str = Field("#FFFFFF", description="Normal word color (hex)")
+    active_word_color: str = Field("#FFD700", description="Highlighted spoken word color (hex)")
+    bg_color: str = Field("#D4952A", description="Background shape color (hex)")
+    bg_opacity: float = Field(0.9, ge=0.0, le=1.0)
+    bg_padding_h: int = Field(40, ge=0, le=200, description="Horizontal padding")
+    bg_padding_v: int = Field(16, ge=0, le=100, description="Vertical padding")
+    bg_corner_radius: int = Field(16, ge=0, le=100)
+    words_per_group: int = Field(3, ge=1, le=10)
+    position_y: float = Field(0.82, ge=0.0, le=1.0, description="Vertical position (0=top, 1=bottom)")
+    resolution_w: int = Field(1920, ge=640, le=3840)
+    resolution_h: int = Field(1080, ge=360, le=2160)
+    fps: int = Field(30, ge=15, le=60)
+    output_format: str = Field("webm", description="webm or mov")
+
+
+class VideoRenderRequest(BaseModel):
+    """Request to render a subtitle overlay video."""
+    config: VideoRenderConfig = Field(default_factory=VideoRenderConfig)
     output_dir: str = "output"
