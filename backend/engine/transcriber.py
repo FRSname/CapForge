@@ -107,7 +107,8 @@ class Transcriber:
         self._check_cancelled()
         if request.enable_diarization and request.hf_token:
             self._report(on_progress, JobStatus.DIARIZING, 78, "Running speaker diarization…")
-            diarize_model = whisperx.DiarizationPipeline(
+            from whisperx.diarize import DiarizationPipeline
+            diarize_model = DiarizationPipeline(
                 use_auth_token=request.hf_token, device=device
             )
             diarize_segments = diarize_model(audio)
