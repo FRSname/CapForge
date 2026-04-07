@@ -1,0 +1,19 @@
+{
+  "name": "subforge",
+  "version": "0.1.0",
+  "description": "SubForge — Auto subtitle generator with word-by-word alignment",
+  "main": "electron/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000"
+  },
+  "author": "FRSname",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.0.0"
+  },
+  "dependencies": {
+    "tree-kill": "^1.2.2"
+  }
+}
