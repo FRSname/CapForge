@@ -293,6 +293,7 @@
       if (response && response.status === "ok") {
         const fullResult = await api.getResult();
         transcriptionResult = fullResult;
+        buildStudioGroups();
         showResults(fullResult, response.exported_files);
       }
     } catch (err) {
@@ -621,7 +622,8 @@
       freshVideo.id = "video-player";
       freshVideo.className = "video-player";
       freshVideo.src = audioSrc;
-      audioPlayerContainer.replaceChild(freshVideo, videoPlayer);
+      const wrap = document.getElementById("video-wrap");
+      wrap.replaceChild(freshVideo, videoPlayer);
       videoPlayer = freshVideo;
 
       wavesurfer = WaveSurfer.create({
@@ -677,6 +679,8 @@
         if (studioTimeLabel) studioTimeLabel.textContent = `${formatTime(currentTime)} / ${formatTime(studioDuration)}`;
         drawStudioFrame();
       }
+      // Draw subtitle overlay on main video
+      drawSubtitleOverlay(currentTime);
     });
 
     wavesurfer.on("play", () => {
@@ -714,8 +718,10 @@
     const blank = document.createElement("video");
     blank.id = "video-player";
     blank.className = "video-player hidden";
-    audioPlayerContainer.replaceChild(blank, videoPlayer);
+    const wrap = document.getElementById("video-wrap");
+    wrap.replaceChild(blank, videoPlayer);
     videoPlayer = blank;
+    if (subtitleOverlay) subtitleOverlay.classList.add("hidden");
     iconPlay.classList.remove("hidden");
     iconPause.classList.add("hidden");
     playerTime.textContent = "00:00 / 00:00";
@@ -1091,6 +1097,90 @@
     ctx.lineTo(x, y + r);
     ctx.quadraticCurveTo(x, y, x + r, y);
     ctx.closePath();
+  }
+
+  // --- Subtitle overlay on main video player ---
+  function drawSubtitleOverlay(currentTime) {
+    if (!subtitleOverlay || !subtitleOverlayCtx || !studioGroups.length) return;
+    if (!videoPlayer || videoPlayer.classList.contains("hidden")) return;
+
+    // Match overlay canvas size to the video element's display size
+    const rect = videoPlayer.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const cw = Math.round(rect.width * dpr);
+    const ch = Math.round(rect.height * dpr);
+    if (subtitleOverlay.width !== cw || subtitleOverlay.height !== ch) {
+      subtitleOverlay.width = cw;
+      subtitleOverlay.height = ch;
+    }
+    subtitleOverlay.classList.remove("hidden");
+
+    const ctx = subtitleOverlayCtx;
+    ctx.clearRect(0, 0, cw, ch);
+
+    // Find active group
+    const t = currentTime;
+    let activeGroup = null;
+    for (const g of studioGroups) {
+      if (g.start <= t && t < g.end) { activeGroup = g; break; }
+    }
+    if (!activeGroup) return;
+
+    // Read styles from studio controls
+    const fontSize = parseInt(studioFontSize.value, 10);
+    const fontFamily = studioFont.value;
+    const textColor = studioTextColor.value;
+    const activeColor = studioActiveColor.value;
+    const bgColor = studioBgColor.value;
+    const bgOpacity = parseInt(studioBgOpacity.value, 10) / 100;
+    const padH = parseInt(studioPadH.value, 10);
+    const padV = parseInt(studioPadV.value, 10);
+    const radius = parseInt(studioRadius.value, 10);
+    const posY = parseInt(studioPosY.value, 10) / 100;
+
+    // Scale: map render resolution to displayed overlay size
+    const [resW, resH] = studioResolution.value.split("x").map(Number);
+    const scaleX = cw / resW;
+    const scaleY = ch / resH;
+    const scale = Math.min(scaleX, scaleY);
+
+    const sf = fontSize * scale;
+    const sp = padH * scale;
+    const sv = padV * scale;
+    const sr = radius * scale;
+
+    ctx.font = `bold ${sf}px "${fontFamily}", sans-serif`;
+    ctx.textBaseline = "middle";
+    ctx.textAlign = "left";
+
+    const spaceW = ctx.measureText(" ").width;
+    const wm = activeGroup.words.map((w) => ({
+      word: w.word, width: ctx.measureText(w.word).width, start: w.start, end: w.end,
+    }));
+    let totalW = 0;
+    wm.forEach((m, i) => { totalW += m.width; if (i < wm.length - 1) totalW += spaceW; });
+
+    const bgW = totalW + sp * 2;
+    const bgH = sf + sv * 2;
+    const cx = cw / 2;
+    const cy = ch * posY;
+
+    if (bgOpacity > 0) {
+      ctx.save();
+      ctx.globalAlpha = bgOpacity;
+      ctx.fillStyle = bgColor;
+      roundRect(ctx, cx - bgW / 2, cy - bgH / 2, bgW, bgH, sr);
+      ctx.fill();
+      ctx.restore();
+    }
+
+    let x = cx - totalW / 2;
+    wm.forEach((m, i) => {
+      ctx.fillStyle = (m.start <= t && t < m.end) ? activeColor : textColor;
+      ctx.fillText(m.word, x, cy);
+      x += m.width;
+      if (i < wm.length - 1) x += spaceW;
+    });
   }
 
   // --- Render video ---
