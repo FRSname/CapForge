@@ -1,0 +1,7 @@
+whisperx
+fastapi[standard]
+uvicorn[standard]
+websockets
+pydantic>=2.0
+torch>=2.0
+torchaudio>=2.0

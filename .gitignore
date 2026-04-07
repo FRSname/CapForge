@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+whisperx/
+
+# Subtitles/Output
+Subs/
+
+# Electron
+node_modules/
+dist-electron/
+out/
+release/
+*.asar
+
+# Environment
+.env
+*.log
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
+
+# PyTorch models (large files)
+*.pt
+*.bin
+*.safetensors
+
+# Build artifacts
+*.spec
+
+# OS
+.DS_Store
+Thumbs.db
