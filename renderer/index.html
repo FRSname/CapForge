@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* blob:; media-src 'self' http://127.0.0.1:* blob:; style-src 'self' 'unsafe-inline';" />
-  <title>SubForge</title>
+  <title>CapForge</title>
   <link rel="stylesheet" href="css/styles.css" />
 </head>
 <body>
@@ -14,9 +14,25 @@
       <svg class="logo-icon" width="20" height="20" viewBox="0 0 16 16" fill="currentColor">
         <path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25ZM3 5.5a.75.75 0 0 1 .75-.75h8.5a.75.75 0 0 1 0 1.5h-8.5A.75.75 0 0 1 3 5.5Zm.75 2.75a.75.75 0 0 0 0 1.5h5.5a.75.75 0 0 0 0-1.5Z"/>
       </svg>
-      <span class="app-name">SubForge</span>
+      <span class="app-name">CapForge</span>
     </div>
     <div class="titlebar-right">
+      <button id="btn-project-save" class="titlebar-btn hidden" title="Save Project (Ctrl+S)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h8.56c.464 0 .909.184 1.237.513l2.44 2.44c.329.328.513.773.513 1.237v9.06A1.75 1.75 0 0 1 12.75 16h-11A1.75 1.75 0 0 1 0 14.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v11.5c0 .138.112.25.25.25h11a.25.25 0 0 0 .25-.25V5.19a.25.25 0 0 0-.073-.177l-2.44-2.44a.25.25 0 0 0-.177-.073H1.75a.25.25 0 0 0-.25.25ZM4 10.5a.75.75 0 0 1 .75-.75h6.5a.75.75 0 0 1 0 1.5h-6.5A.75.75 0 0 1 4 10.5Zm.75 1.75a.75.75 0 0 0 0 1.5h6.5a.75.75 0 0 0 0-1.5Z"/></svg>
+        Save
+      </button>
+      <button id="btn-project-open" class="titlebar-btn" title="Open Project (Ctrl+O)">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1ZM1.5 2.75a.25.25 0 0 1 .25-.25H5c.13 0 .24.06.3.15L6.2 4.1c.33.44.85.7 1.3.9h6.75a.25.25 0 0 1 .25.25v8c0 .138-.112.25-.25.25H1.75a.25.25 0 0 1-.25-.25Z"/></svg>
+        Open
+      </button>
+      <button id="btn-export" class="titlebar-btn hidden" title="Export Files">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06Z"/></svg>
+        Export
+      </button>
+      <button id="btn-new" class="titlebar-btn hidden" title="New Transcription">
+        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a.75.75 0 0 1 .75.75v6.5h6.5a.75.75 0 0 1 0 1.5h-6.5v6.5a.75.75 0 0 1-1.5 0v-6.5H.75a.75.75 0 0 1 0-1.5h6.5V.75A.75.75 0 0 1 8 0Z"/></svg>
+        New
+      </button>
       <button id="btn-settings-toggle" class="icon-btn" title="Settings">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
           <path d="M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.16 1.29l.288 1.107c.018.066.079.158.212.224.231.114.454.243.668.386.123.082.233.07.299.04l1.08-.43c.602-.24 1.29-.048 1.694.508a8 8 0 0 1 1.058 1.832c.208.577.04 1.224-.378 1.63l-.792.676a.336.336 0 0 0-.096.283c.026.27.04.544.04.822s-.014.552-.04.822a.336.336 0 0 0 .096.283l.792.676c.418.406.586 1.053.378 1.63a8 8 0 0 1-1.058 1.832c-.404.556-1.092.748-1.694.508l-1.08-.43c-.066-.03-.176-.042-.299.04a5 5 0 0 1-.668.386c-.133.066-.194.158-.212.224l-.288 1.107c-.17.645-.716 1.195-1.459 1.26a8.1 8.1 0 0 1-1.402 0c-.743-.065-1.289-.615-1.459-1.26l-.288-1.107a.34.34 0 0 0-.212-.224 5 5 0 0 1-.668-.386c-.123-.082-.233-.07-.299-.04l-1.08.43c-.602.24-1.29.048-1.694-.508a8 8 0 0 1-1.058-1.832c-.208-.577-.04-1.224.378-1.63l.792-.676a.336.336 0 0 0 .096-.283 5 5 0 0 1 0-1.644.336.336 0 0 0-.096-.283l-.792-.676c-.418-.406-.586-1.053-.378-1.63a8 8 0 0 1 1.058-1.832c.404-.556 1.092-.748 1.694-.508l1.08.43c.066.03.176.042.299-.04.214-.143.437-.272.668-.386.133-.066.194-.158.212-.224l.288-1.107C6.01.645 6.556.095 7.299.03 7.53.01 7.764 0 8 0Zm-.571 1.525c-.036.003-.108.036-.137.146l-.289 1.105c-.147.561-.55.967-.997 1.189-.174.086-.342.183-.504.29-.417.276-.93.379-1.457.155l-1.08-.43c-.109-.044-.196.017-.231.065a6.5 6.5 0 0 0-.86 1.491c-.065.18.005.29.058.338l.793.677c.428.365.653.898.626 1.448-.009.18-.009.363 0 .542.027.55-.198 1.083-.626 1.448l-.793.677c-.053.047-.123.158-.058.338.18.497.418.969.86 1.491.035.048.122.11.231.065l1.08-.43c.527-.224 1.04-.121 1.457.155.162.107.33.204.504.29.447.222.85.628.997 1.189l.289 1.105c.029.11.1.143.137.146a6.6 6.6 0 0 0 1.142 0c.036-.003.108-.036.137-.146l.289-1.105c.147-.561.55-.967.997-1.189.174-.086.342-.183.504-.29.417-.276.93-.379 1.457-.155l1.08.43c.109.044.196-.017.231-.065.442-.522.68-.994.86-1.491.065-.18-.005-.29-.058-.338l-.793-.677c-.428-.365-.653-.898-.626-1.448.009-.18.009-.363 0-.542-.027-.55.198-1.083.626-1.448l.793-.677c.053-.047.123-.158.058-.338a6.5 6.5 0 0 0-.86-1.491c-.035-.048-.122-.11-.231-.065l-1.08.43c-.527.224-1.04.121-1.457-.155a4 4 0 0 0-.504-.29c-.447-.222-.85-.628-.997-1.189l-.289-1.105c-.029-.11-.1-.143-.137-.146a6.6 6.6 0 0 0-1.142 0ZM11 8a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM9.5 8a1.5 1.5 0 1 0-3.001.001A1.5 1.5 0 0 0 9.5 8Z"/>
@@ -56,11 +72,39 @@
     <!-- SCREEN 2: Progress -->
     <section id="screen-progress" class="screen">
       <div class="progress-container">
+        <!-- Pipeline steps -->
+        <div class="progress-pipeline" id="progress-pipeline">
+          <div class="pipeline-step" data-step="loading_model">
+            <div class="pipeline-dot"></div>
+            <span>Load Model</span>
+          </div>
+          <div class="pipeline-step" data-step="transcribing">
+            <div class="pipeline-dot"></div>
+            <span>Transcribe</span>
+          </div>
+          <div class="pipeline-step" data-step="aligning">
+            <div class="pipeline-dot"></div>
+            <span>Align</span>
+          </div>
+          <div class="pipeline-step" data-step="diarizing">
+            <div class="pipeline-dot"></div>
+            <span>Diarize</span>
+          </div>
+          <div class="pipeline-step" data-step="exporting">
+            <div class="pipeline-dot"></div>
+            <span>Export</span>
+          </div>
+        </div>
+
         <div class="progress-step" id="step-indicator">Loading model…</div>
+        <div class="progress-sub-message" id="progress-sub-message"></div>
         <div class="progress-bar-wrap">
           <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
         </div>
-        <div class="progress-pct" id="progress-pct">0%</div>
+        <div class="progress-info-row">
+          <div class="progress-pct" id="progress-pct">0%</div>
+          <div class="progress-elapsed" id="progress-elapsed"></div>
+        </div>
         <div class="progress-log" id="progress-log"></div>
         <button id="btn-cancel" class="danger-btn">
           <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>
@@ -72,76 +116,94 @@
     <!-- SCREEN 3: Results -->
     <section id="screen-results" class="screen results-screen">
       <div class="results-container">
-        <h2 class="results-title">
-          <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
-          Transcription Complete
-        </h2>
+        <div class="results-layout">
+          <!-- LEFT column: player + transcript -->
+          <div class="results-main">
+            <!-- Media Player -->
+            <div class="audio-player" id="audio-player">
+              <div class="video-wrap" id="video-wrap">
+                <video id="video-player" class="video-player hidden"></video>
+                <canvas id="subtitle-overlay" class="subtitle-overlay hidden"></canvas>
+              </div>
+              <div class="waveform-container" id="waveform"></div>
+              <div class="player-controls">
+                <button id="btn-play" class="icon-btn play-btn" title="Play/Pause (Space)">
+                  <svg id="icon-play" width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z"/></svg>
+                  <svg id="icon-pause" width="20" height="20" viewBox="0 0 16 16" fill="currentColor" class="hidden"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0ZM6 4.75A.75.75 0 0 1 6.75 4h.5a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75Zm4 0a.75.75 0 0 1-.75.75h-.5A.75.75 0 0 1 8 4.75v6.5a.75.75 0 0 1 .75.75h.5a.75.75 0 0 1 .75-.75Z"/></svg>
+                </button>
+                <span class="player-time" id="player-time">00:00 / 00:00</span>
+              </div>
+            </div>
 
-        <!-- Media Player -->
-        <div class="audio-player" id="audio-player">
-          <div class="video-wrap" id="video-wrap">
-            <video id="video-player" class="video-player hidden"></video>
-            <canvas id="subtitle-overlay" class="subtitle-overlay hidden"></canvas>
-          </div>
-          <div class="waveform-container" id="waveform"></div>
-          <div class="player-controls">
-            <button id="btn-play" class="icon-btn play-btn" title="Play/Pause (Space)">
-              <svg id="icon-play" width="20" height="20" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z"/></svg>
-              <svg id="icon-pause" width="20" height="20" viewBox="0 0 16 16" fill="currentColor" class="hidden"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0ZM6 4.75A.75.75 0 0 1 6.75 4h.5a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75Zm4 0a.75.75 0 0 1-.75.75h-.5A.75.75 0 0 1 8 4.75v6.5a.75.75 0 0 1 .75.75h.5a.75.75 0 0 1 .75-.75Z"/></svg>
-            </button>
-            <span class="player-time" id="player-time">00:00 / 00:00</span>
-          </div>
-        </div>
+            <!-- Edit toolbar -->
+            <div class="edit-toolbar" id="edit-toolbar">
+              <div class="edit-toolbar-left">
+                <button id="btn-edit-toggle" class="toolbar-btn" title="Toggle edit mode (E)">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758ZM12.13 2.49a.25.25 0 0 0-.354 0l-1.06 1.06 2.768 2.768 1.06-1.06a.25.25 0 0 0 0-.354Zm.97 4.888L10.33 4.61l-6.37 6.37a.25.25 0 0 0-.057.1l-.666 2.33 2.33-.666a.25.25 0 0 0 .1-.057Z"/></svg>
+                  <span>Edit</span>
+                </button>
+                <button id="btn-group-toggle" class="toolbar-btn" title="Edit subtitle groups">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25ZM6.5 6.5v8h7.75a.25.25 0 0 0 .25-.25V6.5ZM6.5 5h8V1.75a.25.25 0 0 0-.25-.25H6.5ZM5 5V1.5H1.75a.25.25 0 0 0-.25.25V5Zm-3.5 1.5v7.75c0 .138.112.25.25.25H5v-8Z"/></svg>
+                  <span>Groups</span>
+                </button>
+                <span class="edit-status" id="edit-status"></span>
+              </div>
+              <div class="edit-toolbar-right hidden" id="edit-actions">
+                <button id="btn-edit-save" class="toolbar-btn toolbar-btn-save" title="Save changes">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
+                  Save
+                </button>
+                <button id="btn-edit-discard" class="toolbar-btn toolbar-btn-discard" title="Discard changes">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>
+                  Discard
+                </button>
+              </div>
+            </div>
 
-        <!-- Edit toolbar -->
-        <div class="edit-toolbar" id="edit-toolbar">
-          <div class="edit-toolbar-left">
-            <button id="btn-edit-toggle" class="toolbar-btn" title="Toggle edit mode (E)">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758ZM12.13 2.49a.25.25 0 0 0-.354 0l-1.06 1.06 2.768 2.768 1.06-1.06a.25.25 0 0 0 0-.354Zm.97 4.888L10.33 4.61l-6.37 6.37a.25.25 0 0 0-.057.1l-.666 2.33 2.33-.666a.25.25 0 0 0 .1-.057Z"/></svg>
-              <span>Edit</span>
-            </button>
-            <span class="edit-status" id="edit-status"></span>
-          </div>
-          <div class="edit-toolbar-right hidden" id="edit-actions">
-            <button id="btn-edit-save" class="toolbar-btn toolbar-btn-save" title="Save changes">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>
-              Save
-            </button>
-            <button id="btn-edit-discard" class="toolbar-btn toolbar-btn-discard" title="Discard changes">
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/></svg>
-              Discard
-            </button>
-          </div>
-        </div>
+            <!-- Transcript preview (clickable segments) -->
+            <div class="results-preview" id="results-preview"></div>
 
-        <!-- Transcript preview (clickable segments) -->
-        <div class="results-preview" id="results-preview"></div>
+            <!-- Group editor (shown when Groups button is active) -->
+            <div class="group-editor hidden" id="group-editor">
+              <div class="group-editor-header">
+                <span class="group-editor-title">Subtitle Groups</span>
+                <span class="group-editor-hint">Merge, split, or drag words between groups</span>
+                <button id="btn-group-reset" class="toolbar-btn" title="Reset to auto-grouping">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.071-1.071A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .656-.834ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.071 1.071A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z"/></svg>
+                  Reset
+                </button>
+              </div>
+              <div class="group-editor-list" id="group-editor-list"></div>
+            </div>
 
-        <!-- Exported files list -->
-        <div class="exported-files hidden" id="exported-files">
-          <div class="setting-label">Exported files</div>
-          <ul id="exported-list"></ul>
-        </div>
+            <!-- Exported files list -->
+            <div class="exported-files hidden" id="exported-files">
+              <div class="setting-label">Exported files</div>
+              <ul id="exported-list"></ul>
+            </div>
+          </div><!-- /.results-main -->
 
-        <!-- ===== Subtitle Studio ===== -->
-        <div class="subtitle-studio" id="subtitle-studio">
-          <button id="btn-studio-toggle" class="studio-toggle-btn">
+          <!-- RIGHT column: Subtitle Studio -->
+          <div class="results-sidebar">
+            <!-- ===== Subtitle Studio ===== -->
+            <div class="subtitle-studio" id="subtitle-studio">
+              <button id="btn-studio-toggle" class="studio-toggle-btn">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0ZM8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0Zm.75 4.75a.75.75 0 0 0-1.5 0v2.5h-2.5a.75.75 0 0 0 0 1.5h2.5v2.5a.75.75 0 0 0 1.5 0v-2.5h2.5a.75.75 0 0 0 0-1.5h-2.5Z"/></svg>
             Subtitle Video Studio
           </button>
 
           <div id="studio-panel" class="studio-panel hidden">
-            <!-- Canvas Preview -->
-            <div class="studio-preview-wrap">
-              <canvas id="studio-canvas" width="960" height="540"></canvas>
-              <div class="studio-preview-controls">
-                <button id="studio-play-btn" class="studio-play-btn" title="Play / Pause">
-                  <svg id="studio-icon-play" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M4 2l10 6-10 6V2z"/></svg>
-                  <svg id="studio-icon-pause" class="hidden" width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M3 2h3v12H3zM10 2h3v12h-3z"/></svg>
-                </button>
-                <input type="range" id="studio-scrubber" min="0" max="100" step="0.1" value="0" class="studio-scrubber" />
-                <span id="studio-time" class="studio-time">00:00 / 00:00</span>
-              </div>
+            <!-- Presets row -->
+            <div class="studio-preset-row">
+              <select id="studio-preset">
+                <option value="">— Presets —</option>
+              </select>
+              <button id="btn-preset-save" class="studio-small-btn" title="Save current settings as preset">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm.176 4.823L9.75 4.81l-6.286 6.287a.253.253 0 0 0-.064.108l-.558 1.953 1.953-.558a.253.253 0 0 0 .108-.064Zm1.238-3.763a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354Z"/></svg>
+              </button>
+              <button id="btn-preset-delete" class="studio-small-btn" title="Delete selected preset">
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.15l-.66 6.6A1.748 1.748 0 0 1 10.595 15h-5.19a1.75 1.75 0 0 1-1.741-1.575l-.66-6.6a.75.75 0 1 1 1.492-.15ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25Z"/></svg>
+              </button>
             </div>
 
             <!-- Style Controls -->
@@ -160,6 +222,10 @@
                   <option value="Consolas">Consolas</option>
                   <option value="Calibri">Calibri</option>
                 </select>
+                <button id="btn-custom-font" class="studio-small-btn" title="Load custom font (.ttf / .otf)">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M3.5 9.5a.5.5 0 0 1 .5.5v3.5h8V10a.5.5 0 0 1 1 0v4a.5.5 0 0 1-.5.5h-9a.5.5 0 0 1-.5-.5v-4a.5.5 0 0 1 .5-.5z"/><path d="M7.646.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 1.707V10.5a.5.5 0 0 1-1 0V1.707L5.354 3.854a.5.5 0 1 1-.708-.708z"/></svg>
+                </button>
+                <input type="file" id="custom-font-input" accept=".ttf,.otf,.woff,.woff2" class="hidden" />
               </div>
 
               <div class="studio-row">
@@ -169,18 +235,53 @@
               </div>
 
               <div class="studio-row">
+                <label>Bold</label>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="studio-bold" checked />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+
+              <div class="studio-row">
+                <label>Tracking</label>
+                <input type="range" id="studio-tracking" min="-5" max="20" value="0" />
+                <span id="studio-tracking-val" class="range-val">0px</span>
+              </div>
+
+              <div class="studio-row">
+                <label>Word Spacing</label>
+                <input type="range" id="studio-word-spacing" min="-5" max="40" value="0" />
+                <span id="studio-word-spacing-val" class="range-val">0px</span>
+              </div>
+
+              <div class="studio-row">
+                <label>Stroke Width</label>
+                <input type="range" id="studio-stroke-width" min="0" max="10" value="0" />
+                <span id="studio-stroke-width-val" class="range-val">0px</span>
+              </div>
+
+              <div class="studio-row">
+                <label>Stroke Color</label>
+                <input type="color" id="studio-stroke-color" value="#000000" />
+                <input type="text" id="studio-stroke-color-hex" class="hex-input" value="#000000" maxlength="7" spellcheck="false" />
+              </div>
+
+              <div class="studio-row">
                 <label>Text Color</label>
                 <input type="color" id="studio-text-color" value="#FFFFFF" />
+                <input type="text" id="studio-text-color-hex" class="hex-input" value="#FFFFFF" maxlength="7" spellcheck="false" />
               </div>
 
               <div class="studio-row">
                 <label>Active Word</label>
                 <input type="color" id="studio-active-color" value="#FFD700" />
+                <input type="text" id="studio-active-color-hex" class="hex-input" value="#FFD700" maxlength="7" spellcheck="false" />
               </div>
 
               <div class="studio-row">
                 <label>Background</label>
                 <input type="color" id="studio-bg-color" value="#D4952A" />
+                <input type="text" id="studio-bg-color-hex" class="hex-input" value="#D4952A" maxlength="7" spellcheck="false" />
               </div>
 
               <div class="studio-row">
@@ -235,8 +336,11 @@
               <div class="studio-row">
                 <label>FPS</label>
                 <select id="studio-fps">
-                  <option value="30">30 fps</option>
+                  <option value="24">24 fps</option>
                   <option value="25">25 fps</option>
+                  <option value="30" selected>30 fps</option>
+                  <option value="48">48 fps</option>
+                  <option value="50">50 fps</option>
                   <option value="60">60 fps</option>
                 </select>
               </div>
@@ -246,6 +350,25 @@
                 <select id="studio-format">
                   <option value="webm">WebM (VP9 + Alpha)</option>
                   <option value="mov">MOV (ProRes 4444)</option>
+                  <option value="mp4">MP4 (H.264)</option>
+                </select>
+              </div>
+
+              <div class="studio-row">
+                <label>Render Mode</label>
+                <select id="studio-render-mode">
+                  <option value="overlay">Transparent Overlay</option>
+                  <option value="baked">Baked into Video</option>
+                </select>
+              </div>
+
+              <div class="studio-row" id="studio-bitrate-row" style="display:none">
+                <label>Video Bitrate</label>
+                <select id="studio-bitrate">
+                  <option value="8M">8 Mbps (Good)</option>
+                  <option value="15M">15 Mbps (High)</option>
+                  <option value="25M">25 Mbps (Very High)</option>
+                  <option value="40M">40 Mbps (Maximum)</option>
                 </select>
               </div>
             </div>
@@ -263,18 +386,17 @@
               <div class="progress-bar-wrap">
                 <div class="progress-bar" id="render-progress-bar" style="width: 0%"></div>
               </div>
-              <div class="progress-pct" id="render-progress-label">Ready</div>
+              <div class="render-progress-detail">
+                <span class="progress-pct" id="render-progress-label">Ready</span>
+                <span class="render-progress-elapsed" id="render-elapsed"></span>
+              </div>
             </div>
-          </div>
-        </div>
+            </div><!-- /.studio-panel -->
+            </div><!-- /.subtitle-studio -->
+          </div><!-- /.results-sidebar -->
+        </div><!-- /.results-layout -->
 
-        <div class="results-actions">
-          <button id="btn-export" class="primary-btn">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06Z"/></svg>
-            Export Files
-          </button>
-          <button id="btn-new" class="secondary-btn">New Transcription</button>
-        </div>
+
       </div>
     </section>
 
@@ -306,7 +428,7 @@
       <label><input type="checkbox" value="srt_standard" /> Standard SRT</label>
       <label><input type="checkbox" value="json" checked /> JSON</label>
       <label><input type="checkbox" value="vtt" /> VTT</label>
-      <label><input type="checkbox" value="subforge" /> SubForge</label>
+      <label><input type="checkbox" value="subforge" /> CapForge</label>
     </div>
 
     <label class="setting-label">Output Directory</label>
@@ -315,6 +437,18 @@
       <button id="btn-pick-dir" class="text-btn">Browse</button>
     </div>
   </aside>
+
+  <!-- Prompt Modal -->
+  <div id="prompt-modal" class="prompt-modal-overlay hidden">
+    <div class="prompt-modal">
+      <div class="prompt-modal-title" id="prompt-modal-title">Preset name</div>
+      <input type="text" id="prompt-modal-input" class="prompt-modal-input" spellcheck="false" />
+      <div class="prompt-modal-actions">
+        <button id="prompt-modal-cancel" class="secondary-btn">Cancel</button>
+        <button id="prompt-modal-ok" class="primary-btn">Save</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Scripts -->
   <script src="js/wavesurfer.min.js"></script>

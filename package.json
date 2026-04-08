@@ -1,7 +1,7 @@
 {
-  "name": "subforge",
+  "name": "capforge",
   "version": "0.1.0",
-  "description": "SubForge — Auto subtitle generator with word-by-word alignment",
+  "description": "CapForge — Auto subtitle generator with word-by-word alignment",
   "main": "electron/main.js",
   "scripts": {
     "start": "electron .",

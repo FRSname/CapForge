@@ -1,5 +1,5 @@
 /**
- * SubForge — Main application logic.
+ * CapForge — Main application logic.
  * Handles screens, file selection, settings, progress, results, audio preview.
  */
 
@@ -31,6 +31,8 @@
   const resultsPreview = document.getElementById("results-preview");
   const btnExport = document.getElementById("btn-export");
   const btnNew = document.getElementById("btn-new");
+  const btnProjectSave = document.getElementById("btn-project-save");
+  const btnProjectOpen = document.getElementById("btn-project-open");
 
   const exportedFiles = document.getElementById("exported-files");
   const exportedList = document.getElementById("exported-list");
@@ -60,6 +62,12 @@
   const btnEditDiscard = document.getElementById("btn-edit-discard");
   const editStatus = document.getElementById("edit-status");
 
+  // Group editor
+  const btnGroupToggle = document.getElementById("btn-group-toggle");
+  const groupEditorEl = document.getElementById("group-editor");
+  const groupEditorList = document.getElementById("group-editor-list");
+  const btnGroupReset = document.getElementById("btn-group-reset");
+
   // --- State ---
   let selectedFilePath = null;
   let outputDir = "output";
@@ -69,6 +77,9 @@
   let editMode = false;
   let hasEdits = false;
   let loopSegment = null; // { start, end } for loop-play in edit mode
+  let groupEditorOpen = false;
+  let customGroupsEdited = false; // true when user has manually modified groups
+  let currentProjectPath = null; // path to the currently open .capforge file
 
   // --- Init ---
   async function init() {
@@ -98,6 +109,11 @@
     Object.values(screens).forEach((s) => s.classList.remove("active"));
     screens[name].classList.add("active");
     currentScreen = name;
+    // Show titlebar action buttons only on the results screen
+    const show = name === "results";
+    btnExport.classList.toggle("hidden", !show);
+    btnNew.classList.toggle("hidden", !show);
+    btnProjectSave.classList.toggle("hidden", !show);
   }
 
   // --- Hardware info ---
@@ -201,7 +217,22 @@
   }
 
   function onKeyDown(e) {
-    // Ignore if typing in an input or contenteditable
+    // Ctrl shortcuts work globally (even in inputs)
+    if (e.key === "s" && e.ctrlKey && currentScreen === "results" && editMode) {
+      e.preventDefault();
+      saveEdits();
+      return;
+    } else if (e.key === "s" && e.ctrlKey && currentScreen === "results" && !editMode) {
+      e.preventDefault();
+      saveProject();
+      return;
+    } else if (e.key === "o" && e.ctrlKey) {
+      e.preventDefault();
+      openProject();
+      return;
+    }
+
+    // Ignore other shortcuts if typing in an input or contenteditable
     if (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA" || e.target.isContentEditable) return;
 
     if (e.key === "Enter" && currentScreen === "file" && selectedFilePath) {
@@ -219,9 +250,6 @@
     } else if (e.key === "e" && currentScreen === "results") {
       e.preventDefault();
       toggleEditMode();
-    } else if (e.key === "s" && e.ctrlKey && currentScreen === "results" && editMode) {
-      e.preventDefault();
-      saveEdits();
     }
   }
 
@@ -277,6 +305,12 @@
     progressPct.textContent = "0%";
     stepIndicator.textContent = "Starting…";
     stepIndicator.style.color = "var(--accent)";
+    if (progressElapsed) progressElapsed.textContent = "";
+    if (progressSubMessage) progressSubMessage.textContent = "Initializing transcription pipeline…";
+    simCurrentPct = 0; simTargetPct = 0; simCeilingPct = 0;
+    stopSimProgress();
+    updatePipelineSteps("");
+    startElapsedTimer();
     showScreen("progress");
 
     try {
@@ -309,6 +343,98 @@
   }
 
   // --- Progress updates (from WebSocket) ---
+  const progressPipeline = document.getElementById("progress-pipeline");
+  const progressElapsed = document.getElementById("progress-elapsed");
+  const progressSubMessage = document.getElementById("progress-sub-message");
+  let progressStartTime = null;
+  let progressTimer = null;
+
+  // Smooth progress simulation — fills the gap between sparse backend updates
+  let simCurrentPct = 0;          // current displayed %
+  let simTargetPct = 0;           // target % from last backend update
+  let simCeilingPct = 0;          // max % we can simulate to (next step boundary)
+  let simTimer = null;
+
+  // Each step's expected progress range: [start, end]
+  const STEP_RANGES = {
+    loading_model: [0, 14],
+    transcribing:  [15, 54],
+    aligning:      [55, 77],
+    diarizing:     [78, 94],
+    exporting:     [95, 99],
+  };
+
+  function startSimProgress(realPct, status) {
+    simTargetPct = realPct;
+    // Set ceiling to the end of the current step's range
+    const range = STEP_RANGES[status];
+    simCeilingPct = range ? range[1] : realPct;
+
+    if (simTimer) clearInterval(simTimer);
+    simTimer = setInterval(() => {
+      if (simCurrentPct < simTargetPct) {
+        // Quickly catch up to real progress
+        simCurrentPct = Math.min(simCurrentPct + 1, simTargetPct);
+      } else if (simCurrentPct < simCeilingPct) {
+        // Slowly creep toward ceiling to show activity
+        simCurrentPct = Math.min(simCurrentPct + 0.15, simCeilingPct);
+      }
+      const display = Math.round(simCurrentPct);
+      progressBar.style.width = `${display}%`;
+      progressPct.textContent = `${display}%`;
+    }, 300);
+  }
+
+  function stopSimProgress() {
+    if (simTimer) { clearInterval(simTimer); simTimer = null; }
+  }
+
+  const PIPELINE_STEPS = ["loading_model", "transcribing", "aligning", "diarizing", "exporting"];
+
+  function updatePipelineSteps(currentStatus) {
+    if (!progressPipeline) return;
+    const steps = progressPipeline.querySelectorAll(".pipeline-step");
+    let reachedCurrent = false;
+
+    steps.forEach((step) => {
+      const stepName = step.dataset.step;
+      step.classList.remove("step-done", "step-active", "step-skipped");
+
+      if (stepName === currentStatus) {
+        step.classList.add("step-active");
+        reachedCurrent = true;
+      } else if (!reachedCurrent) {
+        // Before current = done
+        step.classList.add("step-done");
+      }
+      // After current = no class (default dim state)
+    });
+
+    // Special: if done, mark all as done
+    if (currentStatus === "done") {
+      steps.forEach((step) => {
+        step.classList.remove("step-active");
+        step.classList.add("step-done");
+      });
+    }
+  }
+
+  function startElapsedTimer() {
+    progressStartTime = Date.now();
+    if (progressTimer) clearInterval(progressTimer);
+    progressTimer = setInterval(() => {
+      if (!progressElapsed) return;
+      const elapsed = Math.floor((Date.now() - progressStartTime) / 1000);
+      const m = Math.floor(elapsed / 60);
+      const s = elapsed % 60;
+      progressElapsed.textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }, 1000);
+  }
+
+  function stopElapsedTimer() {
+    if (progressTimer) { clearInterval(progressTimer); progressTimer = null; }
+  }
+
   function onProgressUpdate(update) {
     // Forward render progress to studio
     if (update.status === "rendering" || update.status === "encoding") {
@@ -319,11 +445,35 @@
     if (currentScreen !== "progress") return;
 
     const pct = Math.round(update.progress);
-    progressBar.style.width = `${pct}%`;
-    progressPct.textContent = `${pct}%`;
+
+    // Drive the simulated progress toward real value
+    simTargetPct = pct;
+    startSimProgress(pct, update.status);
+
     stepIndicator.textContent = formatStatus(update.status);
     stepIndicator.style.color = update.status === "error" ? "var(--danger)" : "var(--accent)";
+
+    // Show backend message as prominent sub-message
+    if (progressSubMessage && update.message) {
+      progressSubMessage.textContent = update.message;
+    }
     if (update.message) appendLog(update.message);
+
+    // Update pipeline stepper
+    updatePipelineSteps(update.status);
+
+    // Stop timer on completion
+    if (update.status === "done" || update.status === "error") {
+      stopElapsedTimer();
+      stopSimProgress();
+      // Snap to final value
+      progressBar.style.width = `${pct}%`;
+      progressPct.textContent = `${pct}%`;
+      simCurrentPct = pct;
+      if (progressSubMessage) {
+        progressSubMessage.textContent = update.status === "done" ? "Transcription finished" : update.message || "";
+      }
+    }
   }
 
   function formatStatus(status) {
@@ -414,6 +564,94 @@
         }
       });
 
+      // --- Timing editor row (visible only in edit mode) ---
+      const timingRow = document.createElement("div");
+      timingRow.className = "segment-timing";
+
+      const makeTimingInput = (value, dataAttr) => {
+        const inp = document.createElement("input");
+        inp.type = "text";
+        inp.className = "timing-input";
+        inp.dataset.timingFor = dataAttr;
+        inp.value = formatTimePrecise(value);
+        inp.addEventListener("input", () => {
+          const v = parseTimePrecise(inp.value);
+          inp.classList.toggle("timing-invalid", isNaN(v));
+          if (!isNaN(v)) {
+            hasEdits = true;
+            div.classList.add("segment-modified");
+            editStatus.textContent = "Unsaved changes";
+          }
+        });
+        return inp;
+      };
+
+      const grpStart = document.createElement("span");
+      grpStart.className = "timing-group";
+      const lblStart = document.createElement("label");
+      lblStart.textContent = "Start";
+      grpStart.appendChild(lblStart);
+      grpStart.appendChild(makeTimingInput(seg.start, "seg-start"));
+
+      const grpEnd = document.createElement("span");
+      grpEnd.className = "timing-group";
+      const lblEnd = document.createElement("label");
+      lblEnd.textContent = "End";
+      grpEnd.appendChild(lblEnd);
+      grpEnd.appendChild(makeTimingInput(seg.end, "seg-end"));
+
+      timingRow.appendChild(grpStart);
+      timingRow.appendChild(grpEnd);
+
+      // Expand button for word-level timing
+      if (seg.words && seg.words.length > 1) {
+        const btnExpand = document.createElement("button");
+        btnExpand.className = "timing-expand-btn";
+        btnExpand.textContent = "Words ▼";
+        btnExpand.type = "button";
+        timingRow.appendChild(btnExpand);
+
+        const wordTimingContainer = document.createElement("div");
+        wordTimingContainer.className = "timing-word-row";
+
+        seg.words.forEach((w, wi) => {
+          const item = document.createElement("div");
+          item.className = "timing-word-item";
+          item.dataset.wordIndex = wi;
+
+          const lbl = document.createElement("span");
+          lbl.className = "timing-word-label";
+          lbl.textContent = w.word;
+          item.appendChild(lbl);
+
+          const gS = document.createElement("span");
+          gS.className = "timing-group";
+          const lS = document.createElement("label");
+          lS.textContent = "S";
+          gS.appendChild(lS);
+          gS.appendChild(makeTimingInput(w.start, "word-start"));
+          item.appendChild(gS);
+
+          const gE = document.createElement("span");
+          gE.className = "timing-group";
+          const lE = document.createElement("label");
+          lE.textContent = "E";
+          gE.appendChild(lE);
+          gE.appendChild(makeTimingInput(w.end, "word-end"));
+          item.appendChild(gE);
+
+          wordTimingContainer.appendChild(item);
+        });
+
+        div.appendChild(wordTimingContainer);
+
+        btnExpand.addEventListener("click", () => {
+          const expanded = wordTimingContainer.classList.toggle("expanded");
+          btnExpand.textContent = expanded ? "Words ▲" : "Words ▼";
+        });
+      }
+
+      div.appendChild(timingRow);
       resultsPreview.appendChild(div);
     });
 
@@ -535,15 +773,38 @@
       // Update segment text
       seg.text = newText;
 
+      // Read timing edits
+      const segStartInput = row.querySelector('.timing-input[data-timing-for="seg-start"]');
+      const segEndInput = row.querySelector('.timing-input[data-timing-for="seg-end"]');
+      if (segStartInput) {
+        const v = parseTimePrecise(segStartInput.value);
+        if (!isNaN(v)) seg.start = v;
+      }
+      if (segEndInput) {
+        const v = parseTimePrecise(segEndInput.value);
+        if (!isNaN(v)) seg.end = v;
+      }
+
       // Update individual word texts if the user edited word by word
       // Since contenteditable flattens word spans, rebuild words from plain text
       const words = newText.split(/\s+/).filter(Boolean);
       if (seg.words && seg.words.length > 0) {
+        // Read word-level timing edits
+        const wordItems = row.querySelectorAll(".timing-word-item");
+
         // Map new words to old word timings (best effort)
         const newWords = [];
         for (let i = 0; i < words.length; i++) {
           if (i < seg.words.length) {
-            newWords.push({ ...seg.words[i], word: words[i] });
+            const wObj = { ...seg.words[i], word: words[i] };
+            // Apply word-level timing if present
+            if (i < wordItems.length) {
+              const ws = wordItems[i].querySelector('.timing-input[data-timing-for="word-start"]');
+              const we = wordItems[i].querySelector('.timing-input[data-timing-for="word-end"]');
+              if (ws) { const v = parseTimePrecise(ws.value); if (!isNaN(v)) wObj.start = v; }
+              if (we) { const v = parseTimePrecise(we.value); if (!isNaN(v)) wObj.end = v; }
+            }
+            newWords.push(wObj);
           } else {
             // Extra words — use last word's end time
             const lastW = seg.words[seg.words.length - 1];
@@ -564,6 +825,11 @@
       showToast("Subtitles saved");
       // Re-render to reflect clean state with updated word spans
       renderResults(transcriptionResult);
+      // Refresh groups + preview to reflect edited text
+      customGroupsEdited = false;
+      buildStudioGroups();
+      renderGroupEditor();
+      drawStudioFrame();
     } catch (err) {
       showToast("Save failed: " + err.message);
     } finally {
@@ -671,32 +937,15 @@
         wavesurfer.pause();
         loopSegment = null;
       }
-      // Sync studio preview if open
+      // Sync studio scrub time if open
       if (studioOpen && studioDuration > 0) {
         studioScrubTime = currentTime;
-        const pct = (currentTime / studioDuration) * 100;
-        if (studioScrubber) studioScrubber.value = Math.min(pct, 100);
-        if (studioTimeLabel) studioTimeLabel.textContent = `${formatTime(currentTime)} / ${formatTime(studioDuration)}`;
         drawStudioFrame();
       }
+      // Highlight active group in group editor
+      if (groupEditorOpen) highlightActiveGroup(currentTime);
       // Draw subtitle overlay on main video
       drawSubtitleOverlay(currentTime);
-    });
-
-    wavesurfer.on("play", () => {
-      if (studioOpen) {
-        studioPlaying = true;
-        if (studioIconPlay) studioIconPlay.classList.add("hidden");
-        if (studioIconPause) studioIconPause.classList.remove("hidden");
-      }
-    });
-
-    wavesurfer.on("pause", () => {
-      if (studioOpen) {
-        studioPlaying = false;
-        if (studioIconPlay) studioIconPlay.classList.remove("hidden");
-        if (studioIconPause) studioIconPause.classList.add("hidden");
-      }
     });
 
     wavesurfer.on("ready", () => {
@@ -771,6 +1020,22 @@
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   }
 
+  /** Format seconds as mm:ss.ms (e.g. 01:23.456) for timing editor */
+  function formatTimePrecise(seconds) {
+    if (!seconds || isNaN(seconds)) seconds = 0;
+    const m = Math.floor(seconds / 60);
+    const s = seconds % 60;
+    return `${String(m).padStart(2, "0")}:${s.toFixed(3).padStart(6, "0")}`;
+  }
+
+  /** Parse mm:ss.ms string back to seconds, returns NaN on bad input */
+  function parseTimePrecise(str) {
+    if (!str) return NaN;
+    const match = str.trim().match(/^(\d+):(\d+(?:\.\d+)?)$/);
+    if (!match) return NaN;
+    return parseInt(match[1], 10) * 60 + parseFloat(match[2]);
+  }
+
   function escapeHtml(text) {
     const div = document.createElement("div");
     div.textContent = text;
@@ -821,14 +1086,16 @@
 
   const btnStudioToggle = document.getElementById("btn-studio-toggle");
   const studioPanel = document.getElementById("studio-panel");
-  const studioCanvas = document.getElementById("studio-canvas");
-  const studioCtx = studioCanvas ? studioCanvas.getContext("2d") : null;
-  const studioScrubber = document.getElementById("studio-scrubber");
-  const studioTimeLabel = document.getElementById("studio-time");
   const btnRenderVideo = document.getElementById("btn-render-video");
   const renderProgressEl = document.getElementById("render-progress");
   const renderProgressBar = document.getElementById("render-progress-bar");
   const renderProgressLabel = document.getElementById("render-progress-label");
+  const renderElapsedEl = document.getElementById("render-elapsed");
+  const studioRenderMode = document.getElementById("studio-render-mode");
+  const studioBitrate = document.getElementById("studio-bitrate");
+  const studioBitrateRow = document.getElementById("studio-bitrate-row");
+  let renderStartTime = null;
+  let renderTimer = null;
 
   // Studio style controls
   const studioFont = document.getElementById("studio-font");
@@ -837,6 +1104,21 @@
   const studioTextColor = document.getElementById("studio-text-color");
   const studioActiveColor = document.getElementById("studio-active-color");
   const studioBgColor = document.getElementById("studio-bg-color");
+  const studioTextColorHex = document.getElementById("studio-text-color-hex");
+  const studioActiveColorHex = document.getElementById("studio-active-color-hex");
+  const studioBgColorHex = document.getElementById("studio-bg-color-hex");
+  const btnCustomFont = document.getElementById("btn-custom-font");
+  const customFontInput = document.getElementById("custom-font-input");
+  let customFontPath = null; // absolute path for backend rendering
+  const studioBold = document.getElementById("studio-bold");
+  const studioTracking = document.getElementById("studio-tracking");
+  const studioTrackingVal = document.getElementById("studio-tracking-val");
+  const studioWordSpacing = document.getElementById("studio-word-spacing");
+  const studioWordSpacingVal = document.getElementById("studio-word-spacing-val");
+  const studioStrokeWidth = document.getElementById("studio-stroke-width");
+  const studioStrokeWidthVal = document.getElementById("studio-stroke-width-val");
+  const studioStrokeColor = document.getElementById("studio-stroke-color");
+  const studioStrokeColorHex = document.getElementById("studio-stroke-color-hex");
   const studioBgOpacity = document.getElementById("studio-bg-opacity");
   const studioBgOpacityVal = document.getElementById("studio-bg-opacity-val");
   const studioPadH = document.getElementById("studio-pad-h");
@@ -857,11 +1139,6 @@
   let studioGroups = [];
   let studioDuration = 0;
   let studioScrubTime = 0;
-  let studioPlaying = false;
-  let studioAnimFrame = null;
-  const studioPlayBtn = document.getElementById("studio-play-btn");
-  const studioIconPlay = document.getElementById("studio-icon-play");
-  const studioIconPause = document.getElementById("studio-icon-pause");
 
   // --- Studio controls binding ---
   if (btnStudioToggle) {
@@ -879,6 +1156,9 @@
   // All range sliders update their label and redraw
   const studioRangeInputs = [
     [studioFontSize, studioFontSizeVal, "px"],
+    [studioTracking, studioTrackingVal, "px"],
+    [studioWordSpacing, studioWordSpacingVal, "px"],
+    [studioStrokeWidth, studioStrokeWidthVal, "px"],
     [studioBgOpacity, studioBgOpacityVal, "%"],
     [studioPadH, studioPadHVal, "px"],
     [studioPadV, studioPadVVal, "px"],
@@ -891,37 +1171,323 @@
     if (input) {
       input.addEventListener("input", () => {
         label.textContent = input.value + unit;
-        if (input === studioWpg) buildStudioGroups();
+        if (input === studioWpg) {
+          customGroupsEdited = false;
+          buildStudioGroups();
+          renderGroupEditor();
+        }
         drawStudioFrame();
       });
     }
   });
 
   // Color/select controls redraw
-  [studioFont, studioTextColor, studioActiveColor, studioBgColor, studioResolution].forEach((el) => {
+  [studioFont, studioTextColor, studioActiveColor, studioBgColor, studioStrokeColor, studioResolution].forEach((el) => {
     if (el) el.addEventListener("input", () => drawStudioFrame());
   });
 
-  // Scrubber — also seek video/audio
-  if (studioScrubber) {
-    studioScrubber.addEventListener("input", () => {
-      studioScrubTime = (parseFloat(studioScrubber.value) / 100) * studioDuration;
-      studioTimeLabel.textContent = `${formatTime(studioScrubTime)} / ${formatTime(studioDuration)}`;
-      // Seek the underlying media to match
-      if (wavesurfer && wavesurfer.getDuration() > 0) {
-        wavesurfer.seekTo(studioScrubTime / wavesurfer.getDuration());
+  // Bold toggle redraws
+  if (studioBold) studioBold.addEventListener("change", () => drawStudioFrame());
+
+  // Stroke color hex sync
+  if (studioStrokeColor && studioStrokeColorHex) {
+    studioStrokeColor.addEventListener("input", () => { studioStrokeColorHex.value = studioStrokeColor.value.toUpperCase(); });
+    studioStrokeColorHex.addEventListener("input", () => { if (/^#[0-9A-Fa-f]{6}$/.test(studioStrokeColorHex.value)) studioStrokeColor.value = studioStrokeColorHex.value; drawStudioFrame(); });
+  }
+
+  // Sync color pickers ↔ hex inputs
+  const colorHexPairs = [
+    [studioTextColor, studioTextColorHex],
+    [studioActiveColor, studioActiveColorHex],
+    [studioBgColor, studioBgColorHex],
+  ];
+  colorHexPairs.forEach(([picker, hex]) => {
+    if (!picker || !hex) return;
+    picker.addEventListener("input", () => {
+      hex.value = picker.value.toUpperCase();
+    });
+    hex.addEventListener("input", () => {
+      const v = hex.value.startsWith("#") ? hex.value : "#" + hex.value;
+      if (/^#[0-9A-Fa-f]{6}$/.test(v)) {
+        picker.value = v;
+        drawStudioFrame();
       }
+    });
+    hex.addEventListener("blur", () => {
+      hex.value = picker.value.toUpperCase();
+    });
+  });
+
+  // Render mode toggle — show/hide bitrate, auto-switch format
+  function updateRenderModeUI() {
+    const mode = studioRenderMode ? studioRenderMode.value : "overlay";
+    const isBaked = mode === "baked";
+    if (studioBitrateRow) studioBitrateRow.style.display = isBaked ? "" : "none";
+    if (isBaked && studioFormat) {
+      // Baked mode only supports MP4
+      studioFormat.value = "mp4";
+      studioFormat.disabled = true;
+    } else if (studioFormat) {
+      studioFormat.disabled = false;
+    }
+  }
+
+  if (studioRenderMode) {
+    studioRenderMode.addEventListener("change", updateRenderModeUI);
+    updateRenderModeUI();
+  }
+
+  // Custom font upload
+  if (btnCustomFont && customFontInput) {
+    btnCustomFont.addEventListener("click", () => customFontInput.click());
+    customFontInput.addEventListener("change", async () => {
+      const file = customFontInput.files[0];
+      if (!file) return;
+      const fontName = file.name.replace(/\.[^.]+$/, "");
+      // Load into browser for canvas preview
+      try {
+        const fontData = await file.arrayBuffer();
+        const fontFace = new FontFace(fontName, fontData);
+        await fontFace.load();
+        document.fonts.add(fontFace);
+      } catch (e) {
+        showToast("Failed to load font: " + e.message);
+        return;
+      }
+      // Save to persistent storage (send binary data, not file path — sandbox blocks file.path)
+      let savedPath = null;
+      if (window.subforge && window.subforge.saveFont) {
+        try {
+          const fontData = await file.arrayBuffer();
+          savedPath = await window.subforge.saveFont(file.name, fontData);
+        } catch (_) { /* save failed, font still works for this session */ }
+      }
+      // Add to dropdown if not already there
+      addFontToDropdown(fontName, savedPath);
+      studioFont.value = fontName;
+      customFontPath = savedPath;
+      showToast(`Font "${fontName}" saved`);
       drawStudioFrame();
     });
   }
 
-  // Play/Pause button in studio
-  if (studioPlayBtn) {
-    studioPlayBtn.addEventListener("click", () => {
-      if (!wavesurfer) return;
-      wavesurfer.playPause();
+  /** Add a custom font option to the dropdown. */
+  function addFontToDropdown(fontName, fontPath) {
+    for (const opt of studioFont.options) {
+      if (opt.value === fontName) return;
+    }
+    const opt = document.createElement("option");
+    opt.value = fontName;
+    opt.textContent = fontName + " ★";
+    opt.dataset.customPath = fontPath || "";
+    studioFont.insertBefore(opt, studioFont.firstChild);
+  }
+
+  // Track font selection to update customFontPath
+  if (studioFont) {
+    studioFont.addEventListener("change", () => {
+      const sel = studioFont.options[studioFont.selectedIndex];
+      customFontPath = (sel && sel.dataset.customPath) || null;
+      drawStudioFrame();
     });
   }
+
+  // Load saved fonts on startup
+  (async function loadSavedFonts() {
+    if (!window.subforge || !window.subforge.listFonts) return;
+    try {
+      const fonts = await window.subforge.listFonts();
+      for (const f of fonts) {
+        try {
+          const buf = await window.subforge.readFont(f.path);
+          if (!buf) continue;
+          const face = new FontFace(f.name, buf);
+          await face.load();
+          document.fonts.add(face);
+          addFontToDropdown(f.name, f.path);
+        } catch (_) { /* skip broken fonts */ }
+      }
+      // Sync customFontPath with current dropdown selection (it may have been
+      // set by a preset before the options existed, so re-check now)
+      syncCustomFontPath();
+    } catch (_) { /* no fonts API */ }
+  })();
+
+  /** Sync customFontPath from the currently selected dropdown option. */
+  function syncCustomFontPath() {
+    if (!studioFont) return;
+    const sel = studioFont.options[studioFont.selectedIndex];
+    if (sel && sel.dataset.customPath) {
+      customFontPath = sel.dataset.customPath;
+    }
+  }
+
+  // --- Style Presets ---
+  const studioPreset = document.getElementById("studio-preset");
+  const btnPresetSave = document.getElementById("btn-preset-save");
+  const btnPresetDelete = document.getElementById("btn-preset-delete");
+
+  /** Gather all current studio control values into a serializable object. */
+  function gatherStudioSettings() {
+    return {
+      font: studioFont.value,
+      customFontPath: customFontPath || null,
+      fontSize: studioFontSize.value,
+      bold: studioBold ? studioBold.checked : true,
+      tracking: studioTracking ? studioTracking.value : "0",
+      wordSpacing: studioWordSpacing ? studioWordSpacing.value : "0",
+      strokeWidth: studioStrokeWidth ? studioStrokeWidth.value : "0",
+      strokeColor: studioStrokeColor ? studioStrokeColor.value : "#000000",
+      textColor: studioTextColor.value,
+      activeColor: studioActiveColor.value,
+      bgColor: studioBgColor.value,
+      bgOpacity: studioBgOpacity.value,
+      padH: studioPadH.value,
+      padV: studioPadV.value,
+      radius: studioRadius.value,
+      wpg: studioWpg.value,
+      posY: studioPosY.value,
+      resolution: studioResolution.value,
+      fps: studioFps.value,
+      format: studioFormat.value,
+      renderMode: studioRenderMode.value,
+      bitrate: studioBitrate.value,
+    };
+  }
+
+  /** Apply a preset object to all studio controls. */
+  function applyStudioSettings(p) {
+    if (!p) return;
+    // Ensure custom font option exists in dropdown before setting value
+    if (p.font && p.customFontPath) {
+      addFontToDropdown(p.font, p.customFontPath);
+    }
+    if (p.font) studioFont.value = p.font;
+    customFontPath = p.customFontPath || null;
+    // If preset didn't store the path, try resolving from the dropdown option
+    if (!customFontPath) syncCustomFontPath();
+    if (p.fontSize) { studioFontSize.value = p.fontSize; studioFontSizeVal.textContent = p.fontSize + "px"; }
+    if (studioBold && p.bold !== undefined) studioBold.checked = p.bold;
+    if (p.tracking !== undefined && studioTracking) { studioTracking.value = p.tracking; studioTrackingVal.textContent = p.tracking + "px"; }
+    if (p.wordSpacing !== undefined && studioWordSpacing) { studioWordSpacing.value = p.wordSpacing; studioWordSpacingVal.textContent = p.wordSpacing + "px"; }
+    if (p.strokeWidth !== undefined && studioStrokeWidth) { studioStrokeWidth.value = p.strokeWidth; studioStrokeWidthVal.textContent = p.strokeWidth + "px"; }
+    if (p.strokeColor && studioStrokeColor) { studioStrokeColor.value = p.strokeColor; studioStrokeColorHex.value = p.strokeColor.toUpperCase(); }
+    if (p.textColor) { studioTextColor.value = p.textColor; studioTextColorHex.value = p.textColor.toUpperCase(); }
+    if (p.activeColor) { studioActiveColor.value = p.activeColor; studioActiveColorHex.value = p.activeColor.toUpperCase(); }
+    if (p.bgColor) { studioBgColor.value = p.bgColor; studioBgColorHex.value = p.bgColor.toUpperCase(); }
+    if (p.bgOpacity) { studioBgOpacity.value = p.bgOpacity; studioBgOpacityVal.textContent = p.bgOpacity + "%"; }
+    if (p.padH) { studioPadH.value = p.padH; studioPadHVal.textContent = p.padH + "px"; }
+    if (p.padV) { studioPadV.value = p.padV; studioPadVVal.textContent = p.padV + "px"; }
+    if (p.radius) { studioRadius.value = p.radius; studioRadiusVal.textContent = p.radius + "px"; }
+    if (p.wpg) { studioWpg.value = p.wpg; studioWpgVal.textContent = p.wpg; }
+    if (p.posY) { studioPosY.value = p.posY; studioPosYVal.textContent = p.posY + "%"; }
+    if (p.resolution) studioResolution.value = p.resolution;
+    if (p.fps) studioFps.value = p.fps;
+    if (p.format) studioFormat.value = p.format;
+    if (p.renderMode) studioRenderMode.value = p.renderMode;
+    if (p.bitrate) studioBitrate.value = p.bitrate;
+    updateRenderModeUI();
+    buildStudioGroups();
+    drawStudioFrame();
+  }
+
+  /** Refresh the preset dropdown with saved preset names. */
+  async function refreshPresetList() {
+    if (!window.subforge || !window.subforge.listPresets) return;
+    try {
+      const names = await window.subforge.listPresets();
+      // Remove existing preset options (keep the first "— Presets —" option)
+      while (studioPreset.options.length > 1) studioPreset.remove(1);
+      names.forEach((name) => {
+        const opt = document.createElement("option");
+        opt.value = name;
+        opt.textContent = name;
+        studioPreset.appendChild(opt);
+      });
+    } catch (_) { /* preset API not available */ }
+  }
+
+  if (studioPreset) {
+    studioPreset.addEventListener("change", async () => {
+      const name = studioPreset.value;
+      if (!name || !window.subforge) return;
+      try {
+        const preset = await window.subforge.loadPreset(name);
+        if (preset) {
+          applyStudioSettings(preset);
+          showToast(`Preset "${name}" loaded`);
+        }
+      } catch (err) {
+        showToast("Failed to load preset");
+      }
+    });
+  }
+
+  /** Show a custom prompt modal. Returns the entered string or null. */
+  function showPromptModal(title) {
+    return new Promise((resolve) => {
+      const overlay = document.getElementById("prompt-modal");
+      const input = document.getElementById("prompt-modal-input");
+      const titleEl = document.getElementById("prompt-modal-title");
+      const okBtn = document.getElementById("prompt-modal-ok");
+      const cancelBtn = document.getElementById("prompt-modal-cancel");
+      titleEl.textContent = title || "Enter a name";
+      input.value = "";
+      overlay.classList.remove("hidden");
+      input.focus();
+
+      function cleanup(result) {
+        overlay.classList.add("hidden");
+        okBtn.removeEventListener("click", onOk);
+        cancelBtn.removeEventListener("click", onCancel);
+        input.removeEventListener("keydown", onKey);
+        resolve(result);
+      }
+      function onOk() { cleanup(input.value); }
+      function onCancel() { cleanup(null); }
+      function onKey(e) {
+        if (e.key === "Enter") { e.preventDefault(); cleanup(input.value); }
+        if (e.key === "Escape") { e.preventDefault(); cleanup(null); }
+      }
+      okBtn.addEventListener("click", onOk);
+      cancelBtn.addEventListener("click", onCancel);
+      input.addEventListener("keydown", onKey);
+    });
+  }
+
+  if (btnPresetSave) {
+    btnPresetSave.addEventListener("click", async () => {
+      const name = await showPromptModal("Preset name");
+      if (!name || !name.trim()) return;
+      const trimmed = name.trim();
+      if (!window.subforge || !window.subforge.savePreset) return;
+      try {
+        await window.subforge.savePreset(trimmed, gatherStudioSettings());
+        await refreshPresetList();
+        studioPreset.value = trimmed;
+        showToast(`Preset "${trimmed}" saved`);
+      } catch (err) {
+        showToast("Failed to save preset");
+      }
+    });
+  }
+
+  if (btnPresetDelete) {
+    btnPresetDelete.addEventListener("click", async () => {
+      const name = studioPreset.value;
+      if (!name || !window.subforge || !window.subforge.deletePreset) return;
+      try {
+        await window.subforge.deletePreset(name);
+        await refreshPresetList();
+        showToast(`Preset "${name}" deleted`);
+      } catch (err) {
+        showToast("Failed to delete preset");
+      }
+    });
+  }
+
+  // Load preset list on startup
+  refreshPresetList();
 
   // --- Build word groups from current transcription ---
   function buildStudioGroups() {
@@ -956,133 +1522,264 @@
         if (group.end > studioDuration) studioDuration = group.end;
       }
     });
-
-    // Update scrubber range
-    if (studioScrubber) studioScrubber.max = "100";
-    if (studioTimeLabel) studioTimeLabel.textContent = `${formatTime(studioScrubTime)} / ${formatTime(studioDuration)}`;
   }
 
-  // --- Canvas drawing ---
-  function drawStudioFrame() {
-    if (!studioCtx || !studioCanvas) return;
+  // ============================
+  // Group Editor
+  // ============================
 
-    const canvasW = studioCanvas.width;
-    const canvasH = studioCanvas.height;
+  // Toggle group editor panel
+  if (btnGroupToggle) {
+    btnGroupToggle.addEventListener("click", () => {
+      groupEditorOpen = !groupEditorOpen;
+      btnGroupToggle.classList.toggle("active", groupEditorOpen);
+      groupEditorEl.classList.toggle("hidden", !groupEditorOpen);
+      resultsPreview.classList.toggle("hidden", groupEditorOpen);
+      if (groupEditorOpen) {
+        if (!studioGroups.length) buildStudioGroups();
+        renderGroupEditor();
+      }
+    });
+  }
 
-    // Draw video frame as background if available, otherwise checkerboard
-    if (videoPlayer && videoPlayer.readyState >= 2 && !videoPlayer.classList.contains("hidden")) {
-      studioCtx.drawImage(videoPlayer, 0, 0, canvasW, canvasH);
+  // Reset button
+  if (btnGroupReset) {
+    btnGroupReset.addEventListener("click", () => {
+      customGroupsEdited = false;
+      buildStudioGroups();
+      renderGroupEditor();
+      drawStudioFrame();
+      showToast("Groups reset to auto-grouping");
+    });
+  }
+
+  // Drag state
+  let geDragSourceGroupIdx = null;
+  let geDragWordIdx = null;
+
+  function renderGroupEditor() {
+    if (!groupEditorList) return;
+    groupEditorList.innerHTML = "";
+
+    studioGroups.forEach((group, gi) => {
+      // Merge button row (between groups)
+      if (gi > 0) {
+        const mergeRow = document.createElement("div");
+        mergeRow.className = "ge-merge-row";
+        const mergeBtn = document.createElement("button");
+        mergeBtn.className = "ge-merge-btn";
+        mergeBtn.textContent = "⬆ merge ⬇";
+        mergeBtn.title = "Merge with group above";
+        mergeBtn.addEventListener("click", () => mergeGroups(gi - 1, gi));
+        mergeRow.appendChild(mergeBtn);
+        groupEditorList.appendChild(mergeRow);
+      }
+
+      const row = document.createElement("div");
+      row.className = "ge-row";
+      row.dataset.groupIndex = gi;
+
+      // Index
+      const idx = document.createElement("span");
+      idx.className = "ge-index";
+      idx.textContent = `#${gi + 1}`;
+      row.appendChild(idx);
+
+      // Time
+      const time = document.createElement("span");
+      time.className = "ge-time";
+      time.textContent = `${formatTime(group.start)} → ${formatTime(group.end)}`;
+      time.addEventListener("click", () => seekTo(group.start));
+      row.appendChild(time);
+
+      // Words container (droppable)
+      const wordsEl = document.createElement("div");
+      wordsEl.className = "ge-words";
+      wordsEl.dataset.groupIndex = gi;
+
+      wordsEl.addEventListener("dragover", (e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        wordsEl.classList.add("ge-dragover");
+      });
+      wordsEl.addEventListener("dragleave", () => {
+        wordsEl.classList.remove("ge-dragover");
+      });
+      wordsEl.addEventListener("drop", (e) => {
+        e.preventDefault();
+        wordsEl.classList.remove("ge-dragover");
+        const srcGroup = parseInt(e.dataTransfer.getData("text/ge-group"), 10);
+        const srcWord = parseInt(e.dataTransfer.getData("text/ge-word"), 10);
+        if (isNaN(srcGroup) || isNaN(srcWord)) return;
+        moveWord(srcGroup, srcWord, gi);
+      });
+
+      group.words.forEach((w, wi) => {
+        // Split button between words (not before first)
+        if (wi > 0) {
+          const splitBtn = document.createElement("button");
+          splitBtn.className = "ge-split-btn";
+          splitBtn.textContent = "✂";
+          splitBtn.title = "Split group here";
+          splitBtn.addEventListener("click", () => splitGroup(gi, wi));
+          wordsEl.appendChild(splitBtn);
+        }
+
+        const chip = document.createElement("span");
+        chip.className = "ge-word";
+        chip.textContent = w.word;
+        chip.draggable = true;
+        chip.dataset.groupIndex = gi;
+        chip.dataset.wordIndex = wi;
+
+        chip.addEventListener("dragstart", (e) => {
+          geDragSourceGroupIdx = gi;
+          geDragWordIdx = wi;
+          e.dataTransfer.setData("text/ge-group", String(gi));
+          e.dataTransfer.setData("text/ge-word", String(wi));
+          e.dataTransfer.effectAllowed = "move";
+          chip.classList.add("ge-word-dragging");
+        });
+        chip.addEventListener("dragend", () => {
+          chip.classList.remove("ge-word-dragging");
+          geDragSourceGroupIdx = null;
+          geDragWordIdx = null;
+        });
+
+        wordsEl.appendChild(chip);
+      });
+
+      row.appendChild(wordsEl);
+
+      // Actions
+      const actions = document.createElement("div");
+      actions.className = "ge-actions";
+
+      if (group.words.length > 1) {
+        const splitMidBtn = document.createElement("button");
+        splitMidBtn.className = "ge-btn";
+        splitMidBtn.title = "Split in half";
+        splitMidBtn.innerHTML = "✂ Split";
+        splitMidBtn.addEventListener("click", () => {
+          const mid = Math.ceil(group.words.length / 2);
+          splitGroup(gi, mid);
+        });
+        actions.appendChild(splitMidBtn);
+      }
+
+      row.appendChild(actions);
+      groupEditorList.appendChild(row);
+    });
+  }
+
+  function mergeGroups(idxA, idxB) {
+    if (idxA < 0 || idxB >= studioGroups.length) return;
+    const a = studioGroups[idxA];
+    const b = studioGroups[idxB];
+    const merged = {
+      text: a.words.concat(b.words).map((w) => w.word).join(" "),
+      start: a.start,
+      end: b.end,
+      words: a.words.concat(b.words),
+    };
+    studioGroups.splice(idxA, 2, merged);
+    customGroupsEdited = true;
+    renderGroupEditor();
+    drawStudioFrame();
+  }
+
+  function splitGroup(groupIdx, afterWordIdx) {
+    const group = studioGroups[groupIdx];
+    if (!group || afterWordIdx <= 0 || afterWordIdx >= group.words.length) return;
+
+    const wordsA = group.words.slice(0, afterWordIdx);
+    const wordsB = group.words.slice(afterWordIdx);
+
+    const groupA = {
+      text: wordsA.map((w) => w.word).join(" "),
+      start: wordsA[0].start,
+      end: wordsA[wordsA.length - 1].end,
+      words: wordsA,
+    };
+    const groupB = {
+      text: wordsB.map((w) => w.word).join(" "),
+      start: wordsB[0].start,
+      end: wordsB[wordsB.length - 1].end,
+      words: wordsB,
+    };
+
+    studioGroups.splice(groupIdx, 1, groupA, groupB);
+    customGroupsEdited = true;
+    renderGroupEditor();
+    drawStudioFrame();
+  }
+
+  function moveWord(srcGroupIdx, wordIdx, destGroupIdx) {
+    if (srcGroupIdx === destGroupIdx) return;
+    const srcGroup = studioGroups[srcGroupIdx];
+    if (!srcGroup || wordIdx < 0 || wordIdx >= srcGroup.words.length) return;
+
+    const word = srcGroup.words[wordIdx];
+
+    // Remove from source
+    srcGroup.words.splice(wordIdx, 1);
+    srcGroup.text = srcGroup.words.map((w) => w.word).join(" ");
+
+    // Add to destination
+    const destGroup = studioGroups[destGroupIdx];
+
+    // Determine insertion position based on timing
+    if (destGroupIdx < srcGroupIdx) {
+      // Moving up — add to end
+      destGroup.words.push(word);
     } else {
-      drawCheckerboard(canvasW, canvasH);
+      // Moving down — add to start
+      destGroup.words.unshift(word);
+    }
+    destGroup.text = destGroup.words.map((w) => w.word).join(" ");
+
+    // Update timings
+    if (srcGroup.words.length > 0) {
+      srcGroup.start = srcGroup.words[0].start;
+      srcGroup.end = srcGroup.words[srcGroup.words.length - 1].end;
+    }
+    destGroup.start = destGroup.words[0].start;
+    destGroup.end = destGroup.words[destGroup.words.length - 1].end;
+
+    // Remove empty groups
+    if (srcGroup.words.length === 0) {
+      studioGroups.splice(srcGroupIdx, 1);
     }
 
-    if (studioGroups.length === 0) {
-      studioCtx.fillStyle = "#aaa";
-      studioCtx.font = "16px Arial";
-      studioCtx.textAlign = "center";
-      studioCtx.fillText("No subtitle data — transcribe a file first", canvasW / 2, canvasH / 2);
-      return;
-    }
+    customGroupsEdited = true;
+    renderGroupEditor();
+    drawStudioFrame();
+  }
 
-    // Find active group at current scrub time
-    const t = studioScrubTime;
-    let activeGroup = null;
-    for (const g of studioGroups) {
-      if (g.start <= t && t < g.end) {
-        activeGroup = g;
-        break;
-      }
-    }
-
-    if (!activeGroup) {
-      // Show first group as preview when no active
-      if (studioGroups.length > 0 && t < studioGroups[0].start) {
-        activeGroup = studioGroups[0];
+  function highlightActiveGroup(t) {
+    if (!groupEditorList) return;
+    const rows = groupEditorList.querySelectorAll(".ge-row");
+    rows.forEach((row) => {
+      const gi = parseInt(row.dataset.groupIndex, 10);
+      const g = studioGroups[gi];
+      if (g && g.start <= t && t < g.end) {
+        row.classList.add("ge-row-active");
+        // Also highlight active word chip
+        row.querySelectorAll(".ge-word").forEach((chip) => {
+          const wi = parseInt(chip.dataset.wordIndex, 10);
+          const w = g.words[wi];
+          chip.classList.toggle("ge-word-active", w && w.start <= t && t < w.end);
+        });
       } else {
-        return; // Between groups — show nothing
+        row.classList.remove("ge-row-active");
+        row.querySelectorAll(".ge-word").forEach((c) => c.classList.remove("ge-word-active"));
       }
-    }
-
-    // Read style
-    const fontSize = parseInt(studioFontSize.value, 10);
-    const fontFamily = studioFont.value;
-    const textColor = studioTextColor.value;
-    const activeColor = studioActiveColor.value;
-    const bgColor = studioBgColor.value;
-    const bgOpacity = parseInt(studioBgOpacity.value, 10) / 100;
-    const padH = parseInt(studioPadH.value, 10);
-    const padV = parseInt(studioPadV.value, 10);
-    const radius = parseInt(studioRadius.value, 10);
-    const posY = parseInt(studioPosY.value, 10) / 100;
-
-    // Scale factor: canvas is 960x540, render is 1920x1080 default
-    const [resW, resH] = studioResolution.value.split("x").map(Number);
-    const scaleX = canvasW / resW;
-    const scaleY = canvasH / resH;
-    const scale = Math.min(scaleX, scaleY);
-
-    const scaledFontSize = fontSize * scale;
-    const scaledPadH = padH * scale;
-    const scaledPadV = padV * scale;
-    const scaledRadius = radius * scale;
-
-    const ctx = studioCtx;
-    ctx.font = `bold ${scaledFontSize}px "${fontFamily}", sans-serif`;
-    ctx.textBaseline = "middle";
-    ctx.textAlign = "left";
-
-    // Measure words
-    const spaceW = ctx.measureText(" ").width;
-    const wordMetrics = activeGroup.words.map((w) => ({
-      word: w.word,
-      width: ctx.measureText(w.word).width,
-      start: w.start,
-      end: w.end,
-    }));
-
-    let totalW = 0;
-    wordMetrics.forEach((wm, i) => {
-      totalW += wm.width;
-      if (i < wordMetrics.length - 1) totalW += spaceW;
-    });
-
-    // Background
-    const bgW = totalW + scaledPadH * 2;
-    const bgH = scaledFontSize + scaledPadV * 2;
-    const centerX = canvasW / 2;
-    const centerY = canvasH * posY;
-
-    if (bgOpacity > 0) {
-      ctx.save();
-      ctx.globalAlpha = bgOpacity;
-      ctx.fillStyle = bgColor;
-      roundRect(ctx, centerX - bgW / 2, centerY - bgH / 2, bgW, bgH, scaledRadius);
-      ctx.fill();
-      ctx.restore();
-    }
-
-    // Draw words
-    let x = centerX - totalW / 2;
-    const y = centerY;
-
-    wordMetrics.forEach((wm, i) => {
-      const isActive = wm.start <= t && t < wm.end;
-      ctx.fillStyle = isActive ? activeColor : textColor;
-      ctx.fillText(wm.word, x, y);
-      x += wm.width;
-      if (i < wordMetrics.length - 1) x += spaceW;
     });
   }
 
-  function drawCheckerboard(w, h) {
-    const ctx = studioCtx;
-    const size = 10;
-    for (let y = 0; y < h; y += size) {
-      for (let x = 0; x < w; x += size) {
-        ctx.fillStyle = ((x / size + y / size) % 2 === 0) ? "#1a1a1a" : "#222";
-        ctx.fillRect(x, y, size, size);
-      }
-    }
+  // --- Refresh subtitle overlay when studio styles change ---
+  function drawStudioFrame() {
+    drawSubtitleOverlay(studioScrubTime);
   }
 
   function roundRect(ctx, x, y, w, h, r) {
@@ -1137,6 +1834,11 @@
     const padV = parseInt(studioPadV.value, 10);
     const radius = parseInt(studioRadius.value, 10);
     const posY = parseInt(studioPosY.value, 10) / 100;
+    const isBold = studioBold ? studioBold.checked : true;
+    const tracking = parseInt(studioTracking ? studioTracking.value : "0", 10);
+    const extraWordSpacing = parseInt(studioWordSpacing ? studioWordSpacing.value : "0", 10);
+    const strokeWidth = parseInt(studioStrokeWidth ? studioStrokeWidth.value : "0", 10);
+    const strokeColor = studioStrokeColor ? studioStrokeColor.value : "#000000";
 
     // Scale: map render resolution to displayed overlay size
     const [resW, resH] = studioResolution.value.split("x").map(Number);
@@ -1148,17 +1850,33 @@
     const sp = padH * scale;
     const sv = padV * scale;
     const sr = radius * scale;
+    const sTracking = tracking * scale;
+    const sWordSpacing = extraWordSpacing * scale;
+    const sStroke = strokeWidth * scale;
 
-    ctx.font = `bold ${sf}px "${fontFamily}", sans-serif`;
+    const fontWeight = isBold ? "bold" : "normal";
+    ctx.font = `${fontWeight} ${sf}px "${fontFamily}", sans-serif`;
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
 
-    const spaceW = ctx.measureText(" ").width;
+    // Measure words accounting for tracking (letter spacing)
+    function measureWithTracking(text) {
+      if (sTracking === 0) return ctx.measureText(text).width;
+      let w = 0;
+      for (let ci = 0; ci < text.length; ci++) {
+        w += ctx.measureText(text[ci]).width;
+        if (ci < text.length - 1) w += sTracking;
+      }
+      return w;
+    }
+
+    const baseSpaceW = ctx.measureText(" ").width;
+    const effectiveSpaceW = baseSpaceW + sWordSpacing;
     const wm = activeGroup.words.map((w) => ({
-      word: w.word, width: ctx.measureText(w.word).width, start: w.start, end: w.end,
+      word: w.word, width: measureWithTracking(w.word), start: w.start, end: w.end,
     }));
     let totalW = 0;
-    wm.forEach((m, i) => { totalW += m.width; if (i < wm.length - 1) totalW += spaceW; });
+    wm.forEach((m, i) => { totalW += m.width; if (i < wm.length - 1) totalW += effectiveSpaceW; });
 
     const bgW = totalW + sp * 2;
     const bgH = sf + sv * 2;
@@ -1174,12 +1892,40 @@
       ctx.restore();
     }
 
+    // Draw words with tracking + stroke
     let x = cx - totalW / 2;
     wm.forEach((m, i) => {
-      ctx.fillStyle = (m.start <= t && t < m.end) ? activeColor : textColor;
-      ctx.fillText(m.word, x, cy);
+      const isActive = m.start <= t && t < m.end;
+      const fillColor = isActive ? activeColor : textColor;
+
+      if (sTracking === 0) {
+        // Fast path: no tracking
+        if (sStroke > 0) {
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = sStroke * 2;
+          ctx.lineJoin = "round";
+          ctx.strokeText(m.word, x, cy);
+        }
+        ctx.fillStyle = fillColor;
+        ctx.fillText(m.word, x, cy);
+      } else {
+        // Character-by-character for tracking
+        let cx2 = x;
+        for (let ci = 0; ci < m.word.length; ci++) {
+          const ch2 = m.word[ci];
+          if (sStroke > 0) {
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = sStroke * 2;
+            ctx.lineJoin = "round";
+            ctx.strokeText(ch2, cx2, cy);
+          }
+          ctx.fillStyle = fillColor;
+          ctx.fillText(ch2, cx2, cy);
+          cx2 += ctx.measureText(ch2).width + sTracking;
+        }
+      }
       x += m.width;
-      if (i < wm.length - 1) x += spaceW;
+      if (i < wm.length - 1) x += effectiveSpaceW;
     });
   }
 
@@ -1194,11 +1940,29 @@
       return;
     }
 
+    const renderMode = studioRenderMode ? studioRenderMode.value : "overlay";
+
+    // Baked mode requires the source to be a video file
+    if (renderMode === "baked" && (!selectedFilePath || !isVideoFile(selectedFilePath))) {
+      showToast("Baked mode requires a video file as source. Please transcribe a video first.");
+      return;
+    }
+
     const [resW, resH] = studioResolution.value.split("x").map(Number);
 
     const config = {
       font_family: studioFont.value,
+      custom_font_path: customFontPath || (function() {
+        // Safety net: resolve from dropdown option if variable lost
+        const sel = studioFont.options[studioFont.selectedIndex];
+        return (sel && sel.dataset.customPath) || null;
+      })(),
       font_size: parseInt(studioFontSize.value, 10),
+      bold: studioBold ? studioBold.checked : true,
+      tracking: parseInt(studioTracking ? studioTracking.value : "0", 10),
+      word_spacing: parseInt(studioWordSpacing ? studioWordSpacing.value : "0", 10),
+      stroke_width: parseInt(studioStrokeWidth ? studioStrokeWidth.value : "0", 10),
+      stroke_color: studioStrokeColor ? studioStrokeColor.value : "#000000",
       text_color: studioTextColor.value,
       active_word_color: studioActiveColor.value,
       bg_color: studioBgColor.value,
@@ -1211,7 +1975,9 @@
       resolution_w: resW,
       resolution_h: resH,
       fps: parseInt(studioFps.value, 10),
-      output_format: studioFormat.value,
+      output_format: renderMode === "baked" ? "mp4" : studioFormat.value,
+      render_mode: renderMode,
+      video_bitrate: studioBitrate ? studioBitrate.value : "8M",
     };
 
     btnRenderVideo.disabled = true;
@@ -1219,12 +1985,31 @@
     renderProgressEl.classList.remove("hidden");
     renderProgressBar.style.width = "0%";
     renderProgressLabel.textContent = "Starting…";
+    if (renderElapsedEl) renderElapsedEl.textContent = "";
+    renderStartTime = Date.now();
+    if (renderTimer) clearInterval(renderTimer);
+    renderTimer = setInterval(() => {
+      if (!renderElapsedEl) return;
+      const elapsed = Math.floor((Date.now() - renderStartTime) / 1000);
+      const m = Math.floor(elapsed / 60);
+      const s = elapsed % 60;
+      renderElapsedEl.textContent = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    }, 1000);
 
     try {
-      const res = await api.renderVideo({
+      const renderBody = {
         config: config,
         output_dir: outputDir,
-      });
+      };
+      if (customGroupsEdited && studioGroups.length > 0) {
+        renderBody.custom_groups = studioGroups.map((g) => ({
+          text: g.text,
+          start: g.start,
+          end: g.end,
+          words: g.words,
+        }));
+      }
+      const res = await api.renderVideo(renderBody);
       renderProgressBar.style.width = "100%";
       renderProgressLabel.textContent = `Done! ${res.file}`;
       showToast("Subtitle video rendered!");
@@ -1232,6 +2017,7 @@
       renderProgressLabel.textContent = `Error: ${err.message}`;
       showToast(`Render failed: ${err.message}`);
     } finally {
+      if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
       btnRenderVideo.disabled = false;
       btnRenderVideo.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25ZM6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/></svg> Render Subtitle Video`;
     }
@@ -1245,6 +2031,96 @@
       renderProgressLabel.textContent = update.message;
     }
   }
+
+  // --- Project Save / Open ---
+
+  async function saveProject() {
+    if (!transcriptionResult) {
+      showToast("Nothing to save — transcribe a file first.");
+      return;
+    }
+    const stem = selectedFilePath
+      ? selectedFilePath.replace(/^.*[\\/]/, "").replace(/\.[^.]+$/, "")
+      : "project";
+
+    const projectData = {
+      version: 1,
+      suggestedName: stem + ".capforge",
+      selectedFilePath,
+      outputDir,
+      transcriptionResult,
+      studioSettings: gatherStudioSettings(),
+      customGroupsEdited,
+      studioGroups: customGroupsEdited ? studioGroups : null,
+    };
+
+    try {
+      const savedPath = await window.subforge.saveProject(projectData);
+      if (savedPath) {
+        currentProjectPath = savedPath;
+        showToast("Project saved");
+      }
+    } catch (err) {
+      showToast("Failed to save project");
+    }
+  }
+
+  async function openProject() {
+    try {
+      const data = await window.subforge.openProject();
+      if (!data) return;
+
+      // Restore state
+      selectedFilePath = data.selectedFilePath || null;
+      outputDir = data.outputDir || "output";
+      transcriptionResult = data.transcriptionResult || null;
+      currentProjectPath = data._filePath || null;
+
+      if (!transcriptionResult) {
+        showToast("Project file contains no transcription data.");
+        return;
+      }
+
+      // Push transcription result to backend so export/render work
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          await api.updateResult(transcriptionResult);
+          break;
+        } catch (_) {
+          // Backend may still be starting — wait and retry
+          await new Promise((r) => setTimeout(r, 1000));
+        }
+      }
+
+      // Rebuild UI
+      renderResults(transcriptionResult);
+      initAudioPlayer();
+      renderExportedFiles([]);
+
+      // Apply studio settings if present
+      if (data.studioSettings) {
+        applyStudioSettings(data.studioSettings);
+      } else {
+        buildStudioGroups();
+      }
+
+      // Restore custom groups if they were manually edited
+      if (data.customGroupsEdited && data.studioGroups) {
+        studioGroups = data.studioGroups;
+        customGroupsEdited = true;
+        renderGroupEditor();
+      }
+
+      drawStudioFrame();
+      showScreen("results");
+      showToast("Project loaded");
+    } catch (err) {
+      showToast("Failed to open project: " + err.message);
+    }
+  }
+
+  if (btnProjectSave) btnProjectSave.addEventListener("click", saveProject);
+  if (btnProjectOpen) btnProjectOpen.addEventListener("click", openProject);
 
   // --- Boot ---
   init();

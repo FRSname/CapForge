@@ -1,4 +1,4 @@
-"""SubForge — Subtitle video renderer.
+"""CapForge — Subtitle video renderer.
 
 Renders word-by-word highlighted subtitle overlays as transparent video
 using Pillow for frame generation and FFmpeg for encoding.
@@ -36,21 +36,46 @@ def _hex_to_rgba(hex_color: str, opacity: float = 1.0) -> tuple[int, int, int, i
     return (r, g, b, int(opacity * 255))
 
 
-def _get_font(family: str, size: int) -> ImageFont.FreeTypeFont:
+def _get_font(family: str, size: int, custom_path: str | None = None, bold: bool = True) -> ImageFont.FreeTypeFont:
     """Load a TrueType font by name, falling back to bundled or default."""
+    # Custom font path takes priority
+    if custom_path and os.path.isfile(custom_path):
+        try:
+            logger.info("Loading custom font: %s", custom_path)
+            return ImageFont.truetype(custom_path, size)
+        except Exception as e:
+            logger.warning("Failed to load custom font %s: %s", custom_path, e)
+    elif custom_path:
+        logger.warning("Custom font path not found: %s", custom_path)
     # Try common Windows font paths
-    candidates = [
+    fam = family.replace(' ', '')
+    fam_lower = fam.lower()
+
+    bold_candidates = [
+        f"C:/Windows/Fonts/{fam}bd.ttf",
+        f"C:/Windows/Fonts/{fam_lower}bd.ttf",
+        f"C:/Windows/Fonts/{fam}b.ttf",
+        f"C:/Windows/Fonts/{fam_lower}b.ttf",
+        f"C:/Windows/Fonts/{fam}-Bold.ttf",
+        f"C:/Windows/Fonts/{fam_lower}-bold.ttf",
+    ]
+    regular_candidates = [
         f"C:/Windows/Fonts/{family}.ttf",
         f"C:/Windows/Fonts/{family.lower()}.ttf",
-        f"C:/Windows/Fonts/{family.replace(' ', '')}.ttf",
-        f"C:/Windows/Fonts/{family.lower().replace(' ', '')}.ttf",
-        # Bold variants
-        f"C:/Windows/Fonts/{family}bd.ttf",
-        f"C:/Windows/Fonts/{family.lower()}bd.ttf",
-        f"C:/Windows/Fonts/{family}b.ttf",
-        f"C:/Windows/Fonts/arialbd.ttf",  # Final fallback
-        f"C:/Windows/Fonts/arial.ttf",
+        f"C:/Windows/Fonts/{fam}.ttf",
+        f"C:/Windows/Fonts/{fam_lower}.ttf",
     ]
+
+    # Order candidates based on bold flag
+    if bold:
+        candidates = bold_candidates + regular_candidates + [
+            "C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/arial.ttf",
+        ]
+    else:
+        candidates = regular_candidates + bold_candidates + [
+            "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf",
+        ]
+
     for path in candidates:
         if os.path.isfile(path):
             try:
@@ -146,26 +171,47 @@ def _render_frame(
 
     draw = ImageDraw.Draw(img)
 
+    # Stroke settings — Canvas measureText ignores stroke so we match that
+    outline_sw = config.stroke_width
+    tracking = config.tracking
+    extra_word_spacing = config.word_spacing
+
+    # Helper: measure word width WITHOUT stroke (matches Canvas measureText behavior)
+    def _measure_word(text: str) -> float:
+        if tracking == 0:
+            wb = draw.textbbox((0, 0), text, font=font)
+            return wb[2] - wb[0]
+        w = 0.0
+        for ci, ch in enumerate(text):
+            cb = draw.textbbox((0, 0), ch, font=font)
+            w += cb[2] - cb[0]
+            if ci < len(text) - 1:
+                w += tracking
+        return w
+
     # Measure total text width and individual word widths
     words = group["words"]
-    space_w = draw.textlength(" ", font=font)
+    space_bb = draw.textbbox((0, 0), " ", font=font)
+    base_space_w = space_bb[2] - space_bb[0]
+    effective_space_w = base_space_w + extra_word_spacing
 
     word_metrics: list[dict] = []
     total_w = 0.0
     for i, w in enumerate(words):
-        ww = draw.textlength(w["word"], font=font)
+        ww = _measure_word(w["word"])
         word_metrics.append({"word": w["word"], "width": ww, "start": w["start"], "end": w["end"]})
         total_w += ww
         if i < len(words) - 1:
-            total_w += space_w
+            total_w += effective_space_w
 
     # Text bounding box for height
-    bbox = font.getbbox("Ayg")  # Representative chars for ascent/descent
+    bbox = draw.textbbox((0, 0), "Ayg", font=font)
     text_h = bbox[3] - bbox[1]
 
-    # Background rectangle
-    bg_w = total_w + config.bg_padding_h * 2
-    bg_h = text_h + config.bg_padding_v * 2
+    # Background rectangle (add stroke padding so outline doesn't clip)
+    stroke_pad = outline_sw
+    bg_w = total_w + config.bg_padding_h * 2 + stroke_pad * 2
+    bg_h = text_h + config.bg_padding_v * 2 + stroke_pad * 2
     center_x = config.resolution_w / 2
     center_y = config.resolution_h * config.position_y
 
@@ -181,6 +227,7 @@ def _render_frame(
     # Draw words
     text_color = _hex_to_rgba(config.text_color, 1.0)
     active_color = _hex_to_rgba(config.active_word_color, 1.0)
+    stroke_rgba = _hex_to_rgba(config.stroke_color, 1.0) if outline_sw > 0 else None
 
     x = center_x - total_w / 2
     y = center_y - text_h / 2 - bbox[1]  # Offset by ascent
@@ -189,10 +236,29 @@ def _render_frame(
         # Is this word currently being spoken?
         is_active = wm["start"] <= current_time < wm["end"]
         color = active_color if is_active else text_color
-        draw.text((x, y), wm["word"], font=font, fill=color)
+
+        if tracking == 0:
+            # Fast path: draw whole word at once
+            if outline_sw > 0:
+                draw.text((x, y), wm["word"], font=font, fill=color,
+                          stroke_width=outline_sw, stroke_fill=stroke_rgba)
+            else:
+                draw.text((x, y), wm["word"], font=font, fill=color)
+        else:
+            # Character-by-character for tracking
+            cx = x
+            for ci, ch in enumerate(wm["word"]):
+                if outline_sw > 0:
+                    draw.text((cx, y), ch, font=font, fill=color,
+                              stroke_width=outline_sw, stroke_fill=stroke_rgba)
+                else:
+                    draw.text((cx, y), ch, font=font, fill=color)
+                cb = draw.textbbox((0, 0), ch, font=font)
+                cx += (cb[2] - cb[0]) + tracking
+
         x += wm["width"]
         if i < len(word_metrics) - 1:
-            x += space_w
+            x += effective_space_w
 
     return img
 
@@ -207,8 +273,10 @@ def render_subtitle_video(
     config: VideoRenderConfig,
     output_dir: str,
     on_progress: Optional[Callable[[ProgressUpdate], None]] = None,
+    source_video_path: Optional[str] = None,
+    custom_groups: Optional[list[dict]] = None,
 ) -> str:
-    """Render subtitle overlay video with transparent background.
+    """Render subtitle video — overlay (transparent) or baked onto source.
 
     Returns the path to the output video file.
     """
@@ -216,26 +284,66 @@ def render_subtitle_video(
 
     os.makedirs(output_dir, exist_ok=True)
     stem = Path(result.audio_path).stem
-    ext = ".webm" if config.output_format == "webm" else ".mov"
-    output_path = str(Path(output_dir) / f"{stem}_subtitles{ext}")
 
-    groups = _build_groups(result, config.words_per_group)
+    is_baked = config.render_mode == "baked"
+
+    if is_baked:
+        ext = ".mp4"
+    elif config.output_format == "webm":
+        ext = ".webm"
+    elif config.output_format == "mp4":
+        ext = ".mp4"
+    else:
+        ext = ".mov"
+
+    suffix = "_subtitled" if is_baked else "_subtitles"
+    output_path = str(Path(output_dir) / f"{stem}{suffix}{ext}")
+
+    if custom_groups:
+        groups = custom_groups
+    else:
+        groups = _build_groups(result, config.words_per_group)
     if not groups:
         raise ValueError("No subtitle data to render")
 
     duration = result.duration or groups[-1]["end"] + 1.0
-    total_frames = int(duration * config.fps)
-    font = _get_font(config.font_family, config.font_size)
+    font = _get_font(config.font_family, config.font_size, getattr(config, 'custom_font_path', None), bold=config.bold)
 
-    def _report(msg: str, pct: float) -> None:
+    def _report(msg: str, pct: float, status: JobStatus = JobStatus.RENDERING) -> None:
         if on_progress:
             on_progress(ProgressUpdate(
-                status=JobStatus.RENDERING, progress=pct, message=msg
+                status=status, progress=pct, message=msg
             ))
 
     _report("Starting render…", 0)
 
-    # Build FFmpeg command for piping raw RGBA frames
+    import threading
+
+    if is_baked:
+        return _render_baked(
+            ffmpeg_path, source_video_path, output_path, config, groups,
+            duration, font, _report,
+        )
+    else:
+        return _render_overlay(
+            ffmpeg_path, output_path, config, groups, duration, font, _report,
+        )
+
+
+def _render_overlay(
+    ffmpeg_path: str,
+    output_path: str,
+    config: VideoRenderConfig,
+    groups: list[dict],
+    duration: float,
+    font: ImageFont.FreeTypeFont,
+    report: Callable[[str, float], None],
+) -> str:
+    """Render transparent overlay (webm / mov / mp4)."""
+    import threading
+
+    total_frames = int(duration * config.fps)
+
     if config.output_format == "webm":
         ffmpeg_cmd = [
             ffmpeg_path, "-y",
@@ -254,8 +362,22 @@ def render_subtitle_video(
             "-an",
             output_path,
         ]
+    elif config.output_format == "mp4":
+        ffmpeg_cmd = [
+            ffmpeg_path, "-y",
+            "-f", "rawvideo",
+            "-pix_fmt", "rgba",
+            "-s", f"{config.resolution_w}x{config.resolution_h}",
+            "-r", str(config.fps),
+            "-i", "pipe:0",
+            "-c:v", "libx264",
+            "-preset", "medium",
+            "-b:v", config.video_bitrate,
+            "-pix_fmt", "yuv420p",
+            "-an",
+            output_path,
+        ]
     else:
-        # ProRes 4444 with alpha (MOV) — use prores_ks speed 12 for fast encode
         ffmpeg_cmd = [
             ffmpeg_path, "-y",
             "-f", "rawvideo",
@@ -272,10 +394,7 @@ def render_subtitle_video(
             output_path,
         ]
 
-    logger.info("FFmpeg command: %s", " ".join(ffmpeg_cmd))
-
-    # Collect stderr in a background thread to avoid pipe-buffer deadlock
-    import threading
+    logger.info("FFmpeg overlay command: %s", " ".join(ffmpeg_cmd))
 
     stderr_chunks: list[bytes] = []
 
@@ -300,17 +419,15 @@ def render_subtitle_video(
     stderr_thread = threading.Thread(target=_drain_stderr, args=(proc.stderr,), daemon=True)
     stderr_thread.start()
 
-    _report("Encoding video…", 5)
+    report("Rendering frames…", 5)
 
-    # Group index for quick lookup
     group_idx = 0
-    report_interval = max(1, total_frames // 50)  # Report ~50 times
+    report_interval = max(1, total_frames // 50)
 
     try:
         for frame_num in range(total_frames):
             t = frame_num / config.fps
 
-            # Find active group for this time
             while group_idx < len(groups) and groups[group_idx]["end"] < t:
                 group_idx += 1
 
@@ -318,20 +435,18 @@ def render_subtitle_video(
             if group_idx < len(groups) and groups[group_idx]["start"] <= t:
                 active_group = groups[group_idx]
 
-            # Render frame
             img = _render_frame(config, font, active_group, t)
             proc.stdin.write(img.tobytes())
 
-            # Progress reporting
             if frame_num % report_interval == 0:
                 pct = 5 + (frame_num / total_frames) * 90
-                _report(
+                report(
                     f"Rendering frame {frame_num}/{total_frames}…",
                     min(pct, 95),
                 )
 
         proc.stdin.close()
-        _report("Encoding video (finalizing)…", 96)
+        report("Encoding video (finalizing)…", 96, JobStatus.ENCODING)
         proc.wait(timeout=1800)
         stderr_thread.join(timeout=5)
 
@@ -343,6 +458,198 @@ def render_subtitle_video(
         proc.kill()
         raise
 
-    _report(f"Video saved: {output_path}", 100)
-    logger.info("Rendered subtitle video: %s", output_path)
+    report(f"Video saved: {output_path}", 100)
+    logger.info("Rendered overlay video: %s", output_path)
+    return output_path
+
+
+def _render_baked(
+    ffmpeg_path: str,
+    source_video_path: Optional[str],
+    output_path: str,
+    config: VideoRenderConfig,
+    groups: list[dict],
+    duration: float,
+    font: ImageFont.FreeTypeFont,
+    report: Callable[[str, float], None],
+) -> str:
+    """Render subtitles baked onto the source video as H.264 MP4."""
+    import json
+    import threading
+
+    if not source_video_path or not os.path.isfile(source_video_path):
+        raise FileNotFoundError(
+            f"Source video not found for baked render: {source_video_path}"
+        )
+
+    # Probe source video to get its native resolution and fps
+    ffprobe_path = shutil.which("ffprobe")
+    if not ffprobe_path:
+        # Derive from ffmpeg path
+        ffprobe_path = str(Path(ffmpeg_path).parent / Path(ffmpeg_path).name.replace("ffmpeg", "ffprobe"))
+    probe_cmd = [
+        ffprobe_path,
+        "-v", "quiet",
+        "-print_format", "json",
+        "-show_streams",
+        "-select_streams", "v:0",
+        source_video_path,
+    ]
+    try:
+        probe_result = subprocess.run(
+            probe_cmd, capture_output=True, text=True, timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        probe_data = json.loads(probe_result.stdout)
+        stream = probe_data["streams"][0]
+        src_w = int(stream["width"])
+        src_h = int(stream["height"])
+    except Exception as e:
+        logger.warning("Could not probe source video, using config resolution: %s", e)
+        src_w = config.resolution_w
+        src_h = config.resolution_h
+
+    # Target resolution is what the user chose in the UI
+    out_w = config.resolution_w
+    out_h = config.resolution_h
+
+    fps = config.fps
+    total_frames = int(duration * fps)
+
+    report("Decoding source video…", 2)
+
+    # Scale source video to fit target resolution (letterbox with black padding)
+    scale_filter = (
+        f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,"
+        f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:color=black"
+    )
+
+    # Decoder: read source video scaled to target resolution as raw RGB frames
+    decode_cmd = [
+        ffmpeg_path, "-y",
+        "-i", source_video_path,
+        "-vf", scale_filter,
+        "-f", "rawvideo",
+        "-pix_fmt", "rgb24",
+        "-s", f"{out_w}x{out_h}",
+        "-r", str(fps),
+        "-an",
+        "pipe:1",
+    ]
+
+    # Encoder: write composited frames as H.264 MP4 with audio from source
+    encode_cmd = [
+        ffmpeg_path, "-y",
+        "-f", "rawvideo",
+        "-pix_fmt", "rgb24",
+        "-s", f"{out_w}x{out_h}",
+        "-r", str(fps),
+        "-i", "pipe:0",
+        "-i", source_video_path,
+        "-map", "0:v",
+        "-map", "1:a?",
+        "-c:v", "libx264",
+        "-preset", "medium",
+        "-b:v", config.video_bitrate,
+        "-pix_fmt", "yuv420p",
+        "-c:a", "aac",
+        "-b:a", "192k",
+        "-shortest",
+        output_path,
+    ]
+
+    logger.info("FFmpeg decode command: %s", " ".join(decode_cmd))
+    logger.info("FFmpeg encode command: %s", " ".join(encode_cmd))
+
+    stderr_chunks_dec: list[bytes] = []
+    stderr_chunks_enc: list[bytes] = []
+
+    def _drain(stream, buf):
+        try:
+            while True:
+                chunk = stream.read(4096)
+                if not chunk:
+                    break
+                buf.append(chunk)
+        except Exception:
+            pass
+
+    decode_proc = subprocess.Popen(
+        decode_cmd,
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+    encode_proc = subprocess.Popen(
+        encode_cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
+
+    threading.Thread(target=_drain, args=(decode_proc.stderr, stderr_chunks_dec), daemon=True).start()
+    threading.Thread(target=_drain, args=(encode_proc.stderr, stderr_chunks_enc), daemon=True).start()
+
+    report("Compositing subtitles onto video…", 5)
+
+    frame_size = out_w * out_h * 3  # rgb24
+    group_idx = 0
+    report_interval = max(1, total_frames // 50)
+
+    try:
+        for frame_num in range(total_frames):
+            raw = decode_proc.stdout.read(frame_size)
+            if not raw or len(raw) < frame_size:
+                # Source video ended before expected duration
+                break
+
+            t = frame_num / fps
+
+            # Find active subtitle group
+            while group_idx < len(groups) and groups[group_idx]["end"] < t:
+                group_idx += 1
+
+            active_group = None
+            if group_idx < len(groups) and groups[group_idx]["start"] <= t:
+                active_group = groups[group_idx]
+
+            # Build source frame as PIL image
+            src_frame = Image.frombytes("RGB", (out_w, out_h), raw)
+
+            # Render subtitle overlay (RGBA) at target resolution
+            sub_frame = _render_frame(config, font, active_group, t)
+
+            # Composite: paste subtitle on source using alpha
+            src_frame.paste(sub_frame, (0, 0), sub_frame)
+
+            # Write composited RGB frame to encoder
+            encode_proc.stdin.write(src_frame.tobytes())
+
+            if frame_num % report_interval == 0:
+                pct = 5 + (frame_num / total_frames) * 90
+                report(
+                    f"Rendering frame {frame_num}/{total_frames}…",
+                    min(pct, 95),
+                )
+
+        decode_proc.stdout.close()
+        encode_proc.stdin.close()
+        report("Encoding video (finalizing)…", 96, JobStatus.ENCODING)
+        decode_proc.wait(timeout=60)
+        encode_proc.wait(timeout=1800)
+
+        if encode_proc.returncode != 0:
+            stderr_text = b"".join(stderr_chunks_enc).decode(errors="replace")
+            raise RuntimeError(f"FFmpeg encode failed (code {encode_proc.returncode}): {stderr_text[:500]}")
+
+    except Exception:
+        decode_proc.kill()
+        encode_proc.kill()
+        raise
+
+    report(f"Video saved: {output_path}", 100)
+    logger.info("Rendered baked subtitle video: %s", output_path)
     return output_path

@@ -1,4 +1,4 @@
-"""SubForge Backend — FastAPI server with REST + WebSocket."""
+"""CapForge Backend — FastAPI server with REST + WebSocket."""
 
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ from backend.models.schemas import (
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="SubForge", version="0.1.0")
+app = FastAPI(title="CapForge", version="0.1.0")
 
 # Allow Electron renderer to call us
 app.add_middleware(
@@ -99,14 +99,11 @@ async def broadcast_progress(update: ProgressUpdate) -> None:
         ws_clients.remove(ws)
 
 
-def sync_progress_callback(update: ProgressUpdate) -> None:
-    """Bridge sync callback from Transcriber to async broadcast."""
-    try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(broadcast_progress(update))
-    except RuntimeError:
-        # No running loop — just log
-        logger.info("[%s] %s", update.status.value, update.message)
+def make_sync_progress_callback(loop: asyncio.AbstractEventLoop):
+    """Create a thread-safe progress callback bound to the given event loop."""
+    def _callback(update: ProgressUpdate) -> None:
+        asyncio.run_coroutine_threadsafe(broadcast_progress(update), loop)
+    return _callback
 
 
 # --- REST Endpoints ---
@@ -175,10 +172,11 @@ async def start_transcription(request: TranscribeRequest):
 
     # Run transcription in thread pool (it's CPU/GPU-bound)
     loop = asyncio.get_running_loop()
+    progress_cb = make_sync_progress_callback(loop)
     try:
         result = await loop.run_in_executor(
             None,
-            lambda: transcriber.transcribe(request, on_progress=sync_progress_callback),
+            lambda: transcriber.transcribe(request, on_progress=progress_cb),
         )
         current_result = result
 
@@ -220,8 +218,6 @@ async def get_result():
 async def update_result(updated: TranscriptionResult):
     """Save edited transcription result (subtitle corrections)."""
     global current_result
-    if current_result is None:
-        raise HTTPException(status_code=404, detail="No transcription result to update")
     current_result = updated
     return {"status": "ok", "segments": len(updated.segments)}
 
@@ -278,14 +274,21 @@ async def render_video(request: VideoRenderRequest):
     ))
 
     loop = asyncio.get_running_loop()
+    progress_cb = make_sync_progress_callback(loop)
     try:
+        custom_groups_dicts = None
+        if request.custom_groups:
+            custom_groups_dicts = [g.model_dump() for g in request.custom_groups]
+
         output_path = await loop.run_in_executor(
             None,
             lambda: render_subtitle_video(
                 current_result,
                 request.config,
                 request.output_dir,
-                on_progress=sync_progress_callback,
+                on_progress=progress_cb,
+                source_video_path=current_result.audio_path if request.config.render_mode == "baked" else None,
+                custom_groups=custom_groups_dicts,
             ),
         )
 
@@ -314,7 +317,7 @@ EXPORTERS = {
     ExportFormat.SRT_STANDARD: (export_srt_standard, ".srt"),
     ExportFormat.JSON: (export_json, ".json"),
     ExportFormat.VTT: (export_vtt, ".vtt"),
-    ExportFormat.SUBFORGE: (export_subforge, ".subforge"),
+    ExportFormat.SUBFORGE: (export_subforge, ".capforge"),
 }
 
 # Suffix overrides to avoid collision when both SRT formats are requested

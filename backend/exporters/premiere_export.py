@@ -1,4 +1,4 @@
-"""SubForge custom format — structured JSON for Premiere Pro MOGRT pipeline."""
+"""CapForge custom format — structured JSON for Premiere Pro MOGRT pipeline."""
 
 import json
 from typing import Any
@@ -7,7 +7,7 @@ from backend.models.schemas import TranscriptionResult
 
 
 def export_subforge(result: TranscriptionResult) -> str:
-    """Return .subforge JSON with word-level data optimized for animated subtitles.
+    """Return .capforge JSON with word-level data optimized for animated subtitles.
 
     Structure:
     - metadata: language, audio path, duration
@@ -17,7 +17,7 @@ def export_subforge(result: TranscriptionResult) -> str:
     """
     doc: dict[str, Any] = {
         "version": "1.0",
-        "format": "subforge",
+        "format": "capforge",
         "metadata": {
             "language": result.language,
             "audio_path": result.audio_path,

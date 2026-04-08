@@ -1,5 +1,5 @@
 /**
- * SubForge API client — REST + WebSocket communication with the Python backend.
+ * CapForge API client — REST + WebSocket communication with the Python backend.
  */
 
 class SubForgeAPI {

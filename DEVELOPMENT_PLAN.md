@@ -1,8 +1,8 @@
-# SubForge — Development Plan
+# CapForge — Development Plan
 
 ## Overview
 
-**SubForge** is a standalone desktop app for automatic subtitle generation with word-by-word alignment, built on WhisperX. It replaces the current terminal/venv workflow with a polished Electron GUI backed by a Python engine. Phase 2 adds a Premiere Pro plugin for animated subtitles (inspired by Sub-Machine).
+**CapForge** is a standalone desktop app for automatic subtitle generation with word-by-word alignment, built on WhisperX. It replaces the current terminal/venv workflow with a polished Electron GUI backed by a Python engine.
 
 ---
 
@@ -75,7 +75,7 @@
   - Standard SRT (sentence-level, grouped)
   - JSON (raw WhisperX output with all alignment data)
   - VTT (WebVTT format)
-  - Custom Premiere format (structured JSON optimized for MOGRT generation)
+  - Custom .capforge JSON format (structured data with word-level timestamps)
 - [ ] **API Endpoints**
   - `POST /api/transcribe` — Start transcription job
   - `GET /api/status` — Get current job status
@@ -133,53 +133,10 @@
 
 ---
 
-## Phase 2: Premiere Pro Animated Subtitle Plugin
-
-### 2.1 — Custom Premiere Data Format
-- [ ] Design `.subforge` JSON format containing:
-  - Word-level timestamps
-  - Speaker labels (if diarized)
-  - Grouping metadata (which words form a display group)
-  - Animation style presets per word/group
-  - Font, color, position settings
-
-### 2.2 — MOGRT Template System
-- [ ] Create base After Effects MOGRT templates for animation styles:
-  - **Word-by-word highlight/reveal** — karaoke-style, active word illuminates
-  - **Pop-in / scale animation** — words appear with bounce/scale
-  - **Color change on active word** — active word in accent color, rest dimmed
-  - **Grouped words (2-3 per line)** — show phrase chunks, not single words
-  - **Custom emoji/graphics** — keyword-triggered decorations
-- [ ] Make templates parametric:
-  - Font family, size, weight
-  - Colors (active, inactive, background)
-  - Position (top, center, bottom, custom)
-  - Animation timing (ease, duration, overlap)
-  - Shadow/outline/glow effects
-
-### 2.3 — Premiere Pro Script/Panel
-- [ ] Build ExtendScript or UXP panel that:
-  - Imports `.subforge` files
-  - Places MOGRT instances on timeline at correct timestamps
-  - Maps word data to MOGRT parameters
-  - Allows style customization before applying
-  - Supports batch-updating styles across all subtitles
-- [ ] Alternatively: generate a complete sequence XML (.prproj) from SubForge app directly
-  - No Premiere plugin needed — just "Import" the generated project
-  - Less flexible but simpler distribution
-
-### 2.4 — Animation Engine (in After Effects via MOGRT)
-- [ ] Expression-driven word animations using JSON data
-- [ ] Support combining multiple animation styles
-- [ ] Responsive text layout (auto-wrap, positioning)
-- [ ] Preview in SubForge GUI before exporting to Premiere
-
----
-
 ## Project Structure
 
 ```
-SubForge/
+CapForge/
 ├── electron/                    # Electron main process
 │   ├── main.js                  # App entry, window management
 │   ├── preload.js               # Context bridge
@@ -212,15 +169,10 @@ SubForge/
 │   │   ├── srt_standard.py      # Sentence-level SRT
 │   │   ├── json_export.py       # Raw JSON
 │   │   ├── vtt_export.py        # WebVTT
-│   │   └── premiere_export.py   # Custom .subforge format
+│   │   └── premiere_export.py   # Custom .capforge format
 │   ├── models/                  # Data models (Pydantic)
 │   │   └── schemas.py
 │   └── requirements.txt
-│
-├── premiere-plugin/             # Phase 2: Premiere Pro integration
-│   ├── mogrt-templates/         # After Effects MOGRT source files
-│   ├── scripts/                 # ExtendScript / UXP scripts
-│   └── README.md
 │
 ├── build/                       # Build configs
 │   ├── electron-builder.yml
@@ -245,7 +197,6 @@ SubForge/
 | ML Framework      | PyTorch (CUDA 11.8 / CPU)           |
 | Diarization       | pyannote.audio (via WhisperX)       |
 | Packaging         | electron-builder + embedded Python  |
-| Premiere Plugin   | MOGRT (After Effects) + ExtendScript|
 
 ---
 
@@ -279,12 +230,6 @@ SubForge/
 - First-run setup wizard
 - Model download manager
 
-### Milestone 6: Premiere Pro Integration (Phase 2)
-- Design .subforge data format
-- Build MOGRT templates in After Effects
-- Create Premiere import script/panel
-- End-to-end: Audio → SubForge → Premiere with animated subtitles
-
 ---
 
 ## Key Design Decisions
@@ -297,7 +242,7 @@ SubForge/
 | Languages | All ~99 Whisper languages | Maximum flexibility, no artificial limits |
 | Model selection | Auto based on hardware | Users don't need to understand model sizes |
 | Diarization | Optional toggle | Available when needed, doesn't complicate simple tasks |
-| Premiere integration | MOGRT + Script | Most flexible, works with existing Premiere workflow |
+| Premiere integration | Removed | Scope reduced to focus on core transcription features |
 | Animation styles | Fully customizable | All styles available: highlight, pop-in, color, grouped, emoji |
 | UI style | Minimalist/Clean + Octicons | Professional, approachable, not intimidating |
 | Distribution | .exe installer + portable zip | Covers both install-preferred and portable users |

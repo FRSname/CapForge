@@ -83,7 +83,7 @@ class Transcriber:
 
         result = self._model.transcribe(audio, **transcribe_kwargs)
         detected_language = result.get("language", request.language)
-        self._report(on_progress, JobStatus.TRANSCRIBING, 50, f"Transcription complete (language: {detected_language})")
+        self._report(on_progress, JobStatus.TRANSCRIBING, 50, f"Audio transcribed — detected language: {detected_language}")
 
         # --- Step 3: Align ---
         self._check_cancelled()

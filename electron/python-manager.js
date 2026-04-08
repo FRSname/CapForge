@@ -29,7 +29,7 @@ class PythonBackend {
   start() {
     return new Promise((resolve, reject) => {
       const python = findPython();
-      console.log(`[SubForge] Starting backend: ${python}`);
+      console.log(`[CapForge] Starting backend: ${python}`);
 
       this.process = spawn(
         python,
@@ -54,7 +54,7 @@ class PythonBackend {
       });
 
       this.process.on("exit", (code) => {
-        console.log(`[SubForge] Backend exited with code ${code}`);
+        console.log(`[CapForge] Backend exited with code ${code}`);
         this.process = null;
       });
 
@@ -85,7 +85,7 @@ class PythonBackend {
       }
       const req = http.get(`http://127.0.0.1:${this.port}/api/status`, (res) => {
         if (res.statusCode === 200) {
-          console.log("[SubForge] Backend is ready.");
+          console.log("[CapForge] Backend is ready.");
           resolve();
         } else {
           setTimeout(check, 500);

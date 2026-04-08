@@ -1,4 +1,4 @@
-# SubForge — Project Documentation
+# CapForge — Project Documentation
 
 > Auto subtitle generator with word-by-word alignment, inline editing, and video/audio preview.  
 > Built as a standalone desktop app: **Electron** frontend + **Python FastAPI** backend + **WhisperX** engine.
@@ -49,7 +49,7 @@
 │  backend/engine/transcriber.py — WhisperX pipeline │
 │  backend/engine/hardware.py — GPU auto-detection   │
 │  backend/models/schemas.py — Pydantic models       │
-│  backend/exporters/* — SRT, VTT, JSON, SubForge   │
+│  backend/exporters/* — SRT, VTT, JSON, CapForge   │
 ├───────────────────────────────────────────────────┤
 │              WhisperX + CUDA                        │
 │  whisperx 3.8.5 → faster-whisper → ctranslate2    │
@@ -69,7 +69,7 @@
 ## Project Structure
 
 ```
-SubForge/
+CapForge/
 ├── backend/
 │   ├── __init__.py
 │   ├── main.py                  # FastAPI app — all endpoints + WS
@@ -84,7 +84,7 @@ SubForge/
 │   │   ├── srt_word.py          # Word-level SRT (one word per entry)
 │   │   ├── srt_standard.py      # Sentence-level SRT
 │   │   ├── vtt_export.py        # WebVTT
-│   │   └── premiere_export.py   # .subforge custom format for Premiere Pro
+│   │   └── premiere_export.py   # .capforge custom format for Premiere Pro
 │   └── models/
 │       ├── __init__.py
 │       └── schemas.py           # All Pydantic models + enums
@@ -533,7 +533,7 @@ pip install torch==2.8.0 torchaudio==2.8.0 torchvision==0.23.0 --index-url https
 | `srt_standard` | `.srt` (or `_standard.srt`) | One sentence/segment per SRT entry |
 | `json` | `.json` | Full `TranscriptionResult` as JSON |
 | `vtt` | `.vtt` | WebVTT format |
-| `subforge` | `.subforge` | Custom JSON with word-level data + auto-grouped word clusters for Premiere Pro MOGRT pipeline |
+| `subforge` | `.capforge` | Custom JSON with word-level data + auto-grouped word clusters for Premiere Pro MOGRT pipeline |
 
 When both `srt_word` and `srt_standard` are exported, filenames get `_word.srt` / `_standard.srt` suffixes to avoid collision.
 
@@ -585,7 +585,6 @@ npm run backend   →  python -m uvicorn backend.main:app (standalone backend)
 ## Future Milestones
 
 - **Milestone 5 — Packaging:** Bundle as standalone installer (electron-builder). Embed Python + .venv.
-- **Milestone 6 — Premiere Pro Plugin:** Use .subforge export format to drive animated subtitle MOGRTs via ExtendScript or CEP panel.
 
 ---
 
