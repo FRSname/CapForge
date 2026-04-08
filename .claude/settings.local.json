@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"e:\\\\ALL-RESOURCES\\\\Scripts-and-Tricks\\\\Subtittles-auto-generator\" -type f \\\\\\( -name \"*.py\" -o -name \"*.js\" -o -name \"*.html\" -o -name \"*.css\" -o -name \"*.json\" \\\\\\) ! -path \"*/node_modules/*\" ! -path \"*/__pycache__/*\" -exec wc -l {} \\\\;)",
+      "Bash(ls e:/ALL-RESOURCES/Scripts-and-Tricks/Subtittles-auto-generator/LICENSE*)",
+      "Bash(npm install:*)",
+      "Bash(curl -L -o ffmpeg-full.zip https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.zip)",
+      "Bash(curl -sI -L https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-full.zip)",
+      "Bash(curl -s https://api.github.com/repos/GyanD/codexffmpeg/releases/latest)",
+      "Bash(rm -f ffmpeg-full.zip)",
+      "Bash(curl -L --progress-bar -o ffmpeg-full.zip https://github.com/GyanD/codexffmpeg/releases/download/8.1/ffmpeg-8.1-full_build.zip)",
+      "Bash(unzip -q ffmpeg-full.zip)",
+      "Bash(mv ffmpeg-8.1-full_build/bin/ffmpeg.exe ffmpeg-8.1-full_build/bin/ffprobe.exe ffmpeg-8.1-full_build/bin/ffplay.exe .)",
+      "Bash(mv ffmpeg-8.1-full_build/LICENSE ffmpeg-LICENSE.txt)",
+      "Bash(rm -rf ffmpeg-8.1-full_build ffmpeg-full.zip)",
+      "Bash(curl -L --progress-bar -o python-embed.zip https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip)"
+    ]
+  }
+}

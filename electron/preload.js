@@ -44,4 +44,16 @@ contextBridge.exposeInMainWorld("subforge", {
 
   /** Open a project file. Returns parsed data or null. */
   openProject: () => ipcRenderer.invoke("project:open"),
+
+  /** Read a persisted UI preference. Returns stored value or `fallback`. */
+  getState: (key, fallback) => ipcRenderer.invoke("state:get", key, fallback),
+
+  /** Write a persisted UI preference. */
+  setState: (key, value) => ipcRenderer.invoke("state:set", key, value),
+
+  /** Open the folder containing backend logs in the OS file manager. */
+  openLogsFolder: () => ipcRenderer.invoke("logs:openFolder"),
+
+  /** Open the current backend log file in the default text viewer. */
+  openLogFile: () => ipcRenderer.invoke("logs:openFile"),
 });

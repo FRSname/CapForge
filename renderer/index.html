@@ -25,9 +25,9 @@
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1ZM1.5 2.75a.25.25 0 0 1 .25-.25H5c.13 0 .24.06.3.15L6.2 4.1c.33.44.85.7 1.3.9h6.75a.25.25 0 0 1 .25.25v8c0 .138-.112.25-.25.25H1.75a.25.25 0 0 1-.25-.25Z"/></svg>
         Open
       </button>
-      <button id="btn-export" class="titlebar-btn hidden" title="Export Files">
+      <button id="btn-export" class="titlebar-btn hidden" title="Export SRT">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06Z"/></svg>
-        Export
+        Export SRT
       </button>
       <button id="btn-new" class="titlebar-btn hidden" title="New Transcription">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a.75.75 0 0 1 .75.75v6.5h6.5a.75.75 0 0 1 0 1.5h-6.5v6.5a.75.75 0 0 1-1.5 0v-6.5H.75a.75.75 0 0 1 0-1.5h6.5V.75A.75.75 0 0 1 8 0Z"/></svg>
@@ -132,6 +132,11 @@
                   <svg id="icon-pause" width="20" height="20" viewBox="0 0 16 16" fill="currentColor" class="hidden"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0ZM6 4.75A.75.75 0 0 1 6.75 4h.5a.75.75 0 0 1 .75.75v6.5a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1-.75-.75Zm4 0a.75.75 0 0 1-.75.75h-.5A.75.75 0 0 1 8 4.75v6.5a.75.75 0 0 1 .75.75h.5a.75.75 0 0 1 .75-.75Z"/></svg>
                 </button>
                 <span class="player-time" id="player-time">00:00 / 00:00</span>
+                <span class="player-shortcuts">
+                  <span class="kbd">Space</span> play &nbsp;
+                  <span class="kbd">E</span> edit &nbsp;
+                  <span class="kbd">Tab</span> next
+                </span>
               </div>
             </div>
 
@@ -187,12 +192,8 @@
           <div class="results-sidebar">
             <!-- ===== Subtitle Studio ===== -->
             <div class="subtitle-studio" id="subtitle-studio">
-              <button id="btn-studio-toggle" class="studio-toggle-btn">
-            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0ZM8 0a8 8 0 1 0 0 16A8 8 0 0 0 8 0Zm.75 4.75a.75.75 0 0 0-1.5 0v2.5h-2.5a.75.75 0 0 0 0 1.5h2.5v2.5a.75.75 0 0 0 1.5 0v-2.5h2.5a.75.75 0 0 0 0-1.5h-2.5Z"/></svg>
-            Subtitle Video Studio
-          </button>
-
-          <div id="studio-panel" class="studio-panel hidden">
+              <div class="studio-title">Captions Settings</div>
+          <div id="studio-panel" class="studio-panel">
             <!-- Presets row -->
             <div class="studio-preset-row">
               <select id="studio-preset">
@@ -208,6 +209,7 @@
 
             <!-- Style Controls -->
             <div class="studio-controls">
+              <div class="studio-section-label">Typography</div>
               <div class="studio-row">
                 <label>Font</label>
                 <select id="studio-font">
@@ -254,6 +256,7 @@
                 <span id="studio-word-spacing-val" class="range-val">0px</span>
               </div>
 
+              <div class="studio-section studio-section-label">Colors</div>
               <div class="studio-row">
                 <label>Stroke Width</label>
                 <input type="range" id="studio-stroke-width" min="0" max="10" value="0" />
@@ -290,6 +293,7 @@
                 <span id="studio-bg-opacity-val" class="range-val">90%</span>
               </div>
 
+              <div class="studio-section studio-section-label">Layout</div>
               <div class="studio-row">
                 <label>BG Padding H</label>
                 <input type="range" id="studio-pad-h" min="0" max="100" value="40" />
@@ -320,6 +324,7 @@
                 <span id="studio-pos-y-val" class="range-val">82%</span>
               </div>
 
+              <div class="studio-section studio-section-label">Output</div>
               <div class="studio-row">
                 <label>Resolution</label>
                 <select id="studio-resolution">

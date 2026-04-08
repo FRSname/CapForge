@@ -16,13 +16,33 @@ class SubForgeAPI {
     this.wsBase = `ws://127.0.0.1:${port}`;
   }
 
+  /**
+   * Normalize FastAPI error responses. The backend now returns structured
+   * details like `{title, hint, raw}` for actionable errors; older endpoints
+   * return a plain string. We produce an Error whose `.message` is suitable
+   * for a toast ("<title> — <hint>") and attach the raw fields on the error
+   * object for callers that want to show them separately.
+   */
+  async _handleError(res) {
+    const fallback = { detail: res.statusText };
+    const body = await res.json().catch(() => fallback);
+    const detail = body.detail;
+    const err = new Error();
+    if (detail && typeof detail === "object" && detail.title) {
+      err.title = detail.title;
+      err.hint = detail.hint || "";
+      err.raw = detail.raw || "";
+      err.message = detail.hint ? `${detail.title} — ${detail.hint}` : detail.title;
+    } else {
+      err.message = typeof detail === "string" ? detail : res.statusText;
+    }
+    return err;
+  }
+
   /** GET helper */
   async _get(path) {
     const res = await fetch(`${this.base}${path}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || res.statusText);
-    }
+    if (!res.ok) throw await this._handleError(res);
     return res.json();
   }
 
@@ -33,10 +53,7 @@ class SubForgeAPI {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || res.statusText);
-    }
+    if (!res.ok) throw await this._handleError(res);
     return res.json();
   }
 
@@ -47,10 +64,7 @@ class SubForgeAPI {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(err.detail || res.statusText);
-    }
+    if (!res.ok) throw await this._handleError(res);
     return res.json();
   }
 
@@ -92,8 +106,14 @@ class SubForgeAPI {
     return this._post("/api/render-video", params);
   }
 
-  cancelTranscription() {
+  /** Cancel the running job — transcription OR video render. */
+  cancelJob() {
     return this._post("/api/cancel", {});
+  }
+
+  /** @deprecated use cancelJob() — kept for callers still using the old name. */
+  cancelTranscription() {
+    return this.cancelJob();
   }
 
   /** Get URL to stream an audio file through the backend. */

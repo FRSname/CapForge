@@ -582,10 +582,219 @@ npm run backend   →  python -m uvicorn backend.main:app (standalone backend)
 
 ---
 
-## Future Milestones
+## Packaging & Distribution (Milestone 5)
 
-- **Milestone 5 — Packaging:** Bundle as standalone installer (electron-builder). Embed Python + .venv.
+CapForge ships as a single NSIS installer (`CapForge-Setup-<version>.exe`) built with electron-builder. The installer itself is ~155 MB; on first launch a setup wizard downloads the Python package set and Whisper model to `%APPDATA%\CapForge\`.
+
+### Build artifacts
+
+- `appId`: `cz.frscz.capforge`, publisher `FRScz`
+- `package.json` → `build.files` bundles `electron/**`, `renderer/**`, `backend/**/*.py`
+- `build.extraResources`:
+  - `resources/bin/` → `resources/bin/` (ffmpeg 8.1 full-shared: ffmpeg.exe, ffprobe.exe, libav*.dll, swresample, swscale, ~235 MB)
+  - `resources/python/python-embed.zip` → `resources/python/` (Python 3.11.9 embeddable, ~11 MB)
+- `build.asarUnpack`: `backend/**/*` — **critical**, see "asar trap" below
+- NSIS config: per-user install, user can choose folder, desktop + Start-menu shortcut, `deleteAppDataOnUninstall: false`
+
+### First-run runtime bootstrap (`electron/runtime-setup.js`)
+
+Runs once on first launch (or whenever `RUNTIME_VERSION` is bumped). All data lands under `%APPDATA%\CapForge\`:
+
+```
+%APPDATA%\CapForge\
+├── runtime\
+│   ├── python\               ← extracted embedded Python 3.11.9
+│   │   ├── python.exe
+│   │   ├── python311._pth    ← patched: "import site" uncommented
+│   │   └── Lib\site-packages\
+│   └── .state.json           ← { version, gpu, completed, torchVariant }
+├── models\                    ← Whisper + alignment model cache (HF_HOME)
+├── fonts\                     ← user-imported font files
+├── presets.json
+├── app-state.json             ← window bounds, last preset, last paths
+└── logs\backend.log           ← rotated at 5 MB, one `.1` backup
+```
+
+Setup steps, in order:
+
+1. **GPU detection** — `nvidia-smi --query-gpu=name --format=csv,noheader`
+2. **Extract Python** — PowerShell `Expand-Archive` of bundled `python-embed.zip`
+3. **Patch `python311._pth`** — write out `python311.zip\n.\nLib\\site-packages\n\nimport site\n` so site-packages actually loads
+4. **Bootstrap pip** — download `get-pip.py` from `bootstrap.pypa.io`, run it with the embedded Python
+5. **Install WhisperX + FastAPI stack** from PyPI (pulls CPU torch transitively)
+6. **GPU path only**: uninstall the CPU torch/torchaudio/torchvision that whisperx pulled in, then reinstall from the cu124 index with **pinned versions** (see "torch install order trap" below)
+7. **Download Whisper model** — run `whisperx.load_model("large-v3-turbo", "cpu", compute_type="int8", download_root=modelDir)` to force the ~1.6 GB download with HF progress forwarded to the wizard UI
+8. Write `.state.json` with `completed: true`
+
+Progress for every step is streamed to the setup window via IPC (`setup:progress`).
+
+### Backend launch (`electron/python-manager.js`)
+
+On each app start:
+
+- `findPython()` prefers the managed runtime (`%APPDATA%\CapForge\runtime\python\python.exe`), falls back to `.venv` in dev, then system `python`
+- Spawns `python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000`
+- **cwd** is the folder that contains `backend/` on the real filesystem — in packaged mode that's `process.resourcesPath/app.asar.unpacked` (see "asar trap")
+- Prepends `resources/bin` to `PATH` so whisperx finds the bundled ffmpeg
+- Env: `CAPFORGE_FFMPEG`, `CAPFORGE_FFPROBE`, `CAPFORGE_MODEL_DIR`, `HF_HOME`, `HUGGINGFACE_HUB_CACHE`, `PYTHONIOENCODING=utf-8`, `PYTHONUTF8=1`
+- Every stdout/stderr line is written to both the Electron console and `%APPDATA%\CapForge\logs\backend.log` (auto-rotated at 5 MB)
+
+### Update check (`electron/update-check.js`)
+
+- Hits `https://api.github.com/repos/FRScz/capforge/releases/latest` anonymously
+- Compares tag (`v1.2.0` → `1.2.0`) against `app.getVersion()` using a semver-ish comparator
+- If newer, shows a dialog with Download/Later buttons; Download opens the `.exe` asset URL in the default browser
+- Runs silently 5 s after launch, and can be triggered manually from Help → "Check for Updates…"
+- No auto-install, no delta updates — the user runs the downloaded installer manually
 
 ---
 
-*Last updated: April 7, 2026*
+## Packaging Lessons Learned
+
+These all cost real debugging time. Keep them here so the next version doesn't step on the same rakes.
+
+### A. The asar trap — Python can't read files inside `app.asar`
+
+**Symptom:** Installer runs clean, wizard completes, then on launch the backend crashes immediately with either `spawn python.exe ENOENT` or `ModuleNotFoundError: No module named 'backend'`.
+
+**Cause:** electron-builder packs the whole app into `resources/app.asar` — a virtual file system that only Node's asar-aware loader understands. An external Python interpreter has no idea what asar is. Two things break at once:
+
+1. The spawn's `cwd` of `__dirname/..` resolves to a path *inside* `app.asar`. That path doesn't exist on the real filesystem, so Windows `CreateProcess` fails with ENOENT — and Node misleadingly attributes the error to the child exe.
+2. Even with a valid cwd, Python can't import `backend.main` because `backend/` lives inside the asar archive.
+
+**Fix (both sides of the problem):**
+- In `package.json` → `"build"`: add `"asarUnpack": ["backend/**/*"]`. electron-builder will then also extract a real on-disk copy to `resources/app.asar.unpacked/backend/`.
+- In `python-manager.js`: set `cwd` to `process.resourcesPath/app.asar.unpacked` (the real folder that now contains `backend/`).
+- Do **not** use `PYTHONPATH` to point at this location — embedded Python ignores `PYTHONPATH` entirely whenever a `._pth` file exists. Instead rely on `.` being in `python311._pth`: whatever we set as cwd is automatically on `sys.path`, so `backend.main:app` resolves cleanly.
+
+### B. The torch install order trap
+
+**Symptom:** GPU was detected fine during the wizard and the wizard reported installing the CUDA torch variant, but at runtime `torch.cuda.is_available()` returns `False` and the backend runs entirely on CPU.
+
+**Cause:** If torch is installed *first* from the CUDA index and whisperx is installed *afterwards* from PyPI, pip's dependency resolver sees whisperx's `torch` requirement, finds a newer version on PyPI (CPU-only wheels), and **silently upgrades your CUDA torch back to CPU**. The cu124 torch wheel is gone before the backend ever starts.
+
+**Fix:** reverse the order:
+1. Install `whisperx` + FastAPI + the rest of the backend stack first. Whisperx will drag in a CPU torch — that's fine, treat it as disposable.
+2. `pip uninstall -y torch torchaudio torchvision`
+3. `pip install torch==X.Y.Z torchaudio==X.Y.Z torchvision==X.Y.Z --index-url https://download.pytorch.org/whl/cu124`
+
+Pinning exact versions is mandatory. See the next two traps for why.
+
+### C. The `--extra-index-url` trap
+
+**Symptom:** Wizard succeeds cleanly and reports installing CUDA torch from the cu124 index, but the backend log shows something like `torch=2.11.0+cpu`.
+
+**Cause:** We added `--extra-index-url https://pypi.org/simple` so transitive deps like `filelock`, `sympy`, `jinja2`, `fsspec`, `typing-extensions`, `networkx` could still resolve. But with both indexes active, pip picks the **highest version available across all indexes**. The cu124 index tops out at `torch 2.6.0+cu124`; PyPI already has `torch 2.11.0+cpu`. PyPI wins and you're back on CPU.
+
+**Fix:** drop `--extra-index-url` entirely. The pytorch cu124 index mirrors all the transitive dependencies torch needs. Pinning versions (see next trap) also forces pip to find the exact wheel on the cu124 index.
+
+### D. The `--no-deps --force-reinstall` trap
+
+**Symptom:** Wizard fails mid-installation with `ModuleNotFoundError: Could not import module 'Pipeline'` from transformers when whisperx tries to load its ASR module.
+
+**Cause:** I originally tried to fix trap B by reinstalling torch with `--force-reinstall --no-deps`. `--no-deps` skips torch's own dep chain, which in isolation is fine, but it makes the solver believe torch's deps are already satisfied. The next thing that triggers an import of `transformers.pipelines` crashes because something in the dep closure is actually missing or mismatched. transformers' `_LazyModule` then reraises the underlying error as the cryptic `Could not import module 'Pipeline'`.
+
+**Fix:** don't use `--no-deps`. Use a clean uninstall followed by a normal `pip install` with pinned versions, so the full dep tree is resolved consistently from a single index.
+
+### E. The torch/torchvision ABI mismatch trap
+
+**Symptom:** Wizard reports cu124 install succeeded. When whisperx loads its alignment model, it crashes with `RuntimeError: operator torchvision::nms does not exist`.
+
+**Cause:** We only uninstalled/reinstalled `torch` and `torchaudio`. `torchvision` is ABI-locked to the exact torch build it was compiled against. Leaving the CPU-compiled `torchvision` behind while replacing torch with cu124 = broken custom ops when it tries to call into the C++ extension.
+
+**Fix:** always treat `torch`, `torchaudio`, and `torchvision` as a single atomic set — uninstall all three, reinstall all three with matching versions.
+
+### F. The "what version actually exists" trap
+
+**Symptom:** `ERROR: Could not find a version that satisfies the requirement torch==2.8.0 (from versions: 2.4.0+cu124, 2.4.1+cu124, 2.5.0+cu124, 2.5.1+cu124, 2.6.0+cu124)`.
+
+**Cause:** I assumed cu124 hosted torch 2.6–2.8 like the CPU PyPI index. Each CUDA index lags behind PyPI by several minor versions, and the exact set changes over time.
+
+**Fix:** always let pip's own error output tell you what versions are actually on the index, then pin to the newest one it lists. At the time of writing, cu124 → `torch==2.6.0 torchaudio==2.6.0 torchvision==0.21.0`.
+
+### G. `RUNTIME_VERSION` — the "bump this when the recipe changes" integer
+
+`runtime-setup.js` keeps a small integer `RUNTIME_VERSION`. `isRuntimeReady()` only returns `true` if the on-disk `.state.json` matches the current version. Any time the install recipe changes — Python version, package pin, `._pth` patch, new step — bump this number. Next launch on every user's machine will wipe the runtime and reinstall cleanly. No user action needed, no stale packages, no half-upgraded state.
+
+### H. `isRuntimeReady()` self-heal
+
+If `.state.json` claims the runtime is installed but `python.exe` is missing (antivirus quarantined it, user nuked the folder, disk glitch), the old code happily tried to spawn a nonexistent binary and showed a cryptic error. `isRuntimeReady()` now deletes the stale `.state.json` in this case, which forces the next launch through the wizard and reinstalls cleanly.
+
+### I. Windows Smart App Control blocks the unsigned uninstaller
+
+**Symptom:** Uninstall from Add/Remove Programs silently fails, and Windows Security keeps popping up "Part of this app has been blocked — can't confirm who published Un_N.exe".
+
+**Cause:** NSIS writes a freshly generated uninstaller stub (`Un_N.exe`) to the install folder when you click Uninstall. Because it isn't code-signed, Smart App Control refuses to load it.
+
+**Workarounds:**
+- Right-click the installer → Properties → Unblock before running (marks that specific file trusted).
+- Delete the install folder manually (`%LOCALAPPDATA%\Programs\CapForge\`) and remove the `HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\CapForge` registry key.
+- Real fix: buy a code signing certificate and configure `win.certificateFile` in `package.json`.
+
+### J. The `audio/mpeg` hardcode (already in Solutions, kept here for context)
+
+Leaving this note here so future me does not re-add it: never hardcode `media_type="audio/mpeg"` on `FileResponse`. FastAPI's auto-detection from the file extension works for every format CapForge supports. Hardcoding broke WAV/MP4 in an earlier milestone.
+
+---
+
+## Currently Shipping Versions (as of this build)
+
+### Python runtime (installed on first launch)
+
+```
+# Pinned — cu124 index tops out at 2.6.0
+torch==2.6.0+cu124
+torchaudio==2.6.0+cu124
+torchvision==0.21.0+cu124
+
+# Unpinned — latest compatible from PyPI
+whisperx
+fastapi[standard]
+uvicorn[standard]
+websockets
+pydantic>=2.0
+```
+
+Install indexes:
+- CPU users: `https://download.pytorch.org/whl/cpu`
+- NVIDIA users: `https://download.pytorch.org/whl/cu124` (driver ≥ 550 required)
+
+Default Whisper model downloaded during setup: `large-v3-turbo` (~1.6 GB, near-v3 quality at ~4× speed).
+
+### Bundled native binaries (`resources/bin/`)
+
+```
+ffmpeg 8.1 full-shared build
+├── ffmpeg.exe, ffprobe.exe
+├── libavcodec-62, libavdevice-62, libavfilter-11, libavformat-62, libavutil-60
+└── libswresample-6, libswscale-9
+```
+
+Codecs verified in use: `libx264`, `libvpx-vp9`, `prores_ks`, `aac`.
+
+### Node / Electron
+
+```json
+{
+  "dependencies": {
+    "tree-kill": "^1.2.2",
+    "wavesurfer.js": "^7.12.5"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  }
+}
+```
+
+---
+
+## Future Milestones
+
+- **Code signing** — buy an EV or standard code signing certificate so Smart App Control stops blocking the installer and uninstaller.
+- **Cancel button** for video render progress (backend already supports it via `cancel_render()` / `_check_cancel()`).
+- **Mid-install cancellation** — drop a `.installing` sentinel file so interrupted installs are detected and cleaned up on next launch.
+
+---
+
+*Last updated: April 8, 2026*

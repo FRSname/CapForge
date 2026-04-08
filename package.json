@@ -1,20 +1,93 @@
 {
   "name": "capforge",
+  "productName": "CapForge",
   "version": "0.1.0",
   "description": "CapForge — Auto subtitle generator with word-by-word alignment",
   "main": "electron/main.js",
+  "author": {
+    "name": "FRScz",
+    "email": "noreply@frscz.local"
+  },
+  "license": "MIT",
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000"
+    "backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir"
   },
-  "author": "FRSname",
-  "license": "MIT",
   "devDependencies": {
-    "electron": "^33.0.0"
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
   },
   "dependencies": {
     "tree-kill": "^1.2.2",
     "wavesurfer.js": "^7.12.5"
+  },
+  "build": {
+    "appId": "cz.frscz.capforge",
+    "productName": "CapForge",
+    "copyright": "Copyright © 2026 FRScz",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "backend/**/*.py",
+      "backend/requirements.txt",
+      "!backend/__pycache__/**",
+      "!**/*.pyc",
+      "!**/.venv/**",
+      "!**/node_modules/**/{CHANGELOG.md,README.md,README,readme.md,readme}",
+      "!**/node_modules/**/{test,__tests__,tests,powered-test,example,examples}",
+      "!**/node_modules/**/*.d.ts",
+      "!**/node_modules/**/.bin",
+      "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
+    ],
+    "asarUnpack": [
+      "backend/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/bin",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      },
+      {
+        "from": "resources/python",
+        "to": "python",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "CapForge-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "CapForge",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "license": "LICENSE.txt",
+      "deleteAppDataOnUninstall": false
+    }
   }
 }

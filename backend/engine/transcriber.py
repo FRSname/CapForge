@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gc
 import logging
+import os
 from pathlib import Path
 from typing import Any, Callable, Optional
 
@@ -141,7 +142,14 @@ class Transcriber:
         if self._model is not None and self._model_size == model_size:
             return  # Already loaded
         self.unload_model()
-        self._model = whisperx.load_model(model_size, device, compute_type=compute_type)
+        # Use CapForge-managed model directory if set by Electron. This keeps
+        # models alongside the app's user data instead of the global HF cache,
+        # so uninstall/reinstall and model management Just Work.
+        model_dir = os.environ.get("CAPFORGE_MODEL_DIR")
+        kwargs: dict[str, Any] = {"compute_type": compute_type}
+        if model_dir:
+            kwargs["download_root"] = model_dir
+        self._model = whisperx.load_model(model_size, device, **kwargs)
         self._model_size = model_size
 
     @staticmethod

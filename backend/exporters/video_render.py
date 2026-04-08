@@ -24,6 +24,34 @@ from backend.models.schemas import (
 
 logger = logging.getLogger(__name__)
 
+
+class RenderCancelled(Exception):
+    """Raised when the frontend asks to cancel a running render."""
+
+
+# Module-level cancel sentinel. `cancel_render()` flips this to True; the
+# render loops check it between frames and raise RenderCancelled when set.
+# A simple flag is fine here because only one render runs at a time (the
+# backend enforces that in `start_transcription` / `render_video`).
+_cancel_requested = False
+
+
+def cancel_render() -> None:
+    """Request cancellation of the running render, if any."""
+    global _cancel_requested
+    _cancel_requested = True
+
+
+def _reset_cancel() -> None:
+    global _cancel_requested
+    _cancel_requested = False
+
+
+def _check_cancel() -> None:
+    if _cancel_requested:
+        raise RenderCancelled("Render cancelled by user")
+
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -87,11 +115,19 @@ def _get_font(family: str, size: int, custom_path: str | None = None, bold: bool
 
 
 def _find_ffmpeg() -> str:
-    """Find ffmpeg executable."""
+    """Find ffmpeg executable.
+
+    Priority:
+      1. CAPFORGE_FFMPEG env var (set by Electron to the bundled binary)
+      2. ffmpeg on PATH
+      3. Common Windows install locations
+    """
+    bundled = os.environ.get("CAPFORGE_FFMPEG")
+    if bundled and os.path.isfile(bundled):
+        return bundled
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg:
         return ffmpeg
-    # Check common locations
     for candidate in [
         r"C:\ffmpeg\bin\ffmpeg.exe",
         r"C:\Program Files\ffmpeg\bin\ffmpeg.exe",
@@ -99,7 +135,8 @@ def _find_ffmpeg() -> str:
         if os.path.isfile(candidate):
             return candidate
     raise FileNotFoundError(
-        "FFmpeg not found. Install FFmpeg and ensure it is on your PATH."
+        "FFmpeg not found. Install FFmpeg and ensure it is on your PATH, "
+        "or reinstall CapForge so the bundled copy is restored."
     )
 
 
@@ -280,6 +317,7 @@ def render_subtitle_video(
 
     Returns the path to the output video file.
     """
+    _reset_cancel()
     ffmpeg_path = _find_ffmpeg()
 
     os.makedirs(output_dir, exist_ok=True)
@@ -426,6 +464,10 @@ def _render_overlay(
 
     try:
         for frame_num in range(total_frames):
+            # Poll cancellation every frame — cheap, and lets us abort a
+            # multi-minute render within a single frame time (~30ms).
+            _check_cancel()
+
             t = frame_num / config.fps
 
             while group_idx < len(groups) and groups[group_idx]["end"] < t:
@@ -601,6 +643,7 @@ def _render_baked(
 
     try:
         for frame_num in range(total_frames):
+            _check_cancel()
             raw = decode_proc.stdout.read(frame_size)
             if not raw or len(raw) < frame_size:
                 # Source video ended before expected duration

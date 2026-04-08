@@ -822,7 +822,7 @@
       await api.updateResult(transcriptionResult);
       hasEdits = false;
       editStatus.textContent = "Saved";
-      showToast("Subtitles saved");
+      showToast("Subtitles saved", "success");
       // Re-render to reflect clean state with updated word spans
       renderResults(transcriptionResult);
       // Refresh groups + preview to reflect edited text
@@ -831,7 +831,7 @@
       renderGroupEditor();
       drawStudioFrame();
     } catch (err) {
-      showToast("Save failed: " + err.message);
+      showToast("Save failed: " + err.message, "error");
     } finally {
       btnEditSave.disabled = false;
       btnEditSave.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg> Save`;
@@ -1042,15 +1042,15 @@
     return div.innerHTML;
   }
 
-  function showToast(message) {
+  function showToast(message, type = "") {
     // Simple toast notification
     let toast = document.getElementById("toast");
     if (!toast) {
       toast = document.createElement("div");
       toast.id = "toast";
-      toast.className = "toast";
       document.body.appendChild(toast);
     }
+    toast.className = "toast" + (type ? " toast-" + type : "");
     toast.textContent = message;
     toast.classList.add("toast-visible");
     setTimeout(() => toast.classList.remove("toast-visible"), 3000);
@@ -1071,9 +1071,9 @@
         output_dir: outputDir,
       });
       renderExportedFiles(res.files);
-      showToast(`Exported ${res.files.length} file(s)`);
+      showToast(`Exported ${res.files.length} file(s)`, "success");
     } catch (err) {
-      showToast(`Export failed: ${err.message}`);
+      showToast(`Export failed: ${err.message}`, "error");
     } finally {
       btnExport.disabled = false;
       btnExport.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06Z"/></svg> Export Files`;
@@ -1084,8 +1084,6 @@
   // SUBTITLE VIDEO STUDIO
   // =========================================================================
 
-  const btnStudioToggle = document.getElementById("btn-studio-toggle");
-  const studioPanel = document.getElementById("studio-panel");
   const btnRenderVideo = document.getElementById("btn-render-video");
   const renderProgressEl = document.getElementById("render-progress");
   const renderProgressBar = document.getElementById("render-progress-bar");
@@ -1135,23 +1133,10 @@
   const studioFps = document.getElementById("studio-fps");
   const studioFormat = document.getElementById("studio-format");
 
-  let studioOpen = false;
+  let studioOpen = true;
   let studioGroups = [];
   let studioDuration = 0;
   let studioScrubTime = 0;
-
-  // --- Studio controls binding ---
-  if (btnStudioToggle) {
-    btnStudioToggle.addEventListener("click", () => {
-      studioOpen = !studioOpen;
-      studioPanel.classList.toggle("hidden", !studioOpen);
-      btnStudioToggle.classList.toggle("active", studioOpen);
-      if (studioOpen) {
-        buildStudioGroups();
-        drawStudioFrame();
-      }
-    });
-  }
 
   // All range sliders update their label and redraw
   const studioRangeInputs = [
@@ -1251,7 +1236,7 @@
         await fontFace.load();
         document.fonts.add(fontFace);
       } catch (e) {
-        showToast("Failed to load font: " + e.message);
+        showToast("Failed to load font: " + e.message, "error");
         return;
       }
       // Save to persistent storage (send binary data, not file path — sandbox blocks file.path)
@@ -1266,7 +1251,7 @@
       addFontToDropdown(fontName, savedPath);
       studioFont.value = fontName;
       customFontPath = savedPath;
-      showToast(`Font "${fontName}" saved`);
+      showToast(`Font "${fontName}" saved`, "success");
       drawStudioFrame();
     });
   }
@@ -1404,6 +1389,15 @@
         opt.textContent = name;
         studioPreset.appendChild(opt);
       });
+      // Auto-restore last used preset if still present.
+      if (window.subforge.getState) {
+        const last = await window.subforge.getState("lastPreset", null);
+        if (last && names.includes(last)) {
+          studioPreset.value = last;
+          const preset = await window.subforge.loadPreset(last);
+          if (preset) applyStudioSettings(preset);
+        }
+      }
     } catch (_) { /* preset API not available */ }
   }
 
@@ -1415,10 +1409,13 @@
         const preset = await window.subforge.loadPreset(name);
         if (preset) {
           applyStudioSettings(preset);
-          showToast(`Preset "${name}" loaded`);
+          if (window.subforge.setState) {
+            window.subforge.setState("lastPreset", name);
+          }
+          showToast(`Preset "${name}" loaded`, "success");
         }
       } catch (err) {
-        showToast("Failed to load preset");
+        showToast("Failed to load preset", "error");
       }
     });
   }
@@ -1465,9 +1462,9 @@
         await window.subforge.savePreset(trimmed, gatherStudioSettings());
         await refreshPresetList();
         studioPreset.value = trimmed;
-        showToast(`Preset "${trimmed}" saved`);
+        showToast(`Preset "${trimmed}" saved`, "success");
       } catch (err) {
-        showToast("Failed to save preset");
+        showToast("Failed to save preset", "error");
       }
     });
   }
@@ -2012,10 +2009,10 @@
       const res = await api.renderVideo(renderBody);
       renderProgressBar.style.width = "100%";
       renderProgressLabel.textContent = `Done! ${res.file}`;
-      showToast("Subtitle video rendered!");
+      showToast("Subtitle video rendered!", "success");
     } catch (err) {
       renderProgressLabel.textContent = `Error: ${err.message}`;
-      showToast(`Render failed: ${err.message}`);
+      showToast(`Render failed: ${err.message}`, "error");
     } finally {
       if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
       btnRenderVideo.disabled = false;
@@ -2058,10 +2055,10 @@
       const savedPath = await window.subforge.saveProject(projectData);
       if (savedPath) {
         currentProjectPath = savedPath;
-        showToast("Project saved");
+        showToast("Project saved", "success");
       }
     } catch (err) {
-      showToast("Failed to save project");
+      showToast("Failed to save project", "error");
     }
   }
 
@@ -2113,9 +2110,9 @@
 
       drawStudioFrame();
       showScreen("results");
-      showToast("Project loaded");
+      showToast("Project loaded", "success");
     } catch (err) {
-      showToast("Failed to open project: " + err.message);
+      showToast("Failed to open project: " + err.message, "error");
     }
   }
 

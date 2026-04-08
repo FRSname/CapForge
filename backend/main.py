@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.responses import FileResponse
 
+from backend.engine.errors import explain
 from backend.engine.hardware import detect_hardware
 from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.json_export import export_json
@@ -20,7 +21,7 @@ from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
 from backend.exporters.srt_word import export_srt_word
 from backend.exporters.vtt_export import export_vtt
-from backend.exporters.video_render import render_subtitle_video
+from backend.exporters.video_render import RenderCancelled, cancel_render, render_subtitle_video
 from backend.models.schemas import (
     ExportFormat,
     ExportRequest,
@@ -137,11 +138,16 @@ async def get_status():
 
 
 @app.post("/api/cancel")
-async def cancel_transcription():
-    """Cancel the running transcription job."""
+async def cancel_job():
+    """Cancel the running transcription or video render job.
+
+    The backend has at most one job in flight at a time, so we signal both
+    cancel paths and let whichever is actually running pick it up.
+    """
     if current_status.status in (JobStatus.IDLE, JobStatus.DONE, JobStatus.ERROR):
         return {"status": "no_job"}
     transcriber.cancel()
+    cancel_render()
     await broadcast_progress(ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Cancelled"))
     return {"status": "cancelled"}
 
@@ -194,16 +200,20 @@ async def start_transcription(request: TranscribeRequest):
         ))
         return {"status": "ok", "segments": len(result.segments), "exported_files": exported_files}
 
-    except FileNotFoundError as e:
-        await broadcast_progress(ProgressUpdate(status=JobStatus.ERROR, progress=0, message=str(e)))
-        raise HTTPException(status_code=400, detail=str(e))
     except TranscriptionCancelled:
         await broadcast_progress(ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Cancelled"))
         return {"status": "cancelled"}
     except Exception as e:
         logger.exception("Transcription failed")
-        await broadcast_progress(ProgressUpdate(status=JobStatus.ERROR, progress=0, message=str(e)))
-        raise HTTPException(status_code=500, detail=str(e))
+        friendly = explain(e)
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.ERROR, progress=0,
+            message=friendly.title, detail=friendly.hint,
+        ))
+        raise HTTPException(
+            status_code=400 if isinstance(e, FileNotFoundError) else 500,
+            detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
+        )
 
 
 @app.get("/api/result")
@@ -297,17 +307,22 @@ async def render_video(request: VideoRenderRequest):
         ))
         return {"status": "ok", "file": output_path}
 
-    except FileNotFoundError as e:
+    except RenderCancelled:
         await broadcast_progress(ProgressUpdate(
-            status=JobStatus.ERROR, progress=0, message=str(e)
+            status=JobStatus.IDLE, progress=0, message="Cancelled"
         ))
-        raise HTTPException(status_code=400, detail=str(e))
+        return {"status": "cancelled"}
     except Exception as e:
         logger.exception("Video render failed")
+        friendly = explain(e)
         await broadcast_progress(ProgressUpdate(
-            status=JobStatus.ERROR, progress=0, message=str(e)
+            status=JobStatus.ERROR, progress=0,
+            message=friendly.title, detail=friendly.hint,
         ))
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(
+            status_code=400 if isinstance(e, FileNotFoundError) else 500,
+            detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
+        )
 
 
 # --- Export helpers ---

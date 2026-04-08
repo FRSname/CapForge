@@ -1072,6 +1072,23 @@ body {
 .studio-preset-row select {
   flex: 1;
   min-width: 0;
+  padding: 4px 6px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+.studio-preset-row select:focus {
+  border-color: var(--accent);
+}
+
+.studio-preset-row select option {
+  background: var(--bg-secondary);
+  color: var(--text);
 }
 
 .studio-preset-row .studio-small-btn {
@@ -1427,35 +1444,14 @@ select.setting-input {
   margin-top: 0;
 }
 
-.studio-toggle-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 10px 14px;
-  background: var(--bg-surface);
-  color: var(--text);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: 14px;
+.studio-title {
+  font-size: 13px;
   font-weight: 600;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.studio-toggle-btn:hover {
-  background: var(--bg-overlay);
-  border-color: var(--accent);
-}
-
-.studio-toggle-btn.active {
-  background: var(--bg-overlay);
-  border-color: var(--accent);
-  color: var(--accent);
+  color: var(--text);
+  padding: 6px 0 8px 0;
 }
 
 .studio-panel {
-  margin-top: 8px;
   background: var(--bg-surface);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -1494,6 +1490,17 @@ select.setting-input {
   border: 1px solid var(--border);
   border-radius: 4px;
   font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+.studio-row select:focus {
+  border-color: var(--accent);
+}
+
+.studio-row select option {
+  background: var(--bg-secondary);
+  color: var(--text);
 }
 
 .studio-row input[type="range"] {
@@ -1590,4 +1597,103 @@ select.setting-input {
 .render-progress-elapsed {
   font-size: 11px;
   color: var(--text-muted);
+}
+
+/* ===== Design Enhancements ===== */
+
+/* Drop zone: floating icon on hover + glow ring */
+@keyframes float-icon {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-6px); }
+}
+
+.drop-zone:hover .drop-icon,
+.drop-zone.drag-over .drop-icon {
+  animation: float-icon 2s ease-in-out infinite;
+  color: var(--accent);
+}
+
+.drop-zone:hover,
+.drop-zone.drag-over {
+  box-shadow: 0 0 0 4px rgba(88, 166, 255, 0.1);
+}
+
+/* Studio section headers */
+.studio-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--text-muted);
+  padding-bottom: 4px;
+  margin-bottom: 2px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.studio-section-label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+  opacity: 0.6;
+}
+
+.studio-section {
+  padding-top: 10px;
+  margin-top: 2px;
+  border-top: 1px solid var(--border);
+}
+
+/* Toast color variants */
+.toast {
+  border-left: 3px solid transparent;
+}
+
+.toast.toast-success {
+  border-left-color: var(--success);
+}
+
+.toast.toast-error {
+  border-left-color: var(--danger);
+}
+
+.toast.toast-warning {
+  border-left-color: #d29922;
+}
+
+/* Logo hover glow */
+.logo-icon {
+  transition: filter 0.2s;
+}
+
+.titlebar-left:hover .logo-icon {
+  filter: drop-shadow(0 0 5px rgba(88, 166, 255, 0.55));
+}
+
+/* Keyboard shortcut badge */
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  font-size: 10px;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+  color: var(--text-muted);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  line-height: 1.5;
+}
+
+/* Player shortcuts hint row */
+.player-shortcuts {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  user-select: none;
 }

@@ -1,0 +1,278 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CapForge — First Run Setup</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #2f81f7;
+      --accent-hover: #4493f8;
+      --success: #3fb950;
+      --error: #f85149;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0; height: 100%;
+      background: var(--bg); color: var(--text);
+      font-family: "Segoe UI", system-ui, sans-serif;
+      -webkit-user-select: none;
+      overflow: hidden;
+    }
+    body { display: flex; flex-direction: column; }
+
+    header {
+      padding: 22px 32px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    header h1 { margin: 0 0 2px; font-size: 16px; font-weight: 600; }
+    header .sub { font-size: 11px; color: var(--muted); letter-spacing: 0.3px; text-transform: uppercase; }
+
+    main {
+      flex: 1; padding: 26px 32px; overflow: auto;
+    }
+    .screen { display: none; }
+    .screen.active { display: block; }
+
+    h2 { margin: 0 0 10px; font-size: 18px; font-weight: 600; }
+    p  { margin: 0 0 12px; font-size: 13px; line-height: 1.55; color: var(--text); }
+    p.muted { color: var(--muted); }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin: 14px 0;
+      font-size: 13px;
+    }
+    .card .label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+    .card .value { font-weight: 600; font-size: 14px; }
+    .card.gpu .value { color: var(--success); }
+    .card.cpu .value { color: var(--muted); }
+
+    ul.size-list { list-style: none; padding: 0; margin: 10px 0; font-size: 12px; }
+    ul.size-list li { padding: 4px 0; color: var(--muted); display: flex; justify-content: space-between; }
+    ul.size-list li span:last-child { color: var(--text); font-variant-numeric: tabular-nums; }
+
+    .stage {
+      font-size: 13px; color: var(--text);
+      margin: 8px 0 10px; min-height: 18px;
+    }
+    .bar {
+      height: 6px; background: #21262d; border-radius: 3px;
+      overflow: hidden; position: relative; margin-bottom: 14px;
+    }
+    .bar::before {
+      content: ""; position: absolute; inset: 0;
+      width: 35%;
+      background: linear-gradient(90deg, transparent, var(--accent), transparent);
+      animation: slide 1.4s ease-in-out infinite;
+    }
+    @keyframes slide {
+      0%   { transform: translateX(-100%); }
+      100% { transform: translateX(350%); }
+    }
+
+    pre#log {
+      margin: 0;
+      background: #010409;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-size: 11px; line-height: 1.5;
+      color: var(--muted);
+      height: 150px; overflow: auto;
+      font-family: "Cascadia Code", Consolas, monospace;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    footer {
+      padding: 14px 32px 20px;
+      border-top: 1px solid var(--border);
+      display: flex; justify-content: flex-end; gap: 10px;
+    }
+    button {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 9px 18px;
+      border-radius: 6px;
+      font-size: 13px; font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+    }
+    button:hover:not(:disabled) { background: var(--accent-hover); }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    button.ghost {
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+    }
+    button.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
+
+    .stages {
+      display: flex; flex-direction: column; gap: 6px;
+      font-size: 12px; margin-bottom: 14px;
+    }
+    .stages .step {
+      display: flex; align-items: center; gap: 10px;
+      color: var(--muted);
+      padding: 4px 0;
+    }
+    .stages .step .dot {
+      width: 10px; height: 10px; border-radius: 50%;
+      border: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .stages .step.active { color: var(--text); }
+    .stages .step.active .dot { background: var(--accent); border-color: var(--accent); }
+    .stages .step.done { color: var(--success); }
+    .stages .step.done .dot { background: var(--success); border-color: var(--success); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>CapForge</h1>
+    <div class="sub" id="hdrSub">First-time setup</div>
+  </header>
+
+  <main>
+    <!-- Screen 1: Welcome / detection summary -->
+    <section class="screen active" id="screen-welcome">
+      <h2>Welcome to CapForge</h2>
+      <p>Before CapForge can transcribe your first video, it needs to download a one-time runtime package. This happens once per machine.</p>
+
+      <div class="card" id="gpuCard">
+        <div class="label">Accelerator</div>
+        <div class="value" id="gpuValue">Detecting…</div>
+      </div>
+
+      <p class="muted">What will be installed:</p>
+      <ul class="size-list" id="sizeList">
+        <li><span>Python 3.11 runtime</span><span>~30 MB</span></li>
+        <li><span>PyTorch</span><span id="torchSize">…</span></li>
+        <li><span>WhisperX + dependencies</span><span>~400 MB</span></li>
+        <li><span>Whisper model (large-v3-turbo)</span><span>~1.6 GB</span></li>
+      </ul>
+      <p class="muted" id="totalLine">Total download: <strong id="totalSize">…</strong></p>
+    </section>
+
+    <!-- Screen 2: Progress -->
+    <section class="screen" id="screen-progress">
+      <h2>Installing…</h2>
+      <div class="stages" id="stages">
+        <div class="step" data-stage="extract"><span class="dot"></span>Extracting Python runtime</div>
+        <div class="step" data-stage="pip"><span class="dot"></span>Bootstrapping pip</div>
+        <div class="step" data-stage="install"><span class="dot"></span>Installing PyTorch &amp; WhisperX</div>
+        <div class="step" data-stage="model"><span class="dot"></span>Downloading Whisper model</div>
+      </div>
+      <div class="stage" id="stageMsg">Preparing…</div>
+      <div class="bar"></div>
+      <pre id="log"></pre>
+    </section>
+
+    <!-- Screen 3: Done -->
+    <section class="screen" id="screen-done">
+      <h2>All set!</h2>
+      <p>CapForge is ready to transcribe. You won't see this screen again.</p>
+    </section>
+  </main>
+
+  <footer>
+    <button id="btnInstall">Install</button>
+    <button id="btnLaunch" style="display:none">Launch CapForge</button>
+  </footer>
+
+  <script>
+    const { ipcRenderer } = require("electron");
+
+    const screens = {
+      welcome: document.getElementById("screen-welcome"),
+      progress: document.getElementById("screen-progress"),
+      done: document.getElementById("screen-done"),
+    };
+    function show(name) {
+      Object.values(screens).forEach(s => s.classList.remove("active"));
+      screens[name].classList.add("active");
+    }
+
+    const gpuCard   = document.getElementById("gpuCard");
+    const gpuValue  = document.getElementById("gpuValue");
+    const torchSize = document.getElementById("torchSize");
+    const totalSize = document.getElementById("totalSize");
+    const stageMsg  = document.getElementById("stageMsg");
+    const logEl     = document.getElementById("log");
+    const hdrSub    = document.getElementById("hdrSub");
+    const btnInstall = document.getElementById("btnInstall");
+    const btnLaunch  = document.getElementById("btnLaunch");
+
+    // Ask main for GPU info as soon as the DOM is ready.
+    ipcRenderer.invoke("setup:detect-gpu").then((gpu) => {
+      if (gpu.present) {
+        gpuCard.classList.add("gpu");
+        gpuValue.textContent = `NVIDIA ${gpu.name} — GPU acceleration`;
+        torchSize.textContent = "~2.5 GB (CUDA 12.1)";
+        totalSize.textContent = "~4.5 GB";
+      } else {
+        gpuCard.classList.add("cpu");
+        gpuValue.textContent = "No NVIDIA GPU — CPU mode";
+        torchSize.textContent = "~200 MB (CPU)";
+        totalSize.textContent = "~2.2 GB";
+      }
+    });
+
+    const stepEls = {};
+    document.querySelectorAll(".stages .step").forEach((el) => {
+      stepEls[el.dataset.stage] = el;
+    });
+    const stageOrder = ["extract", "pip", "install", "model"];
+    function markStage(stage) {
+      if (!stepEls[stage]) return;
+      const idx = stageOrder.indexOf(stage);
+      stageOrder.forEach((s, i) => {
+        stepEls[s].classList.remove("active", "done");
+        if (i < idx) stepEls[s].classList.add("done");
+        if (i === idx) stepEls[s].classList.add("active");
+      });
+    }
+
+    btnInstall.addEventListener("click", () => {
+      show("progress");
+      hdrSub.textContent = "Installing";
+      btnInstall.style.display = "none";
+      ipcRenderer.send("setup:begin");
+    });
+
+    btnLaunch.addEventListener("click", () => {
+      ipcRenderer.send("setup:launch");
+    });
+
+    ipcRenderer.on("setup:progress", (_e, { stage, message }) => {
+      markStage(stage);
+      if (message) {
+        stageMsg.textContent = message.length > 90 ? message.slice(0, 90) + "…" : message;
+        logEl.textContent += message + "\n";
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+    });
+
+    ipcRenderer.on("setup:done", () => {
+      show("done");
+      hdrSub.textContent = "Ready";
+      btnLaunch.style.display = "inline-block";
+    });
+
+    ipcRenderer.on("setup:error", (_e, msg) => {
+      stageMsg.textContent = "Setup failed: " + msg;
+      stageMsg.style.color = "#f85149";
+    });
+  </script>
+</body>
+</html>
