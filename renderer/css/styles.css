@@ -1624,6 +1624,38 @@ select.setting-input {
   font-family: monospace;
 }
 
+.range-num {
+  width: 46px;
+  flex-shrink: 0;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-tertiary);
+  color: var(--text);
+  font-size: 11px;
+  font-family: monospace;
+  text-align: right;
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.range-num::-webkit-outer-spin-button,
+.range-num::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+.range-num:focus { outline: 1px solid var(--accent); border-color: var(--accent); }
+
+.reset-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  padding: 0 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0.5;
+  transition: opacity 0.15s, color 0.15s;
+}
+.reset-btn:hover { opacity: 1; color: var(--accent); }
+
 /* Actions */
 .studio-actions {
   margin-bottom: 8px;

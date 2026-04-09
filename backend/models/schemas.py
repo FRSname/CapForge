@@ -149,6 +149,10 @@ class VideoRenderConfig(BaseModel):
     word_transition: str = Field("instant", description="Word highlight style: instant, crossfade, highlight, underline, bounce, scale, karaoke")
     # Highlight options
     highlight_radius: int = Field(16, ge=0, le=80, description="Corner radius of the highlight pill")
+    highlight_padding_x: int = Field(6, ge=0, le=40, description="Horizontal padding around the highlight box")
+    highlight_padding_y: int = Field(6, ge=0, le=40, description="Vertical padding around the highlight box")
+    highlight_opacity: float = Field(0.85, ge=0.0, le=1.0, description="Opacity of the highlight box")
+    highlight_animation: str = Field("jump", description="Highlight box movement: jump or slide")
     # Underline options
     underline_thickness: int = Field(4, ge=1, le=30, description="Underline bar thickness in px")
     underline_color: str = Field("", description="Underline color hex; empty = use active_word_color")

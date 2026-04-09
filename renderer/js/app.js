@@ -1235,9 +1235,16 @@
   const studioAnimDurRow = document.getElementById("studio-anim-dur-row");
   const studioWordTransition = document.getElementById("studio-word-transition");
   // Per-style option panels
-  const wsoHighlight        = document.getElementById("wso-highlight");
-  const wsoHighlightRadius  = document.getElementById("wso-highlight-radius");
-  const wsoHighlightRadiusV = document.getElementById("wso-highlight-radius-val");
+  const wsoHighlight         = document.getElementById("wso-highlight");
+  const wsoHighlightRadius   = document.getElementById("wso-highlight-radius");
+  const wsoHighlightRadiusV  = document.getElementById("wso-highlight-radius-val");
+  const wsoHighlightPaddingX  = document.getElementById("wso-highlight-padding-x");
+  const wsoHighlightPaddingXV = document.getElementById("wso-highlight-padding-x-val");
+  const wsoHighlightPaddingY  = document.getElementById("wso-highlight-padding-y");
+  const wsoHighlightPaddingYV = document.getElementById("wso-highlight-padding-y-val");
+  const wsoHighlightOpacity  = document.getElementById("wso-highlight-opacity");
+  const wsoHighlightOpacityV = document.getElementById("wso-highlight-opacity-val");
+  const wsoHighlightAnim     = document.getElementById("wso-highlight-anim");
   const wsoUnderline        = document.getElementById("wso-underline");
   const wsoUnderlineThick   = document.getElementById("wso-underline-thickness");
   const wsoUnderlineThickV  = document.getElementById("wso-underline-thickness-val");
@@ -1274,16 +1281,39 @@
     [studioTextOffsetY, studioTextOffsetYVal, "px"],
   ];
 
-  studioRangeInputs.forEach(([input, label, unit]) => {
+  studioRangeInputs.forEach(([input, label]) => {
     if (input) {
       input.addEventListener("input", () => {
-        label.textContent = input.value + unit;
+        label.value = input.value;
         if (input === studioWpg) {
           customGroupsEdited = false;
           buildStudioGroups();
           renderGroupEditor();
         }
         drawStudioFrame();
+      });
+    }
+  });
+
+  // Generic bidirectional sync + reset for all slider rows
+  document.querySelectorAll('input[type="range"]').forEach(slider => {
+    const numInput = slider.nextElementSibling;
+    if (!numInput || !numInput.classList.contains("range-num")) return;
+    const resetBtn = numInput.nextElementSibling;
+    const defaultVal = slider.getAttribute("value");
+    numInput.addEventListener("change", () => {
+      const v = parseFloat(numInput.value);
+      if (!isNaN(v)) {
+        slider.value = v;                          // slider clamps visually to its range
+        slider.dispatchEvent(new Event("input"));  // updates other listeners (wpg → rebuild)
+        numInput.value = v;                        // restore unclamped value overwritten by listener
+      }
+    });
+    if (resetBtn && resetBtn.classList.contains("reset-btn")) {
+      resetBtn.addEventListener("click", () => {
+        slider.value = defaultVal;
+        numInput.value = defaultVal;
+        slider.dispatchEvent(new Event("input"));
       });
     }
   });
@@ -1303,7 +1333,7 @@
   }
   if (studioAnimDur && studioAnimDurVal) {
     studioAnimDur.addEventListener("input", () => {
-      studioAnimDurVal.textContent = (parseInt(studioAnimDur.value, 10) / 100).toFixed(2) + "s";
+      studioAnimDurVal.value = studioAnimDur.value;
       drawStudioFrame();
     });
   }
@@ -1320,14 +1350,16 @@
     _updateWordStyleOpts();
   }
 
-  // Highlight radius slider
-  if (wsoHighlightRadius && wsoHighlightRadiusV) {
-    wsoHighlightRadius.addEventListener("input", () => { wsoHighlightRadiusV.textContent = wsoHighlightRadius.value + "px"; drawStudioFrame(); });
-  }
+  // Highlight sliders + animation
+  if (wsoHighlightRadius   && wsoHighlightRadiusV)   wsoHighlightRadius  .addEventListener("input", () => { wsoHighlightRadiusV  .value = wsoHighlightRadius.value;   drawStudioFrame(); });
+  if (wsoHighlightPaddingX && wsoHighlightPaddingXV) wsoHighlightPaddingX.addEventListener("input", () => { wsoHighlightPaddingXV.value = wsoHighlightPaddingX.value; drawStudioFrame(); });
+  if (wsoHighlightPaddingY && wsoHighlightPaddingYV) wsoHighlightPaddingY.addEventListener("input", () => { wsoHighlightPaddingYV.value = wsoHighlightPaddingY.value; drawStudioFrame(); });
+  if (wsoHighlightOpacity  && wsoHighlightOpacityV)  wsoHighlightOpacity .addEventListener("input", () => { wsoHighlightOpacityV .value = wsoHighlightOpacity.value;   drawStudioFrame(); });
+  if (wsoHighlightAnim) wsoHighlightAnim.addEventListener("change", () => drawStudioFrame());
 
   // Underline sliders + color
   if (wsoUnderlineThick && wsoUnderlineThickV) {
-    wsoUnderlineThick.addEventListener("input", () => { wsoUnderlineThickV.textContent = wsoUnderlineThick.value + "px"; drawStudioFrame(); });
+    wsoUnderlineThick.addEventListener("input", () => { wsoUnderlineThickV.value = wsoUnderlineThick.value; drawStudioFrame(); });
   }
   if (wsoUnderlineColor && wsoUnderlineColorHex) {
     wsoUnderlineColor.addEventListener("input", () => { wsoUnderlineColorHex.value = wsoUnderlineColor.value.toUpperCase(); drawStudioFrame(); });
@@ -1336,12 +1368,12 @@
 
   // Bounce strength slider
   if (wsoBounceStrength && wsoBounceStrengthV) {
-    wsoBounceStrength.addEventListener("input", () => { wsoBounceStrengthV.textContent = wsoBounceStrength.value + "%"; drawStudioFrame(); });
+    wsoBounceStrength.addEventListener("input", () => { wsoBounceStrengthV.value = wsoBounceStrength.value; drawStudioFrame(); });
   }
 
   // Scale factor slider
   if (wsoScaleFactor && wsoScaleFactorV) {
-    wsoScaleFactor.addEventListener("input", () => { wsoScaleFactorV.textContent = (parseInt(wsoScaleFactor.value, 10) / 100).toFixed(2) + "×"; drawStudioFrame(); });
+    wsoScaleFactor.addEventListener("input", () => { wsoScaleFactorV.value = wsoScaleFactor.value; drawStudioFrame(); });
   }
 
   // Bold toggle redraws
@@ -1490,26 +1522,26 @@
     return {
       font: studioFont.value,
       customFontPath: customFontPath || null,
-      fontSize: studioFontSize.value,
+      fontSize: studioFontSizeVal ? studioFontSizeVal.value : studioFontSize.value,
       bold: studioBold ? studioBold.checked : true,
-      tracking: studioTracking ? studioTracking.value : "0",
-      wordSpacing: studioWordSpacing ? studioWordSpacing.value : "0",
-      strokeWidth: studioStrokeWidth ? studioStrokeWidth.value : "0",
+      tracking: studioTrackingVal ? studioTrackingVal.value : (studioTracking ? studioTracking.value : "0"),
+      wordSpacing: studioWordSpacingVal ? studioWordSpacingVal.value : (studioWordSpacing ? studioWordSpacing.value : "0"),
+      strokeWidth: studioStrokeWidthVal ? studioStrokeWidthVal.value : (studioStrokeWidth ? studioStrokeWidth.value : "0"),
       strokeColor: studioStrokeColor ? studioStrokeColor.value : "#000000",
       textColor: studioTextColor.value,
       activeColor: studioActiveColor.value,
       bgColor: studioBgColor.value,
-      bgOpacity: studioBgOpacity.value,
-      padH: studioPadH.value,
-      padV: studioPadV.value,
-      radius: studioRadius.value,
-      wpg: studioWpg.value,
-      posX: studioPosX ? studioPosX.value : "50",
-      posY: studioPosY.value,
-      bgWidthExtra:  studioBgWidthExtra  ? studioBgWidthExtra.value  : "0",
-      bgHeightExtra: studioBgHeightExtra ? studioBgHeightExtra.value : "0",
-      textOffsetX:   studioTextOffsetX   ? studioTextOffsetX.value   : "0",
-      textOffsetY:   studioTextOffsetY   ? studioTextOffsetY.value   : "0",
+      bgOpacity: studioBgOpacityVal ? studioBgOpacityVal.value : studioBgOpacity.value,
+      padH: studioPadHVal ? studioPadHVal.value : studioPadH.value,
+      padV: studioPadVVal ? studioPadVVal.value : studioPadV.value,
+      radius: studioRadiusVal ? studioRadiusVal.value : studioRadius.value,
+      wpg: studioWpgVal ? studioWpgVal.value : studioWpg.value,
+      posX: studioPosXVal ? studioPosXVal.value : (studioPosX ? studioPosX.value : "50"),
+      posY: studioPosYVal ? studioPosYVal.value : studioPosY.value,
+      bgWidthExtra:  studioBgWidthExtraVal  ? studioBgWidthExtraVal.value  : (studioBgWidthExtra  ? studioBgWidthExtra.value  : "0"),
+      bgHeightExtra: studioBgHeightExtraVal ? studioBgHeightExtraVal.value : (studioBgHeightExtra ? studioBgHeightExtra.value : "0"),
+      textOffsetX:   studioTextOffsetXVal   ? studioTextOffsetXVal.value   : (studioTextOffsetX   ? studioTextOffsetX.value   : "0"),
+      textOffsetY:   studioTextOffsetYVal   ? studioTextOffsetYVal.value   : (studioTextOffsetY   ? studioTextOffsetY.value   : "0"),
       resolution: studioResolution.value,
       fps: studioFps.value,
       format: studioFormat.value,
@@ -1519,6 +1551,10 @@
       animDur: studioAnimDur ? studioAnimDur.value : "12",
       wordTransition: studioWordTransition ? studioWordTransition.value : "instant",
       wsoHighlightRadius: wsoHighlightRadius ? wsoHighlightRadius.value : "16",
+      wsoHighlightPaddingX: wsoHighlightPaddingX ? wsoHighlightPaddingX.value : "6",
+      wsoHighlightPaddingY: wsoHighlightPaddingY ? wsoHighlightPaddingY.value : "6",
+      wsoHighlightOpacity: wsoHighlightOpacity ? wsoHighlightOpacity.value : "85",
+      wsoHighlightAnim: wsoHighlightAnim ? wsoHighlightAnim.value : "jump",
       wsoUnderlineThick: wsoUnderlineThick ? wsoUnderlineThick.value : "4",
       wsoUnderlineColor: wsoUnderlineColor ? wsoUnderlineColor.value : "#FFD700",
       wsoBounceStrength: wsoBounceStrength ? wsoBounceStrength.value : "18",
@@ -1537,39 +1573,43 @@
     customFontPath = p.customFontPath || null;
     // If preset didn't store the path, try resolving from the dropdown option
     if (!customFontPath) syncCustomFontPath();
-    if (p.fontSize) { studioFontSize.value = p.fontSize; studioFontSizeVal.textContent = p.fontSize + "px"; }
+    if (p.fontSize) { studioFontSize.value = p.fontSize; studioFontSizeVal.value = p.fontSize; }
     if (studioBold && p.bold !== undefined) studioBold.checked = p.bold;
-    if (p.tracking !== undefined && studioTracking) { studioTracking.value = p.tracking; studioTrackingVal.textContent = p.tracking + "px"; }
-    if (p.wordSpacing !== undefined && studioWordSpacing) { studioWordSpacing.value = p.wordSpacing; studioWordSpacingVal.textContent = p.wordSpacing + "px"; }
-    if (p.strokeWidth !== undefined && studioStrokeWidth) { studioStrokeWidth.value = p.strokeWidth; studioStrokeWidthVal.textContent = p.strokeWidth + "px"; }
+    if (p.tracking !== undefined && studioTracking) { studioTracking.value = p.tracking; studioTrackingVal.value = p.tracking; }
+    if (p.wordSpacing !== undefined && studioWordSpacing) { studioWordSpacing.value = p.wordSpacing; studioWordSpacingVal.value = p.wordSpacing; }
+    if (p.strokeWidth !== undefined && studioStrokeWidth) { studioStrokeWidth.value = p.strokeWidth; studioStrokeWidthVal.value = p.strokeWidth; }
     if (p.strokeColor && studioStrokeColor) { studioStrokeColor.value = p.strokeColor; studioStrokeColorHex.value = p.strokeColor.toUpperCase(); }
     if (p.textColor) { studioTextColor.value = p.textColor; studioTextColorHex.value = p.textColor.toUpperCase(); }
     if (p.activeColor) { studioActiveColor.value = p.activeColor; studioActiveColorHex.value = p.activeColor.toUpperCase(); }
     if (p.bgColor) { studioBgColor.value = p.bgColor; studioBgColorHex.value = p.bgColor.toUpperCase(); }
-    if (p.bgOpacity) { studioBgOpacity.value = p.bgOpacity; studioBgOpacityVal.textContent = p.bgOpacity + "%"; }
-    if (p.padH) { studioPadH.value = p.padH; studioPadHVal.textContent = p.padH + "px"; }
-    if (p.padV) { studioPadV.value = p.padV; studioPadVVal.textContent = p.padV + "px"; }
-    if (p.radius) { studioRadius.value = p.radius; studioRadiusVal.textContent = p.radius + "px"; }
-    if (p.wpg) { studioWpg.value = p.wpg; studioWpgVal.textContent = p.wpg; }
-    if (p.posX !== undefined && studioPosX) { studioPosX.value = p.posX; studioPosXVal.textContent = p.posX + "%"; }
-    if (p.posY) { studioPosY.value = p.posY; studioPosYVal.textContent = p.posY + "%"; }
-    if (p.bgWidthExtra  !== undefined && studioBgWidthExtra)  { studioBgWidthExtra.value  = p.bgWidthExtra;  studioBgWidthExtraVal.textContent  = p.bgWidthExtra  + "px"; }
-    if (p.bgHeightExtra !== undefined && studioBgHeightExtra) { studioBgHeightExtra.value = p.bgHeightExtra; studioBgHeightExtraVal.textContent = p.bgHeightExtra + "px"; }
-    if (p.textOffsetX   !== undefined && studioTextOffsetX)   { studioTextOffsetX.value   = p.textOffsetX;   studioTextOffsetXVal.textContent   = p.textOffsetX   + "px"; }
-    if (p.textOffsetY   !== undefined && studioTextOffsetY)   { studioTextOffsetY.value   = p.textOffsetY;   studioTextOffsetYVal.textContent   = p.textOffsetY   + "px"; }
+    if (p.bgOpacity) { studioBgOpacity.value = p.bgOpacity; studioBgOpacityVal.value = p.bgOpacity; }
+    if (p.padH) { studioPadH.value = p.padH; studioPadHVal.value = p.padH; }
+    if (p.padV) { studioPadV.value = p.padV; studioPadVVal.value = p.padV; }
+    if (p.radius) { studioRadius.value = p.radius; studioRadiusVal.value = p.radius; }
+    if (p.wpg) { studioWpg.value = p.wpg; studioWpgVal.value = p.wpg; }
+    if (p.posX !== undefined && studioPosX) { studioPosX.value = p.posX; studioPosXVal.value = p.posX; }
+    if (p.posY) { studioPosY.value = p.posY; studioPosYVal.value = p.posY; }
+    if (p.bgWidthExtra  !== undefined && studioBgWidthExtra)  { studioBgWidthExtra.value  = p.bgWidthExtra;  studioBgWidthExtraVal.value  = p.bgWidthExtra; }
+    if (p.bgHeightExtra !== undefined && studioBgHeightExtra) { studioBgHeightExtra.value = p.bgHeightExtra; studioBgHeightExtraVal.value = p.bgHeightExtra; }
+    if (p.textOffsetX   !== undefined && studioTextOffsetX)   { studioTextOffsetX.value   = p.textOffsetX;   studioTextOffsetXVal.value   = p.textOffsetX; }
+    if (p.textOffsetY   !== undefined && studioTextOffsetY)   { studioTextOffsetY.value   = p.textOffsetY;   studioTextOffsetYVal.value   = p.textOffsetY; }
     if (p.resolution) studioResolution.value = p.resolution;
     if (p.fps) studioFps.value = p.fps;
     if (p.format) studioFormat.value = p.format;
     if (p.renderMode) studioRenderMode.value = p.renderMode;
     if (p.bitrate) studioBitrate.value = p.bitrate;
     if (p.animation && studioAnimation) { studioAnimation.value = p.animation; _updateAnimDurVisibility(); }
-    if (p.animDur !== undefined && studioAnimDur) { studioAnimDur.value = p.animDur; studioAnimDurVal.textContent = (parseInt(p.animDur, 10) / 100).toFixed(2) + "s"; }
+    if (p.animDur !== undefined && studioAnimDur) { studioAnimDur.value = p.animDur; studioAnimDurVal.value = p.animDur; }
     if (p.wordTransition && studioWordTransition) { studioWordTransition.value = p.wordTransition; _updateWordStyleOpts(); }
-    if (p.wsoHighlightRadius !== undefined && wsoHighlightRadius) { wsoHighlightRadius.value = p.wsoHighlightRadius; wsoHighlightRadiusV.textContent = p.wsoHighlightRadius + "px"; }
-    if (p.wsoUnderlineThick !== undefined && wsoUnderlineThick) { wsoUnderlineThick.value = p.wsoUnderlineThick; wsoUnderlineThickV.textContent = p.wsoUnderlineThick + "px"; }
+    if (p.wsoHighlightRadius !== undefined && wsoHighlightRadius) { wsoHighlightRadius.value = p.wsoHighlightRadius; wsoHighlightRadiusV.value = p.wsoHighlightRadius; }
+    if (p.wsoHighlightPaddingX !== undefined && wsoHighlightPaddingX) { wsoHighlightPaddingX.value = p.wsoHighlightPaddingX; wsoHighlightPaddingXV.value = p.wsoHighlightPaddingX; }
+    if (p.wsoHighlightPaddingY !== undefined && wsoHighlightPaddingY) { wsoHighlightPaddingY.value = p.wsoHighlightPaddingY; wsoHighlightPaddingYV.value = p.wsoHighlightPaddingY; }
+    if (p.wsoHighlightOpacity !== undefined && wsoHighlightOpacity) { wsoHighlightOpacity.value = p.wsoHighlightOpacity; wsoHighlightOpacityV.value = p.wsoHighlightOpacity; }
+    if (p.wsoHighlightAnim && wsoHighlightAnim) { wsoHighlightAnim.value = p.wsoHighlightAnim; }
+    if (p.wsoUnderlineThick !== undefined && wsoUnderlineThick) { wsoUnderlineThick.value = p.wsoUnderlineThick; wsoUnderlineThickV.value = p.wsoUnderlineThick; }
     if (p.wsoUnderlineColor && wsoUnderlineColor) { wsoUnderlineColor.value = p.wsoUnderlineColor; wsoUnderlineColorHex.value = p.wsoUnderlineColor.toUpperCase(); }
-    if (p.wsoBounceStrength !== undefined && wsoBounceStrength) { wsoBounceStrength.value = p.wsoBounceStrength; wsoBounceStrengthV.textContent = p.wsoBounceStrength + "%"; }
-    if (p.wsoScaleFactor !== undefined && wsoScaleFactor) { wsoScaleFactor.value = p.wsoScaleFactor; wsoScaleFactorV.textContent = (parseInt(p.wsoScaleFactor, 10) / 100).toFixed(2) + "×"; }
+    if (p.wsoBounceStrength !== undefined && wsoBounceStrength) { wsoBounceStrength.value = p.wsoBounceStrength; wsoBounceStrengthV.value = p.wsoBounceStrength; }
+    if (p.wsoScaleFactor !== undefined && wsoScaleFactor) { wsoScaleFactor.value = p.wsoScaleFactor; wsoScaleFactorV.value = p.wsoScaleFactor; }
     updateRenderModeUI();
     buildStudioGroups();
     drawStudioFrame();
@@ -2179,29 +2219,29 @@
     }
     if (!activeGroup) return;
 
-    // Read styles from studio controls
-    const fontSize = parseInt(studioFontSize.value, 10);
+    // Read styles from studio controls — use *Val number inputs so out-of-slider-range values work
+    const fontSize = parseInt(studioFontSizeVal ? studioFontSizeVal.value : studioFontSize.value, 10);
     const fontFamily = studioFont.value;
     const textColor = studioTextColor.value;
     const activeColor = studioActiveColor.value;
     const bgColor = studioBgColor.value;
-    const bgOpacity = parseInt(studioBgOpacity.value, 10) / 100;
-    const padH = parseInt(studioPadH.value, 10);
-    const padV = parseInt(studioPadV.value, 10);
-    const radius = parseInt(studioRadius.value, 10);
-    const posX = studioPosX ? parseInt(studioPosX.value, 10) / 100 : 0.5;
-    const posY = parseInt(studioPosY.value, 10) / 100;
-    const bgWidthExtra  = studioBgWidthExtra  ? parseInt(studioBgWidthExtra.value,  10) : 0;
-    const bgHeightExtra = studioBgHeightExtra ? parseInt(studioBgHeightExtra.value, 10) : 0;
-    const textOffsetX   = studioTextOffsetX   ? parseInt(studioTextOffsetX.value,   10) : 0;
-    const textOffsetY   = studioTextOffsetY   ? parseInt(studioTextOffsetY.value,   10) : 0;
+    const bgOpacity = parseInt(studioBgOpacityVal ? studioBgOpacityVal.value : studioBgOpacity.value, 10) / 100;
+    const padH = parseInt(studioPadHVal ? studioPadHVal.value : studioPadH.value, 10);
+    const padV = parseInt(studioPadVVal ? studioPadVVal.value : studioPadV.value, 10);
+    const radius = parseInt(studioRadiusVal ? studioRadiusVal.value : studioRadius.value, 10);
+    const posX = studioPosX ? parseInt(studioPosXVal ? studioPosXVal.value : studioPosX.value, 10) / 100 : 0.5;
+    const posY = parseInt(studioPosYVal ? studioPosYVal.value : studioPosY.value, 10) / 100;
+    const bgWidthExtra  = studioBgWidthExtraVal  ? parseInt(studioBgWidthExtraVal.value,  10) : (studioBgWidthExtra  ? parseInt(studioBgWidthExtra.value,  10) : 0);
+    const bgHeightExtra = studioBgHeightExtraVal ? parseInt(studioBgHeightExtraVal.value, 10) : (studioBgHeightExtra ? parseInt(studioBgHeightExtra.value, 10) : 0);
+    const textOffsetX   = studioTextOffsetXVal   ? parseInt(studioTextOffsetXVal.value,   10) : (studioTextOffsetX   ? parseInt(studioTextOffsetX.value,   10) : 0);
+    const textOffsetY   = studioTextOffsetYVal   ? parseInt(studioTextOffsetYVal.value,   10) : (studioTextOffsetY   ? parseInt(studioTextOffsetY.value,   10) : 0);
     const isBold = studioBold ? studioBold.checked : true;
-    const tracking = parseInt(studioTracking ? studioTracking.value : "0", 10);
-    const extraWordSpacing = parseInt(studioWordSpacing ? studioWordSpacing.value : "0", 10);
-    const strokeWidth = parseInt(studioStrokeWidth ? studioStrokeWidth.value : "0", 10);
+    const tracking = parseInt(studioTrackingVal ? studioTrackingVal.value : (studioTracking ? studioTracking.value : "0"), 10);
+    const extraWordSpacing = parseInt(studioWordSpacingVal ? studioWordSpacingVal.value : (studioWordSpacing ? studioWordSpacing.value : "0"), 10);
+    const strokeWidth = parseInt(studioStrokeWidthVal ? studioStrokeWidthVal.value : (studioStrokeWidth ? studioStrokeWidth.value : "0"), 10);
     const strokeColor = studioStrokeColor ? studioStrokeColor.value : "#000000";
     const animation = studioAnimation ? studioAnimation.value : "none";
-    const animDur = studioAnimDur ? parseInt(studioAnimDur.value, 10) / 100 : 0.12;
+    const animDur = studioAnimDurVal ? parseInt(studioAnimDurVal.value, 10) / 100 : (studioAnimDur ? parseInt(studioAnimDur.value, 10) / 100 : 0.12);
     const wordTransition = studioWordTransition ? studioWordTransition.value : "instant";
 
     // Drawing is in output-resolution coordinates — same space as the Python renderer.
@@ -2248,7 +2288,11 @@
     const textRgb   = hexToRgb(textColor);
     const activeRgb = hexToRgb(activeColor);
     const CROSSFADE_DUR   = 0.06;
-    const hlRadius        = wsoHighlightRadius  ? parseInt(wsoHighlightRadius.value, 10) : 16;
+    const hlRadius        = wsoHighlightRadius  ? parseInt(wsoHighlightRadius.value,  10) : 16;
+    const hlPaddingX      = wsoHighlightPaddingX ? parseInt(wsoHighlightPaddingX.value, 10) : 6;
+    const hlPaddingY      = wsoHighlightPaddingY ? parseInt(wsoHighlightPaddingY.value, 10) : 6;
+    const hlOpacity       = wsoHighlightOpacity ? parseInt(wsoHighlightOpacity.value, 10) / 100 : 0.85;
+    const hlAnim          = wsoHighlightAnim    ? wsoHighlightAnim.value : "jump";
     const ulThickness     = wsoUnderlineThick   ? parseInt(wsoUnderlineThick.value,  10) : 4;
     const ulColor         = wsoUnderlineColor   ? wsoUnderlineColor.value : activeColor;
     const bounceStrength  = wsoBounceStrength   ? parseInt(wsoBounceStrength.value,  10) / 100    : 0.18;
@@ -2319,6 +2363,34 @@
       ctx.restore();
     }
 
+    // Pre-compute each word's left-edge x for highlight slide
+    const wordXPos = [];
+    { let wx = textCx - totalW / 2;
+      wm.forEach((m) => { wordXPos.push(wx); wx += m.width + effectiveSpaceW; }); }
+
+    // Draw highlight pill BEFORE words so text sits on top
+    if (wordTransition === "highlight") {
+      const activeIdx = wm.findIndex((m) => m.start <= t && t < m.end);
+      if (activeIdx >= 0) {
+        const m = wm[activeIdx];
+        let hlX = wordXPos[activeIdx];
+        let hlW = m.width;
+        if (hlAnim === "slide" && activeIdx > 0) {
+          const wordDur = Math.max(m.end - m.start, 0.001);
+          const rawT    = (t - m.start) / wordDur;
+          const eased   = 1 - Math.pow(1 - Math.min(rawT * 2.5, 1), 2);
+          hlX = wordXPos[activeIdx - 1] + (wordXPos[activeIdx] - wordXPos[activeIdx - 1]) * eased;
+          hlW = wm[activeIdx - 1].width  + (m.width - wm[activeIdx - 1].width) * eased;
+        }
+        ctx.save();
+        ctx.globalAlpha = animAlpha * hlOpacity;
+        ctx.fillStyle = activeColor;
+        roundRect(ctx, hlX - hlPaddingX, textCy - sf / 2 - hlPaddingY, hlW + hlPaddingX * 2, sf + hlPaddingY * 2, hlRadius);
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
     // Draw words — text anchored at textCx/textCy (offset from bg centre)
     let x = textCx - totalW / 2;
     wm.forEach((m, i) => {
@@ -2343,18 +2415,7 @@
 
       // ---- HIGHLIGHT ----
       } else if (wordTransition === "highlight") {
-        if (isActive) {
-          const hPad = 6;
-          ctx.save();
-          ctx.globalAlpha = animAlpha * 0.85;
-          ctx.fillStyle = activeColor;
-          roundRect(ctx, x - hPad, textCy - sf / 2 - hPad * 0.6, m.width + hPad * 2, sf + hPad * 1.2, hlRadius);
-          ctx.fill();
-          ctx.restore();
-          ctx.fillStyle = bgColor;
-        } else {
-          ctx.fillStyle = textColor;
-        }
+        ctx.fillStyle = isActive ? bgColor : textColor;
         drawWord(m.word, x, textCy);
 
       // ---- UNDERLINE ----
@@ -2449,6 +2510,9 @@
     if (btnRenderBaked) {
       btnRenderBaked.disabled = !selectedFilePath || !isVideoFile(selectedFilePath);
     }
+    if (btnRenderOverlay) {
+      btnRenderOverlay.disabled = false;
+    }
   }
 
   async function renderSubtitleVideo(overrides = {}) {
@@ -2474,26 +2538,26 @@
         const sel = studioFont.options[studioFont.selectedIndex];
         return (sel && sel.dataset.customPath) || null;
       })(),
-      font_size: parseInt(studioFontSize.value, 10),
+      font_size: parseInt(studioFontSizeVal ? studioFontSizeVal.value : studioFontSize.value, 10),
       bold: studioBold ? studioBold.checked : true,
-      tracking: parseInt(studioTracking ? studioTracking.value : "0", 10),
-      word_spacing: parseInt(studioWordSpacing ? studioWordSpacing.value : "0", 10),
-      stroke_width: parseInt(studioStrokeWidth ? studioStrokeWidth.value : "0", 10),
+      tracking: parseInt(studioTrackingVal ? studioTrackingVal.value : (studioTracking ? studioTracking.value : "0"), 10),
+      word_spacing: parseInt(studioWordSpacingVal ? studioWordSpacingVal.value : (studioWordSpacing ? studioWordSpacing.value : "0"), 10),
+      stroke_width: parseInt(studioStrokeWidthVal ? studioStrokeWidthVal.value : (studioStrokeWidth ? studioStrokeWidth.value : "0"), 10),
       stroke_color: studioStrokeColor ? studioStrokeColor.value : "#000000",
       text_color: studioTextColor.value,
       active_word_color: studioActiveColor.value,
       bg_color: studioBgColor.value,
-      bg_opacity: parseInt(studioBgOpacity.value, 10) / 100,
-      bg_padding_h: parseInt(studioPadH.value, 10),
-      bg_padding_v: parseInt(studioPadV.value, 10),
-      bg_corner_radius: parseInt(studioRadius.value, 10),
-      bg_width_extra:   studioBgWidthExtra  ? parseInt(studioBgWidthExtra.value,  10) : 0,
-      bg_height_extra:  studioBgHeightExtra ? parseInt(studioBgHeightExtra.value, 10) : 0,
-      text_offset_x:    studioTextOffsetX   ? parseInt(studioTextOffsetX.value,   10) : 0,
-      text_offset_y:    studioTextOffsetY   ? parseInt(studioTextOffsetY.value,   10) : 0,
-      words_per_group: parseInt(studioWpg.value, 10),
-      position_x: studioPosX ? parseInt(studioPosX.value, 10) / 100 : 0.5,
-      position_y: parseInt(studioPosY.value, 10) / 100,
+      bg_opacity: parseInt(studioBgOpacityVal ? studioBgOpacityVal.value : studioBgOpacity.value, 10) / 100,
+      bg_padding_h: parseInt(studioPadHVal ? studioPadHVal.value : studioPadH.value, 10),
+      bg_padding_v: parseInt(studioPadVVal ? studioPadVVal.value : studioPadV.value, 10),
+      bg_corner_radius: parseInt(studioRadiusVal ? studioRadiusVal.value : studioRadius.value, 10),
+      bg_width_extra:   studioBgWidthExtraVal  ? parseInt(studioBgWidthExtraVal.value,  10) : (studioBgWidthExtra  ? parseInt(studioBgWidthExtra.value,  10) : 0),
+      bg_height_extra:  studioBgHeightExtraVal ? parseInt(studioBgHeightExtraVal.value, 10) : (studioBgHeightExtra ? parseInt(studioBgHeightExtra.value, 10) : 0),
+      text_offset_x:    studioTextOffsetXVal   ? parseInt(studioTextOffsetXVal.value,   10) : (studioTextOffsetX   ? parseInt(studioTextOffsetX.value,   10) : 0),
+      text_offset_y:    studioTextOffsetYVal   ? parseInt(studioTextOffsetYVal.value,   10) : (studioTextOffsetY   ? parseInt(studioTextOffsetY.value,   10) : 0),
+      words_per_group: parseInt(studioWpgVal ? studioWpgVal.value : studioWpg.value, 10),
+      position_x: studioPosXVal ? parseInt(studioPosXVal.value, 10) / 100 : (studioPosX ? parseInt(studioPosX.value, 10) / 100 : 0.5),
+      position_y: parseInt(studioPosYVal ? studioPosYVal.value : studioPosY.value, 10) / 100,
       resolution_w: resW,
       resolution_h: resH,
       fps: parseInt(studioFps.value, 10),
@@ -2501,13 +2565,17 @@
       render_mode: renderMode,
       video_bitrate: studioBitrate ? studioBitrate.value : "8M",
       animation: studioAnimation ? studioAnimation.value : "none",
-      animation_duration: studioAnimDur ? parseInt(studioAnimDur.value, 10) / 100 : 0.12,
+      animation_duration: studioAnimDurVal ? parseInt(studioAnimDurVal.value, 10) / 100 : (studioAnimDur ? parseInt(studioAnimDur.value, 10) / 100 : 0.12),
       word_transition: studioWordTransition ? studioWordTransition.value : "instant",
-      highlight_radius: wsoHighlightRadius ? parseInt(wsoHighlightRadius.value, 10) : 16,
-      underline_thickness: wsoUnderlineThick ? parseInt(wsoUnderlineThick.value, 10) : 4,
+      highlight_radius: wsoHighlightRadiusV ? parseInt(wsoHighlightRadiusV.value, 10) : (wsoHighlightRadius ? parseInt(wsoHighlightRadius.value, 10) : 16),
+      highlight_padding_x: wsoHighlightPaddingXV ? parseInt(wsoHighlightPaddingXV.value, 10) : (wsoHighlightPaddingX ? parseInt(wsoHighlightPaddingX.value, 10) : 6),
+      highlight_padding_y: wsoHighlightPaddingYV ? parseInt(wsoHighlightPaddingYV.value, 10) : (wsoHighlightPaddingY ? parseInt(wsoHighlightPaddingY.value, 10) : 6),
+      highlight_opacity: wsoHighlightOpacityV ? parseInt(wsoHighlightOpacityV.value, 10) / 100 : (wsoHighlightOpacity ? parseInt(wsoHighlightOpacity.value, 10) / 100 : 0.85),
+      highlight_animation: wsoHighlightAnim ? wsoHighlightAnim.value : "jump",
+      underline_thickness: wsoUnderlineThickV ? parseInt(wsoUnderlineThickV.value, 10) : (wsoUnderlineThick ? parseInt(wsoUnderlineThick.value, 10) : 4),
       underline_color: wsoUnderlineColor ? wsoUnderlineColor.value : "",
-      bounce_strength: wsoBounceStrength ? parseInt(wsoBounceStrength.value, 10) / 100 : 0.18,
-      scale_factor: wsoScaleFactor ? parseInt(wsoScaleFactor.value, 10) / 100 : 1.25,
+      bounce_strength: wsoBounceStrengthV ? parseInt(wsoBounceStrengthV.value, 10) / 100 : (wsoBounceStrength ? parseInt(wsoBounceStrength.value, 10) / 100 : 0.18),
+      scale_factor: wsoScaleFactorV ? parseInt(wsoScaleFactorV.value, 10) / 100 : (wsoScaleFactor ? parseInt(wsoScaleFactor.value, 10) / 100 : 1.25),
     };
 
     [btnRenderVideo, btnRenderBaked, btnRenderOverlay].forEach(b => { if (b) b.disabled = true; });

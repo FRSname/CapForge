@@ -334,17 +334,65 @@ def _draw_word_list(
     active_color_base = _hex_to_rgba(config.active_word_color, anim_alpha)
     stroke_rgba = _hex_to_rgba(config.stroke_color, anim_alpha) if outline_sw > 0 else None
 
-    CROSSFADE_DUR    = 0.06
-    bounce_strength  = getattr(config, "bounce_strength",       0.18)
-    scale_factor     = getattr(config, "scale_factor",          1.25)
-    highlight_radius = getattr(config, "highlight_radius",      16)
-    ul_thickness     = getattr(config, "underline_thickness",   4)
-    ul_color_hex     = getattr(config, "underline_color",       "")
-    BOUNCE_PX        = text_h * bounce_strength
-    SCALE_FACTOR     = scale_factor
+    CROSSFADE_DUR      = 0.06
+    bounce_strength    = getattr(config, "bounce_strength",       0.18)
+    scale_factor       = getattr(config, "scale_factor",          1.25)
+    highlight_radius   = getattr(config, "highlight_radius",      16)
+    highlight_padding_x = getattr(config, "highlight_padding_x", getattr(config, "highlight_padding", 6))
+    highlight_padding_y = getattr(config, "highlight_padding_y", getattr(config, "highlight_padding", 6))
+    highlight_opacity  = getattr(config, "highlight_opacity",     0.85)
+    highlight_anim     = getattr(config, "highlight_animation",   "jump")
+    ul_thickness       = getattr(config, "underline_thickness",   4)
+    ul_color_hex       = getattr(config, "underline_color",       "")
+    BOUNCE_PX          = text_h * bounce_strength
+    SCALE_FACTOR       = scale_factor
 
     x = center_x - total_w / 2
     y = center_y - text_h / 2 - bbox[1]  # offset by font ascent
+
+    # Pre-compute each word's left-edge x so highlight slide can interpolate.
+    word_x_positions: list[float] = []
+    wx = x
+    for wm in word_metrics:
+        word_x_positions.append(wx)
+        wx += wm["width"] + effective_space_w
+
+    # Draw sliding highlight BEFORE words so it sits behind the text.
+    if word_transition == "highlight":
+        h_pad   = max(highlight_padding_x, outline_sw + 2)
+        h_pad_v = max(highlight_padding_y, outline_sw + 2)
+        h_rad   = highlight_radius
+        hl_alpha = anim_alpha * highlight_opacity
+
+        active_idx = next((i for i, wm in enumerate(word_metrics)
+                           if wm["start"] <= current_time < wm["end"]), -1)
+        if active_idx >= 0:
+            target_x = word_x_positions[active_idx]
+            target_w = word_metrics[active_idx]["width"]
+
+            if highlight_anim == "slide" and active_idx > 0:
+                prev_x = word_x_positions[active_idx - 1]
+                prev_w = word_metrics[active_idx - 1]["width"]
+                wm_cur = word_metrics[active_idx]
+                word_dur  = max(wm_cur["end"] - wm_cur["start"], 0.001)
+                raw_t     = (current_time - wm_cur["start"]) / word_dur
+                # fast ease-out: most of the slide happens in first 40% of the word
+                t_ease    = 1.0 - (1.0 - min(max(raw_t * 2.5, 0.0), 1.0)) ** 2
+                hl_x = prev_x + (target_x - prev_x) * t_ease
+                hl_w = prev_w + (target_w - prev_w) * t_ease
+            else:
+                hl_x = target_x
+                hl_w = target_w
+
+            hl_rgba = _hex_to_rgba(config.active_word_color, hl_alpha)
+            _draw_rounded_rect(
+                draw,
+                (hl_x - h_pad,
+                 center_y - text_h / 2 - h_pad_v,
+                 hl_x + hl_w + h_pad,
+                 center_y + text_h / 2 + h_pad_v),
+                h_rad, hl_rgba,
+            )
 
     for i, wm in enumerate(word_metrics):
         is_active = wm["start"] <= current_time < wm["end"]
@@ -379,22 +427,9 @@ def _draw_word_list(
             color = active_color_base  # show in active colour while bouncing
 
         # ------------------------------------------------------------------ #
-        # HIGHLIGHT — draw a coloured pill behind the active word only
+        # HIGHLIGHT — pill drawn before the word loop; just recolour text here
         # ------------------------------------------------------------------ #
         if word_transition == "highlight" and is_active:
-            h_pad_h = max(6, outline_sw + 4)
-            h_pad_v = max(4, outline_sw + 2)
-            h_rad   = highlight_radius
-            hl_rgba = _hex_to_rgba(config.active_word_color, anim_alpha * 0.85)
-            _draw_rounded_rect(
-                draw,
-                (word_x - h_pad_h,
-                 center_y - text_h / 2 - h_pad_v,
-                 word_x + wm["width"] + h_pad_h,
-                 center_y + text_h / 2 + h_pad_v),
-                h_rad, hl_rgba,
-            )
-            # Word text in bg colour so it reads against the highlight
             color = _hex_to_rgba(config.bg_color, anim_alpha)
 
         # ------------------------------------------------------------------ #
