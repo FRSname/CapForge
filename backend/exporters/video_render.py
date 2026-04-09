@@ -64,9 +64,100 @@ def _hex_to_rgba(hex_color: str, opacity: float = 1.0) -> tuple[int, int, int, i
     return (r, g, b, int(opacity * 255))
 
 
+def _find_font_candidates(family: str, bold: bool) -> list[str]:
+    """Return an ordered list of font file paths to try for the given family.
+
+    Tries fc-match first (reliable on macOS with Homebrew fontconfig and most
+    Linux distros), then falls back to searching well-known OS directories.
+    """
+    import subprocess
+    import sys
+
+    # fc-match: the most reliable cross-platform font finder when available.
+    try:
+        query = f"{family}:bold" if bold else family
+        result = subprocess.run(
+            ["fc-match", "--format=%{file}", query],
+            capture_output=True, text=True, timeout=3,
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            path = result.stdout.strip()
+            if os.path.isfile(path):
+                return [path]
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    fam = family.replace(" ", "")
+    fam_lower = fam.lower()
+    family_lower = family.lower()
+    candidates: list[str] = []
+
+    if sys.platform == "darwin":
+        mac_dirs = [
+            "/Library/Fonts",
+            os.path.expanduser("~/Library/Fonts"),
+            "/System/Library/Fonts/Supplemental",
+            "/System/Library/Fonts",
+            "/opt/homebrew/share/fonts",
+        ]
+        bold_names = [
+            f"{family} Bold", f"{fam} Bold", f"{family}-Bold", f"{fam}-Bold",
+            f"{family}Bold", f"{fam}Bold",
+        ]
+        regular_names = [family, fam, f"{family} Regular", f"{fam} Regular"]
+        names = (bold_names + regular_names) if bold else (regular_names + bold_names)
+        exts = [".ttf", ".otf", ".ttc"]
+        for d in mac_dirs:
+            for name in names:
+                for ext in exts:
+                    candidates.append(os.path.join(d, name + ext))
+        # macOS system fallbacks: Helvetica is always present; Arial if Office installed
+        if bold:
+            candidates += [
+                "/Library/Fonts/Arial Bold.ttf",
+                "/System/Library/Fonts/Supplemental/Arial Bold.ttf",
+                "/Library/Fonts/Arial.ttf",
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+                "/System/Library/Fonts/Helvetica.ttc",
+                "/System/Library/Fonts/HelveticaNeue.ttc",
+            ]
+        else:
+            candidates += [
+                "/Library/Fonts/Arial.ttf",
+                "/System/Library/Fonts/Supplemental/Arial.ttf",
+                "/System/Library/Fonts/Helvetica.ttc",
+                "/System/Library/Fonts/HelveticaNeue.ttc",
+            ]
+    else:
+        # Windows / Linux
+        win_dir = "C:/Windows/Fonts"
+        if bold:
+            candidates += [
+                f"{win_dir}/{fam}bd.ttf", f"{win_dir}/{fam_lower}bd.ttf",
+                f"{win_dir}/{fam}b.ttf",  f"{win_dir}/{fam_lower}b.ttf",
+                f"{win_dir}/{fam}-Bold.ttf", f"{win_dir}/{fam_lower}-bold.ttf",
+            ]
+        candidates += [
+            f"{win_dir}/{family}.ttf", f"{win_dir}/{family_lower}.ttf",
+            f"{win_dir}/{fam}.ttf",    f"{win_dir}/{fam_lower}.ttf",
+        ]
+        candidates += [
+            f"{win_dir}/arialbd.ttf" if bold else f"{win_dir}/arial.ttf",
+            f"{win_dir}/arial.ttf",
+        ]
+        # Linux fallbacks
+        linux_dirs = ["/usr/share/fonts", "/usr/local/share/fonts", os.path.expanduser("~/.fonts")]
+        for d in linux_dirs:
+            candidates += [
+                os.path.join(d, f"{family}.ttf"), os.path.join(d, f"{fam}.ttf"),
+            ]
+
+    return candidates
+
+
 def _get_font(family: str, size: int, custom_path: str | None = None, bold: bool = True) -> ImageFont.FreeTypeFont:
-    """Load a TrueType font by name, falling back to bundled or default."""
-    # Custom font path takes priority
+    """Load a TrueType font by name, falling back gracefully on each platform."""
+    # Custom font path takes priority (user-uploaded font from the app).
     if custom_path and os.path.isfile(custom_path):
         try:
             logger.info("Loading custom font: %s", custom_path)
@@ -75,42 +166,21 @@ def _get_font(family: str, size: int, custom_path: str | None = None, bold: bool
             logger.warning("Failed to load custom font %s: %s", custom_path, e)
     elif custom_path:
         logger.warning("Custom font path not found: %s", custom_path)
-    # Try common Windows font paths
-    fam = family.replace(' ', '')
-    fam_lower = fam.lower()
 
-    bold_candidates = [
-        f"C:/Windows/Fonts/{fam}bd.ttf",
-        f"C:/Windows/Fonts/{fam_lower}bd.ttf",
-        f"C:/Windows/Fonts/{fam}b.ttf",
-        f"C:/Windows/Fonts/{fam_lower}b.ttf",
-        f"C:/Windows/Fonts/{fam}-Bold.ttf",
-        f"C:/Windows/Fonts/{fam_lower}-bold.ttf",
-    ]
-    regular_candidates = [
-        f"C:/Windows/Fonts/{family}.ttf",
-        f"C:/Windows/Fonts/{family.lower()}.ttf",
-        f"C:/Windows/Fonts/{fam}.ttf",
-        f"C:/Windows/Fonts/{fam_lower}.ttf",
-    ]
-
-    # Order candidates based on bold flag
-    if bold:
-        candidates = bold_candidates + regular_candidates + [
-            "C:/Windows/Fonts/arialbd.ttf", "C:/Windows/Fonts/arial.ttf",
-        ]
-    else:
-        candidates = regular_candidates + bold_candidates + [
-            "C:/Windows/Fonts/arial.ttf", "C:/Windows/Fonts/arialbd.ttf",
-        ]
-
-    for path in candidates:
+    for path in _find_font_candidates(family, bold):
         if os.path.isfile(path):
             try:
-                return ImageFont.truetype(path, size)
+                font = ImageFont.truetype(path, size)
+                logger.info("Loaded font: %s (size=%d)", path, size)
+                return font
             except Exception:
                 continue
-    # Last resort: Pillow default
+
+    logger.error(
+        "No font found for family=%r bold=%s — falling back to Pillow default. "
+        "Install the font or upload a custom .ttf via Settings.",
+        family, bold,
+    )
     return ImageFont.load_default()
 
 
