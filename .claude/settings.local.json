@@ -14,7 +14,21 @@
       "Bash(mv ffmpeg-8.1-full_build/LICENSE ffmpeg-LICENSE.txt)",
       "Bash(rm -rf ffmpeg-8.1-full_build ffmpeg-full.zip)",
       "Bash(curl -L --progress-bar -o python-embed.zip https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip)",
-      "Bash(node -e \"const p = require\\('./electron/platform'\\); console.log\\('platform id:', p.id\\); console.log\\('python rel:', p.pythonExeRelPath\\); console.log\\('ffmpeg:', p.ffmpegExeName\\); console.log\\('has installTorch:', typeof p.installTorch\\);\")"
+      "Bash(node -e \"const p = require\\('./electron/platform'\\); console.log\\('platform id:', p.id\\); console.log\\('python rel:', p.pythonExeRelPath\\); console.log\\('ffmpeg:', p.ffmpegExeName\\); console.log\\('has installTorch:', typeof p.installTorch\\);\")",
+      "Bash(python3 -)",
+      "Bash(sips -s format icns /tmp/capforge_icon_src.png --out /Users/tobbot/capforge/CapForge/build/icon.icns)",
+      "Bash(curl -sI \"https://evermeet.cx/ffmpeg/getrelease/zip\")",
+      "Bash(curl -sI \"https://evermeet.cx/ffprobe/getrelease/zip\")",
+      "Bash(curl -L --progress-bar \"https://evermeet.cx/ffmpeg/getrelease/zip\" -o /tmp/ffmpeg.zip)",
+      "Bash(curl -L --progress-bar \"https://evermeet.cx/ffprobe/getrelease/zip\" -o /tmp/ffprobe.zip)",
+      "Bash(curl -sI \"https://evermeet.cx/ffprobe/getrelease/ffprobe/zip\")",
+      "Bash(cp /tmp/ffmpeg_extracted/ffmpeg /Users/tobbot/capforge/CapForge/resources/bin-mac/ffmpeg)",
+      "Bash(cp /tmp/ffprobe2_extracted/ffprobe /Users/tobbot/capforge/CapForge/resources/bin-mac/ffprobe)",
+      "Bash(chmod +x /Users/tobbot/capforge/CapForge/resources/bin-mac/ffmpeg)",
+      "Bash(chmod +x /Users/tobbot/capforge/CapForge/resources/bin-mac/ffprobe)",
+      "Bash(cp /opt/homebrew/bin/ffmpeg /Users/tobbot/capforge/CapForge/resources/bin-mac/ffmpeg)",
+      "Bash(cp /opt/homebrew/bin/ffprobe /Users/tobbot/capforge/CapForge/resources/bin-mac/ffprobe)",
+      "Bash(npm run:*)"
     ]
   }
 }

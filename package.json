@@ -14,6 +14,8 @@
     "dev": "electron . --dev",
     "backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000",
     "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
     "dist:dir": "electron-builder --dir"
   },
   "devDependencies": {
@@ -49,22 +51,6 @@
     "asarUnpack": [
       "backend/**/*"
     ],
-    "extraResources": [
-      {
-        "from": "resources/bin",
-        "to": "bin",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "resources/python",
-        "to": "python",
-        "filter": [
-          "**/*"
-        ]
-      }
-    ],
     "win": {
       "target": [
         {
@@ -75,7 +61,40 @@
         }
       ],
       "icon": "build/icon.ico",
-      "artifactName": "CapForge-Setup-${version}.${ext}"
+      "artifactName": "CapForge-Setup-${version}.${ext}",
+      "extraResources": [
+        {
+          "from": "resources/bin-win",
+          "to": "bin",
+          "filter": ["**/*"]
+        },
+        {
+          "from": "resources/python",
+          "to": "python",
+          "filter": ["python-embed.zip"]
+        }
+      ]
+    },
+    "mac": {
+      "target": ["dmg"],
+      "category": "public.app-category.video",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "icon": "build/icon.icns",
+      "artifactName": "CapForge-${version}.${ext}",
+      "extraResources": [
+        {
+          "from": "resources/bin-mac",
+          "to": "bin",
+          "filter": ["**/*"]
+        },
+        {
+          "from": "resources/python",
+          "to": "python",
+          "filter": ["python-mac-arm64.tar.gz"]
+        }
+      ]
     },
     "nsis": {
       "oneClick": false,

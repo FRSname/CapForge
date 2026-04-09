@@ -50,18 +50,18 @@ function rotateLogIfNeeded(logPath) {
 /**
  * Resolve the directory that holds bundled native binaries (ffmpeg, ffprobe, ...).
  *
- * - In dev (running via `npm start`): `<project>/resources/bin`
- * - In a packaged app: `<app>/resources/bin` (set as extraResources in package.json)
- *
- * `process.resourcesPath` is only defined inside an Electron runtime; the
- * dev path is used when this file is required outside Electron (unit tests, etc.).
+ * - In a packaged app: `<app>/resources/bin` — both platforms land here because
+ *   package.json maps resources/bin-win and resources/bin-mac to `to: "bin"`.
+ * - In dev (running via `npm start`): `<project>/resources/bin-mac` or
+ *   `<project>/resources/bin-win`, chosen by platform.
  */
 function findBundledBinDir() {
   if (process.resourcesPath) {
     const packaged = path.join(process.resourcesPath, "bin");
     if (fs.existsSync(packaged)) return packaged;
   }
-  return path.join(PROJECT_ROOT, "resources", "bin");
+  const devDir = process.platform === "darwin" ? "bin-mac" : "bin-win";
+  return path.join(PROJECT_ROOT, "resources", devDir);
 }
 
 /**

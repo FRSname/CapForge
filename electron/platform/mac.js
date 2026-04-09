@@ -66,7 +66,10 @@ function findBundledPythonArchive() {
 function extractPython(archivePath, destDir) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(destDir, { recursive: true });
-    const proc = spawn("tar", ["-xzf", archivePath, "-C", destDir], {
+    // --strip-components=1 removes the top-level "python/" directory that
+    // python-build-standalone install_only tarballs wrap everything in, so the
+    // interpreter lands at <destDir>/bin/python3, not <destDir>/python/bin/python3.
+    const proc = spawn("tar", ["--strip-components=1", "-xzf", archivePath, "-C", destDir], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stderr = "";
@@ -137,7 +140,7 @@ module.exports = {
 
   // python-build-standalone standard layout: <extracted>/bin/python3
   pythonExeRelPath: path.join("bin", "python3"),
-  devVenvPythonRelPath: path.join("venv", "bin", "python3"),
+  devVenvPythonRelPath: path.join(".venv", "bin", "python3"),
 
   ffmpegExeName: "ffmpeg",
   ffprobeExeName: "ffprobe",
