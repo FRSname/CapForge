@@ -139,6 +139,18 @@ class VideoRenderConfig(BaseModel):
     custom_font_path: Optional[str] = Field(None, description="Absolute path to a custom .ttf/.otf font file")
     render_mode: str = Field("overlay", description="overlay = transparent, baked = subtitles on source video")
     video_bitrate: str = Field("8M", description="Bitrate for MP4 output (e.g. 8M, 15M)")
+    animation: str = Field("none", description="Group entry animation: none, fade, slide, pop")
+    animation_duration: float = Field(0.12, ge=0.0, le=1.0, description="Animation in/out duration in seconds")
+    word_transition: str = Field("instant", description="Word highlight style: instant, crossfade, highlight, underline, bounce, scale, karaoke")
+    # Highlight options
+    highlight_radius: int = Field(16, ge=0, le=80, description="Corner radius of the highlight pill")
+    # Underline options
+    underline_thickness: int = Field(4, ge=1, le=30, description="Underline bar thickness in px")
+    underline_color: str = Field("", description="Underline color hex; empty = use active_word_color")
+    # Bounce options
+    bounce_strength: float = Field(0.18, ge=0.0, le=1.0, description="Bounce height as fraction of font size")
+    # Scale options
+    scale_factor: float = Field(1.25, ge=1.0, le=2.5, description="Scale multiplier for active word")
 
 
 class CustomGroup(BaseModel):

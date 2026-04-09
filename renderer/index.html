@@ -324,6 +324,77 @@
                 <span id="studio-pos-y-val" class="range-val">82%</span>
               </div>
 
+              <div class="studio-section studio-section-label">Animation</div>
+              <div class="studio-row">
+                <label>Entry/Exit</label>
+                <select id="studio-animation">
+                  <option value="none">None</option>
+                  <option value="fade">Fade</option>
+                  <option value="slide">Slide Up</option>
+                  <option value="pop">Pop</option>
+                </select>
+              </div>
+
+              <div class="studio-row" id="studio-anim-dur-row">
+                <label>Duration</label>
+                <input type="range" id="studio-anim-dur" min="0" max="50" value="12" />
+                <span id="studio-anim-dur-val" class="range-val">0.12s</span>
+              </div>
+
+              <div class="studio-row">
+                <label>Word Style</label>
+                <select id="studio-word-transition">
+                  <option value="instant">Instant</option>
+                  <option value="crossfade">Crossfade</option>
+                  <option value="highlight">Highlight</option>
+                  <option value="underline">Underline</option>
+                  <option value="bounce">Bounce</option>
+                  <option value="scale">Scale Up</option>
+                  <option value="karaoke">Karaoke Fill</option>
+                </select>
+              </div>
+
+              <!-- Highlight options -->
+              <div class="word-style-opts" id="wso-highlight" style="display:none">
+                <div class="studio-row">
+                  <label>Corner Radius</label>
+                  <input type="range" id="wso-highlight-radius" min="0" max="80" value="16" />
+                  <span id="wso-highlight-radius-val" class="range-val">16px</span>
+                </div>
+              </div>
+
+              <!-- Underline options -->
+              <div class="word-style-opts" id="wso-underline" style="display:none">
+                <div class="studio-row">
+                  <label>Thickness</label>
+                  <input type="range" id="wso-underline-thickness" min="1" max="30" value="4" />
+                  <span id="wso-underline-thickness-val" class="range-val">4px</span>
+                </div>
+                <div class="studio-row">
+                  <label>Color</label>
+                  <input type="color" id="wso-underline-color" value="#FFD700" />
+                  <input type="text" id="wso-underline-color-hex" class="hex-input" value="#FFD700" maxlength="7" spellcheck="false" />
+                </div>
+              </div>
+
+              <!-- Bounce options -->
+              <div class="word-style-opts" id="wso-bounce" style="display:none">
+                <div class="studio-row">
+                  <label>Strength</label>
+                  <input type="range" id="wso-bounce-strength" min="0" max="100" value="18" />
+                  <span id="wso-bounce-strength-val" class="range-val">18%</span>
+                </div>
+              </div>
+
+              <!-- Scale options -->
+              <div class="word-style-opts" id="wso-scale" style="display:none">
+                <div class="studio-row">
+                  <label>Scale Factor</label>
+                  <input type="range" id="wso-scale-factor" min="105" max="250" value="125" />
+                  <span id="wso-scale-factor-val" class="range-val">1.25×</span>
+                </div>
+              </div>
+
               <div class="studio-section studio-section-label">Output</div>
               <div class="studio-row">
                 <label>Resolution</label>

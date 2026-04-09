@@ -1132,6 +1132,26 @@
   const studioResolution = document.getElementById("studio-resolution");
   const studioFps = document.getElementById("studio-fps");
   const studioFormat = document.getElementById("studio-format");
+  const studioAnimation = document.getElementById("studio-animation");
+  const studioAnimDur = document.getElementById("studio-anim-dur");
+  const studioAnimDurVal = document.getElementById("studio-anim-dur-val");
+  const studioAnimDurRow = document.getElementById("studio-anim-dur-row");
+  const studioWordTransition = document.getElementById("studio-word-transition");
+  // Per-style option panels
+  const wsoHighlight        = document.getElementById("wso-highlight");
+  const wsoHighlightRadius  = document.getElementById("wso-highlight-radius");
+  const wsoHighlightRadiusV = document.getElementById("wso-highlight-radius-val");
+  const wsoUnderline        = document.getElementById("wso-underline");
+  const wsoUnderlineThick   = document.getElementById("wso-underline-thickness");
+  const wsoUnderlineThickV  = document.getElementById("wso-underline-thickness-val");
+  const wsoUnderlineColor   = document.getElementById("wso-underline-color");
+  const wsoUnderlineColorHex= document.getElementById("wso-underline-color-hex");
+  const wsoBounce           = document.getElementById("wso-bounce");
+  const wsoBounceStrength   = document.getElementById("wso-bounce-strength");
+  const wsoBounceStrengthV  = document.getElementById("wso-bounce-strength-val");
+  const wsoScale            = document.getElementById("wso-scale");
+  const wsoScaleFactor      = document.getElementById("wso-scale-factor");
+  const wsoScaleFactorV     = document.getElementById("wso-scale-factor-val");
 
   let studioOpen = true;
   let studioGroups = [];
@@ -1170,6 +1190,57 @@
   [studioFont, studioTextColor, studioActiveColor, studioBgColor, studioStrokeColor, studioResolution].forEach((el) => {
     if (el) el.addEventListener("input", () => drawStudioFrame());
   });
+
+  // Animation controls
+  function _updateAnimDurVisibility() {
+    if (studioAnimDurRow) studioAnimDurRow.style.display = studioAnimation && studioAnimation.value !== "none" ? "" : "none";
+  }
+  if (studioAnimation) {
+    studioAnimation.addEventListener("input", () => { _updateAnimDurVisibility(); drawStudioFrame(); });
+    _updateAnimDurVisibility();
+  }
+  if (studioAnimDur && studioAnimDurVal) {
+    studioAnimDur.addEventListener("input", () => {
+      studioAnimDurVal.textContent = (parseInt(studioAnimDur.value, 10) / 100).toFixed(2) + "s";
+      drawStudioFrame();
+    });
+  }
+  // Word-style sub-panel visibility
+  const wsoAllPanels = { highlight: wsoHighlight, underline: wsoUnderline, bounce: wsoBounce, scale: wsoScale };
+  function _updateWordStyleOpts() {
+    const v = studioWordTransition ? studioWordTransition.value : "none";
+    Object.entries(wsoAllPanels).forEach(([k, el]) => {
+      if (el) el.style.display = (k === v) ? "" : "none";
+    });
+  }
+  if (studioWordTransition) {
+    studioWordTransition.addEventListener("input", () => { _updateWordStyleOpts(); drawStudioFrame(); });
+    _updateWordStyleOpts();
+  }
+
+  // Highlight radius slider
+  if (wsoHighlightRadius && wsoHighlightRadiusV) {
+    wsoHighlightRadius.addEventListener("input", () => { wsoHighlightRadiusV.textContent = wsoHighlightRadius.value + "px"; drawStudioFrame(); });
+  }
+
+  // Underline sliders + color
+  if (wsoUnderlineThick && wsoUnderlineThickV) {
+    wsoUnderlineThick.addEventListener("input", () => { wsoUnderlineThickV.textContent = wsoUnderlineThick.value + "px"; drawStudioFrame(); });
+  }
+  if (wsoUnderlineColor && wsoUnderlineColorHex) {
+    wsoUnderlineColor.addEventListener("input", () => { wsoUnderlineColorHex.value = wsoUnderlineColor.value.toUpperCase(); drawStudioFrame(); });
+    wsoUnderlineColorHex.addEventListener("input", () => { if (/^#[0-9A-Fa-f]{6}$/.test(wsoUnderlineColorHex.value)) { wsoUnderlineColor.value = wsoUnderlineColorHex.value; drawStudioFrame(); } });
+  }
+
+  // Bounce strength slider
+  if (wsoBounceStrength && wsoBounceStrengthV) {
+    wsoBounceStrength.addEventListener("input", () => { wsoBounceStrengthV.textContent = wsoBounceStrength.value + "%"; drawStudioFrame(); });
+  }
+
+  // Scale factor slider
+  if (wsoScaleFactor && wsoScaleFactorV) {
+    wsoScaleFactor.addEventListener("input", () => { wsoScaleFactorV.textContent = (parseInt(wsoScaleFactor.value, 10) / 100).toFixed(2) + "×"; drawStudioFrame(); });
+  }
 
   // Bold toggle redraws
   if (studioBold) studioBold.addEventListener("change", () => drawStudioFrame());
@@ -1337,6 +1408,14 @@
       format: studioFormat.value,
       renderMode: studioRenderMode.value,
       bitrate: studioBitrate.value,
+      animation: studioAnimation ? studioAnimation.value : "none",
+      animDur: studioAnimDur ? studioAnimDur.value : "12",
+      wordTransition: studioWordTransition ? studioWordTransition.value : "instant",
+      wsoHighlightRadius: wsoHighlightRadius ? wsoHighlightRadius.value : "16",
+      wsoUnderlineThick: wsoUnderlineThick ? wsoUnderlineThick.value : "4",
+      wsoUnderlineColor: wsoUnderlineColor ? wsoUnderlineColor.value : "#FFD700",
+      wsoBounceStrength: wsoBounceStrength ? wsoBounceStrength.value : "18",
+      wsoScaleFactor: wsoScaleFactor ? wsoScaleFactor.value : "125",
     };
   }
 
@@ -1371,6 +1450,14 @@
     if (p.format) studioFormat.value = p.format;
     if (p.renderMode) studioRenderMode.value = p.renderMode;
     if (p.bitrate) studioBitrate.value = p.bitrate;
+    if (p.animation && studioAnimation) { studioAnimation.value = p.animation; _updateAnimDurVisibility(); }
+    if (p.animDur !== undefined && studioAnimDur) { studioAnimDur.value = p.animDur; studioAnimDurVal.textContent = (parseInt(p.animDur, 10) / 100).toFixed(2) + "s"; }
+    if (p.wordTransition && studioWordTransition) { studioWordTransition.value = p.wordTransition; _updateWordStyleOpts(); }
+    if (p.wsoHighlightRadius !== undefined && wsoHighlightRadius) { wsoHighlightRadius.value = p.wsoHighlightRadius; wsoHighlightRadiusV.textContent = p.wsoHighlightRadius + "px"; }
+    if (p.wsoUnderlineThick !== undefined && wsoUnderlineThick) { wsoUnderlineThick.value = p.wsoUnderlineThick; wsoUnderlineThickV.textContent = p.wsoUnderlineThick + "px"; }
+    if (p.wsoUnderlineColor && wsoUnderlineColor) { wsoUnderlineColor.value = p.wsoUnderlineColor; wsoUnderlineColorHex.value = p.wsoUnderlineColor.toUpperCase(); }
+    if (p.wsoBounceStrength !== undefined && wsoBounceStrength) { wsoBounceStrength.value = p.wsoBounceStrength; wsoBounceStrengthV.textContent = p.wsoBounceStrength + "%"; }
+    if (p.wsoScaleFactor !== undefined && wsoScaleFactor) { wsoScaleFactor.value = p.wsoScaleFactor; wsoScaleFactorV.textContent = (parseInt(p.wsoScaleFactor, 10) / 100).toFixed(2) + "×"; }
     updateRenderModeUI();
     buildStudioGroups();
     drawStudioFrame();
@@ -1836,6 +1923,9 @@
     const extraWordSpacing = parseInt(studioWordSpacing ? studioWordSpacing.value : "0", 10);
     const strokeWidth = parseInt(studioStrokeWidth ? studioStrokeWidth.value : "0", 10);
     const strokeColor = studioStrokeColor ? studioStrokeColor.value : "#000000";
+    const animation = studioAnimation ? studioAnimation.value : "none";
+    const animDur = studioAnimDur ? parseInt(studioAnimDur.value, 10) / 100 : 0.12;
+    const wordTransition = studioWordTransition ? studioWordTransition.value : "instant";
 
     // Scale: map render resolution to displayed overlay size
     const [resW, resH] = studioResolution.value.split("x").map(Number);
@@ -1851,12 +1941,69 @@
     const sWordSpacing = extraWordSpacing * scale;
     const sStroke = strokeWidth * scale;
 
+    // Animation: compute alpha and y-slide offset
+    function easeOut(v) { v = Math.max(0, Math.min(1, v)); return 1 - (1 - v) ** 2; }
+    const age       = t - activeGroup.start;
+    const remaining = activeGroup.end - t;
+    const entryT = animDur > 0 ? easeOut(age       / animDur) : 1;
+    const exitT  = animDur > 0 ? easeOut(remaining / animDur) : 1;
+    const phaseT = Math.min(entryT, exitT);
+
+    let animAlpha = 1;
+    let slideOffset = 0;
+    let popScale = 1;
+
+    if (animation === "fade") {
+      animAlpha = phaseT;
+    } else if (animation === "slide") {
+      animAlpha = phaseT;
+      const slidePx = ch * 0.04;
+      slideOffset = entryT < 1 ? slidePx * (1 - entryT) : slidePx * (1 - exitT) * -1;
+    } else if (animation === "pop") {
+      animAlpha = phaseT;
+      if (entryT < 1) popScale = 0.85 + 0.15 * entryT;
+    }
+
+    // Colour helpers
+    function hexToRgb(hex) {
+      const n = parseInt(hex.slice(1), 16);
+      return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+    }
+    function lerpColor(c1, c2, lt) {
+      return `rgb(${c1.map((v, i) => Math.round(v + (c2[i] - v) * lt)).join(",")})`;
+    }
+    const textRgb   = hexToRgb(textColor);
+    const activeRgb = hexToRgb(activeColor);
+    const CROSSFADE_DUR   = 0.06;
+    const hlRadius        = wsoHighlightRadius  ? parseInt(wsoHighlightRadius.value, 10) * scale  : 16 * scale;
+    const ulThickness     = wsoUnderlineThick   ? parseInt(wsoUnderlineThick.value,  10) * scale  : 4  * scale;
+    const ulColor         = wsoUnderlineColor   ? wsoUnderlineColor.value : activeColor;
+    const bounceStrength  = wsoBounceStrength   ? parseInt(wsoBounceStrength.value,  10) / 100    : 0.18;
+    const scaleFactor     = wsoScaleFactor      ? parseInt(wsoScaleFactor.value,     10) / 100    : 1.25;
+    const BOUNCE_PX  = sf * bounceStrength;
+    const SCALE_WORD = scaleFactor;
+
+    // helper: draw one word (or char-by-char) at (wx, wy) with current ctx styles
+    function drawWord(word, wx, wy) {
+      if (sTracking === 0) {
+        if (sStroke > 0) { ctx.strokeText(word, wx, wy); }
+        ctx.fillText(word, wx, wy);
+      } else {
+        let cx2 = wx;
+        for (let ci = 0; ci < word.length; ci++) {
+          const ch2 = word[ci];
+          if (sStroke > 0) { ctx.strokeText(ch2, cx2, wy); }
+          ctx.fillText(ch2, cx2, wy);
+          cx2 += ctx.measureText(ch2).width + sTracking;
+        }
+      }
+    }
+
     const fontWeight = isBold ? "bold" : "normal";
     ctx.font = `${fontWeight} ${sf}px "${fontFamily}", sans-serif`;
     ctx.textBaseline = "middle";
     ctx.textAlign = "left";
 
-    // Measure words accounting for tracking (letter spacing)
     function measureWithTracking(text) {
       if (sTracking === 0) return ctx.measureText(text).width;
       let w = 0;
@@ -1878,52 +2025,120 @@
     const bgW = totalW + sp * 2;
     const bgH = sf + sv * 2;
     const cx = cw / 2;
-    const cy = ch * posY;
+    const cy = ch * posY + slideOffset * scale;
+
+    // Apply pop scale transform around the subtitle centre
+    if (popScale !== 1) {
+      ctx.save();
+      ctx.translate(cx, cy);
+      ctx.scale(popScale, popScale);
+      ctx.translate(-cx, -cy);
+    }
 
     if (bgOpacity > 0) {
       ctx.save();
-      ctx.globalAlpha = bgOpacity;
+      ctx.globalAlpha = bgOpacity * animAlpha;
       ctx.fillStyle = bgColor;
       roundRect(ctx, cx - bgW / 2, cy - bgH / 2, bgW, bgH, sr);
       ctx.fill();
       ctx.restore();
     }
 
-    // Draw words with tracking + stroke
+    // Draw words
     let x = cx - totalW / 2;
     wm.forEach((m, i) => {
       const isActive = m.start <= t && t < m.end;
-      const fillColor = isActive ? activeColor : textColor;
+      const wordDur  = Math.max(m.end - m.start, 0.001);
+      const wordProg = isActive ? Math.min(Math.max((t - m.start) / wordDur, 0), 1) : 0;
 
-      if (sTracking === 0) {
-        // Fast path: no tracking
-        if (sStroke > 0) {
-          ctx.strokeStyle = strokeColor;
-          ctx.lineWidth = sStroke * 2;
-          ctx.lineJoin = "round";
-          ctx.strokeText(m.word, x, cy);
-        }
-        ctx.fillStyle = fillColor;
-        ctx.fillText(m.word, x, cy);
-      } else {
-        // Character-by-character for tracking
-        let cx2 = x;
-        for (let ci = 0; ci < m.word.length; ci++) {
-          const ch2 = m.word[ci];
-          if (sStroke > 0) {
-            ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = sStroke * 2;
-            ctx.lineJoin = "round";
-            ctx.strokeText(ch2, cx2, cy);
-          }
-          ctx.fillStyle = fillColor;
-          ctx.fillText(ch2, cx2, cy);
-          cx2 += ctx.measureText(ch2).width + sTracking;
-        }
+      ctx.save();
+      ctx.globalAlpha = animAlpha;
+      if (sStroke > 0) {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = sStroke * 2;
+        ctx.lineJoin = "round";
       }
+
+      // ---- CROSSFADE ----
+      if (wordTransition === "crossfade") {
+        const fi = Math.min(Math.max((t - m.start) / CROSSFADE_DUR, 0), 1);
+        const fo = Math.min(Math.max((m.end - t)   / CROSSFADE_DUR, 0), 1);
+        ctx.fillStyle = lerpColor(textRgb, activeRgb, fi * fo);
+        drawWord(m.word, x, cy);
+
+      // ---- HIGHLIGHT ----
+      } else if (wordTransition === "highlight") {
+        if (isActive) {
+          const hPad = Math.max(6 * scale, 4);
+          ctx.save();
+          ctx.globalAlpha = animAlpha * 0.85;
+          ctx.fillStyle = activeColor;
+          roundRect(ctx, x - hPad, cy - sf / 2 - hPad * 0.6, m.width + hPad * 2, sf + hPad * 1.2, hlRadius);
+          ctx.fill();
+          ctx.restore();
+          ctx.fillStyle = bgColor;
+        } else {
+          ctx.fillStyle = textColor;
+        }
+        drawWord(m.word, x, cy);
+
+      // ---- UNDERLINE ----
+      } else if (wordTransition === "underline") {
+        ctx.fillStyle = isActive ? activeColor : textColor;
+        drawWord(m.word, x, cy);
+        if (isActive) {
+          const barY = cy + sf / 2 + 2 * scale;
+          ctx.fillStyle = ulColor;
+          ctx.fillRect(x, barY, m.width, ulThickness);
+        }
+
+      // ---- BOUNCE ----
+      } else if (wordTransition === "bounce") {
+        const bounceY = isActive ? cy - BOUNCE_PX * Math.sin(wordProg * Math.PI) : cy;
+        ctx.fillStyle = isActive ? activeColor : textColor;
+        drawWord(m.word, x, bounceY);
+
+      // ---- SCALE ----
+      } else if (wordTransition === "scale") {
+        if (isActive) {
+          const wordCx = x + m.width / 2;
+          ctx.translate(wordCx, cy);
+          ctx.scale(SCALE_WORD, SCALE_WORD);
+          ctx.translate(-wordCx, -cy);
+          ctx.fillStyle = activeColor;
+        } else {
+          ctx.fillStyle = textColor;
+        }
+        drawWord(m.word, x, cy);
+
+      // ---- KARAOKE ----
+      } else if (wordTransition === "karaoke") {
+        // draw base word in textColor
+        ctx.fillStyle = textColor;
+        drawWord(m.word, x, cy);
+        if (isActive && wordProg > 0) {
+          // clip to left fraction and overdraw in activeColor
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, cy - sf, m.width * wordProg, sf * 2);
+          ctx.clip();
+          ctx.fillStyle = activeColor;
+          drawWord(m.word, x, cy);
+          ctx.restore();
+        }
+
+      // ---- INSTANT (default) ----
+      } else {
+        ctx.fillStyle = isActive ? activeColor : textColor;
+        drawWord(m.word, x, cy);
+      }
+
+      ctx.restore();
       x += m.width;
       if (i < wm.length - 1) x += effectiveSpaceW;
     });
+
+    if (popScale !== 1) ctx.restore();
   }
 
   // --- Render video ---
@@ -1975,6 +2190,14 @@
       output_format: renderMode === "baked" ? "mp4" : studioFormat.value,
       render_mode: renderMode,
       video_bitrate: studioBitrate ? studioBitrate.value : "8M",
+      animation: studioAnimation ? studioAnimation.value : "none",
+      animation_duration: studioAnimDur ? parseInt(studioAnimDur.value, 10) / 100 : 0.12,
+      word_transition: studioWordTransition ? studioWordTransition.value : "instant",
+      highlight_radius: wsoHighlightRadius ? parseInt(wsoHighlightRadius.value, 10) : 16,
+      underline_thickness: wsoUnderlineThick ? parseInt(wsoUnderlineThick.value, 10) : 4,
+      underline_color: wsoUnderlineColor ? wsoUnderlineColor.value : "",
+      bounce_strength: wsoBounceStrength ? parseInt(wsoBounceStrength.value, 10) / 100 : 0.18,
+      scale_factor: wsoScaleFactor ? parseInt(wsoScaleFactor.value, 10) / 100 : 1.25,
     };
 
     btnRenderVideo.disabled = true;
