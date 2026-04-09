@@ -394,6 +394,9 @@ def _draw_word_list(
                 h_rad, hl_rgba,
             )
 
+    # Small font cache for per-word scaled fonts: (size, bold) → font
+    _font_cache: dict[tuple, ImageFont.FreeTypeFont] = {}
+
     for i, wm in enumerate(word_metrics):
         is_active = wm["start"] <= current_time < wm["end"]
 
@@ -401,55 +404,66 @@ def _draw_word_list(
         word_dur  = max(wm["end"] - wm["start"], 0.001)
         word_prog = min(max((current_time - wm["start"]) / word_dur, 0.0), 1.0) if is_active else 0.0
 
+        # --- per-word overrides ---
+        ov = wm.get("overrides") or {}
+        w_text_color    = _hex_to_rgba(ov["text_color"],        anim_alpha) if "text_color"        in ov else text_color_base
+        w_active_color  = _hex_to_rgba(ov["active_word_color"], anim_alpha) if "active_word_color"  in ov else active_color_base
+        w_scale         = float(ov.get("font_size_scale", 1.0))
+        w_bold          = bool(ov["bold"]) if "bold" in ov else config.bold
+        w_font_family   = ov.get("font_family") or config.font_family
+        w_font_path     = ov.get("custom_font_path") or getattr(config, "custom_font_path", None)
+        w_word_trans    = ov.get("word_transition") or word_transition
+        needs_new_font  = (w_scale != 1.0 or w_bold != config.bold or w_font_family != config.font_family)
+        if needs_new_font:
+            base_size = font.size if hasattr(font, "size") else config.font_size
+            cache_key = (w_font_family, round(base_size * w_scale), w_bold)
+            if cache_key not in _font_cache:
+                _font_cache[cache_key] = _get_font(w_font_family, cache_key[1], w_font_path, w_bold)
+            w_font = _font_cache[cache_key]
+            w_bbox = draw.textbbox((0, 0), "Ayg", font=w_font)
+            w_text_h = w_bbox[3] - w_bbox[1]
+        else:
+            w_font   = font
+            w_bbox   = bbox
+            w_text_h = text_h
+
         # --- colour ---
-        if word_transition == "crossfade":
+        if w_word_trans == "crossfade":
             fade_in  = min(max((current_time - wm["start"]) / CROSSFADE_DUR, 0.0), 1.0)
             fade_out = min(max((wm["end"] - current_time)   / CROSSFADE_DUR, 0.0), 1.0)
-            color = _lerp_color(text_color_base, active_color_base, fade_in * fade_out)
-        elif word_transition in ("highlight", "underline", "karaoke", "bounce", "scale"):
-            # These modes keep base textColor for the word text itself;
-            # the active effect is painted separately below.
-            color = text_color_base
+            color = _lerp_color(w_text_color, w_active_color, fade_in * fade_out)
+        elif w_word_trans in ("highlight", "underline", "karaoke", "bounce", "scale"):
+            color = w_text_color
         else:  # instant
-            color = active_color_base if is_active else text_color_base
+            color = w_active_color if is_active else w_text_color
 
         word_x = x
-        word_y = y
+        word_y = y - (w_text_h - text_h) / 2  # vertically centre scaled words on the baseline
 
         # ------------------------------------------------------------------ #
         # BOUNCE — shift active word upward
         # ------------------------------------------------------------------ #
-        if word_transition == "bounce" and is_active:
-            # Rise quickly, fall back: use sin over [0,π] for a smooth arc
+        if w_word_trans == "bounce" and is_active:
             import math
             bounce_t = math.sin(word_prog * math.pi)
-            word_y = y - BOUNCE_PX * bounce_t
-            color = active_color_base  # show in active colour while bouncing
+            word_y = y - BOUNCE_PX * bounce_t - (w_text_h - text_h) / 2
+            color = w_active_color
 
-        # ------------------------------------------------------------------ #
-        # HIGHLIGHT — pill drawn before the word loop; just recolour text here
-        # ------------------------------------------------------------------ #
-        if word_transition == "highlight" and is_active:
+        if w_word_trans == "highlight" and is_active:
             color = _hex_to_rgba(config.bg_color, anim_alpha)
 
-        # ------------------------------------------------------------------ #
-        # SCALE — draw active word larger, centred on its layout position
-        # ------------------------------------------------------------------ #
-        if word_transition == "scale" and is_active:
+        if w_word_trans == "scale" and is_active:
             word_cx = word_x + wm["width"] / 2
-            word_cy = center_y  # vertical centre of text line
-
-            # Render the word onto a small temp surface at normal size,
-            # scale up, paste back centred on (word_cx, word_cy)
-            pad = int(text_h * 0.5)
+            word_cy = center_y
+            pad = int(w_text_h * 0.5)
             tmp_w = int(wm["width"]) + pad * 2
-            tmp_h = int(text_h) + pad * 2
+            tmp_h = int(w_text_h) + pad * 2
             tmp = Image.new("RGBA", (max(tmp_w, 1), max(tmp_h, 1)), (0, 0, 0, 0))
             tmp_draw = ImageDraw.Draw(tmp)
             tmp_stroke = _hex_to_rgba(config.stroke_color, anim_alpha) if outline_sw > 0 else None
             _draw_single_word(
-                tmp_draw, wm["word"], pad, pad - bbox[1],
-                font, active_color_base, tracking, outline_sw, tmp_stroke,
+                tmp_draw, wm["word"], pad, pad - w_bbox[1],
+                w_font, w_active_color, tracking, outline_sw, tmp_stroke,
             )
             new_w = int(tmp_w * SCALE_FACTOR)
             new_h = int(tmp_h * SCALE_FACTOR)
@@ -457,68 +471,53 @@ def _draw_word_list(
             paste_x = int(word_cx - new_w / 2)
             paste_y = int(word_cy - new_h / 2)
             img.paste(scaled, (paste_x, paste_y), scaled)
-
             x += wm["width"]
             if i < len(word_metrics) - 1:
                 x += effective_space_w
-            continue  # word already drawn via paste
+            continue
 
-        # ------------------------------------------------------------------ #
-        # KARAOKE — sweep activeColor L→R across the word based on progress
-        # ------------------------------------------------------------------ #
-        if word_transition == "karaoke":
-            # 1. Draw word in textColor
+        if w_word_trans == "karaoke":
             _draw_single_word(draw, wm["word"], word_x, word_y,
-                              font, text_color_base, tracking, outline_sw, stroke_rgba)
+                              w_font, w_text_color, tracking, outline_sw, stroke_rgba)
             if is_active and word_prog > 0:
-                # 2. Render active-coloured word onto a temp image
                 pad = outline_sw + 2
                 tmp_w = int(wm["width"]) + pad * 2
-                tmp_h = int(text_h) + pad * 2
+                tmp_h = int(w_text_h) + pad * 2
                 tmp = Image.new("RGBA", (max(tmp_w, 1), max(tmp_h, 1)), (0, 0, 0, 0))
                 tmp_draw = ImageDraw.Draw(tmp)
                 tmp_stroke = _hex_to_rgba(config.stroke_color, anim_alpha) if outline_sw > 0 else None
                 _draw_single_word(
-                    tmp_draw, wm["word"], pad, pad - bbox[1],
-                    font, active_color_base, tracking, outline_sw, tmp_stroke,
+                    tmp_draw, wm["word"], pad, pad - w_bbox[1],
+                    w_font, w_active_color, tracking, outline_sw, tmp_stroke,
                 )
-                # 3. Mask to left `word_prog` fraction using pure Pillow
                 fill_w = int(tmp_w * word_prog)
                 mask = Image.new("L", (max(tmp_w, 1), max(tmp_h, 1)), 0)
                 ImageDraw.Draw(mask).rectangle([0, 0, fill_w, tmp_h], fill=255)
-                # Combine with existing alpha so we don't reveal transparent areas
                 orig_alpha = tmp.getchannel("A")
                 combined = Image.fromarray(
                     bytes(min(a, m) for a, m in zip(orig_alpha.tobytes(), mask.tobytes())),
                     "L",
                 )
                 tmp.putalpha(combined)
-                img.paste(tmp, (int(word_x) - pad, int(word_y + bbox[1]) - pad), tmp)
-
+                img.paste(tmp, (int(word_x) - pad, int(word_y + w_bbox[1]) - pad), tmp)
             x += wm["width"]
             if i < len(word_metrics) - 1:
                 x += effective_space_w
-            continue  # already drawn
+            continue
 
-        # ------------------------------------------------------------------ #
-        # UNDERLINE — draw coloured bar below active word
-        # ------------------------------------------------------------------ #
-        if word_transition == "underline" and is_active:
+        if w_word_trans == "underline" and is_active:
             bar_h    = max(1, ul_thickness)
-            bar_y    = center_y + text_h / 2 + 2
+            bar_y    = center_y + w_text_h / 2 + 2
             ul_hex   = ul_color_hex if ul_color_hex else config.active_word_color
             bar_rgba = _hex_to_rgba(ul_hex, anim_alpha)
             draw.rectangle(
                 [word_x, bar_y, word_x + wm["width"], bar_y + bar_h],
                 fill=bar_rgba,
             )
-            color = active_color_base  # text in active colour too
+            color = w_active_color
 
-        # ------------------------------------------------------------------ #
-        # Default word draw (all modes except karaoke/scale which already returned)
-        # ------------------------------------------------------------------ #
         _draw_single_word(draw, wm["word"], word_x, word_y,
-                          font, color, tracking, outline_sw, stroke_rgba)
+                          w_font, color, tracking, outline_sw, stroke_rgba)
 
         x += wm["width"]
         if i < len(word_metrics) - 1:
@@ -590,17 +589,35 @@ def _render_frame(
     space_bb = draw.textbbox((0, 0), " ", font=font)
     effective_space_w = (space_bb[2] - space_bb[0]) + extra_word_spacing
 
-    word_metrics: list[dict] = []
-    total_w = 0.0
-    for i, w in enumerate(words):
-        ww = _measure_word(w["word"])
-        word_metrics.append({"word": w["word"], "width": ww, "start": w["start"], "end": w["end"]})
-        total_w += ww
-        if i < len(words) - 1:
-            total_w += effective_space_w
+    def _measure_with_font(text: str, f: ImageFont.FreeTypeFont) -> float:
+        if tracking == 0:
+            wb = draw.textbbox((0, 0), text, font=f)
+            return wb[2] - wb[0]
+        ww = 0.0
+        for ci, ch in enumerate(text):
+            cb = draw.textbbox((0, 0), ch, font=f)
+            ww += cb[2] - cb[0]
+            if ci < len(text) - 1:
+                ww += tracking
+        return ww
+
+    all_metrics: list[dict] = []
+    for w in words:
+        ov = w.get("overrides") or {}
+        w_scale = float(ov.get("font_size_scale", 1.0))
+        w_bold  = bool(ov["bold"]) if "bold" in ov else config.bold
+        if w_scale != 1.0 or w_bold != config.bold:
+            ov_font = _get_font(config.font_family, round(config.font_size * w_scale),
+                                getattr(config, "custom_font_path", None), w_bold)
+            ww = _measure_with_font(w["word"], ov_font)
+        else:
+            ww = _measure_word(w["word"])
+        all_metrics.append({"word": w["word"], "width": ww, "start": w["start"], "end": w["end"],
+                             "overrides": ov if ov else None})
 
     bbox    = draw.textbbox((0, 0), "Ayg", font=font)
     text_h  = bbox[3] - bbox[1]
+    row_gap = text_h * 0.3
 
     stroke_pad    = outline_sw
     bg_width_extra  = getattr(config, "bg_width_extra",  0)
@@ -608,18 +625,47 @@ def _render_frame(
     text_offset_x   = getattr(config, "text_offset_x",   0)
     text_offset_y   = getattr(config, "text_offset_y",   0)
     position_x      = getattr(config, "position_x",      0.5)
+    num_lines       = max(1, getattr(config, "lines",     1))
 
-    bg_w = total_w + config.bg_padding_h * 2 + stroke_pad * 2 + bg_width_extra
-    bg_h = text_h  + config.bg_padding_v * 2 + stroke_pad * 2 + bg_height_extra
+    # Split into rows
+    rows: list[list[dict]] = []
+    if num_lines <= 1:
+        rows = [all_metrics]
+    else:
+        per_row = max(1, -(-len(all_metrics) // num_lines))  # ceil div
+        for r in range(num_lines):
+            sl = all_metrics[r * per_row:(r + 1) * per_row]
+            if sl:
+                rows.append(sl)
+
+    row_widths = []
+    for row in rows:
+        rw = sum(m["width"] for m in row) + effective_space_w * max(0, len(row) - 1)
+        row_widths.append(rw)
+    max_row_w = max(row_widths)
+
+    total_text_h = len(rows) * text_h + (len(rows) - 1) * row_gap
+    bg_w = max_row_w + config.bg_padding_h * 2 + stroke_pad * 2 + bg_width_extra
+    bg_h = total_text_h + config.bg_padding_v * 2 + stroke_pad * 2 + bg_height_extra
 
     center_x = config.resolution_w * position_x
     center_y = config.resolution_h * config.position_y + slide_offset
+
+    def _draw_all_rows(tgt_draw: "ImageDraw.ImageDraw", tgt_img: "Image.Image", cx: float, cy: float) -> None:
+        top_y = cy - total_text_h / 2 + text_h / 2
+        for ri, row in enumerate(rows):
+            row_cx = cx + text_offset_x
+            row_cy = top_y + ri * (text_h + row_gap) + text_offset_y
+            _draw_word_list(tgt_draw, row, font, current_time, config,
+                            tracking, effective_space_w, bbox,
+                            row_cx, row_cy,
+                            outline_sw, word_transition, anim_alpha, tgt_img)
 
     # ---------------------------------------------------------------------------
     # Pop: render at reduced scale into a temp surface, paste centred
     # ---------------------------------------------------------------------------
     if animation == "pop" and entry_t < 1.0:
-        scale = 0.85 + 0.15 * entry_t          # 0.85 → 1.0 during entry
+        scale = 0.85 + 0.15 * entry_t
         tmp = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
         tmp_draw = ImageDraw.Draw(tmp)
 
@@ -629,10 +675,7 @@ def _render_frame(
                                (center_x - bg_w / 2, center_y - bg_h / 2,
                                 center_x + bg_w / 2, center_y + bg_h / 2),
                                config.bg_corner_radius, bg_rgba)
-        _draw_word_list(tmp_draw, word_metrics, font, current_time, config,
-                        tracking, effective_space_w, bbox,
-                        center_x + text_offset_x, center_y + text_offset_y,
-                        outline_sw, word_transition, anim_alpha, tmp)
+        _draw_all_rows(tmp_draw, tmp, center_x, center_y)
 
         new_w = max(1, int(config.resolution_w * scale))
         new_h = max(1, int(config.resolution_h * scale))
@@ -652,10 +695,7 @@ def _render_frame(
                             center_x + bg_w / 2, center_y + bg_h / 2),
                            config.bg_corner_radius, bg_rgba)
 
-    _draw_word_list(draw, word_metrics, font, current_time, config,
-                    tracking, effective_space_w, bbox,
-                    center_x + text_offset_x, center_y + text_offset_y,
-                    outline_sw, word_transition, anim_alpha, img)
+    _draw_all_rows(draw, img, center_x, center_y)
 
     return img
 

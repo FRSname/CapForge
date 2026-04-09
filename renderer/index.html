@@ -177,7 +177,7 @@
             <div class="group-editor hidden" id="group-editor">
               <div class="group-editor-header">
                 <span class="group-editor-title">Subtitle Groups</span>
-                <span class="group-editor-hint">Merge, split, or drag words between groups</span>
+                <span class="group-editor-hint">Merge, split, or drag words between groups · Right-click a word to style it</span>
                 <button id="btn-group-reset" class="toolbar-btn" title="Reset to auto-grouping">
                   <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.705 8.005a.75.75 0 0 1 .834.656 5.5 5.5 0 0 0 9.592 2.97l-1.204-1.204a.25.25 0 0 1 .177-.427h3.646a.25.25 0 0 1 .25.25v3.646a.25.25 0 0 1-.427.177l-1.071-1.071A7.002 7.002 0 0 1 1.05 8.84a.75.75 0 0 1 .656-.834ZM8 2.5a5.487 5.487 0 0 0-4.131 1.869l1.204 1.204A.25.25 0 0 1 4.896 6H1.25A.25.25 0 0 1 1 5.75V2.104a.25.25 0 0 1 .427-.177l1.071 1.071A7.002 7.002 0 0 1 14.95 7.16a.75.75 0 0 1-1.49.178A5.5 5.5 0 0 0 8 2.5Z"/></svg>
                   Reset
@@ -333,6 +333,12 @@
                 <label>Words/Group</label>
                 <input type="range" id="studio-wpg" min="1" max="8" value="3" />
                 <input type="number" id="studio-wpg-val" class="range-num" value="3"><button class="reset-btn" title="Reset to default">↺</button>
+              </div>
+
+              <div class="studio-row">
+                <label>Lines</label>
+                <input type="range" id="studio-lines" min="1" max="4" value="1" />
+                <input type="number" id="studio-lines-val" class="range-num" value="1"><button class="reset-btn" title="Reset to default">↺</button>
               </div>
 
               <div class="studio-row">

@@ -957,6 +957,71 @@ body {
   transform: scale(0.95);
 }
 
+/* Word has custom style overrides */
+.ge-word.ge-word-styled {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.ge-word.ge-word-styled::after {
+  content: "✦";
+  font-size: 7px;
+  margin-left: 3px;
+  opacity: 0.7;
+  vertical-align: super;
+}
+
+/* Word style override popup */
+.word-style-popup {
+  position: fixed;
+  z-index: 9999;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+  min-width: 220px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.word-style-popup-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 2px;
+}
+.word-style-popup .studio-row {
+  gap: 6px;
+  min-height: unset;
+}
+.word-style-popup .studio-row label {
+  font-size: 11px;
+  min-width: 80px;
+}
+.word-style-popup-footer {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.word-style-popup-footer button {
+  flex: 1;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  color: var(--text);
+  transition: background 0.15s;
+}
+.word-style-popup-footer button:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.word-style-popup-footer .btn-clear-override { background: none; color: var(--text-muted); }
+.word-style-popup-footer .btn-clear-override:hover { background: #c0392b22; color: #e74c3c; border-color: #e74c3c44; }
+
 .ge-word.ge-word-active {
   background: var(--accent);
   color: var(--bg);

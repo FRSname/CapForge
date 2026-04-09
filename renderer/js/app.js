@@ -1214,6 +1214,8 @@
   const studioRadiusVal = document.getElementById("studio-radius-val");
   const studioWpg = document.getElementById("studio-wpg");
   const studioWpgVal = document.getElementById("studio-wpg-val");
+  const studioLines = document.getElementById("studio-lines");
+  const studioLinesVal = document.getElementById("studio-lines-val");
   const studioPosX = document.getElementById("studio-pos-x");
   const studioPosXVal = document.getElementById("studio-pos-x-val");
   const studioPosY = document.getElementById("studio-pos-y");
@@ -1273,6 +1275,7 @@
     [studioPadV, studioPadVVal, "px"],
     [studioRadius, studioRadiusVal, "px"],
     [studioWpg, studioWpgVal, ""],
+    [studioLines, studioLinesVal, ""],
     [studioPosX, studioPosXVal, "%"],
     [studioPosY, studioPosYVal, "%"],
     [studioBgWidthExtra, studioBgWidthExtraVal, "px"],
@@ -1536,6 +1539,7 @@
       padV: studioPadVVal ? studioPadVVal.value : studioPadV.value,
       radius: studioRadiusVal ? studioRadiusVal.value : studioRadius.value,
       wpg: studioWpgVal ? studioWpgVal.value : studioWpg.value,
+      lines: studioLinesVal ? studioLinesVal.value : (studioLines ? studioLines.value : "1"),
       posX: studioPosXVal ? studioPosXVal.value : (studioPosX ? studioPosX.value : "50"),
       posY: studioPosYVal ? studioPosYVal.value : studioPosY.value,
       bgWidthExtra:  studioBgWidthExtraVal  ? studioBgWidthExtraVal.value  : (studioBgWidthExtra  ? studioBgWidthExtra.value  : "0"),
@@ -1587,6 +1591,7 @@
     if (p.padV) { studioPadV.value = p.padV; studioPadVVal.value = p.padV; }
     if (p.radius) { studioRadius.value = p.radius; studioRadiusVal.value = p.radius; }
     if (p.wpg) { studioWpg.value = p.wpg; studioWpgVal.value = p.wpg; }
+    if (p.lines !== undefined && studioLines) { studioLines.value = p.lines; studioLinesVal.value = p.lines; }
     if (p.posX !== undefined && studioPosX) { studioPosX.value = p.posX; studioPosXVal.value = p.posX; }
     if (p.posY) { studioPosY.value = p.posY; studioPosYVal.value = p.posY; }
     if (p.bgWidthExtra  !== undefined && studioBgWidthExtra)  { studioBgWidthExtra.value  = p.bgWidthExtra;  studioBgWidthExtraVal.value  = p.bgWidthExtra; }
@@ -1864,11 +1869,12 @@
         }
 
         const chip = document.createElement("span");
-        chip.className = "ge-word";
+        chip.className = "ge-word" + (w.overrides ? " ge-word-styled" : "");
         chip.textContent = w.word;
         chip.draggable = true;
         chip.dataset.groupIndex = gi;
         chip.dataset.wordIndex = wi;
+        if (w.overrides?.text_color) chip.style.color = w.overrides.text_color;
 
         chip.addEventListener("dragstart", (e) => {
           geDragSourceGroupIdx = gi;
@@ -1882,6 +1888,11 @@
           chip.classList.remove("ge-word-dragging");
           geDragSourceGroupIdx = null;
           geDragWordIdx = null;
+        });
+
+        chip.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          openWordStylePopup(e, gi, wi);
         });
 
         wordsEl.appendChild(chip);
@@ -1908,6 +1919,240 @@
       row.appendChild(actions);
       groupEditorList.appendChild(row);
     });
+  }
+
+  // ---- Word style override popup ----
+  let activePopup = null;
+  function closeWordStylePopup() {
+    if (activePopup) { activePopup.remove(); activePopup = null; }
+  }
+  document.addEventListener("mousedown", (e) => {
+    if (activePopup && !activePopup.contains(e.target)) closeWordStylePopup();
+  });
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeWordStylePopup(); });
+
+  function openWordStylePopup(e, gi, wi) {
+    closeWordStylePopup();
+    const w = studioGroups[gi].words[wi];
+    const ov = w.overrides || {};
+
+    const popup = document.createElement("div");
+    popup.className = "word-style-popup";
+    activePopup = popup;
+
+    const title = document.createElement("div");
+    title.className = "word-style-popup-title";
+    title.textContent = `Style: "${w.word}"`;
+    popup.appendChild(title);
+
+    function addColorRow(label, key, defaultFn) {
+      const row = document.createElement("div");
+      row.className = "studio-row";
+      const lbl = document.createElement("label");
+      lbl.textContent = label;
+      const picker = document.createElement("input");
+      picker.type = "color";
+      picker.value = ov[key] || defaultFn();
+      const hex = document.createElement("input");
+      hex.type = "text";
+      hex.className = "hex-input";
+      hex.value = picker.value.toUpperCase();
+      hex.maxLength = 7;
+      picker.addEventListener("input", () => {
+        hex.value = picker.value.toUpperCase();
+        applyPreview();
+      });
+      hex.addEventListener("input", () => {
+        if (/^#[0-9A-Fa-f]{6}$/.test(hex.value)) { picker.value = hex.value; applyPreview(); }
+      });
+      row.appendChild(lbl); row.appendChild(picker); row.appendChild(hex);
+      popup.appendChild(row);
+      return { get: () => picker.value };
+    }
+
+    function addScaleRow() {
+      const row = document.createElement("div");
+      row.className = "studio-row";
+      const lbl = document.createElement("label");
+      lbl.textContent = "Size Scale";
+      const slider = document.createElement("input");
+      slider.type = "range"; slider.min = "50"; slider.max = "200"; slider.value = Math.round((ov.font_size_scale || 1) * 100);
+      const num = document.createElement("input");
+      num.type = "number"; num.className = "range-num"; num.value = slider.value;
+      slider.addEventListener("input", () => { num.value = slider.value; applyPreview(); });
+      num.addEventListener("change", () => {
+        const v = parseFloat(num.value);
+        if (!isNaN(v)) { slider.value = v; num.value = v; applyPreview(); }
+      });
+      row.appendChild(lbl); row.appendChild(slider); row.appendChild(num);
+      popup.appendChild(row);
+      return { get: () => parseInt(slider.value, 10) / 100 };
+    }
+
+    function addBoldRow() {
+      const row = document.createElement("div");
+      row.className = "studio-row";
+      const lbl = document.createElement("label");
+      lbl.textContent = "Bold";
+      const toggle = document.createElement("label");
+      toggle.className = "toggle-switch";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.checked = ov.bold !== undefined ? ov.bold : (studioBold ? studioBold.checked : true);
+      const span = document.createElement("span");
+      span.className = "toggle-slider";
+      toggle.appendChild(cb); toggle.appendChild(span);
+      cb.addEventListener("change", () => applyPreview());
+      row.appendChild(lbl); row.appendChild(toggle);
+      popup.appendChild(row);
+      return { get: () => cb.checked };
+    }
+
+    function addFontRow() {
+      // Font family select — clone options from the global font dropdown
+      const row = document.createElement("div");
+      row.className = "studio-row";
+      const lbl = document.createElement("label");
+      lbl.textContent = "Font";
+      const sel = document.createElement("select");
+      sel.style.flex = "1";
+      sel.style.fontSize = "11px";
+      // "Global" sentinel = use global setting
+      const globalOpt = document.createElement("option");
+      globalOpt.value = ""; globalOpt.textContent = "— Global —";
+      sel.appendChild(globalOpt);
+      if (studioFont) {
+        Array.from(studioFont.options).forEach(o => {
+          const opt = document.createElement("option");
+          opt.value = o.value; opt.textContent = o.textContent;
+          if (o.dataset.customPath) opt.dataset.customPath = o.dataset.customPath;
+          sel.appendChild(opt);
+        });
+      }
+      sel.value = ov.font_family || "";
+      sel.addEventListener("change", () => applyPreview());
+
+      // Custom font load button
+      const loadBtn = document.createElement("button");
+      loadBtn.textContent = "＋";
+      loadBtn.title = "Load custom font for this word";
+      loadBtn.style.cssText = "flex-shrink:0;padding:2px 6px;font-size:13px;cursor:pointer;border:1px solid var(--border);border-radius:4px;background:var(--bg-tertiary);color:var(--text)";
+      const fileIn = document.createElement("input");
+      fileIn.type = "file"; fileIn.accept = ".ttf,.otf,.woff"; fileIn.style.display = "none";
+      loadBtn.addEventListener("click", () => fileIn.click());
+      fileIn.addEventListener("change", async () => {
+        const file = fileIn.files[0]; if (!file) return;
+        const fontName = file.name.replace(/\.[^.]+$/, "");
+        try {
+          const buf = await file.arrayBuffer();
+          const face = new FontFace(fontName, buf);
+          await face.load(); document.fonts.add(face);
+          // Also add to global dropdown so backend can find the path
+          let savedPath = null;
+          if (window.subforge && window.subforge.saveFont) {
+            savedPath = await window.subforge.saveFont(file.name, buf).catch(() => null);
+          }
+          addFontToDropdown(fontName, savedPath);
+          // Add to this popup's select too
+          const opt = document.createElement("option");
+          opt.value = fontName; opt.textContent = fontName + " ★";
+          if (savedPath) opt.dataset.customPath = savedPath;
+          sel.appendChild(opt);
+          sel.value = fontName;
+          applyPreview();
+        } catch (e) { showToast("Font load failed: " + e.message, "error"); }
+      });
+      row.appendChild(lbl); row.appendChild(sel); row.appendChild(loadBtn); row.appendChild(fileIn);
+      popup.appendChild(row);
+      return {
+        getFamily: () => sel.value || null,
+        getPath: () => {
+          const opt = sel.options[sel.selectedIndex];
+          return (opt && opt.dataset.customPath) || null;
+        },
+      };
+    }
+
+    function addTransitionRow() {
+      const row = document.createElement("div");
+      row.className = "studio-row";
+      const lbl = document.createElement("label");
+      lbl.textContent = "Animation";
+      const sel = document.createElement("select");
+      sel.style.flex = "1"; sel.style.fontSize = "11px";
+      [["", "— Global —"], ["instant","Instant"], ["crossfade","Crossfade"],
+       ["highlight","Highlight"], ["underline","Underline"],
+       ["bounce","Bounce"], ["scale","Scale Up"], ["karaoke","Karaoke"]
+      ].forEach(([v, t]) => {
+        const o = document.createElement("option");
+        o.value = v; o.textContent = t; sel.appendChild(o);
+      });
+      sel.value = ov.word_transition || "";
+      sel.addEventListener("change", () => applyPreview());
+      row.appendChild(lbl); row.appendChild(sel);
+      popup.appendChild(row);
+      return { get: () => sel.value || null };
+    }
+
+    const textColorCtrl   = addColorRow("Text Color",   "text_color",        () => studioTextColor  ? studioTextColor.value  : "#FFFFFF");
+    const activeColorCtrl = addColorRow("Active Color", "active_word_color", () => studioActiveColor ? studioActiveColor.value : "#FFD700");
+    const scaleCtrl       = addScaleRow();
+    const boldCtrl        = addBoldRow();
+    const fontCtrl        = addFontRow();
+    const transitionCtrl  = addTransitionRow();
+
+    function applyPreview() {
+      const tc  = textColorCtrl.get();
+      const ac  = activeColorCtrl.get();
+      const sc  = scaleCtrl.get();
+      const bd  = boldCtrl.get();
+      const ff  = fontCtrl.getFamily();
+      const fp  = fontCtrl.getPath();
+      const wt  = transitionCtrl.get();
+      const globalTc = studioTextColor  ? studioTextColor.value  : "#FFFFFF";
+      const globalAc = studioActiveColor ? studioActiveColor.value : "#FFD700";
+      const globalBd = studioBold ? studioBold.checked : true;
+      const hasOverride = tc !== globalTc || ac !== globalAc || sc !== 1 || bd !== globalBd || ff || wt;
+      if (hasOverride) {
+        w.overrides = { text_color: tc, active_word_color: ac, font_size_scale: sc, bold: bd };
+        if (ff) { w.overrides.font_family = ff; if (fp) w.overrides.custom_font_path = fp; }
+        if (wt) w.overrides.word_transition = wt;
+      }
+      customGroupsEdited = true;
+      drawStudioFrame();
+    }
+
+    const footer = document.createElement("div");
+    footer.className = "word-style-popup-footer";
+
+    const applyBtn = document.createElement("button");
+    applyBtn.textContent = "Apply";
+    applyBtn.addEventListener("click", () => { applyPreview(); closeWordStylePopup(); renderGroupEditor(); });
+
+    const clearBtn = document.createElement("button");
+    clearBtn.textContent = "Clear";
+    clearBtn.className = "btn-clear-override";
+    clearBtn.addEventListener("click", () => {
+      delete w.overrides;
+      customGroupsEdited = true;
+      closeWordStylePopup();
+      renderGroupEditor();
+      drawStudioFrame();
+    });
+
+    footer.appendChild(clearBtn);
+    footer.appendChild(applyBtn);
+    popup.appendChild(footer);
+
+    document.body.appendChild(popup);
+
+    // Position near the click, keep on screen
+    const pw = popup.offsetWidth || 240, ph = popup.offsetHeight || 200;
+    let px = e.clientX + 8, py = e.clientY + 8;
+    if (px + pw > window.innerWidth - 10) px = e.clientX - pw - 8;
+    if (py + ph > window.innerHeight - 10) py = e.clientY - ph - 8;
+    popup.style.left = px + "px";
+    popup.style.top  = py + "px";
   }
 
   function mergeGroups(idxA, idxB) {
@@ -2285,8 +2530,6 @@
     function lerpColor(c1, c2, lt) {
       return `rgb(${c1.map((v, i) => Math.round(v + (c2[i] - v) * lt)).join(",")})`;
     }
-    const textRgb   = hexToRgb(textColor);
-    const activeRgb = hexToRgb(activeColor);
     const CROSSFADE_DUR   = 0.06;
     const hlRadius        = wsoHighlightRadius  ? parseInt(wsoHighlightRadius.value,  10) : 16;
     const hlPaddingX      = wsoHighlightPaddingX ? parseInt(wsoHighlightPaddingX.value, 10) : 6;
@@ -2333,14 +2576,41 @@
 
     const baseSpaceW = ctx.measureText(" ").width;
     const effectiveSpaceW = baseSpaceW + sWordSpacing;
-    const wm = activeGroup.words.map((w) => ({
-      word: w.word, width: measureWithTracking(w.word), start: w.start, end: w.end,
-    }));
-    let totalW = 0;
-    wm.forEach((m, i) => { totalW += m.width; if (i < wm.length - 1) totalW += effectiveSpaceW; });
+    const wm = activeGroup.words.map((w) => {
+      // If word has a font_size_scale override, measure at the scaled font size
+      const scale = w.overrides?.font_size_scale || 1;
+      if (scale !== 1) {
+        const ow = w.overrides.bold !== undefined ? (w.overrides.bold ? "bold" : "normal") : fontWeight;
+        ctx.font = `${ow} ${sf * scale}px "${fontFamily}", sans-serif`;
+      }
+      const width = measureWithTracking(w.word);
+      if (scale !== 1) ctx.font = `${fontWeight} ${sf}px "${fontFamily}", sans-serif`; // restore
+      return { word: w.word, width, start: w.start, end: w.end, overrides: w.overrides || null };
+    });
 
-    const bgW = totalW + sp * 2 + bgWidthExtra;
-    const bgH = sf + sv * 2 + bgHeightExtra;
+    // Split words into rows
+    const numLines = studioLinesVal ? Math.max(1, parseInt(studioLinesVal.value, 10)) : 1;
+    const rowLineGap = sf * 0.3; // gap between rows
+    const rows = [];
+    if (numLines <= 1) {
+      rows.push(wm);
+    } else {
+      const wordsPerRow = Math.ceil(wm.length / numLines);
+      for (let r = 0; r < numLines; r++) {
+        const slice = wm.slice(r * wordsPerRow, (r + 1) * wordsPerRow);
+        if (slice.length > 0) rows.push(slice);
+      }
+    }
+
+    // Per-row widths; bg sized to widest row
+    const rowWidths = rows.map(row => {
+      let w = 0; row.forEach((m, i) => { w += m.width; if (i < row.length - 1) w += effectiveSpaceW; }); return w;
+    });
+    const maxRowW = Math.max(...rowWidths);
+
+    const bgW = maxRowW + sp * 2 + bgWidthExtra;
+    const totalTextH = rows.length * sf + (rows.length - 1) * rowLineGap;
+    const bgH = totalTextH + sv * 2 + bgHeightExtra;
     const cx = resW * posX;
     const cy = resH * posY + slideOffset;
     const textCx = cx + textOffsetX;
@@ -2363,10 +2633,14 @@
       ctx.restore();
     }
 
-    // Pre-compute each word's left-edge x for highlight slide
+    // Pre-compute each word's absolute x and y (multi-row aware)
     const wordXPos = [];
-    { let wx = textCx - totalW / 2;
-      wm.forEach((m) => { wordXPos.push(wx); wx += m.width + effectiveSpaceW; }); }
+    const wordYPos = [];
+    rows.forEach((row, ri) => {
+      const rowY = textCy - totalTextH / 2 + sf / 2 + ri * (sf + rowLineGap);
+      let wx = textCx - rowWidths[ri] / 2;
+      row.forEach((m) => { wordXPos.push(wx); wordYPos.push(rowY); wx += m.width + effectiveSpaceW; });
+    });
 
     // Draw highlight pill BEFORE words so text sits on top
     if (wordTransition === "highlight") {
@@ -2379,27 +2653,48 @@
           const wordDur = Math.max(m.end - m.start, 0.001);
           const rawT    = (t - m.start) / wordDur;
           const eased   = 1 - Math.pow(1 - Math.min(rawT * 2.5, 1), 2);
-          hlX = wordXPos[activeIdx - 1] + (wordXPos[activeIdx] - wordXPos[activeIdx - 1]) * eased;
-          hlW = wm[activeIdx - 1].width  + (m.width - wm[activeIdx - 1].width) * eased;
+          // only slide within the same row
+          if (wordYPos[activeIdx] === wordYPos[activeIdx - 1]) {
+            hlX = wordXPos[activeIdx - 1] + (wordXPos[activeIdx] - wordXPos[activeIdx - 1]) * eased;
+            hlW = wm[activeIdx - 1].width  + (m.width - wm[activeIdx - 1].width) * eased;
+          }
         }
+        const hlY = wordYPos[activeIdx];
         ctx.save();
         ctx.globalAlpha = animAlpha * hlOpacity;
         ctx.fillStyle = activeColor;
-        roundRect(ctx, hlX - hlPaddingX, textCy - sf / 2 - hlPaddingY, hlW + hlPaddingX * 2, sf + hlPaddingY * 2, hlRadius);
+        roundRect(ctx, hlX - hlPaddingX, hlY - sf / 2 - hlPaddingY, hlW + hlPaddingX * 2, sf + hlPaddingY * 2, hlRadius);
         ctx.fill();
         ctx.restore();
       }
     }
 
-    // Draw words — text anchored at textCx/textCy (offset from bg centre)
-    let x = textCx - totalW / 2;
+    // Draw words using pre-computed per-word positions
     wm.forEach((m, i) => {
+      const x  = wordXPos[i];
+      const wy = wordYPos[i];
       const isActive = m.start <= t && t < m.end;
       const wordDur  = Math.max(m.end - m.start, 0.001);
       const wordProg = isActive ? Math.min(Math.max((t - m.start) / wordDur, 0), 1) : 0;
 
+      // Per-word overrides
+      const ov = m.overrides;
+      const wTextColor    = (ov?.text_color)          || textColor;
+      const wActiveColor  = (ov?.active_word_color)   || activeColor;
+      const wTextRgb      = hexToRgb(wTextColor);
+      const wActiveRgb    = hexToRgb(wActiveColor);
+      const wScale        = ov?.font_size_scale || 1;
+      const wBold         = ov?.bold !== undefined ? ov.bold : isBold;
+      const wFontFamily   = ov?.font_family || fontFamily;
+      const wWordTrans    = ov?.word_transition || wordTransition;
+      const wSf           = sf * wScale;
+
       ctx.save();
       ctx.globalAlpha = animAlpha;
+      // Apply per-word font if anything differs
+      if (wScale !== 1 || wBold !== isBold || wFontFamily !== fontFamily) {
+        ctx.font = `${wBold ? "bold" : "normal"} ${wSf}px "${wFontFamily}", sans-serif`;
+      }
       if (sStroke > 0) {
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = sStroke * 2;
@@ -2407,69 +2702,67 @@
       }
 
       // ---- CROSSFADE ----
-      if (wordTransition === "crossfade") {
+      if (wWordTrans === "crossfade") {
         const fi = Math.min(Math.max((t - m.start) / CROSSFADE_DUR, 0), 1);
         const fo = Math.min(Math.max((m.end - t)   / CROSSFADE_DUR, 0), 1);
-        ctx.fillStyle = lerpColor(textRgb, activeRgb, fi * fo);
-        drawWord(m.word, x, textCy);
+        ctx.fillStyle = lerpColor(wTextRgb, wActiveRgb, fi * fo);
+        drawWord(m.word, x, wy);
 
       // ---- HIGHLIGHT ----
-      } else if (wordTransition === "highlight") {
-        ctx.fillStyle = isActive ? bgColor : textColor;
-        drawWord(m.word, x, textCy);
+      } else if (wWordTrans === "highlight") {
+        ctx.fillStyle = isActive ? bgColor : wTextColor;
+        drawWord(m.word, x, wy);
 
       // ---- UNDERLINE ----
-      } else if (wordTransition === "underline") {
-        ctx.fillStyle = isActive ? activeColor : textColor;
-        drawWord(m.word, x, textCy);
+      } else if (wWordTrans === "underline") {
+        ctx.fillStyle = isActive ? wActiveColor : wTextColor;
+        drawWord(m.word, x, wy);
         if (isActive) {
-          const barY = textCy + sf / 2 + 2;
-          ctx.fillStyle = ulColor;
+          const barY = wy + wSf / 2 + 2;
+          ctx.fillStyle = ulColor !== activeColor ? ulColor : wActiveColor;
           ctx.fillRect(x, barY, m.width, ulThickness);
         }
 
       // ---- BOUNCE ----
-      } else if (wordTransition === "bounce") {
-        const bounceY = isActive ? textCy - BOUNCE_PX * Math.sin(wordProg * Math.PI) : textCy;
-        ctx.fillStyle = isActive ? activeColor : textColor;
+      } else if (wWordTrans === "bounce") {
+        const bounceY = isActive ? wy - BOUNCE_PX * Math.sin(wordProg * Math.PI) : wy;
+        ctx.fillStyle = isActive ? wActiveColor : wTextColor;
         drawWord(m.word, x, bounceY);
 
       // ---- SCALE ----
-      } else if (wordTransition === "scale") {
+      } else if (wWordTrans === "scale") {
         if (isActive) {
           const wordCx = x + m.width / 2;
-          ctx.translate(wordCx, textCy);
+          ctx.translate(wordCx, wy);
           ctx.scale(SCALE_WORD, SCALE_WORD);
-          ctx.translate(-wordCx, -textCy);
-          ctx.fillStyle = activeColor;
+          ctx.translate(-wordCx, -wy);
+          ctx.fillStyle = wActiveColor;
         } else {
-          ctx.fillStyle = textColor;
+          ctx.fillStyle = wTextColor;
         }
-        drawWord(m.word, x, textCy);
+        drawWord(m.word, x, wy);
 
       // ---- KARAOKE ----
-      } else if (wordTransition === "karaoke") {
-        ctx.fillStyle = textColor;
-        drawWord(m.word, x, textCy);
+      } else if (wWordTrans === "karaoke") {
+        ctx.fillStyle = wTextColor;
+        drawWord(m.word, x, wy);
         if (isActive && wordProg > 0) {
           ctx.save();
           ctx.beginPath();
-          ctx.rect(x, textCy - sf, m.width * wordProg, sf * 2);
+          ctx.rect(x, wy - wSf, m.width * wordProg, wSf * 2);
           ctx.clip();
-          ctx.fillStyle = activeColor;
-          drawWord(m.word, x, textCy);
+          ctx.fillStyle = wActiveColor;
+          drawWord(m.word, x, wy);
           ctx.restore();
         }
 
       // ---- INSTANT (default) ----
       } else {
-        ctx.fillStyle = isActive ? activeColor : textColor;
-        drawWord(m.word, x, textCy);
+        ctx.fillStyle = isActive ? wActiveColor : wTextColor;
+        drawWord(m.word, x, wy);
       }
 
       ctx.restore();
-      x += m.width;
-      if (i < wm.length - 1) x += effectiveSpaceW;
     });
 
     if (popScale !== 1) ctx.restore();
@@ -2556,6 +2849,7 @@
       text_offset_x:    studioTextOffsetXVal   ? parseInt(studioTextOffsetXVal.value,   10) : (studioTextOffsetX   ? parseInt(studioTextOffsetX.value,   10) : 0),
       text_offset_y:    studioTextOffsetYVal   ? parseInt(studioTextOffsetYVal.value,   10) : (studioTextOffsetY   ? parseInt(studioTextOffsetY.value,   10) : 0),
       words_per_group: parseInt(studioWpgVal ? studioWpgVal.value : studioWpg.value, 10),
+      lines: parseInt(studioLinesVal ? studioLinesVal.value : (studioLines ? studioLines.value : "1"), 10),
       position_x: studioPosXVal ? parseInt(studioPosXVal.value, 10) / 100 : (studioPosX ? parseInt(studioPosX.value, 10) / 100 : 0.5),
       position_y: parseInt(studioPosYVal ? studioPosYVal.value : studioPosY.value, 10) / 100,
       resolution_w: resW,

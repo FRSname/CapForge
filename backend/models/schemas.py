@@ -135,6 +135,7 @@ class VideoRenderConfig(BaseModel):
     text_offset_x: int = Field(0, ge=-100, le=100, description="Nudge text horizontally within background box in px")
     text_offset_y: int = Field(0, ge=-50, le=50, description="Nudge text vertically within background box in px")
     words_per_group: int = Field(3, ge=1, le=10)
+    lines: int = Field(1, ge=1, le=4, description="Number of subtitle rows per group")
     position_y: float = Field(0.82, ge=0.0, le=1.0, description="Vertical position (0=top, 1=bottom)")
     position_x: float = Field(0.5, ge=0.0, le=1.0, description="Horizontal position (0=left, 1=right, 0.5=center)")
     resolution_w: int = Field(1920, ge=640, le=3840)
