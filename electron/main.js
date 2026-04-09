@@ -7,7 +7,7 @@ const { app, BrowserWindow, Menu, shell, ipcMain, dialog } = require("electron")
 const path = require("path");
 const fs = require("fs");
 const { PythonBackend } = require("./python-manager");
-const { ensureRuntime, isRuntimeReady, detectGpu } = require("./runtime-setup");
+const { ensureRuntime, isRuntimeReady, detectAccelerator } = require("./runtime-setup");
 const appState = require("./app-state");
 const { checkForUpdates } = require("./update-check");
 
@@ -204,7 +204,7 @@ async function runFirstTimeSetup() {
   if (isRuntimeReady()) return;
 
   // GPU detection IPC — the renderer asks for this before the user picks Install.
-  ipcMain.handle("setup:detect-gpu", () => detectGpu());
+  ipcMain.handle("setup:detect-accelerator", () => detectAccelerator());
 
   createSetupWindow();
   await new Promise((resolve) => {

@@ -1,53 +1,45 @@
 /**
- * CapForge runtime bootstrapper.
+ * CapForge runtime bootstrapper (shared, platform-agnostic layer).
  *
- * On first launch, extracts the bundled embedded Python into the user's
- * AppData, installs pip, detects an NVIDIA GPU, then pip-installs the
- * correct torch variant + whisperx + backend deps.
+ * Orchestrates the first-run install:
+ *   1. Detect accelerator               — platform.detectAccelerator()
+ *   2. Extract bundled Python runtime   — platform.extractPython()
+ *   3. Patch Python config (Windows _pth / no-op on macOS) — platform.patchPythonConfig()
+ *   4. Bootstrap pip                    — shared
+ *   5. Install WhisperX + backend deps  — shared
+ *   6. Install correct torch variant    — platform.installTorch()
+ *   7. Pre-download the default model   — shared
  *
- * Layout under `%APPDATA%/CapForge/runtime/`:
+ * Everything truly different between Windows and macOS lives in
+ * `./platform/{win,mac}.js`. The rest — state file, progress plumbing, pip
+ * helpers, model download — is shared.
+ *
+ * Layout under `<userData>/runtime/`:
  *
  *   runtime/
- *     python/                     <- extracted embedded Python
- *       python.exe
- *       python311._pth            <- patched to enable `import site`
- *       Lib/site-packages/        <- pip installs land here
- *     .state.json                 <- { version, gpu, completed, torchVariant }
+ *     python/                 <- extracted Python runtime (embed / pbs)
+ *     .state.json             <- { version, gpu, completed, torchVariant }
  *
  * Public API:
- *   ensureRuntime({ onProgress }) -> Promise<{ pythonExe, gpu, torchVariant }>
- *   getRuntimePaths()             -> { runtimeDir, pythonDir, pythonExe, stateFile }
- *   isRuntimeReady()              -> boolean
- *   detectGpu()                   -> Promise<{ present, name } | { present: false }>
+ *   ensureRuntime({ onProgress, force }) -> Promise<{ pythonExe, gpu, torchVariant }>
+ *   getRuntimePaths()                    -> { runtimeDir, pythonDir, pythonExe, stateFile, modelDir }
+ *   isRuntimeReady()                     -> boolean
+ *   detectAccelerator()                  -> Promise<{ present, name, kind }>
  */
 
 const { app } = require("electron");
-const { spawn, spawnSync } = require("child_process");
+const { spawn } = require("child_process");
 const path = require("path");
 const fs = require("fs");
 const https = require("https");
 
-// Bump this whenever the install recipe changes (python version, package set,
-// pth patch, etc.) — a mismatch forces a clean reinstall on next launch.
-const RUNTIME_VERSION = 8;
+const platform = require("./platform");
 
-// Pinned package set. Keep torch/torchaudio together so the resolver agrees.
-const TORCH_CPU_INDEX = "https://download.pytorch.org/whl/cpu";
-// cu124 hosts torch 2.6–2.8, which matches what PyPI ships for the current
-// whisperx/transformers versions. cu121 tops out at 2.5.1 and causes API
-// mismatches when transformers tries to import its pipelines submodule.
-// Requires NVIDIA driver >= 550 (released March 2024).
-const TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124";
-// torchvision must be in this list too — whisperx pulls it in transitively
-// and it is ABI-locked to the torch build it was compiled against. If we
-// reinstall torch without also replacing torchvision, importing whisperx.asr
-// fails with "operator torchvision::nms does not exist".
-//
-// Versions are PINNED because the cu124 index only serves torch 2.6–2.8,
-// while PyPI already has 2.11. Without a pin, pip with --extra-index-url
-// picks the highest version (PyPI CPU) and you end up in CPU mode despite
-// asking for CUDA. These three versions are a matched ABI set.
-const TORCH_PACKAGES = ["torch==2.6.0", "torchaudio==2.6.0", "torchvision==0.21.0"];
+// Bump this whenever the install recipe changes (python version, package set,
+// platform module logic, etc.) — a mismatch forces a clean reinstall on next
+// launch.
+const RUNTIME_VERSION = 9;
+
 const BACKEND_PACKAGES = [
   "whisperx",
   "fastapi[standard]",
@@ -57,6 +49,10 @@ const BACKEND_PACKAGES = [
 ];
 
 const GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py";
+
+// Default Whisper model preloaded during first-run setup.
+// large-v3-turbo: ~1.6 GB, near-v3 quality at ~4x speed.
+const DEFAULT_MODEL = "large-v3-turbo";
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -69,33 +65,11 @@ function getRuntimePaths() {
   return {
     runtimeDir,
     pythonDir,
-    pythonExe: path.join(pythonDir, "python.exe"),
-    pthFile: path.join(pythonDir, "python311._pth"),
+    pythonExe: path.join(pythonDir, platform.pythonExeRelPath),
     getPipFile: path.join(runtimeDir, "get-pip.py"),
     stateFile: path.join(runtimeDir, ".state.json"),
     modelDir,
   };
-}
-
-// Default Whisper model preloaded during first-run setup.
-// large-v3-turbo: ~1.6 GB, near-v3 quality at ~4x speed.
-const DEFAULT_MODEL = "large-v3-turbo";
-
-/**
- * Resolve the bundled Python embed zip.
- * - Packaged: `<process.resourcesPath>/python/python-embed.zip`
- * - Dev:      `<project>/resources/python/python-embed.zip`
- */
-function findBundledPythonZip() {
-  if (process.resourcesPath) {
-    const packaged = path.join(process.resourcesPath, "python", "python-embed.zip");
-    if (fs.existsSync(packaged)) return packaged;
-  }
-  const dev = path.join(__dirname, "..", "resources", "python", "python-embed.zip");
-  if (fs.existsSync(dev)) return dev;
-  throw new Error(
-    "Bundled Python not found. Expected python-embed.zip in resources/python/."
-  );
 }
 
 // ---------------------------------------------------------------------------
@@ -125,10 +99,9 @@ function isRuntimeReady() {
   if (!state.completed) return false;
   const { pythonExe, stateFile } = getRuntimePaths();
   if (fs.existsSync(pythonExe)) return true;
-  // Self-heal: state claims install is complete but python.exe is gone
+  // Self-heal: state claims install is complete but python is gone
   // (antivirus quarantine, user manually nuked the folder, disk corruption).
-  // Delete the stale state file so the next launch re-runs the wizard
-  // instead of crashing when the backend tries to spawn a missing binary.
+  // Delete the stale state file so the next launch re-runs the wizard.
   try {
     fs.unlinkSync(stateFile);
     console.warn("[CapForge] Runtime marker was stale; deleted .state.json to force reinstall");
@@ -137,39 +110,13 @@ function isRuntimeReady() {
 }
 
 // ---------------------------------------------------------------------------
-// GPU detection
-// ---------------------------------------------------------------------------
-
-/**
- * Detect NVIDIA GPU by invoking `nvidia-smi`. Works on any machine with a
- * recent NVIDIA driver installed — the tool ships with the driver itself.
- */
-async function detectGpu() {
-  try {
-    const result = spawnSync("nvidia-smi", ["--query-gpu=name", "--format=csv,noheader"], {
-      encoding: "utf-8",
-      timeout: 5000,
-      windowsHide: true,
-    });
-    if (result.status === 0 && result.stdout) {
-      const name = result.stdout.split("\n")[0].trim();
-      if (name) return { present: true, name };
-    }
-  } catch {
-    // fall through
-  }
-  return { present: false };
-}
-
-// ---------------------------------------------------------------------------
-// Helpers: download, extract, run
+// Helpers: download + run
 // ---------------------------------------------------------------------------
 
 function downloadFile(url, destPath, { onProgress } = {}) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(destPath);
     const req = https.get(url, (res) => {
-      // Follow redirects
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
         file.close();
         fs.unlinkSync(destPath);
@@ -193,33 +140,6 @@ function downloadFile(url, destPath, { onProgress } = {}) {
       try { fs.unlinkSync(destPath); } catch {}
       reject(err);
     });
-  });
-}
-
-/**
- * Extract a .zip using PowerShell's built-in Expand-Archive. Avoids adding a
- * Node dependency for zip handling. Windows-only — fine, this whole app is.
- */
-function extractZipPowerShell(zipPath, destDir) {
-  return new Promise((resolve, reject) => {
-    fs.mkdirSync(destDir, { recursive: true });
-    const ps = spawn(
-      "powershell.exe",
-      [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
-        `Expand-Archive -LiteralPath "${zipPath}" -DestinationPath "${destDir}" -Force`,
-      ],
-      { windowsHide: true }
-    );
-    let stderr = "";
-    ps.stderr.on("data", (d) => { stderr += d.toString(); });
-    ps.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`Expand-Archive failed (${code}): ${stderr}`));
-    });
-    ps.on("error", reject);
   });
 }
 
@@ -256,33 +176,14 @@ function runCommand(cmd, args, { cwd, env, onLine } = {}) {
 
 async function extractPython(report) {
   const { pythonDir, runtimeDir } = getRuntimePaths();
-  const zipPath = findBundledPythonZip();
+  const archivePath = platform.findBundledPythonArchive();
   // Fresh install: nuke any stale python dir first.
   if (fs.existsSync(pythonDir)) {
     fs.rmSync(pythonDir, { recursive: true, force: true });
   }
   fs.mkdirSync(runtimeDir, { recursive: true });
   report({ stage: "extract", message: "Extracting Python runtime…" });
-  await extractZipPowerShell(zipPath, pythonDir);
-}
-
-/**
- * The embeddable Python ships with site.py disabled via `python311._pth`.
- * Uncommenting `import site` re-enables site-packages so pip-installed
- * packages are actually importable. We also add `Lib\site-packages` and
- * `Scripts` to sys.path explicitly for good measure.
- */
-function patchPth() {
-  const { pthFile } = getRuntimePaths();
-  const patched = [
-    "python311.zip",
-    ".",
-    "Lib\\site-packages",
-    "",
-    "import site",
-    "",
-  ].join("\r\n");
-  fs.writeFileSync(pthFile, patched, "utf-8");
+  await platform.extractPython(archivePath, pythonDir);
 }
 
 async function installPip(report) {
@@ -321,10 +222,27 @@ async function pipUninstall(pkgs, report) {
 }
 
 /**
+ * Install backend packages, then hand off to the platform module for the
+ * correct torch variant. Returns the chosen torch variant string so it can
+ * be written to the state file for later diagnostics.
+ */
+async function installPackages(accelerator, report) {
+  report({ stage: "install", message: "Installing WhisperX and backend dependencies…" });
+  await pipInstall(BACKEND_PACKAGES, { report });
+
+  const { torchVariant } = await platform.installTorch({
+    accelerator,
+    pipInstall,
+    pipUninstall,
+    report,
+  });
+  return torchVariant;
+}
+
+/**
  * Pre-download the default Whisper model into CAPFORGE_MODEL_DIR by asking
  * the just-installed Python to call `whisperx.load_model` with
- * `download_root` pointed at our managed folder. faster-whisper prints
- * "Downloading …" and HF hub prints progress bars that we forward to the UI.
+ * `download_root` pointed at our managed folder.
  */
 async function downloadDefaultModel(report) {
   const { pythonExe, modelDir } = getRuntimePaths();
@@ -333,9 +251,6 @@ async function downloadDefaultModel(report) {
     stage: "model",
     message: `Downloading Whisper model (${DEFAULT_MODEL}, ~1.6 GB)…`,
   });
-  // One-liner: load the model just to trigger the download, then exit.
-  // compute_type=int8 is the cheapest — we only care about the files, not
-  // about keeping the model resident in memory.
   const script = [
     "import os, sys, traceback",
     "try:",
@@ -375,42 +290,13 @@ async function downloadDefaultModel(report) {
   await runCommand(pythonExe, ["-u", "-c", script], {
     env: {
       ...process.env,
-      // Force UTF-8 output so HF progress bars don't blow up on cp1250.
       PYTHONIOENCODING: "utf-8",
       PYTHONUTF8: "1",
-      // Point HF cache into our dir too, in case whisperx ignores download_root for aux files.
       HF_HOME: modelDir,
       HUGGINGFACE_HUB_CACHE: modelDir,
+      ...platform.extraModelDownloadEnv,
     },
     onLine: (line) => report({ stage: "model", message: line }),
-  });
-}
-
-async function installPackages(gpu, report) {
-  // Install backend packages first. whisperx depends on torch and will pull
-  // the default CPU wheel from PyPI — that's fine, we wipe it on the GPU path.
-  report({ stage: "install", message: "Installing WhisperX and backend dependencies…" });
-  await pipInstall(BACKEND_PACKAGES, { report });
-
-  if (!gpu.present) return; // CPU users are done — whisperx already pulled cpu torch.
-
-  // GPU path: cleanly uninstall the cpu torch that whisperx pulled in, then
-  // install cu121 torch fresh with its full dep tree. We set the cu121 index
-  // as primary and PyPI as --extra-index-url so any transitive deps torch
-  // needs (filelock, sympy, networkx, jinja2, fsspec, typing-extensions) can
-  // still resolve from PyPI. Ordering matters: if we install cu121 torch
-  // FIRST, whisperx later upgrades it back to +cpu from PyPI.
-  report({ stage: "install", message: "Removing CPU PyTorch…" });
-  // pip uninstall needs plain package names, not version specifiers.
-  await pipUninstall(["torch", "torchaudio", "torchvision"], report);
-
-  report({ stage: "install", message: `Installing PyTorch (CUDA 12.4) for ${gpu.name}…` });
-  // Pinned versions + cu124-only index = pip can't accidentally grab a newer
-  // CPU wheel from PyPI. The cu124 index mirrors all transitive deps torch
-  // needs (filelock, sympy, networkx, jinja2, fsspec, typing-extensions).
-  await pipInstall(TORCH_PACKAGES, {
-    indexUrl: TORCH_CUDA_INDEX,
-    report,
   });
 }
 
@@ -421,10 +307,6 @@ async function installPackages(gpu, report) {
 /**
  * Ensure the runtime is ready. Idempotent: returns immediately if already
  * installed and the state file matches RUNTIME_VERSION.
- *
- * @param {object} opts
- * @param {(progress: {stage: string, message: string}) => void} [opts.onProgress]
- * @param {boolean} [opts.force] - reinstall even if already ready
  */
 async function ensureRuntime({ onProgress, force = false } = {}) {
   const report = (p) => { if (onProgress) onProgress(p); };
@@ -433,7 +315,7 @@ async function ensureRuntime({ onProgress, force = false } = {}) {
     const state = readState();
     return {
       pythonExe: getRuntimePaths().pythonExe,
-      gpu: state.gpu,
+      accelerator: state.accelerator || state.gpu,
       torchVariant: state.torchVariant,
       alreadyReady: true,
     };
@@ -441,26 +323,27 @@ async function ensureRuntime({ onProgress, force = false } = {}) {
 
   report({ stage: "start", message: "Preparing CapForge runtime…" });
 
-  const gpu = await detectGpu();
+  const accelerator = await platform.detectAccelerator();
   report({
     stage: "detect",
-    message: gpu.present
-      ? `NVIDIA GPU detected: ${gpu.name}`
-      : "No NVIDIA GPU detected — using CPU build",
+    message: accelerator.kind === "cuda"
+      ? `NVIDIA GPU detected: ${accelerator.name}`
+      : `Running in CPU mode (${accelerator.name})`,
   });
 
   await extractPython(report);
-  patchPth();
+  platform.patchPythonConfig(getRuntimePaths().pythonDir);
   await installPip(report);
-  await installPackages(gpu, report);
+  const torchVariant = await installPackages(accelerator, report);
   await downloadDefaultModel(report);
 
   const state = {
     version: RUNTIME_VERSION,
     completed: true,
     completedAt: new Date().toISOString(),
-    gpu,
-    torchVariant: gpu.present ? "cu124" : "cpu",
+    platform: platform.id,
+    accelerator,
+    torchVariant,
     defaultModel: DEFAULT_MODEL,
   };
   writeState(state);
@@ -468,8 +351,8 @@ async function ensureRuntime({ onProgress, force = false } = {}) {
 
   return {
     pythonExe: getRuntimePaths().pythonExe,
-    gpu,
-    torchVariant: state.torchVariant,
+    accelerator,
+    torchVariant,
     alreadyReady: false,
   };
 }
@@ -478,6 +361,6 @@ module.exports = {
   ensureRuntime,
   getRuntimePaths,
   isRuntimeReady,
-  detectGpu,
+  detectAccelerator: platform.detectAccelerator,
   RUNTIME_VERSION,
 };

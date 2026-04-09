@@ -213,16 +213,16 @@
     const btnInstall = document.getElementById("btnInstall");
     const btnLaunch  = document.getElementById("btnLaunch");
 
-    // Ask main for GPU info as soon as the DOM is ready.
-    ipcRenderer.invoke("setup:detect-gpu").then((gpu) => {
-      if (gpu.present) {
+    // Ask main for accelerator info as soon as the DOM is ready.
+    ipcRenderer.invoke("setup:detect-accelerator").then((acc) => {
+      if (acc.kind === "cuda") {
         gpuCard.classList.add("gpu");
-        gpuValue.textContent = `NVIDIA ${gpu.name} — GPU acceleration`;
-        torchSize.textContent = "~2.5 GB (CUDA 12.1)";
+        gpuValue.textContent = `NVIDIA ${acc.name} — GPU acceleration`;
+        torchSize.textContent = "~2.5 GB (CUDA 12.4)";
         totalSize.textContent = "~4.5 GB";
       } else {
         gpuCard.classList.add("cpu");
-        gpuValue.textContent = "No NVIDIA GPU — CPU mode";
+        gpuValue.textContent = `${acc.name} — CPU mode`;
         torchSize.textContent = "~200 MB (CPU)";
         totalSize.textContent = "~2.2 GB";
       }

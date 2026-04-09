@@ -9,6 +9,7 @@ const http = require("http");
 const fs = require("fs");
 
 const { getRuntimePaths, isRuntimeReady } = require("./runtime-setup");
+const platform = require("./platform");
 
 const PROJECT_ROOT = path.join(__dirname, "..");
 const PORT = 8000;
@@ -67,19 +68,18 @@ function findBundledBinDir() {
  * Locate the Python interpreter to run the backend with.
  *
  * Priority:
- *   1. The managed runtime at `%APPDATA%/CapForge/runtime/python/python.exe`
- *      (installed by runtime-setup.js on first launch).
- *   2. A dev `.venv` at the project root (for developers running `npm start`
- *      without going through the first-run flow).
- *   3. System `python` on PATH (last-resort fallback).
+ *   1. The managed runtime installed by runtime-setup.js on first launch.
+ *   2. A dev venv at the project root (path is platform-specific — Windows
+ *      `.venv\Scripts\python.exe`, macOS `venv/bin/python3`).
+ *   3. System `python` / `python3` on PATH (last-resort fallback).
  */
 function findPython() {
   if (isRuntimeReady()) {
     return getRuntimePaths().pythonExe;
   }
-  const venvPython = path.join(PROJECT_ROOT, ".venv", "Scripts", "python.exe");
+  const venvPython = path.join(PROJECT_ROOT, platform.devVenvPythonRelPath);
   if (fs.existsSync(venvPython)) return venvPython;
-  return "python";
+  return process.platform === "darwin" ? "python3" : "python";
 }
 
 class PythonBackend {
@@ -100,8 +100,8 @@ class PythonBackend {
     return new Promise((resolve, reject) => {
       const python = findPython();
       const binDir = findBundledBinDir();
-      const ffmpegExe = path.join(binDir, "ffmpeg.exe");
-      const ffprobeExe = path.join(binDir, "ffprobe.exe");
+      const ffmpegExe = path.join(binDir, platform.ffmpegExeName);
+      const ffprobeExe = path.join(binDir, platform.ffprobeExeName);
 
       // Prepend bundled bin dir to PATH so whisperx (which shells out to
       // ffmpeg by name) finds our copy first. Also expose explicit paths
@@ -117,6 +117,9 @@ class PythonBackend {
       env.HUGGINGFACE_HUB_CACHE = modelDir;
       env.PYTHONIOENCODING = "utf-8";
       env.PYTHONUTF8 = "1";
+      // Platform-specific HF Hub tweaks (Windows disables symlinks to avoid
+      // WinError 1314; macOS inherits defaults). See electron/platform/win.js.
+      Object.assign(env, platform.extraModelDownloadEnv);
 
       // Open the log file for append (rotating first if it's oversized).
       // Every backend write goes to both the file and the Electron console.
@@ -190,12 +193,7 @@ class PythonBackend {
       this._logStream = null;
     }
     if (!this.process) return;
-    try {
-      const treeKill = require("tree-kill");
-      treeKill(this.process.pid);
-    } catch {
-      this.process.kill();
-    }
+    platform.killProcess(this.process);
     this.process = null;
   }
 

@@ -13,7 +13,8 @@
       "Bash(mv ffmpeg-8.1-full_build/bin/ffmpeg.exe ffmpeg-8.1-full_build/bin/ffprobe.exe ffmpeg-8.1-full_build/bin/ffplay.exe .)",
       "Bash(mv ffmpeg-8.1-full_build/LICENSE ffmpeg-LICENSE.txt)",
       "Bash(rm -rf ffmpeg-8.1-full_build ffmpeg-full.zip)",
-      "Bash(curl -L --progress-bar -o python-embed.zip https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip)"
+      "Bash(curl -L --progress-bar -o python-embed.zip https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip)",
+      "Bash(node -e \"const p = require\\('./electron/platform'\\); console.log\\('platform id:', p.id\\); console.log\\('python rel:', p.pythonExeRelPath\\); console.log\\('ffmpeg:', p.ffmpegExeName\\); console.log\\('has installTorch:', typeof p.installTorch\\);\")"
     ]
   }
 }
