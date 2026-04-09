@@ -567,11 +567,17 @@ def _render_frame(
     bbox    = draw.textbbox((0, 0), "Ayg", font=font)
     text_h  = bbox[3] - bbox[1]
 
-    stroke_pad = outline_sw
-    bg_w = total_w + config.bg_padding_h * 2 + stroke_pad * 2
-    bg_h = text_h  + config.bg_padding_v * 2 + stroke_pad * 2
+    stroke_pad    = outline_sw
+    bg_width_extra  = getattr(config, "bg_width_extra",  0)
+    bg_height_extra = getattr(config, "bg_height_extra", 0)
+    text_offset_x   = getattr(config, "text_offset_x",   0)
+    text_offset_y   = getattr(config, "text_offset_y",   0)
+    position_x      = getattr(config, "position_x",      0.5)
 
-    center_x = config.resolution_w / 2
+    bg_w = total_w + config.bg_padding_h * 2 + stroke_pad * 2 + bg_width_extra
+    bg_h = text_h  + config.bg_padding_v * 2 + stroke_pad * 2 + bg_height_extra
+
+    center_x = config.resolution_w * position_x
     center_y = config.resolution_h * config.position_y + slide_offset
 
     # ---------------------------------------------------------------------------
@@ -590,7 +596,8 @@ def _render_frame(
                                config.bg_corner_radius, bg_rgba)
         _draw_word_list(tmp_draw, word_metrics, font, current_time, config,
                         tracking, effective_space_w, bbox,
-                        center_x, center_y, outline_sw, word_transition, anim_alpha, tmp)
+                        center_x + text_offset_x, center_y + text_offset_y,
+                        outline_sw, word_transition, anim_alpha, tmp)
 
         new_w = max(1, int(config.resolution_w * scale))
         new_h = max(1, int(config.resolution_h * scale))
@@ -612,7 +619,8 @@ def _render_frame(
 
     _draw_word_list(draw, word_metrics, font, current_time, config,
                     tracking, effective_space_w, bbox,
-                    center_x, center_y, outline_sw, word_transition, anim_alpha, img)
+                    center_x + text_offset_x, center_y + text_offset_y,
+                    outline_sw, word_transition, anim_alpha, img)
 
     return img
 

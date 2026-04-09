@@ -1127,8 +1127,18 @@
   const studioRadiusVal = document.getElementById("studio-radius-val");
   const studioWpg = document.getElementById("studio-wpg");
   const studioWpgVal = document.getElementById("studio-wpg-val");
+  const studioPosX = document.getElementById("studio-pos-x");
+  const studioPosXVal = document.getElementById("studio-pos-x-val");
   const studioPosY = document.getElementById("studio-pos-y");
   const studioPosYVal = document.getElementById("studio-pos-y-val");
+  const studioBgWidthExtra = document.getElementById("studio-bg-width-extra");
+  const studioBgWidthExtraVal = document.getElementById("studio-bg-width-extra-val");
+  const studioBgHeightExtra = document.getElementById("studio-bg-height-extra");
+  const studioBgHeightExtraVal = document.getElementById("studio-bg-height-extra-val");
+  const studioTextOffsetX = document.getElementById("studio-text-offset-x");
+  const studioTextOffsetXVal = document.getElementById("studio-text-offset-x-val");
+  const studioTextOffsetY = document.getElementById("studio-text-offset-y");
+  const studioTextOffsetYVal = document.getElementById("studio-text-offset-y-val");
   const studioResolution = document.getElementById("studio-resolution");
   const studioFps = document.getElementById("studio-fps");
   const studioFormat = document.getElementById("studio-format");
@@ -1169,7 +1179,12 @@
     [studioPadV, studioPadVVal, "px"],
     [studioRadius, studioRadiusVal, "px"],
     [studioWpg, studioWpgVal, ""],
+    [studioPosX, studioPosXVal, "%"],
     [studioPosY, studioPosYVal, "%"],
+    [studioBgWidthExtra, studioBgWidthExtraVal, "px"],
+    [studioBgHeightExtra, studioBgHeightExtraVal, "px"],
+    [studioTextOffsetX, studioTextOffsetXVal, "px"],
+    [studioTextOffsetY, studioTextOffsetYVal, "px"],
   ];
 
   studioRangeInputs.forEach(([input, label, unit]) => {
@@ -1402,7 +1417,12 @@
       padV: studioPadV.value,
       radius: studioRadius.value,
       wpg: studioWpg.value,
+      posX: studioPosX ? studioPosX.value : "50",
       posY: studioPosY.value,
+      bgWidthExtra:  studioBgWidthExtra  ? studioBgWidthExtra.value  : "0",
+      bgHeightExtra: studioBgHeightExtra ? studioBgHeightExtra.value : "0",
+      textOffsetX:   studioTextOffsetX   ? studioTextOffsetX.value   : "0",
+      textOffsetY:   studioTextOffsetY   ? studioTextOffsetY.value   : "0",
       resolution: studioResolution.value,
       fps: studioFps.value,
       format: studioFormat.value,
@@ -1444,7 +1464,12 @@
     if (p.padV) { studioPadV.value = p.padV; studioPadVVal.textContent = p.padV + "px"; }
     if (p.radius) { studioRadius.value = p.radius; studioRadiusVal.textContent = p.radius + "px"; }
     if (p.wpg) { studioWpg.value = p.wpg; studioWpgVal.textContent = p.wpg; }
+    if (p.posX !== undefined && studioPosX) { studioPosX.value = p.posX; studioPosXVal.textContent = p.posX + "%"; }
     if (p.posY) { studioPosY.value = p.posY; studioPosYVal.textContent = p.posY + "%"; }
+    if (p.bgWidthExtra  !== undefined && studioBgWidthExtra)  { studioBgWidthExtra.value  = p.bgWidthExtra;  studioBgWidthExtraVal.textContent  = p.bgWidthExtra  + "px"; }
+    if (p.bgHeightExtra !== undefined && studioBgHeightExtra) { studioBgHeightExtra.value = p.bgHeightExtra; studioBgHeightExtraVal.textContent = p.bgHeightExtra + "px"; }
+    if (p.textOffsetX   !== undefined && studioTextOffsetX)   { studioTextOffsetX.value   = p.textOffsetX;   studioTextOffsetXVal.textContent   = p.textOffsetX   + "px"; }
+    if (p.textOffsetY   !== undefined && studioTextOffsetY)   { studioTextOffsetY.value   = p.textOffsetY;   studioTextOffsetYVal.textContent   = p.textOffsetY   + "px"; }
     if (p.resolution) studioResolution.value = p.resolution;
     if (p.fps) studioFps.value = p.fps;
     if (p.format) studioFormat.value = p.format;
@@ -1885,19 +1910,26 @@
     if (!subtitleOverlay || !subtitleOverlayCtx || !studioGroups.length) return;
     if (!videoPlayer || videoPlayer.classList.contains("hidden")) return;
 
-    // Match overlay canvas size to the video element's display size
-    const rect = videoPlayer.getBoundingClientRect();
-    const dpr = window.devicePixelRatio || 1;
-    const cw = Math.round(rect.width * dpr);
-    const ch = Math.round(rect.height * dpr);
-    if (subtitleOverlay.width !== cw || subtitleOverlay.height !== ch) {
-      subtitleOverlay.width = cw;
-      subtitleOverlay.height = ch;
+    // Canvas buffer = output resolution coordinate space (matches Python renderer exactly).
+    // CSS transform scales the canvas to fit inside the video player display area,
+    // the same way object-fit:contain works, so positions are 1:1 with the export.
+    const [resW, resH] = studioResolution.value.split("x").map(Number);
+    if (subtitleOverlay.width !== resW || subtitleOverlay.height !== resH) {
+      subtitleOverlay.width  = resW;
+      subtitleOverlay.height = resH;
     }
+    const rect = videoPlayer.getBoundingClientRect();
+    const cssScale = Math.min(rect.width / resW, rect.height / resH);
+    const cssOX    = (rect.width  - resW * cssScale) / 2;
+    const cssOY    = (rect.height - resH * cssScale) / 2;
+    subtitleOverlay.style.width           = resW + "px";
+    subtitleOverlay.style.height          = resH + "px";
+    subtitleOverlay.style.transformOrigin = "0 0";
+    subtitleOverlay.style.transform       = `translate(${cssOX}px,${cssOY}px) scale(${cssScale})`;
     subtitleOverlay.classList.remove("hidden");
 
     const ctx = subtitleOverlayCtx;
-    ctx.clearRect(0, 0, cw, ch);
+    ctx.clearRect(0, 0, resW, resH);
 
     // Find active group
     const t = currentTime;
@@ -1917,7 +1949,12 @@
     const padH = parseInt(studioPadH.value, 10);
     const padV = parseInt(studioPadV.value, 10);
     const radius = parseInt(studioRadius.value, 10);
+    const posX = studioPosX ? parseInt(studioPosX.value, 10) / 100 : 0.5;
     const posY = parseInt(studioPosY.value, 10) / 100;
+    const bgWidthExtra  = studioBgWidthExtra  ? parseInt(studioBgWidthExtra.value,  10) : 0;
+    const bgHeightExtra = studioBgHeightExtra ? parseInt(studioBgHeightExtra.value, 10) : 0;
+    const textOffsetX   = studioTextOffsetX   ? parseInt(studioTextOffsetX.value,   10) : 0;
+    const textOffsetY   = studioTextOffsetY   ? parseInt(studioTextOffsetY.value,   10) : 0;
     const isBold = studioBold ? studioBold.checked : true;
     const tracking = parseInt(studioTracking ? studioTracking.value : "0", 10);
     const extraWordSpacing = parseInt(studioWordSpacing ? studioWordSpacing.value : "0", 10);
@@ -1927,19 +1964,15 @@
     const animDur = studioAnimDur ? parseInt(studioAnimDur.value, 10) / 100 : 0.12;
     const wordTransition = studioWordTransition ? studioWordTransition.value : "instant";
 
-    // Scale: map render resolution to displayed overlay size
-    const [resW, resH] = studioResolution.value.split("x").map(Number);
-    const scaleX = cw / resW;
-    const scaleY = ch / resH;
-    const scale = Math.min(scaleX, scaleY);
-
-    const sf = fontSize * scale;
-    const sp = padH * scale;
-    const sv = padV * scale;
-    const sr = radius * scale;
-    const sTracking = tracking * scale;
-    const sWordSpacing = extraWordSpacing * scale;
-    const sStroke = strokeWidth * scale;
+    // Drawing is in output-resolution coordinates — same space as the Python renderer.
+    // CSS transform (set above) handles fitting the canvas into the display area.
+    const sf = fontSize;
+    const sp = padH;
+    const sv = padV;
+    const sr = radius;
+    const sTracking = tracking;
+    const sWordSpacing = extraWordSpacing;
+    const sStroke = strokeWidth;
 
     // Animation: compute alpha and y-slide offset
     function easeOut(v) { v = Math.max(0, Math.min(1, v)); return 1 - (1 - v) ** 2; }
@@ -1957,7 +1990,7 @@
       animAlpha = phaseT;
     } else if (animation === "slide") {
       animAlpha = phaseT;
-      const slidePx = ch * 0.04;
+      const slidePx = resH * 0.04;
       slideOffset = entryT < 1 ? slidePx * (1 - entryT) : slidePx * (1 - exitT) * -1;
     } else if (animation === "pop") {
       animAlpha = phaseT;
@@ -1975,8 +2008,8 @@
     const textRgb   = hexToRgb(textColor);
     const activeRgb = hexToRgb(activeColor);
     const CROSSFADE_DUR   = 0.06;
-    const hlRadius        = wsoHighlightRadius  ? parseInt(wsoHighlightRadius.value, 10) * scale  : 16 * scale;
-    const ulThickness     = wsoUnderlineThick   ? parseInt(wsoUnderlineThick.value,  10) * scale  : 4  * scale;
+    const hlRadius        = wsoHighlightRadius  ? parseInt(wsoHighlightRadius.value, 10) : 16;
+    const ulThickness     = wsoUnderlineThick   ? parseInt(wsoUnderlineThick.value,  10) : 4;
     const ulColor         = wsoUnderlineColor   ? wsoUnderlineColor.value : activeColor;
     const bounceStrength  = wsoBounceStrength   ? parseInt(wsoBounceStrength.value,  10) / 100    : 0.18;
     const scaleFactor     = wsoScaleFactor      ? parseInt(wsoScaleFactor.value,     10) / 100    : 1.25;
@@ -2022,10 +2055,12 @@
     let totalW = 0;
     wm.forEach((m, i) => { totalW += m.width; if (i < wm.length - 1) totalW += effectiveSpaceW; });
 
-    const bgW = totalW + sp * 2;
-    const bgH = sf + sv * 2;
-    const cx = cw / 2;
-    const cy = ch * posY + slideOffset * scale;
+    const bgW = totalW + sp * 2 + bgWidthExtra;
+    const bgH = sf + sv * 2 + bgHeightExtra;
+    const cx = resW * posX;
+    const cy = resH * posY + slideOffset;
+    const textCx = cx + textOffsetX;
+    const textCy = cy + textOffsetY;
 
     // Apply pop scale transform around the subtitle centre
     if (popScale !== 1) {
@@ -2044,8 +2079,8 @@
       ctx.restore();
     }
 
-    // Draw words
-    let x = cx - totalW / 2;
+    // Draw words — text anchored at textCx/textCy (offset from bg centre)
+    let x = textCx - totalW / 2;
     wm.forEach((m, i) => {
       const isActive = m.start <= t && t < m.end;
       const wordDur  = Math.max(m.end - m.start, 0.001);
@@ -2064,37 +2099,37 @@
         const fi = Math.min(Math.max((t - m.start) / CROSSFADE_DUR, 0), 1);
         const fo = Math.min(Math.max((m.end - t)   / CROSSFADE_DUR, 0), 1);
         ctx.fillStyle = lerpColor(textRgb, activeRgb, fi * fo);
-        drawWord(m.word, x, cy);
+        drawWord(m.word, x, textCy);
 
       // ---- HIGHLIGHT ----
       } else if (wordTransition === "highlight") {
         if (isActive) {
-          const hPad = Math.max(6 * scale, 4);
+          const hPad = 6;
           ctx.save();
           ctx.globalAlpha = animAlpha * 0.85;
           ctx.fillStyle = activeColor;
-          roundRect(ctx, x - hPad, cy - sf / 2 - hPad * 0.6, m.width + hPad * 2, sf + hPad * 1.2, hlRadius);
+          roundRect(ctx, x - hPad, textCy - sf / 2 - hPad * 0.6, m.width + hPad * 2, sf + hPad * 1.2, hlRadius);
           ctx.fill();
           ctx.restore();
           ctx.fillStyle = bgColor;
         } else {
           ctx.fillStyle = textColor;
         }
-        drawWord(m.word, x, cy);
+        drawWord(m.word, x, textCy);
 
       // ---- UNDERLINE ----
       } else if (wordTransition === "underline") {
         ctx.fillStyle = isActive ? activeColor : textColor;
-        drawWord(m.word, x, cy);
+        drawWord(m.word, x, textCy);
         if (isActive) {
-          const barY = cy + sf / 2 + 2 * scale;
+          const barY = textCy + sf / 2 + 2;
           ctx.fillStyle = ulColor;
           ctx.fillRect(x, barY, m.width, ulThickness);
         }
 
       // ---- BOUNCE ----
       } else if (wordTransition === "bounce") {
-        const bounceY = isActive ? cy - BOUNCE_PX * Math.sin(wordProg * Math.PI) : cy;
+        const bounceY = isActive ? textCy - BOUNCE_PX * Math.sin(wordProg * Math.PI) : textCy;
         ctx.fillStyle = isActive ? activeColor : textColor;
         drawWord(m.word, x, bounceY);
 
@@ -2102,35 +2137,33 @@
       } else if (wordTransition === "scale") {
         if (isActive) {
           const wordCx = x + m.width / 2;
-          ctx.translate(wordCx, cy);
+          ctx.translate(wordCx, textCy);
           ctx.scale(SCALE_WORD, SCALE_WORD);
-          ctx.translate(-wordCx, -cy);
+          ctx.translate(-wordCx, -textCy);
           ctx.fillStyle = activeColor;
         } else {
           ctx.fillStyle = textColor;
         }
-        drawWord(m.word, x, cy);
+        drawWord(m.word, x, textCy);
 
       // ---- KARAOKE ----
       } else if (wordTransition === "karaoke") {
-        // draw base word in textColor
         ctx.fillStyle = textColor;
-        drawWord(m.word, x, cy);
+        drawWord(m.word, x, textCy);
         if (isActive && wordProg > 0) {
-          // clip to left fraction and overdraw in activeColor
           ctx.save();
           ctx.beginPath();
-          ctx.rect(x, cy - sf, m.width * wordProg, sf * 2);
+          ctx.rect(x, textCy - sf, m.width * wordProg, sf * 2);
           ctx.clip();
           ctx.fillStyle = activeColor;
-          drawWord(m.word, x, cy);
+          drawWord(m.word, x, textCy);
           ctx.restore();
         }
 
       // ---- INSTANT (default) ----
       } else {
         ctx.fillStyle = isActive ? activeColor : textColor;
-        drawWord(m.word, x, cy);
+        drawWord(m.word, x, textCy);
       }
 
       ctx.restore();
@@ -2182,7 +2215,12 @@
       bg_padding_h: parseInt(studioPadH.value, 10),
       bg_padding_v: parseInt(studioPadV.value, 10),
       bg_corner_radius: parseInt(studioRadius.value, 10),
+      bg_width_extra:   studioBgWidthExtra  ? parseInt(studioBgWidthExtra.value,  10) : 0,
+      bg_height_extra:  studioBgHeightExtra ? parseInt(studioBgHeightExtra.value, 10) : 0,
+      text_offset_x:    studioTextOffsetX   ? parseInt(studioTextOffsetX.value,   10) : 0,
+      text_offset_y:    studioTextOffsetY   ? parseInt(studioTextOffsetY.value,   10) : 0,
       words_per_group: parseInt(studioWpg.value, 10),
+      position_x: studioPosX ? parseInt(studioPosX.value, 10) / 100 : 0.5,
       position_y: parseInt(studioPosY.value, 10) / 100,
       resolution_w: resW,
       resolution_h: resH,
