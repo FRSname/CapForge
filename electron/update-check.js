@@ -28,9 +28,9 @@ const FETCH_TIMEOUT_MS = 5000;
 
 /**
  * Fetch latest release metadata from GitHub. Resolves to `{ version, url, notes }`
- * where `url` is the browser_download_url of the first `.exe` asset (the NSIS
- * installer). Resolves to `null` on any error — the caller decides whether a
- * silent or noisy failure is appropriate.
+ * where `url` is the browser_download_url of the platform-appropriate installer
+ * asset (.dmg on macOS, .exe on Windows). Falls back to the release HTML page
+ * if no matching asset is found. Resolves to `null` on any error.
  */
 function fetchLatestRelease() {
   return new Promise((resolve) => {
@@ -58,12 +58,14 @@ function fetchLatestRelease() {
             // Strip leading "v" — GitHub tag convention is "v1.2.0",
             // our package.json version is "1.2.0".
             const version = String(data.tag_name || "").replace(/^v/i, "");
-            const exeAsset = (data.assets || []).find((a) =>
-              typeof a.name === "string" && a.name.toLowerCase().endsWith(".exe")
+            const isMac = process.platform === "darwin";
+            const ext = isMac ? ".dmg" : ".exe";
+            const asset = (data.assets || []).find((a) =>
+              typeof a.name === "string" && a.name.toLowerCase().endsWith(ext)
             );
             resolve({
               version,
-              url: exeAsset ? exeAsset.browser_download_url : data.html_url,
+              url: asset ? asset.browser_download_url : data.html_url,
               notes: String(data.body || "").trim(),
               htmlUrl: data.html_url,
             });
@@ -138,7 +140,9 @@ async function checkForUpdates({ parentWindow, silent = false } = {}) {
     detail:
       `You're currently running ${current}.\n\n` +
       (latest.notes ? `Release notes:\n${latest.notes.slice(0, 500)}` : "") +
-      "\n\nDownloading will open your browser — run the new installer to update.",
+      (process.platform === "darwin"
+        ? "\n\nDownloading will open your browser — open the DMG and drag CapForge to Applications."
+        : "\n\nDownloading will open your browser — run the new installer to update."),
     buttons: ["Download", "Later"],
     defaultId: 0,
     cancelId: 1,
