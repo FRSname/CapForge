@@ -45,6 +45,8 @@
   const waveformContainer = document.getElementById("waveform");
   const subtitleOverlay = document.getElementById("subtitle-overlay");
   const subtitleOverlayCtx = subtitleOverlay ? subtitleOverlay.getContext("2d") : null;
+  const timelineCanvas = document.getElementById("timeline-canvas");
+  const timelineCtx = timelineCanvas ? timelineCanvas.getContext("2d") : null;
 
   const btnSettingsToggle = document.getElementById("btn-settings-toggle");
   const settingsPanel = document.getElementById("settings-panel");
@@ -198,6 +200,24 @@
       settingsPanel.classList.toggle("open");
     });
 
+    // Theme toggle
+    const btnThemeToggle  = document.getElementById("btn-theme-toggle");
+    const themeToggleIcon  = document.getElementById("theme-toggle-icon");
+    const themeToggleLabel = document.getElementById("theme-toggle-label");
+    function applyTheme(isLight) {
+      document.documentElement.classList.toggle("light", isLight);
+      themeToggleIcon.textContent  = isLight ? "🌙" : "☀";
+      themeToggleLabel.textContent = isLight ? "Dark Mode" : "Light Mode";
+    }
+    applyTheme(localStorage.getItem("capforge-theme") === "light");
+    if (btnThemeToggle) {
+      btnThemeToggle.addEventListener("click", () => {
+        const isLight = !document.documentElement.classList.contains("light");
+        applyTheme(isLight);
+        localStorage.setItem("capforge-theme", isLight ? "light" : "dark");
+      });
+    }
+
     chkDiarize.addEventListener("change", () => {
       inpHfToken.classList.toggle("hidden", !chkDiarize.checked);
     });
@@ -273,6 +293,23 @@
     fileName.textContent = name;
     dropZone.classList.add("hidden");
     fileInfo.classList.remove("hidden");
+
+    // Auto-set output folder to the source file's directory
+    const dir = path.replace(/[\\/][^\\/]+$/, "");
+    if (dir) {
+      outputDir = dir;
+      if (outputDirDisplay) outputDirDisplay.textContent = dir;
+    }
+
+    // Auto-detect video resolution + fps (also re-applied in showResults once controls exist)
+    if (isVideoFile(path)) {
+      api.getVideoInfo(path).then((info) => {
+        applyVideoInfo(info);
+        updateQuickRenderState();
+      }).catch(() => { updateQuickRenderState(); });
+    } else {
+      updateQuickRenderState();
+    }
   }
 
   function clearFile() {
@@ -280,6 +317,7 @@
     fileName.textContent = "-";
     dropZone.classList.remove("hidden");
     fileInfo.classList.add("hidden");
+    updateQuickRenderState();
   }
 
   // --- Cancel ---
@@ -503,6 +541,43 @@
     initAudioPlayer();
     renderExportedFiles(exportedPaths);
     showScreen("results");
+    // Re-apply auto-detected video info now that studio controls are visible
+    if (selectedFilePath && isVideoFile(selectedFilePath)) {
+      api.getVideoInfo(selectedFilePath).then((info) => {
+        applyVideoInfo(info);
+      }).catch(() => {});
+    }
+  }
+
+  function applyVideoInfo(info) {
+    if (!info || !info.width || !info.height) return;
+    const sel = document.getElementById("studio-resolution");
+    const fps = document.getElementById("studio-fps");
+    if (sel) {
+      const key = `${info.width}x${info.height}`;
+      let found = false;
+      for (const opt of sel.options) {
+        if (opt.value === key) { sel.value = key; found = true; break; }
+      }
+      if (!found) {
+        const prev = sel.querySelector("option[data-source]");
+        if (prev) prev.remove();
+        const opt = document.createElement("option");
+        opt.value = key;
+        opt.textContent = `${info.width}×${info.height} (Source)`;
+        opt.dataset.source = "1";
+        sel.insertBefore(opt, sel.firstChild);
+        sel.value = key;
+      }
+    }
+    if (fps && info.fps) {
+      let bestOpt = null, bestDiff = Infinity;
+      for (const opt of fps.options) {
+        const diff = Math.abs(parseFloat(opt.value) - info.fps);
+        if (diff < bestDiff) { bestDiff = diff; bestOpt = opt; }
+      }
+      if (bestOpt) fps.value = bestOpt.value;
+    }
   }
 
   // --- Results ---
@@ -882,6 +957,8 @@
     const audioSrc = api.audioUrl(selectedFilePath);
     const isVideo = isVideoFile(selectedFilePath);
 
+    const audioPrevBg = document.getElementById("audio-preview-bg");
+
     if (isVideo) {
       // Create a fresh <video> element so old WaveSurfer refs can't overwrite it
       const freshVideo = document.createElement("video");
@@ -891,6 +968,7 @@
       const wrap = document.getElementById("video-wrap");
       wrap.replaceChild(freshVideo, videoPlayer);
       videoPlayer = freshVideo;
+      if (audioPrevBg) audioPrevBg.classList.add("hidden");
 
       wavesurfer = WaveSurfer.create({
         container: "#waveform",
@@ -904,8 +982,9 @@
         media: videoPlayer,
       });
     } else {
-      // Audio-only: hide video
+      // Audio-only: hide video, show preview background for subtitle overlay
       videoPlayer.classList.add("hidden");
+      if (audioPrevBg) audioPrevBg.classList.remove("hidden");
       wavesurfer = WaveSurfer.create({
         container: "#waveform",
         waveColor: "#30363d",
@@ -946,6 +1025,8 @@
       if (groupEditorOpen) highlightActiveGroup(currentTime);
       // Draw subtitle overlay on main video
       drawSubtitleOverlay(currentTime);
+      // Update timeline playhead
+      drawTimeline(currentTime);
     });
 
     wavesurfer.on("ready", () => {
@@ -970,6 +1051,8 @@
     const wrap = document.getElementById("video-wrap");
     wrap.replaceChild(blank, videoPlayer);
     videoPlayer = blank;
+    const prevBg = document.getElementById("audio-preview-bg");
+    if (prevBg) prevBg.classList.add("hidden");
     if (subtitleOverlay) subtitleOverlay.classList.add("hidden");
     iconPlay.classList.remove("hidden");
     iconPause.classList.add("hidden");
@@ -1084,7 +1167,11 @@
   // SUBTITLE VIDEO STUDIO
   // =========================================================================
 
-  const btnRenderVideo = document.getElementById("btn-render-video");
+  const btnRenderVideo   = document.getElementById("btn-render-video");
+  const btnRenderBaked   = document.getElementById("btn-render-baked");
+  const btnRenderOverlay = document.getElementById("btn-render-overlay");
+  const customRenderToggle = document.getElementById("custom-render-toggle");
+  const customRenderBody   = document.getElementById("custom-render-body");
   const renderProgressEl = document.getElementById("render-progress");
   const renderProgressBar = document.getElementById("render-progress-bar");
   const renderProgressLabel = document.getElementById("render-progress-label");
@@ -1631,6 +1718,8 @@
         if (group.end > studioDuration) studioDuration = group.end;
       }
     });
+    // Redraw timeline whenever groups change
+    drawTimeline(wavesurfer ? wavesurfer.getCurrentTime() : 0);
   }
 
   // ============================
@@ -1905,20 +1994,171 @@
     ctx.closePath();
   }
 
-  // --- Subtitle overlay on main video player ---
+  // --- Subtitle Timeline ---
+
+  const TIMELINE_RULER_H = 18;
+  const TIMELINE_TRACK_H = 48;
+  const TIMELINE_H = TIMELINE_RULER_H + TIMELINE_TRACK_H;
+
+  function niceTimeStep(duration, widthPx) {
+    const steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+    const target = widthPx / 80; // aim for ~80px between marks
+    const ideal = duration / target;
+    for (const s of steps) { if (s >= ideal) return s; }
+    return steps[steps.length - 1];
+  }
+
+  function drawTimeline(currentTime) {
+    if (!timelineCanvas || !timelineCtx) return;
+    const wrap = document.getElementById("timeline-wrap");
+    if (!wrap) return;
+
+    const dpr = window.devicePixelRatio || 1;
+    const cssW = wrap.clientWidth || 600;
+    const cssH = TIMELINE_H;
+    const bW = Math.round(cssW * dpr);
+    const bH = Math.round(cssH * dpr);
+    if (timelineCanvas.width !== bW || timelineCanvas.height !== bH) {
+      timelineCanvas.width  = bW;
+      timelineCanvas.height = bH;
+      timelineCanvas.style.width  = cssW + "px";
+      timelineCanvas.style.height = cssH + "px";
+    }
+
+    const ctx = timelineCtx;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, cssW, cssH);
+
+    const duration = wavesurfer ? wavesurfer.getDuration() : 0;
+    if (!duration) return;
+    const pps = cssW / duration; // pixels per second
+
+    // ── Ruler background ──
+    const isDark = !document.documentElement.classList.contains("light");
+    const rulerBg   = isDark ? "#0d1117" : "#eef1f4";
+    const trackBg   = isDark ? "#161b22" : "#f6f8fa";
+    const rulerText = isDark ? "#8b949e" : "#636c76";
+    const tickColor = isDark ? "#30363d" : "#d0d7de";
+    const blockBg   = studioBgColor ? studioBgColor.value : "#D4952A";
+    const blockText = isDark ? "#ffffff" : "#ffffff";
+    const headColor = isDark ? "#58a6ff" : "#0969da";
+
+    ctx.fillStyle = rulerBg;
+    ctx.fillRect(0, 0, cssW, TIMELINE_RULER_H);
+    ctx.fillStyle = trackBg;
+    ctx.fillRect(0, TIMELINE_RULER_H, cssW, TIMELINE_TRACK_H);
+
+    // ── Tick marks + time labels ──
+    const step = niceTimeStep(duration, cssW);
+    ctx.fillStyle = rulerText;
+    ctx.font = `${10 * (dpr > 1 ? 1 : 1)}px -apple-system, "Segoe UI", sans-serif`;
+    ctx.textBaseline = "middle";
+    for (let t = 0; t <= duration + 0.001; t += step) {
+      const x = Math.round(t * pps);
+      ctx.strokeStyle = tickColor;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, 0);
+      ctx.lineTo(x + 0.5, TIMELINE_RULER_H);
+      ctx.stroke();
+      const mins = Math.floor(t / 60);
+      const secs = Math.floor(t % 60);
+      const label = mins > 0
+        ? `${mins}:${String(secs).padStart(2, "0")}`
+        : `${secs}s`;
+      ctx.fillStyle = rulerText;
+      ctx.fillText(label, x + 3, TIMELINE_RULER_H / 2);
+    }
+
+    // ── Subtitle blocks ──
+    const PAD = 3;
+    studioGroups.forEach((g) => {
+      const x = g.start * pps;
+      const w = Math.max((g.end - g.start) * pps - 1, 3);
+      const y = TIMELINE_RULER_H + PAD;
+      const h = TIMELINE_TRACK_H - PAD * 2;
+      const r = Math.min(4, h / 2);
+
+      ctx.fillStyle = blockBg;
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.lineTo(x + w - r, y);
+      ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
+      ctx.lineTo(x + r, y + h);
+      ctx.quadraticCurveTo(x, y + h, x, y + h - r);
+      ctx.lineTo(x, y + r);
+      ctx.quadraticCurveTo(x, y, x + r, y);
+      ctx.closePath();
+      ctx.fill();
+
+      // Text label: first ~5 words
+      if (w > 18) {
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(x + 5, y, Math.max(w - 10, 1), h);
+        ctx.clip();
+        ctx.fillStyle = blockText;
+        ctx.font = `bold 11px -apple-system, "Segoe UI", sans-serif`;
+        ctx.textBaseline = "middle";
+        const label = g.words.slice(0, 5).map(ww => ww.word).join(" ").trim()
+          || g.text.trim().split(/\s+/).slice(0, 5).join(" ");
+        ctx.fillText(label, x + 5, y + h / 2);
+        ctx.restore();
+      }
+    });
+
+    // ── Playhead ──
+    if (currentTime != null && duration > 0) {
+      const px = currentTime * pps;
+      ctx.strokeStyle = headColor;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, cssH);
+      ctx.stroke();
+      // Triangle handle
+      ctx.fillStyle = headColor;
+      ctx.beginPath();
+      ctx.moveTo(px - 5, 0);
+      ctx.lineTo(px + 5, 0);
+      ctx.lineTo(px, 7);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+
+  // Seek on timeline click
+  if (timelineCanvas) {
+    timelineCanvas.addEventListener("click", (e) => {
+      if (!wavesurfer || !wavesurfer.getDuration()) return;
+      const rect = timelineCanvas.getBoundingClientRect();
+      const ratio = (e.clientX - rect.left) / rect.width;
+      wavesurfer.seekTo(Math.max(0, Math.min(1, ratio)));
+    });
+  }
+
+  // --- Subtitle overlay on main video/audio player ---
   function drawSubtitleOverlay(currentTime) {
     if (!subtitleOverlay || !subtitleOverlayCtx || !studioGroups.length) return;
-    if (!videoPlayer || videoPlayer.classList.contains("hidden")) return;
+    const videoWrap = document.getElementById("video-wrap");
+    if (!videoWrap) return;
 
     // Canvas buffer = output resolution coordinate space (matches Python renderer exactly).
-    // CSS transform scales the canvas to fit inside the video player display area,
+    // CSS transform scales the canvas to fit inside the player display area,
     // the same way object-fit:contain works, so positions are 1:1 with the export.
     const [resW, resH] = studioResolution.value.split("x").map(Number);
     if (subtitleOverlay.width !== resW || subtitleOverlay.height !== resH) {
       subtitleOverlay.width  = resW;
       subtitleOverlay.height = resH;
     }
-    const rect = videoPlayer.getBoundingClientRect();
+    // Use the video element rect when playing video; otherwise use the audio preview bg.
+    const anchorEl = (videoPlayer && !videoPlayer.classList.contains("hidden"))
+      ? videoPlayer
+      : document.getElementById("audio-preview-bg");
+    if (!anchorEl || anchorEl.classList.contains("hidden")) return;
+    const rect = anchorEl.getBoundingClientRect();
     const cssScale = Math.min(rect.width / resW, rect.height / resH);
     const cssOX    = (rect.width  - resW * cssScale) / 2;
     const cssOY    = (rect.height - resH * cssScale) / 2;
@@ -2175,17 +2415,49 @@
   }
 
   // --- Render video ---
-  if (btnRenderVideo) {
-    btnRenderVideo.addEventListener("click", renderSubtitleVideo);
+
+  // Collapsible custom render section
+  if (customRenderToggle && customRenderBody) {
+    customRenderToggle.addEventListener("click", () => {
+      const open = customRenderBody.classList.toggle("hidden") === false;
+      customRenderToggle.classList.toggle("open", open);
+    });
   }
 
-  async function renderSubtitleVideo() {
+  // Quick render buttons
+  if (btnRenderBaked) {
+    btnRenderBaked.addEventListener("click", () => {
+      if (!isVideoFile(selectedFilePath || "")) {
+        showToast("Baked mode requires a video source file.", "error");
+        return;
+      }
+      renderSubtitleVideo({ renderMode: "baked", format: "mp4" });
+    });
+  }
+  if (btnRenderOverlay) {
+    btnRenderOverlay.addEventListener("click", () => {
+      renderSubtitleVideo({ renderMode: "overlay", format: "mov" });
+    });
+  }
+
+  if (btnRenderVideo) {
+    btnRenderVideo.addEventListener("click", () => renderSubtitleVideo());
+  }
+
+  // Disable "Render Video" quick button when no video source
+  function updateQuickRenderState() {
+    if (btnRenderBaked) {
+      btnRenderBaked.disabled = !selectedFilePath || !isVideoFile(selectedFilePath);
+    }
+  }
+
+  async function renderSubtitleVideo(overrides = {}) {
     if (!transcriptionResult) {
       showToast("No transcription result. Transcribe a file first.");
       return;
     }
 
-    const renderMode = studioRenderMode ? studioRenderMode.value : "overlay";
+    const renderMode = overrides.renderMode ?? (studioRenderMode ? studioRenderMode.value : "overlay");
 
     // Baked mode requires the source to be a video file
     if (renderMode === "baked" && (!selectedFilePath || !isVideoFile(selectedFilePath))) {
@@ -2225,7 +2497,7 @@
       resolution_w: resW,
       resolution_h: resH,
       fps: parseInt(studioFps.value, 10),
-      output_format: renderMode === "baked" ? "mp4" : studioFormat.value,
+      output_format: overrides.format ?? (renderMode === "baked" ? "mp4" : studioFormat.value),
       render_mode: renderMode,
       video_bitrate: studioBitrate ? studioBitrate.value : "8M",
       animation: studioAnimation ? studioAnimation.value : "none",
@@ -2238,8 +2510,8 @@
       scale_factor: wsoScaleFactor ? parseInt(wsoScaleFactor.value, 10) / 100 : 1.25,
     };
 
-    btnRenderVideo.disabled = true;
-    btnRenderVideo.textContent = "Rendering…";
+    [btnRenderVideo, btnRenderBaked, btnRenderOverlay].forEach(b => { if (b) b.disabled = true; });
+    if (btnRenderVideo) btnRenderVideo.textContent = "Rendering…";
     renderProgressEl.classList.remove("hidden");
     renderProgressBar.style.width = "0%";
     renderProgressLabel.textContent = "Starting…";
@@ -2276,8 +2548,11 @@
       showToast(`Render failed: ${err.message}`, "error");
     } finally {
       if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
-      btnRenderVideo.disabled = false;
-      btnRenderVideo.innerHTML = `<svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25ZM6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/></svg> Render Subtitle Video`;
+      if (btnRenderVideo) {
+        btnRenderVideo.disabled = false;
+        btnRenderVideo.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/></svg> Render with Custom Settings`;
+      }
+      updateQuickRenderState();
     }
   }
 
@@ -2379,6 +2654,11 @@
 
   if (btnProjectSave) btnProjectSave.addEventListener("click", saveProject);
   if (btnProjectOpen) btnProjectOpen.addEventListener("click", openProject);
+
+  // Redraw timeline on resize
+  window.addEventListener("resize", () => {
+    if (studioGroups.length) drawTimeline(wavesurfer ? wavesurfer.getCurrentTime() : 0);
+  });
 
   // --- Boot ---
   init();

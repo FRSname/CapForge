@@ -123,7 +123,12 @@
             <div class="audio-player" id="audio-player">
               <div class="video-wrap" id="video-wrap">
                 <video id="video-player" class="video-player hidden"></video>
+                <div id="audio-preview-bg" class="audio-preview-bg hidden"></div>
                 <canvas id="subtitle-overlay" class="subtitle-overlay hidden"></canvas>
+              </div>
+              <!-- Subtitle timeline -->
+              <div class="timeline-wrap" id="timeline-wrap">
+                <canvas id="timeline-canvas" class="timeline-canvas"></canvas>
               </div>
               <div class="waveform-container" id="waveform"></div>
               <div class="player-controls">
@@ -426,7 +431,29 @@
                 </div>
               </div>
 
-              <div class="studio-section studio-section-label">Output</div>
+            </div>
+
+            <!-- Quick Render -->
+            <div class="studio-section studio-section-label">Render</div>
+            <div class="quick-render-row">
+              <button id="btn-render-baked" class="quick-render-btn">
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25ZM6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/></svg>
+                <span class="qr-title">Render Video</span>
+                <span class="qr-sub">MP4 · subtitles baked in</span>
+              </button>
+              <button id="btn-render-overlay" class="quick-render-btn">
+                <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8ZM1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0Zm6-2.19 3.5 2.19-3.5 2.19V5.81Z"/></svg>
+                <span class="qr-title">Subtitles Only</span>
+                <span class="qr-sub">MOV · transparent overlay</span>
+              </button>
+            </div>
+
+            <!-- Custom Render (collapsible) -->
+            <button class="custom-render-toggle" id="custom-render-toggle">
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" id="custom-render-arrow"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>
+              Custom Render
+            </button>
+            <div class="custom-render-body hidden" id="custom-render-body">
               <div class="studio-row">
                 <label>Resolution</label>
                 <select id="studio-resolution">
@@ -439,7 +466,6 @@
                   <option value="1080x1080">1080×1080 (1:1 Square)</option>
                 </select>
               </div>
-
               <div class="studio-row">
                 <label>FPS</label>
                 <select id="studio-fps">
@@ -451,7 +477,6 @@
                   <option value="60">60 fps</option>
                 </select>
               </div>
-
               <div class="studio-row">
                 <label>Format</label>
                 <select id="studio-format">
@@ -460,7 +485,6 @@
                   <option value="mp4">MP4 (H.264)</option>
                 </select>
               </div>
-
               <div class="studio-row">
                 <label>Render Mode</label>
                 <select id="studio-render-mode">
@@ -468,7 +492,6 @@
                   <option value="baked">Baked into Video</option>
                 </select>
               </div>
-
               <div class="studio-row" id="studio-bitrate-row" style="display:none">
                 <label>Video Bitrate</label>
                 <select id="studio-bitrate">
@@ -478,14 +501,12 @@
                   <option value="40M">40 Mbps (Maximum)</option>
                 </select>
               </div>
-            </div>
-
-            <!-- Render Button -->
-            <div class="studio-actions">
-              <button id="btn-render-video" class="primary-btn">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25ZM6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/></svg>
-                Render Subtitle Video
-              </button>
+              <div class="studio-actions">
+                <button id="btn-render-video" class="primary-btn" style="width:100%">
+                  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/></svg>
+                  Render with Custom Settings
+                </button>
+              </div>
             </div>
 
             <!-- Render progress -->
@@ -543,6 +564,12 @@
       <span id="output-dir-display" class="dir-path">./output</span>
       <button id="btn-pick-dir" class="text-btn">Browse</button>
     </div>
+
+    <label class="setting-label">Appearance</label>
+    <button id="btn-theme-toggle" class="theme-toggle-btn">
+      <span id="theme-toggle-icon" class="theme-icon">☀</span>
+      <span id="theme-toggle-label">Light Mode</span>
+    </button>
   </aside>
 
   <!-- Prompt Modal -->

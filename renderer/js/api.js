@@ -121,6 +121,11 @@ class SubForgeAPI {
     return `${this.base}/api/serve-audio?path=${encodeURIComponent(filePath)}`;
   }
 
+  /** Get video width, height, fps via ffprobe. Returns null fields on failure. */
+  getVideoInfo(filePath) {
+    return this._get(`/api/video-info?path=${encodeURIComponent(filePath)}`);
+  }
+
   // --- WebSocket ---
 
   /** Connect to the progress WebSocket. Calls onProgress(update) on each message. */

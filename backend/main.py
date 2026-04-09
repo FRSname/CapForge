@@ -161,6 +161,59 @@ async def serve_audio(path: str):
     return FileResponse(p)
 
 
+@app.get("/api/video-info")
+async def get_video_info(path: str):
+    """Return display width, height, and fps for a video file using ffprobe.
+    Accounts for rotation metadata so portrait videos are reported correctly."""
+    import json, subprocess
+    p = Path(path)
+    if not p.is_file():
+        raise HTTPException(status_code=404, detail="File not found")
+    ffprobe = os.environ.get("CAPFORGE_FFPROBE", "ffprobe")
+    try:
+        out = subprocess.check_output(
+            [ffprobe, "-v", "quiet", "-print_format", "json",
+             "-show_streams", "-select_streams", "v:0", str(p)],
+            stderr=subprocess.DEVNULL, timeout=10,
+        )
+        data = json.loads(out)
+        stream = data.get("streams", [{}])[0]
+        width  = stream.get("width")
+        height = stream.get("height")
+
+        # Detect rotation. Priority: side_data_list Display Matrix > stream tags.
+        # The correct key in ffprobe JSON is "side_data_type", not "type".
+        rotation = 0
+        for sd in stream.get("side_data_list", []):
+            sd_type = sd.get("side_data_type", "") or sd.get("type", "")
+            if "Display Matrix" in sd_type:
+                try:
+                    rotation = int(sd.get("rotation", 0))
+                except (ValueError, TypeError):
+                    pass
+                break
+
+        if rotation == 0:
+            # Fallback: Android-style rotate tag in stream tags
+            rotate_tag = stream.get("tags", {}).get("rotate", "0")
+            try:
+                rotation = int(rotate_tag)
+            except (ValueError, TypeError):
+                pass
+
+        if abs(rotation) in (90, 270):
+            width, height = height, width
+
+        fps_raw = stream.get("r_frame_rate", "0/1")
+        num, den = (int(x) for x in fps_raw.split("/"))
+        fps = round(num / den, 3) if den else 0
+        logger.info("video-info %s → %dx%d rotation=%d fps=%.3f", p.name, width, height, rotation, fps)
+        return {"width": width, "height": height, "fps": fps}
+    except Exception as e:
+        logger.warning("video-info failed for %s: %s", path, e)
+        return {"width": None, "height": None, "fps": None}
+
+
 @app.post("/api/transcribe")
 async def start_transcription(request: TranscribeRequest):
     """Start a transcription job. Runs in a background thread."""

@@ -14,6 +14,22 @@
   --danger: #f85149;
   --radius: 8px;
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --audio-preview-bg: #010409;
+}
+
+:root.light {
+  --bg: #f6f8fa;
+  --bg-surface: #ffffff;
+  --bg-secondary: #eef1f4;
+  --bg-overlay: #eef1f4;
+  --border: #d0d7de;
+  --text: #1f2328;
+  --text-muted: #636c76;
+  --accent: #0969da;
+  --accent-hover: #0550ae;
+  --success: #1a7f37;
+  --danger: #d1242f;
+  --audio-preview-bg: #24292f;
 }
 
 * {
@@ -523,6 +539,27 @@ body {
   height: 100%;
   pointer-events: none;
   border-radius: 6px;
+}
+
+.audio-preview-bg {
+  width: 100%;
+  height: 55vh;
+  background: var(--audio-preview-bg);
+  border-radius: 6px;
+  margin-bottom: 8px;
+}
+
+.timeline-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin-bottom: 4px;
+  border-radius: 6px;
+  overflow: hidden;
+  cursor: pointer;
+  user-select: none;
+}
+.timeline-canvas {
+  display: block;
 }
 
 .waveform-container {
@@ -1375,6 +1412,30 @@ select.setting-input {
   accent-color: var(--accent);
 }
 
+/* ===== Theme Toggle ===== */
+
+.theme-toggle-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.theme-toggle-btn:hover {
+  border-color: var(--accent);
+}
+.theme-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
 /* ===== Dir Picker ===== */
 
 .dir-picker {
@@ -1570,6 +1631,81 @@ select.setting-input {
 
 .studio-actions .primary-btn {
   width: 100%;
+}
+
+/* Quick Render */
+.quick-render-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.quick-render-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  font-family: inherit;
+}
+.quick-render-btn:hover {
+  border-color: var(--accent);
+  background: var(--bg-secondary);
+}
+.quick-render-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.qr-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text);
+}
+.qr-sub {
+  font-size: 10px;
+  color: var(--text-muted);
+}
+
+/* Custom Render toggle */
+.custom-render-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  cursor: pointer;
+  padding: 6px 0;
+  font-family: inherit;
+  transition: color 0.15s;
+}
+.custom-render-toggle:hover {
+  color: var(--text);
+}
+.custom-render-toggle svg {
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+.custom-render-toggle.open svg {
+  transform: rotate(90deg);
+}
+
+.custom-render-body {
+  border-left: 2px solid var(--border);
+  padding-left: 10px;
+  margin-bottom: 8px;
 }
 
 /* Render Progress */
