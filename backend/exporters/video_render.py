@@ -918,33 +918,52 @@ def _render_overlay(
 
     report("Rendering frames…", 5)
 
-    group_idx = 0
+    import os
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    # Pre-build a frame→group lookup list so worker threads don't need to search
+    frame_groups: list[Optional[dict]] = []
+    gi = 0
+    for fn in range(total_frames):
+        t = fn / config.fps
+        while gi < len(groups) and groups[gi]["end"] < t:
+            gi += 1
+        if gi < len(groups) and groups[gi]["start"] <= t:
+            frame_groups.append(groups[gi])
+        else:
+            frame_groups.append(None)
+
+    # Number of parallel workers: use half the CPU cores (Pillow is CPU-bound
+    # but also does GIL-releasing work via libjpeg/zlib; 4 workers typically
+    # gives 2–3× speedup on modern CPUs without thrashing).
+    n_workers = max(1, min(os.cpu_count() or 2, 8) // 2)
+    BATCH = n_workers * 4  # frames per batch submitted to the pool
     report_interval = max(1, total_frames // 50)
 
+    def _render_one(fn: int) -> tuple[int, bytes]:
+        t = fn / config.fps
+        img = _render_frame(config, font, frame_groups[fn], t)
+        return fn, img.tobytes()
+
     try:
-        for frame_num in range(total_frames):
-            # Poll cancellation every frame — cheap, and lets us abort a
-            # multi-minute render within a single frame time (~30ms).
-            _check_cancel()
-
-            t = frame_num / config.fps
-
-            while group_idx < len(groups) and groups[group_idx]["end"] < t:
-                group_idx += 1
-
-            active_group = None
-            if group_idx < len(groups) and groups[group_idx]["start"] <= t:
-                active_group = groups[group_idx]
-
-            img = _render_frame(config, font, active_group, t)
-            proc.stdin.write(img.tobytes())
-
-            if frame_num % report_interval == 0:
-                pct = 5 + (frame_num / total_frames) * 90
-                report(
-                    f"Rendering frame {frame_num}/{total_frames}…",
-                    min(pct, 95),
-                )
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            frame_num = 0
+            while frame_num < total_frames:
+                _check_cancel()
+                batch_end = min(frame_num + BATCH, total_frames)
+                futures = {pool.submit(_render_one, fn): fn for fn in range(frame_num, batch_end)}
+                # Collect results in order
+                results: dict[int, bytes] = {}
+                for fut in as_completed(futures):
+                    _check_cancel()
+                    fn, raw = fut.result()
+                    results[fn] = raw
+                for fn in range(frame_num, batch_end):
+                    proc.stdin.write(results[fn])
+                    if fn % report_interval == 0:
+                        pct = 5 + (fn / total_frames) * 90
+                        report(f"Rendering frame {fn}/{total_frames}…", min(pct, 95))
+                frame_num = batch_end
 
         proc.stdin.close()
         report("Encoding video (finalizing)…", 96, JobStatus.ENCODING)

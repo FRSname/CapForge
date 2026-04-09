@@ -21,6 +21,10 @@
   const fileName = document.getElementById("file-name");
   const btnClearFile = document.getElementById("btn-clear-file");
   const btnStart = document.getElementById("btn-start");
+  const btnQueueAdd  = document.getElementById("btn-queue-add");
+  const btnQueueClear = document.getElementById("btn-queue-clear");
+  const batchQueueEl = document.getElementById("batch-queue");
+  const batchQueueList = document.getElementById("batch-queue-list");
 
   const progressBar = document.getElementById("progress-bar");
   const progressPct = document.getElementById("progress-pct");
@@ -62,22 +66,32 @@
   const editActions = document.getElementById("edit-actions");
   const btnEditSave = document.getElementById("btn-edit-save");
   const btnEditDiscard = document.getElementById("btn-edit-discard");
+  const btnUndo = document.getElementById("btn-undo");
+  const btnRedo = document.getElementById("btn-redo");
   const editStatus = document.getElementById("edit-status");
 
   // Group editor
   const btnGroupToggle = document.getElementById("btn-group-toggle");
+  const inpTimingShift = document.getElementById("inp-timing-shift");
+  const btnTimingShiftApply = document.getElementById("btn-timing-shift-apply");
   const groupEditorEl = document.getElementById("group-editor");
   const groupEditorList = document.getElementById("group-editor-list");
   const btnGroupReset = document.getElementById("btn-group-reset");
 
   // --- State ---
   let selectedFilePath = null;
+  // Batch queue: [{path, name, status: "pending"|"active"|"done"|"error"}]
+  let batchQueue = [];
+  let batchRunning = false;
   let outputDir = "output";
   let transcriptionResult = null;
   let wavesurfer = null;
   let currentScreen = "file";
   let editMode = false;
   let hasEdits = false;
+  // Undo/redo stacks — each entry is a JSON snapshot of transcriptionResult.segments
+  const undoStack = [];
+  const redoStack = [];
   let loopSegment = null; // { start, end } for loop-play in edit mode
   let groupEditorOpen = false;
   let customGroupsEdited = false; // true when user has manually modified groups
@@ -103,6 +117,13 @@
     }
 
     api.connectProgress(onProgressUpdate);
+
+    // Restore persisted HuggingFace token
+    if (window.subforge && window.subforge.getState) {
+      const savedToken = await window.subforge.getState("hfToken", null);
+      if (savedToken && inpHfToken) inpHfToken.value = savedToken;
+    }
+
     bindEvents();
   }
 
@@ -174,7 +195,13 @@
 
     // File controls
     btnClearFile.addEventListener("click", clearFile);
-    btnStart.addEventListener("click", startTranscription);
+    btnStart.addEventListener("click", () => {
+      if (batchQueue.length > 1) {
+        _runBatchQueue();
+      } else {
+        startTranscription();
+      }
+    });
     btnCancel.addEventListener("click", cancelJob);
 
     // Results
@@ -289,6 +316,10 @@
 
   function setFile(path) {
     selectedFilePath = path;
+    // Add as first queue item if not already there
+    if (!batchQueue.some(i => i.path === path)) {
+      batchQueue.unshift({ path, name: path.split(/[\\/]/).pop(), status: "pending" });
+    }
     const name = path.split(/[\\/]/).pop();
     fileName.textContent = name;
     dropZone.classList.add("hidden");
@@ -314,10 +345,105 @@
 
   function clearFile() {
     selectedFilePath = null;
+    batchQueue = [];
+    batchRunning = false;
     fileName.textContent = "-";
     dropZone.classList.remove("hidden");
     fileInfo.classList.add("hidden");
+    _renderBatchQueue();
     updateQuickRenderState();
+  }
+
+  // --- Batch queue helpers ---
+  function _addToQueue(path) {
+    if (batchQueue.some(item => item.path === path)) return; // no duplicates
+    batchQueue.push({ path, name: path.split(/[\\/]/).pop(), status: "pending" });
+    _renderBatchQueue();
+  }
+
+  function _renderBatchQueue() {
+    if (!batchQueueList || !batchQueueEl) return;
+    // Only show queue section when there are extra files beyond the primary
+    if (batchQueue.length <= 1) {
+      batchQueueEl.classList.add("hidden");
+      return;
+    }
+    batchQueueEl.classList.remove("hidden");
+    batchQueueList.innerHTML = "";
+    batchQueue.forEach((item, i) => {
+      const li = document.createElement("li");
+      li.className = `batch-queue-item${item.status !== "pending" ? " " + item.status : ""}`;
+      const nameEl = document.createElement("span");
+      nameEl.className = "batch-queue-item-name";
+      nameEl.textContent = (i === 0 ? "★ " : "") + item.name;
+      nameEl.title = item.path;
+      const statusEl = document.createElement("span");
+      statusEl.className = "batch-queue-item-status";
+      statusEl.textContent = item.status === "pending" ? "queued"
+        : item.status === "active" ? "processing…"
+        : item.status === "done" ? "✓ done"
+        : item.status === "error" ? "✕ error" : "";
+      const removeBtn = document.createElement("button");
+      removeBtn.className = "batch-queue-item-remove";
+      removeBtn.textContent = "✕";
+      removeBtn.title = "Remove from queue";
+      removeBtn.addEventListener("click", () => {
+        if (item.status === "active") return; // can't remove active
+        batchQueue.splice(i, 1);
+        if (batchQueue.length > 0 && i === 0) {
+          // Promote new first item as primary
+          setFile(batchQueue[0].path);
+        } else if (batchQueue.length === 0) {
+          clearFile();
+        }
+        _renderBatchQueue();
+      });
+      li.appendChild(nameEl);
+      li.appendChild(statusEl);
+      if (item.status !== "active") li.appendChild(removeBtn);
+      batchQueueList.appendChild(li);
+    });
+  }
+
+  async function _runBatchQueue() {
+    if (batchRunning) return;
+    batchRunning = true;
+    for (let i = 0; i < batchQueue.length; i++) {
+      const item = batchQueue[i];
+      if (item.status === "done") continue;
+      item.status = "active";
+      selectedFilePath = item.path;
+      _renderBatchQueue();
+      try {
+        await startTranscription();
+        item.status = "done";
+      } catch (err) {
+        item.status = "error";
+        showToast(`Queue item failed: ${item.name} — ${err.message}`, "error");
+      }
+      _renderBatchQueue();
+    }
+    batchRunning = false;
+    const done = batchQueue.filter(i => i.status === "done").length;
+    const total = batchQueue.length;
+    showToast(`Batch complete: ${done}/${total} files processed`, done === total ? "success" : "error");
+  }
+
+  // Wire queue buttons in bindEvents — called after DOM is ready
+  if (btnQueueAdd) {
+    btnQueueAdd.addEventListener("click", async () => {
+      if (!window.subforge) return;
+      const path = await window.subforge.pickAudioFile();
+      if (path && isValidAudioFile(path)) {
+        _addToQueue(path);
+      }
+    });
+  }
+  if (btnQueueClear) {
+    btnQueueClear.addEventListener("click", () => {
+      batchQueue = batchQueue.filter(i => i.status === "active"); // keep active
+      _renderBatchQueue();
+    });
   }
 
   // --- Cancel ---
@@ -335,6 +461,10 @@
     const language = selLanguage.value || null;
     const enableDiarization = chkDiarize.checked;
     const hfToken = enableDiarization ? inpHfToken.value.trim() || null : null;
+    // Persist token so user doesn't need to re-enter it each session
+    if (hfToken && window.subforge && window.subforge.setState) {
+      window.subforge.setState("hfToken", hfToken);
+    }
     const formats = getSelectedFormats();
 
     // Reset progress UI
@@ -365,6 +495,7 @@
       if (response && response.status === "ok") {
         const fullResult = await api.getResult();
         transcriptionResult = fullResult;
+        undoStack.length = 0; redoStack.length = 0; _updateUndoRedoUI();
         buildStudioGroups();
         showResults(fullResult, response.exported_files);
       }
@@ -649,6 +780,8 @@
         inp.className = "timing-input";
         inp.dataset.timingFor = dataAttr;
         inp.value = formatTimePrecise(value);
+        inp.addEventListener("focus", () => { if (!inp._undoPushed) { _pushUndo(); inp._undoPushed = true; } });
+        inp.addEventListener("blur",  () => { inp._undoPushed = false; });
         inp.addEventListener("input", () => {
           const v = parseTimePrecise(inp.value);
           inp.classList.toggle("timing-invalid", isNaN(v));
@@ -727,6 +860,70 @@
       }
 
       div.appendChild(timingRow);
+
+      // Split / Merge buttons (only visible in edit mode via CSS)
+      const segActionsRow = document.createElement("div");
+      segActionsRow.className = "segment-actions";
+
+      const btnSplit = document.createElement("button");
+      btnSplit.className = "seg-action-btn";
+      btnSplit.textContent = "Split here";
+      btnSplit.title = "Split this segment at the midpoint (or at cursor if text is focused)";
+      btnSplit.addEventListener("click", () => {
+        _pushUndo();
+        const segs = transcriptionResult.segments;
+        const si = parseInt(div.dataset.index, 10);
+        const s = segs[si];
+        // Find midpoint word or time midpoint
+        const mid = Math.floor((s.words && s.words.length > 1) ? s.words.length / 2 : 1);
+        if (s.words && s.words.length > 1) {
+          const wordsA = s.words.slice(0, mid);
+          const wordsB = s.words.slice(mid);
+          const segA = { ...s, end: wordsA[wordsA.length - 1].end, text: wordsA.map(w => w.word).join(" "), words: wordsA };
+          const segB = { ...s, start: wordsB[0].start, text: wordsB.map(w => w.word).join(" "), words: wordsB };
+          segs.splice(si, 1, segA, segB);
+        } else {
+          // No word-level data — split by time midpoint
+          const midT = (s.start + s.end) / 2;
+          const segA = { ...s, end: midT, words: [] };
+          const segB = { ...s, start: midT, words: [] };
+          segs.splice(si, 1, segA, segB);
+        }
+        hasEdits = true;
+        renderResults(transcriptionResult);
+        buildStudioGroups(); renderGroupEditor(); drawStudioFrame();
+        editStatus.textContent = "Unsaved changes";
+      });
+
+      const btnMergeNext = document.createElement("button");
+      btnMergeNext.className = "seg-action-btn";
+      btnMergeNext.textContent = "Merge with next";
+      btnMergeNext.title = "Merge this segment with the following one";
+      btnMergeNext.addEventListener("click", () => {
+        const segs = transcriptionResult.segments;
+        const si = parseInt(div.dataset.index, 10);
+        if (si >= segs.length - 1) return;
+        _pushUndo();
+        const sA = segs[si];
+        const sB = segs[si + 1];
+        const merged = {
+          ...sA,
+          end:    sB.end,
+          text:   sA.text.trimEnd() + " " + sB.text.trimStart(),
+          words:  [...(sA.words || []), ...(sB.words || [])],
+          speaker: sA.speaker || sB.speaker || null,
+        };
+        segs.splice(si, 2, merged);
+        hasEdits = true;
+        renderResults(transcriptionResult);
+        buildStudioGroups(); renderGroupEditor(); drawStudioFrame();
+        editStatus.textContent = "Unsaved changes";
+      });
+
+      segActionsRow.appendChild(btnSplit);
+      segActionsRow.appendChild(btnMergeNext);
+      div.appendChild(segActionsRow);
+
       resultsPreview.appendChild(div);
     });
 
@@ -789,7 +986,52 @@
     }
   }
 
+  // ---- Undo/redo helpers ----
+  function _snapshotSegments() {
+    return JSON.parse(JSON.stringify(transcriptionResult.segments));
+  }
+  function _pushUndo() {
+    if (!transcriptionResult) return;
+    undoStack.push(_snapshotSegments());
+    if (undoStack.length > 50) undoStack.shift(); // cap history
+    redoStack.length = 0; // new edit clears redo
+    _updateUndoRedoUI();
+  }
+  function _updateUndoRedoUI() {
+    if (btnUndo) btnUndo.disabled = undoStack.length === 0;
+    if (btnRedo) btnRedo.disabled = redoStack.length === 0;
+  }
+  function _restoreSnapshot(snapshot) {
+    transcriptionResult.segments = snapshot;
+    renderResults(transcriptionResult);
+    buildStudioGroups();
+    renderGroupEditor();
+    drawStudioFrame();
+    hasEdits = true;
+    editStatus.textContent = "Unsaved changes";
+    _updateUndoRedoUI();
+  }
+  function performUndo() {
+    if (undoStack.length === 0) return;
+    redoStack.push(_snapshotSegments());
+    _restoreSnapshot(undoStack.pop());
+  }
+  function performRedo() {
+    if (redoStack.length === 0) return;
+    undoStack.push(_snapshotSegments());
+    _restoreSnapshot(redoStack.pop());
+  }
+
+  if (btnUndo) btnUndo.addEventListener("click", performUndo);
+  if (btnRedo) btnRedo.addEventListener("click", performRedo);
+
   function onSegmentInput(e) {
+    if (!e.target._undoPushed) {
+      // Push snapshot on the first keystroke in a contiguous edit
+      _pushUndo();
+      e.target._undoPushed = true;
+      e.target.addEventListener("blur", () => { e.target._undoPushed = false; }, { once: true });
+    }
     hasEdits = true;
     const row = e.target.closest(".segment-row");
     if (row) row.classList.add("segment-modified");
@@ -797,6 +1039,9 @@
   }
 
   function onSegmentKeyDown(e) {
+    // Undo / Redo shortcuts
+    if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) { e.preventDefault(); performUndo(); return; }
+    if ((e.ctrlKey || e.metaKey) && (e.key === "y" || (e.key === "z" && e.shiftKey))) { e.preventDefault(); performRedo(); return; }
     // Tab to next segment, Shift+Tab to prev
     if (e.key === "Tab") {
       e.preventDefault();
@@ -1176,6 +1421,7 @@
   const renderProgressBar = document.getElementById("render-progress-bar");
   const renderProgressLabel = document.getElementById("render-progress-label");
   const renderElapsedEl = document.getElementById("render-elapsed");
+  const btnRenderCancel  = document.getElementById("btn-render-cancel");
   const studioRenderMode = document.getElementById("studio-render-mode");
   const studioBitrate = document.getElementById("studio-bitrate");
   const studioBitrateRow = document.getElementById("studio-bitrate-row");
@@ -1556,6 +1802,99 @@
   const studioPreset = document.getElementById("studio-preset");
   const btnPresetSave = document.getElementById("btn-preset-save");
   const btnPresetDelete = document.getElementById("btn-preset-delete");
+  const btnTemplates = document.getElementById("btn-templates");
+  const templatesMenu = document.getElementById("templates-menu");
+
+  // Built-in style templates
+  const BUILTIN_TEMPLATES = [
+    {
+      name: "YouTube Bold",
+      settings: { font: "Arial", fontSize: "72", bold: true, tracking: "0", wordSpacing: "0",
+        strokeWidth: "0", strokeColor: "#000000", textColor: "#FFFFFF", activeColor: "#FFD700",
+        bgColor: "#000000", bgOpacity: "85", padH: "32", padV: "14", radius: "10",
+        wpg: "4", lines: "1", posX: "50", posY: "88", bgWidthExtra: "0", bgHeightExtra: "0",
+        textOffsetX: "0", textOffsetY: "0", wordTransition: "instant",
+        animation: "none", animDur: "12", shadowEnabled: false },
+    },
+    {
+      name: "TikTok Pop",
+      settings: { font: "Arial", fontSize: "80", bold: true, tracking: "2", wordSpacing: "2",
+        strokeWidth: "3", strokeColor: "#000000", textColor: "#FFFFFF", activeColor: "#FF2D55",
+        bgColor: "#000000", bgOpacity: "0", padH: "24", padV: "10", radius: "8",
+        wpg: "3", lines: "1", posX: "50", posY: "82", bgWidthExtra: "0", bgHeightExtra: "0",
+        textOffsetX: "0", textOffsetY: "0", wordTransition: "bounce",
+        animation: "pop", animDur: "12", shadowEnabled: false },
+    },
+    {
+      name: "Minimal White",
+      settings: { font: "Arial", fontSize: "56", bold: false, tracking: "1", wordSpacing: "0",
+        strokeWidth: "0", strokeColor: "#000000", textColor: "#FFFFFF", activeColor: "#FFFFFF",
+        bgColor: "#000000", bgOpacity: "0", padH: "16", padV: "8", radius: "6",
+        wpg: "5", lines: "2", posX: "50", posY: "90", bgWidthExtra: "0", bgHeightExtra: "0",
+        textOffsetX: "0", textOffsetY: "0", wordTransition: "crossfade",
+        animation: "fade", animDur: "10",
+        shadowEnabled: true, shadowColor: "#000000", shadowOpacity: "90", shadowBlur: "6", shadowOffsetX: "2", shadowOffsetY: "2" },
+    },
+    {
+      name: "Highlight Pill",
+      settings: { font: "Arial", fontSize: "64", bold: true, tracking: "0", wordSpacing: "0",
+        strokeWidth: "0", strokeColor: "#000000", textColor: "#FFFFFF", activeColor: "#FFFFFF",
+        bgColor: "#1A1A2E", bgOpacity: "90", padH: "36", padV: "16", radius: "20",
+        wpg: "4", lines: "1", posX: "50", posY: "84", bgWidthExtra: "0", bgHeightExtra: "0",
+        textOffsetX: "0", textOffsetY: "0", wordTransition: "highlight",
+        animation: "slide", animDur: "12",
+        wsoHighlightRadius: "16", wsoHighlightPaddingX: "10", wsoHighlightPaddingY: "8",
+        wsoHighlightOpacity: "100", wsoHighlightAnim: "slide", shadowEnabled: false },
+    },
+    {
+      name: "Karaoke Neon",
+      settings: { font: "Arial", fontSize: "68", bold: true, tracking: "1", wordSpacing: "2",
+        strokeWidth: "2", strokeColor: "#7B2FFF", textColor: "#DDDDFF", activeColor: "#7B2FFF",
+        bgColor: "#0A0010", bgOpacity: "88", padH: "40", padV: "18", radius: "14",
+        wpg: "4", lines: "1", posX: "50", posY: "86", bgWidthExtra: "0", bgHeightExtra: "0",
+        textOffsetX: "0", textOffsetY: "0", wordTransition: "karaoke",
+        animation: "fade", animDur: "8", shadowEnabled: false },
+    },
+    {
+      name: "Subtitles (Clean)",
+      settings: { font: "Arial", fontSize: "48", bold: false, tracking: "0", wordSpacing: "0",
+        strokeWidth: "0", strokeColor: "#000000", textColor: "#FFFFFF", activeColor: "#FFD700",
+        bgColor: "#000000", bgOpacity: "70", padH: "20", padV: "8", radius: "4",
+        wpg: "6", lines: "2", posX: "50", posY: "92", bgWidthExtra: "0", bgHeightExtra: "0",
+        textOffsetX: "0", textOffsetY: "0", wordTransition: "instant",
+        animation: "none", animDur: "12", shadowEnabled: false },
+    },
+    {
+      name: "Reveal Dark",
+      settings: { font: "Arial", fontSize: "64", bold: true, tracking: "0", wordSpacing: "0",
+        strokeWidth: "0", strokeColor: "#000000", textColor: "#CCCCCC", activeColor: "#FFFFFF",
+        bgColor: "#111111", bgOpacity: "92", padH: "32", padV: "14", radius: "12",
+        wpg: "4", lines: "1", posX: "50", posY: "84", bgWidthExtra: "0", bgHeightExtra: "0",
+        textOffsetX: "0", textOffsetY: "0", wordTransition: "reveal",
+        animation: "fade", animDur: "10", shadowEnabled: false },
+    },
+  ];
+
+  if (btnTemplates && templatesMenu) {
+    // Build menu items once
+    BUILTIN_TEMPLATES.forEach((tpl) => {
+      const item = document.createElement("div");
+      item.className = "templates-menu-item";
+      item.textContent = tpl.name;
+      item.addEventListener("click", () => {
+        applyStudioSettings(tpl.settings);
+        templatesMenu.classList.add("hidden");
+        showToast(`Template "${tpl.name}" applied`);
+      });
+      templatesMenu.appendChild(item);
+    });
+
+    btnTemplates.addEventListener("click", (e) => {
+      e.stopPropagation();
+      templatesMenu.classList.toggle("hidden");
+    });
+    document.addEventListener("click", () => templatesMenu.classList.add("hidden"));
+  }
 
   /** Gather all current studio control values into a serializable object. */
   function gatherStudioSettings() {
@@ -1834,6 +2173,35 @@
         if (!studioGroups.length) buildStudioGroups();
         renderGroupEditor();
       }
+    });
+  }
+
+  // Timing shift
+  if (btnTimingShiftApply && inpTimingShift) {
+    btnTimingShiftApply.addEventListener("click", () => {
+      const shiftMs = parseFloat(inpTimingShift.value) || 0;
+      if (shiftMs === 0) return;
+      const shiftSec = shiftMs / 1000;
+      if (!transcriptionResult) return;
+      _pushUndo();
+      // Shift all segments and their words
+      transcriptionResult.segments = transcriptionResult.segments.map(seg => ({
+        ...seg,
+        start: Math.max(0, seg.start + shiftSec),
+        end:   Math.max(0, seg.end   + shiftSec),
+        words: (seg.words || []).map(w => ({
+          ...w,
+          start: Math.max(0, w.start + shiftSec),
+          end:   Math.max(0, w.end   + shiftSec),
+        })),
+      }));
+      // Rebuild studio groups and re-render
+      buildStudioGroups();
+      renderGroupEditor();
+      renderResults(transcriptionResult);
+      drawStudioFrame();
+      inpTimingShift.value = "0";
+      showToast(`Shifted all subtitles by ${shiftMs > 0 ? "+" : ""}${shiftMs} ms`, "success");
     });
   }
 
@@ -2313,8 +2681,87 @@
   }
 
   // --- Refresh subtitle overlay when studio styles change ---
+  const stylePreviewStrip  = document.getElementById("style-preview-strip");
+  const stylePreviewFrames = document.getElementById("style-preview-frames");
+  let _previewDebounce = null;
+
+  function updatePreviewStrip() {
+    if (!studioGroups.length || !stylePreviewFrames) return;
+    // Show strip now that we have content
+    if (stylePreviewStrip) stylePreviewStrip.classList.remove("hidden");
+
+    // Pick 3 representative timestamps spread across available groups
+    const picks = [];
+    const n = studioGroups.length;
+    if (n === 1) {
+      picks.push(studioGroups[0].start + (studioGroups[0].end - studioGroups[0].start) * 0.3);
+    } else {
+      [0, Math.floor(n / 2), n - 1].forEach(i => {
+        const g = studioGroups[i];
+        picks.push(g.start + (g.end - g.start) * 0.3);
+      });
+    }
+
+    // Ensure we have exactly 3 frame slots
+    while (stylePreviewFrames.children.length < picks.length) {
+      const wrap = document.createElement("div");
+      wrap.className = "style-preview-frame";
+      const c = document.createElement("canvas");
+      wrap.appendChild(c);
+      stylePreviewFrames.appendChild(wrap);
+      wrap.addEventListener("click", () => {
+        const idx = Array.from(stylePreviewFrames.children).indexOf(wrap);
+        if (idx >= 0 && picks[idx] !== undefined) {
+          studioScrubTime = picks[idx];
+          drawSubtitleOverlay(studioScrubTime);
+          if (wavesurfer) wavesurfer.seekTo(studioScrubTime / (wavesurfer.getDuration() || 1));
+        }
+      });
+    }
+    while (stylePreviewFrames.children.length > picks.length) {
+      stylePreviewFrames.removeChild(stylePreviewFrames.lastChild);
+    }
+
+    const [resW, resH] = studioResolution.value.split("x").map(Number);
+    const thumbW = 320;
+    const thumbH = Math.round(thumbW * resH / resW);
+
+    picks.forEach((t, i) => {
+      const wrap = stylePreviewFrames.children[i];
+      const canvas = wrap.querySelector("canvas");
+      canvas.width  = thumbW;
+      canvas.height = thumbH;
+      const ctx2 = canvas.getContext("2d");
+
+      // Draw video frame background (black) then subtitle overlay
+      ctx2.fillStyle = "#111";
+      ctx2.fillRect(0, 0, thumbW, thumbH);
+
+      // Render subtitle overlay at this time into a full-res offscreen canvas,
+      // then scale-copy into the thumbnail
+      const offscreen = document.createElement("canvas");
+      _drawSubtitleOnCanvas(offscreen, t);
+      ctx2.drawImage(offscreen, 0, 0, thumbW, thumbH);
+    });
+  }
+
+  function _drawSubtitleOnCanvas(canvas, currentTime) {
+    if (!studioGroups.length) return;
+    // Render via the real overlay canvas, then copy the result
+    drawSubtitleOverlay(currentTime);
+    if (subtitleOverlay && subtitleOverlay.width > 0) {
+      const [resW, resH] = studioResolution.value.split("x").map(Number);
+      canvas.width  = resW;
+      canvas.height = resH;
+      canvas.getContext("2d").drawImage(subtitleOverlay, 0, 0);
+    }
+  }
+
   function drawStudioFrame() {
     drawSubtitleOverlay(studioScrubTime);
+    // Debounce preview strip update — expensive, no need on every frame
+    if (_previewDebounce) clearTimeout(_previewDebounce);
+    _previewDebounce = setTimeout(updatePreviewStrip, 400);
   }
 
   function roundRect(ctx, x, y, w, h, r) {
@@ -2466,13 +2913,86 @@
     }
   }
 
-  // Seek on timeline click
+  // Timeline interactions: click-to-seek + edge-drag to adjust segment timing
   if (timelineCanvas) {
-    timelineCanvas.addEventListener("click", (e) => {
-      if (!wavesurfer || !wavesurfer.getDuration()) return;
+    const EDGE_HIT = 6; // px tolerance for edge detection
+    let _tlDrag = null; // { groupIdx, edge: "start"|"end"|null, startX, origVal }
+
+    function _tlTimeAtX(clientX) {
+      if (!wavesurfer) return 0;
       const rect = timelineCanvas.getBoundingClientRect();
-      const ratio = (e.clientX - rect.left) / rect.width;
-      wavesurfer.seekTo(Math.max(0, Math.min(1, ratio)));
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      return ratio * (wavesurfer.getDuration() || 0);
+    }
+
+    function _tlFindEdge(clientX) {
+      if (!wavesurfer || !wavesurfer.getDuration()) return null;
+      const rect = timelineCanvas.getBoundingClientRect();
+      const duration = wavesurfer.getDuration();
+      const pps = rect.width / duration;
+      const t = _tlTimeAtX(clientX);
+      for (let i = 0; i < studioGroups.length; i++) {
+        const g = studioGroups[i];
+        const startPx = g.start * pps + rect.left;
+        const endPx   = g.end   * pps + rect.left;
+        if (Math.abs(clientX - startPx) <= EDGE_HIT) return { groupIdx: i, edge: "start" };
+        if (Math.abs(clientX - endPx)   <= EDGE_HIT) return { groupIdx: i, edge: "end" };
+        // Inside block body
+        if (t >= g.start && t <= g.end) return { groupIdx: i, edge: null };
+      }
+      return null;
+    }
+
+    timelineCanvas.addEventListener("mousemove", (e) => {
+      if (_tlDrag) {
+        const t = _tlTimeAtX(e.clientX);
+        const g = studioGroups[_tlDrag.groupIdx];
+        if (_tlDrag.edge === "start") {
+          g.start = Math.max(0, Math.min(t, g.end - 0.05));
+          customGroupsEdited = true;
+        } else if (_tlDrag.edge === "end") {
+          g.end = Math.max(g.start + 0.05, t);
+          customGroupsEdited = true;
+        } else {
+          // Body drag → seek
+          wavesurfer.seekTo(Math.max(0, Math.min(1, t / (wavesurfer.getDuration() || 1))));
+        }
+        drawTimeline(studioScrubTime);
+        return;
+      }
+      const hit = _tlFindEdge(e.clientX);
+      timelineCanvas.style.cursor = hit
+        ? (hit.edge ? "ew-resize" : "pointer")
+        : "default";
+    });
+
+    timelineCanvas.addEventListener("mousedown", (e) => {
+      const hit = _tlFindEdge(e.clientX);
+      if (!hit) return;
+      if (hit.edge) {
+        _pushUndo();
+        e.preventDefault();
+        _tlDrag = { groupIdx: hit.groupIdx, edge: hit.edge };
+      } else {
+        // Body click — seek
+        const t = _tlTimeAtX(e.clientX);
+        if (wavesurfer && wavesurfer.getDuration()) {
+          wavesurfer.seekTo(t / wavesurfer.getDuration());
+        }
+      }
+    });
+
+    window.addEventListener("mouseup", () => {
+      if (_tlDrag && _tlDrag.edge) {
+        // Re-render group editor to reflect timing changes
+        renderGroupEditor();
+        drawStudioFrame();
+      }
+      _tlDrag = null;
+    });
+
+    timelineCanvas.addEventListener("mouseleave", () => {
+      if (!_tlDrag) timelineCanvas.style.cursor = "default";
     });
   }
 
@@ -2878,6 +3398,15 @@
     btnRenderVideo.addEventListener("click", () => renderSubtitleVideo());
   }
 
+  if (btnRenderCancel) {
+    btnRenderCancel.classList.add("hidden"); // hidden by default, shown while rendering
+    btnRenderCancel.addEventListener("click", async () => {
+      btnRenderCancel.disabled = true;
+      btnRenderCancel.textContent = "Cancelling…";
+      try { await api.cancelJob(); } catch { /* ignore */ }
+    });
+  }
+
   // Disable "Render Video" quick button when no video source
   function updateQuickRenderState() {
     if (btnRenderBaked) {
@@ -2964,6 +3493,7 @@
     renderProgressBar.style.width = "0%";
     renderProgressLabel.textContent = "Starting…";
     if (renderElapsedEl) renderElapsedEl.textContent = "";
+    if (btnRenderCancel) btnRenderCancel.classList.remove("hidden");
     renderStartTime = Date.now();
     if (renderTimer) clearInterval(renderTimer);
     renderTimer = setInterval(() => {
@@ -2992,10 +3522,16 @@
       renderProgressLabel.textContent = `Done! ${res.file}`;
       showToast("Subtitle video rendered!", "success");
     } catch (err) {
-      renderProgressLabel.textContent = `Error: ${err.message}`;
-      showToast(`Render failed: ${err.message}`, "error");
+      const cancelled = err.message && err.message.toLowerCase().includes("cancel");
+      renderProgressLabel.textContent = cancelled ? "Cancelled." : `Error: ${err.message}`;
+      if (!cancelled) showToast(`Render failed: ${err.message}`, "error");
     } finally {
       if (renderTimer) { clearInterval(renderTimer); renderTimer = null; }
+      if (btnRenderCancel) {
+        btnRenderCancel.classList.add("hidden");
+        btnRenderCancel.disabled = false;
+        btnRenderCancel.textContent = "Cancel";
+      }
       if (btnRenderVideo) {
         btnRenderVideo.disabled = false;
         btnRenderVideo.innerHTML = `<svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/></svg> Render with Custom Settings`;

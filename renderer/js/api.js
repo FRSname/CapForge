@@ -128,13 +128,21 @@ class SubForgeAPI {
 
   // --- WebSocket ---
 
-  /** Connect to the progress WebSocket. Calls onProgress(update) on each message. */
+  /** Connect to the progress WebSocket. Calls onProgress(update) on each message.
+   *  Reconnects automatically with exponential backoff (1s → 2s → 4s … up to 30s). */
   connectProgress(onProgress) {
     this._onProgress = onProgress;
+    this._wsReconnectDelay = this._wsReconnectDelay || 1000;
+    if (this._wsReconnectTimer) { clearTimeout(this._wsReconnectTimer); this._wsReconnectTimer = null; }
     if (this.ws) {
+      this.ws.onclose = null; // prevent the old socket triggering another reconnect
       this.ws.close();
     }
     this.ws = new WebSocket(`${this.wsBase}/ws/progress`);
+
+    this.ws.onopen = () => {
+      this._wsReconnectDelay = 1000; // reset backoff on successful connection
+    };
 
     this.ws.onmessage = (event) => {
       try {
@@ -144,10 +152,12 @@ class SubForgeAPI {
     };
 
     this.ws.onclose = () => {
-      // Auto-reconnect after 2s
-      setTimeout(() => {
+      if (!this._onProgress) return; // intentionally disconnected
+      const delay = this._wsReconnectDelay;
+      this._wsReconnectDelay = Math.min(delay * 2, 30000); // cap at 30s
+      this._wsReconnectTimer = setTimeout(() => {
         if (this._onProgress) this.connectProgress(this._onProgress);
-      }, 2000);
+      }, delay);
     };
 
     this.ws.onerror = () => {
@@ -157,7 +167,10 @@ class SubForgeAPI {
 
   disconnectProgress() {
     this._onProgress = null;
+    this._wsReconnectDelay = 1000;
+    if (this._wsReconnectTimer) { clearTimeout(this._wsReconnectTimer); this._wsReconnectTimer = null; }
     if (this.ws) {
+      this.ws.onclose = null;
       this.ws.close();
       this.ws = null;
     }

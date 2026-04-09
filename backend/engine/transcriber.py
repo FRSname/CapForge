@@ -72,7 +72,7 @@ class Transcriber:
 
         # --- Step 1: Load model ---
         self._report(on_progress, JobStatus.LOADING_MODEL, 5, "Loading WhisperX model…")
-        self._load_model(model_size, device, compute_type)
+        self._load_model(model_size, device, compute_type, on_progress)
 
         # --- Step 2: Transcribe ---
         self._check_cancelled()
@@ -138,18 +138,60 @@ class Transcriber:
 
     # --- Private helpers ---
 
-    def _load_model(self, model_size: str, device: str, compute_type: str) -> None:
+    def _load_model(
+        self, model_size: str, device: str, compute_type: str,
+        on_progress: ProgressCallback = None,
+    ) -> None:
         if self._model is not None and self._model_size == model_size:
             return  # Already loaded
         self.unload_model()
-        # Use CapForge-managed model directory if set by Electron. This keeps
-        # models alongside the app's user data instead of the global HF cache,
-        # so uninstall/reinstall and model management Just Work.
         model_dir = os.environ.get("CAPFORGE_MODEL_DIR")
         kwargs: dict[str, Any] = {"compute_type": compute_type}
         if model_dir:
             kwargs["download_root"] = model_dir
-        self._model = whisperx.load_model(model_size, device, **kwargs)
+
+        # Patch tqdm to forward download progress over the WebSocket.
+        # huggingface_hub uses tqdm to report file download bytes; we intercept
+        # tqdm.update() calls and translate them into ProgressUpdate events.
+        # The patch is applied only for the duration of this call.
+        if on_progress:
+            try:
+                import tqdm as tqdm_module
+
+                _cb = on_progress
+                _original_tqdm = tqdm_module.tqdm
+
+                class _ProgressTqdm(_original_tqdm):  # type: ignore[misc]
+                    def __init__(self, *args, **kwargs):
+                        super().__init__(*args, **kwargs)
+                        self._reported_pct = -1
+
+                    def update(self, n=1):
+                        super().update(n)
+                        if self.total and self.total > 0:
+                            pct = min(int(self.n / self.total * 100), 99)
+                            if pct != self._reported_pct:
+                                self._reported_pct = pct
+                                desc = self.desc or "file"
+                                mb_done = self.n / 1_048_576
+                                mb_total = self.total / 1_048_576
+                                _cb(ProgressUpdate(
+                                    status=JobStatus.LOADING_MODEL,
+                                    progress=5 + pct * 0.09,  # map 0–100% → 5–14%
+                                    message=f"Downloading model: {desc} {mb_done:.1f}/{mb_total:.1f} MB",
+                                ))
+
+                tqdm_module.tqdm = _ProgressTqdm
+                try:
+                    self._model = whisperx.load_model(model_size, device, **kwargs)
+                finally:
+                    tqdm_module.tqdm = _original_tqdm
+            except Exception:
+                # If patching fails for any reason, just load normally
+                self._model = whisperx.load_model(model_size, device, **kwargs)
+        else:
+            self._model = whisperx.load_model(model_size, device, **kwargs)
+
         self._model_size = model_size
 
     @staticmethod

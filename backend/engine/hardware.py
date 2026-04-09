@@ -51,12 +51,51 @@ def detect_hardware() -> SystemInfo:
             else:
                 info.recommended_model = ModelSize.BASE
                 info.recommended_compute_type = ComputeType.INT8
+
+        elif _mps_available(torch):
+            # Apple Silicon MPS — CTranslate2 doesn't support MPS yet, so
+            # transcription still runs on CPU, but we surface the chip identity
+            # to the UI and select the best CPU-compatible configuration.
+            # When faster-whisper adds MPS support, change recommended_device to
+            # a new DeviceType.MPS value and update _load_model accordingly.
+            info.has_cuda = False
+            info.gpu_name = _apple_chip_name()
+            info.recommended_device = DeviceType.CPU
+            # M-series CPUs are fast enough for int8 turbo in reasonable time
+            info.recommended_compute_type = ComputeType.INT8
+            info.recommended_model = ModelSize.LARGE_V3_TURBO
+            print(f"[capforge] Apple Silicon MPS available — using CPU path for CTranslate2 ({info.gpu_name})", flush=True)
         else:
             _configure_cpu(info)
     except ImportError:
         _configure_cpu(info)
 
     return info
+
+
+def _mps_available(torch) -> bool:
+    """Return True if Apple MPS backend is available (macOS + Apple Silicon)."""
+    try:
+        return bool(
+            hasattr(torch.backends, "mps")
+            and torch.backends.mps.is_available()
+            and torch.backends.mps.is_built()
+        )
+    except Exception:
+        return False
+
+
+def _apple_chip_name() -> str:
+    """Best-effort Apple Silicon chip name from sysctl."""
+    import subprocess
+    try:
+        out = subprocess.check_output(
+            ["sysctl", "-n", "machdep.cpu.brand_string"],
+            timeout=2, stderr=subprocess.DEVNULL,
+        ).decode().strip()
+        return out if out else "Apple Silicon"
+    except Exception:
+        return "Apple Silicon"
 
 
 def _configure_cpu(info: SystemInfo) -> None:
