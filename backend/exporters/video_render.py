@@ -13,7 +13,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from backend.models.schemas import (
     JobStatus,
@@ -62,6 +62,41 @@ def _hex_to_rgba(hex_color: str, opacity: float = 1.0) -> tuple[int, int, int, i
     h = hex_color.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return (r, g, b, int(opacity * 255))
+
+
+def _composite_shadow(
+    img: Image.Image,
+    shadow_layer: Image.Image,
+    shadow_color: str,
+    shadow_opacity: float,
+    shadow_blur: int,
+    offset_x: int,
+    offset_y: int,
+) -> None:
+    """Blur the alpha channel of *shadow_layer*, tint it with *shadow_color*,
+    and composite the result onto *img* in-place (below any content already in img).
+    """
+    # Extract alpha mask from the shadow layer
+    alpha = shadow_layer.split()[3]
+    if shadow_blur > 0:
+        alpha = alpha.filter(ImageFilter.GaussianBlur(radius=shadow_blur))
+
+    h_r, h_g, h_b = (
+        int(shadow_color.lstrip("#")[0:2], 16),
+        int(shadow_color.lstrip("#")[2:4], 16),
+        int(shadow_color.lstrip("#")[4:6], 16),
+    )
+    # Build a solid-colour shadow image at the same size, then scale alpha
+    shadow_solid = Image.new("RGBA", img.size, (h_r, h_g, h_b, 0))
+    # Scale alpha by shadow_opacity using Pillow's point() — no numpy needed
+    alpha_scaled = alpha.point(lambda p: int(p * shadow_opacity))
+    shadow_solid.putalpha(alpha_scaled)
+
+    # Paste shadow behind current content: create blank, paste shadow first, then img on top
+    combined = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    combined.paste(shadow_solid, (offset_x, offset_y), shadow_solid)
+    combined.alpha_composite(img)
+    img.paste(combined)
 
 
 def _find_font_candidates(family: str, bold: bool) -> list[str]:
@@ -694,6 +729,22 @@ def _render_frame(
                            (center_x - bg_w / 2, center_y - bg_h / 2,
                             center_x + bg_w / 2, center_y + bg_h / 2),
                            config.bg_corner_radius, bg_rgba)
+
+    # Drop shadow: render text onto a separate layer, blur, composite behind
+    shadow_enabled = getattr(config, "shadow_enabled", False)
+    if shadow_enabled:
+        shadow_layer = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
+        shadow_draw  = ImageDraw.Draw(shadow_layer)
+        _draw_all_rows(shadow_draw, shadow_layer, center_x, center_y)
+        _composite_shadow(
+            img,
+            shadow_layer,
+            getattr(config, "shadow_color",   "#000000"),
+            getattr(config, "shadow_opacity",  0.8),
+            getattr(config, "shadow_blur",     8),
+            getattr(config, "shadow_offset_x", 3),
+            getattr(config, "shadow_offset_y", 3),
+        )
 
     _draw_all_rows(draw, img, center_x, center_y)
 

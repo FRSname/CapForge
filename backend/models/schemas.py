@@ -161,6 +161,13 @@ class VideoRenderConfig(BaseModel):
     bounce_strength: float = Field(0.18, ge=0.0, le=1.0, description="Bounce height as fraction of font size")
     # Scale options
     scale_factor: float = Field(1.25, ge=1.0, le=2.5, description="Scale multiplier for active word")
+    # Drop shadow options
+    shadow_enabled: bool = Field(False, description="Enable text drop shadow")
+    shadow_color: str = Field("#000000", description="Shadow color (hex)")
+    shadow_opacity: float = Field(0.8, ge=0.0, le=1.0, description="Shadow opacity")
+    shadow_blur: int = Field(8, ge=0, le=60, description="Shadow feather/blur radius in px")
+    shadow_offset_x: int = Field(3, ge=-50, le=50, description="Shadow horizontal offset in px")
+    shadow_offset_y: int = Field(3, ge=-50, le=50, description="Shadow vertical offset in px")
 
 
 class CustomGroup(BaseModel):

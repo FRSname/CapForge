@@ -1204,6 +1204,18 @@
   const studioStrokeWidthVal = document.getElementById("studio-stroke-width-val");
   const studioStrokeColor = document.getElementById("studio-stroke-color");
   const studioStrokeColorHex = document.getElementById("studio-stroke-color-hex");
+  const studioShadowEnabled   = document.getElementById("studio-shadow-enabled");
+  const studioShadowOpts      = document.getElementById("studio-shadow-opts");
+  const studioShadowColor     = document.getElementById("studio-shadow-color");
+  const studioShadowColorHex  = document.getElementById("studio-shadow-color-hex");
+  const studioShadowOpacity   = document.getElementById("studio-shadow-opacity");
+  const studioShadowOpacityVal= document.getElementById("studio-shadow-opacity-val");
+  const studioShadowBlur      = document.getElementById("studio-shadow-blur");
+  const studioShadowBlurVal   = document.getElementById("studio-shadow-blur-val");
+  const studioShadowOffsetX   = document.getElementById("studio-shadow-offset-x");
+  const studioShadowOffsetXVal= document.getElementById("studio-shadow-offset-x-val");
+  const studioShadowOffsetY   = document.getElementById("studio-shadow-offset-y");
+  const studioShadowOffsetYVal= document.getElementById("studio-shadow-offset-y-val");
   const studioBgOpacity = document.getElementById("studio-bg-opacity");
   const studioBgOpacityVal = document.getElementById("studio-bg-opacity-val");
   const studioPadH = document.getElementById("studio-pad-h");
@@ -1282,6 +1294,10 @@
     [studioBgHeightExtra, studioBgHeightExtraVal, "px"],
     [studioTextOffsetX, studioTextOffsetXVal, "px"],
     [studioTextOffsetY, studioTextOffsetYVal, "px"],
+    [studioShadowOpacity,  studioShadowOpacityVal,  "%"],
+    [studioShadowBlur,     studioShadowBlurVal,      "px"],
+    [studioShadowOffsetX,  studioShadowOffsetXVal,   "px"],
+    [studioShadowOffsetY,  studioShadowOffsetYVal,   "px"],
   ];
 
   studioRangeInputs.forEach(([input, label]) => {
@@ -1386,6 +1402,27 @@
   if (studioStrokeColor && studioStrokeColorHex) {
     studioStrokeColor.addEventListener("input", () => { studioStrokeColorHex.value = studioStrokeColor.value.toUpperCase(); });
     studioStrokeColorHex.addEventListener("input", () => { if (/^#[0-9A-Fa-f]{6}$/.test(studioStrokeColorHex.value)) studioStrokeColor.value = studioStrokeColorHex.value; drawStudioFrame(); });
+  }
+
+  // Shadow toggle + color picker
+  if (studioShadowEnabled && studioShadowOpts) {
+    studioShadowEnabled.addEventListener("change", () => {
+      studioShadowOpts.style.display = studioShadowEnabled.checked ? "" : "none";
+      drawStudioFrame();
+    });
+  }
+  if (studioShadowColor && studioShadowColorHex) {
+    studioShadowColor.addEventListener("input", () => {
+      studioShadowColorHex.value = studioShadowColor.value.toUpperCase();
+      drawStudioFrame();
+    });
+    studioShadowColorHex.addEventListener("input", () => {
+      const v = studioShadowColorHex.value.startsWith("#") ? studioShadowColorHex.value : "#" + studioShadowColorHex.value;
+      if (/^#[0-9A-Fa-f]{6}$/.test(v)) { studioShadowColor.value = v; drawStudioFrame(); }
+    });
+    studioShadowColorHex.addEventListener("blur", () => {
+      studioShadowColorHex.value = studioShadowColor.value.toUpperCase();
+    });
   }
 
   // Sync color pickers ↔ hex inputs
@@ -1563,6 +1600,12 @@
       wsoUnderlineColor: wsoUnderlineColor ? wsoUnderlineColor.value : "#FFD700",
       wsoBounceStrength: wsoBounceStrength ? wsoBounceStrength.value : "18",
       wsoScaleFactor: wsoScaleFactor ? wsoScaleFactor.value : "125",
+      shadowEnabled: studioShadowEnabled ? studioShadowEnabled.checked : false,
+      shadowColor: studioShadowColor ? studioShadowColor.value : "#000000",
+      shadowOpacity: studioShadowOpacityVal ? studioShadowOpacityVal.value : (studioShadowOpacity ? studioShadowOpacity.value : "80"),
+      shadowBlur: studioShadowBlurVal ? studioShadowBlurVal.value : (studioShadowBlur ? studioShadowBlur.value : "8"),
+      shadowOffsetX: studioShadowOffsetXVal ? studioShadowOffsetXVal.value : (studioShadowOffsetX ? studioShadowOffsetX.value : "3"),
+      shadowOffsetY: studioShadowOffsetYVal ? studioShadowOffsetYVal.value : (studioShadowOffsetY ? studioShadowOffsetY.value : "3"),
     };
   }
 
@@ -1615,6 +1658,15 @@
     if (p.wsoUnderlineColor && wsoUnderlineColor) { wsoUnderlineColor.value = p.wsoUnderlineColor; wsoUnderlineColorHex.value = p.wsoUnderlineColor.toUpperCase(); }
     if (p.wsoBounceStrength !== undefined && wsoBounceStrength) { wsoBounceStrength.value = p.wsoBounceStrength; wsoBounceStrengthV.value = p.wsoBounceStrength; }
     if (p.wsoScaleFactor !== undefined && wsoScaleFactor) { wsoScaleFactor.value = p.wsoScaleFactor; wsoScaleFactorV.value = p.wsoScaleFactor; }
+    if (p.shadowEnabled !== undefined && studioShadowEnabled) {
+      studioShadowEnabled.checked = p.shadowEnabled;
+      if (studioShadowOpts) studioShadowOpts.style.display = p.shadowEnabled ? "" : "none";
+    }
+    if (p.shadowColor && studioShadowColor) { studioShadowColor.value = p.shadowColor; if (studioShadowColorHex) studioShadowColorHex.value = p.shadowColor.toUpperCase(); }
+    if (p.shadowOpacity !== undefined && studioShadowOpacity) { studioShadowOpacity.value = p.shadowOpacity; if (studioShadowOpacityVal) studioShadowOpacityVal.value = p.shadowOpacity; }
+    if (p.shadowBlur !== undefined && studioShadowBlur) { studioShadowBlur.value = p.shadowBlur; if (studioShadowBlurVal) studioShadowBlurVal.value = p.shadowBlur; }
+    if (p.shadowOffsetX !== undefined && studioShadowOffsetX) { studioShadowOffsetX.value = p.shadowOffsetX; if (studioShadowOffsetXVal) studioShadowOffsetXVal.value = p.shadowOffsetX; }
+    if (p.shadowOffsetY !== undefined && studioShadowOffsetY) { studioShadowOffsetY.value = p.shadowOffsetY; if (studioShadowOffsetYVal) studioShadowOffsetYVal.value = p.shadowOffsetY; }
     updateRenderModeUI();
     buildStudioGroups();
     drawStudioFrame();
@@ -2485,6 +2537,12 @@
     const extraWordSpacing = parseInt(studioWordSpacingVal ? studioWordSpacingVal.value : (studioWordSpacing ? studioWordSpacing.value : "0"), 10);
     const strokeWidth = parseInt(studioStrokeWidthVal ? studioStrokeWidthVal.value : (studioStrokeWidth ? studioStrokeWidth.value : "0"), 10);
     const strokeColor = studioStrokeColor ? studioStrokeColor.value : "#000000";
+    const shadowEnabled = studioShadowEnabled ? studioShadowEnabled.checked : false;
+    const shadowColor   = studioShadowColor   ? studioShadowColor.value : "#000000";
+    const shadowOpacity = studioShadowOpacityVal ? parseInt(studioShadowOpacityVal.value, 10) / 100 : (studioShadowOpacity ? parseInt(studioShadowOpacity.value, 10) / 100 : 0.8);
+    const shadowBlur    = studioShadowBlurVal    ? parseInt(studioShadowBlurVal.value, 10)    : (studioShadowBlur    ? parseInt(studioShadowBlur.value, 10)    : 8);
+    const shadowOffsetX = studioShadowOffsetXVal ? parseInt(studioShadowOffsetXVal.value, 10) : (studioShadowOffsetX ? parseInt(studioShadowOffsetX.value, 10) : 3);
+    const shadowOffsetY = studioShadowOffsetYVal ? parseInt(studioShadowOffsetYVal.value, 10) : (studioShadowOffsetY ? parseInt(studioShadowOffsetY.value, 10) : 3);
     const animation = studioAnimation ? studioAnimation.value : "none";
     const animDur = studioAnimDurVal ? parseInt(studioAnimDurVal.value, 10) / 100 : (studioAnimDur ? parseInt(studioAnimDur.value, 10) / 100 : 0.12);
     const wordTransition = studioWordTransition ? studioWordTransition.value : "instant";
@@ -2545,6 +2603,13 @@
 
     // helper: draw one word (or char-by-char) at (wx, wy) with current ctx styles
     function drawWord(word, wx, wy) {
+      if (shadowEnabled) {
+        const [sr2, sg2, sb2] = hexToRgb(shadowColor);
+        ctx.shadowColor   = `rgba(${sr2},${sg2},${sb2},${shadowOpacity})`;
+        ctx.shadowBlur    = shadowBlur;
+        ctx.shadowOffsetX = shadowOffsetX;
+        ctx.shadowOffsetY = shadowOffsetY;
+      }
       if (sTracking === 0) {
         if (sStroke > 0) { ctx.strokeText(word, wx, wy); }
         ctx.fillText(word, wx, wy);
@@ -2556,6 +2621,12 @@
           ctx.fillText(ch2, cx2, wy);
           cx2 += ctx.measureText(ch2).width + sTracking;
         }
+      }
+      if (shadowEnabled) {
+        ctx.shadowColor   = "transparent";
+        ctx.shadowBlur    = 0;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
       }
     }
 
@@ -2870,6 +2941,12 @@
       underline_color: wsoUnderlineColor ? wsoUnderlineColor.value : "",
       bounce_strength: wsoBounceStrengthV ? parseInt(wsoBounceStrengthV.value, 10) / 100 : (wsoBounceStrength ? parseInt(wsoBounceStrength.value, 10) / 100 : 0.18),
       scale_factor: wsoScaleFactorV ? parseInt(wsoScaleFactorV.value, 10) / 100 : (wsoScaleFactor ? parseInt(wsoScaleFactor.value, 10) / 100 : 1.25),
+      shadow_enabled: studioShadowEnabled ? studioShadowEnabled.checked : false,
+      shadow_color: studioShadowColor ? studioShadowColor.value : "#000000",
+      shadow_opacity: studioShadowOpacityVal ? parseInt(studioShadowOpacityVal.value, 10) / 100 : (studioShadowOpacity ? parseInt(studioShadowOpacity.value, 10) / 100 : 0.8),
+      shadow_blur: studioShadowBlurVal ? parseInt(studioShadowBlurVal.value, 10) : (studioShadowBlur ? parseInt(studioShadowBlur.value, 10) : 8),
+      shadow_offset_x: studioShadowOffsetXVal ? parseInt(studioShadowOffsetXVal.value, 10) : (studioShadowOffsetX ? parseInt(studioShadowOffsetX.value, 10) : 3),
+      shadow_offset_y: studioShadowOffsetYVal ? parseInt(studioShadowOffsetYVal.value, 10) : (studioShadowOffsetY ? parseInt(studioShadowOffsetY.value, 10) : 3),
     };
 
     [btnRenderVideo, btnRenderBaked, btnRenderOverlay].forEach(b => { if (b) b.disabled = true; });

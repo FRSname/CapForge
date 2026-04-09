@@ -275,6 +275,41 @@
               </div>
 
               <div class="studio-row">
+                <label>Shadow</label>
+                <label class="toggle-switch">
+                  <input type="checkbox" id="studio-shadow-enabled" />
+                  <span class="toggle-slider"></span>
+                </label>
+              </div>
+              <div id="studio-shadow-opts" style="display:none">
+                <div class="studio-row">
+                  <label>Shadow Color</label>
+                  <input type="color" id="studio-shadow-color" value="#000000" />
+                  <input type="text" id="studio-shadow-color-hex" class="hex-input" value="#000000" maxlength="7" spellcheck="false" />
+                </div>
+                <div class="studio-row">
+                  <label>Opacity</label>
+                  <input type="range" id="studio-shadow-opacity" min="0" max="100" value="80" />
+                  <input type="number" id="studio-shadow-opacity-val" class="range-num" value="80"><button class="reset-btn" title="Reset to default">↺</button>
+                </div>
+                <div class="studio-row">
+                  <label>Feather</label>
+                  <input type="range" id="studio-shadow-blur" min="0" max="30" value="6" />
+                  <input type="number" id="studio-shadow-blur-val" class="range-num" value="6"><button class="reset-btn" title="Reset to default">↺</button>
+                </div>
+                <div class="studio-row">
+                  <label>Offset X</label>
+                  <input type="range" id="studio-shadow-offset-x" min="-20" max="20" value="3" />
+                  <input type="number" id="studio-shadow-offset-x-val" class="range-num" value="3"><button class="reset-btn" title="Reset to default">↺</button>
+                </div>
+                <div class="studio-row">
+                  <label>Offset Y</label>
+                  <input type="range" id="studio-shadow-offset-y" min="-20" max="20" value="3" />
+                  <input type="number" id="studio-shadow-offset-y-val" class="range-num" value="3"><button class="reset-btn" title="Reset to default">↺</button>
+                </div>
+              </div>
+
+              <div class="studio-row">
                 <label>Text Color</label>
                 <input type="color" id="studio-text-color" value="#FFFFFF" />
                 <input type="text" id="studio-text-color-hex" class="hex-input" value="#FFFFFF" maxlength="7" spellcheck="false" />
