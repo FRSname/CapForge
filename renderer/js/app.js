@@ -2827,6 +2827,15 @@
           ctx.restore();
         }
 
+      // ---- REVEAL ----
+      } else if (wWordTrans === "reveal") {
+        const hasStarted = t >= m.start;
+        if (hasStarted) {
+          ctx.fillStyle = isActive ? wActiveColor : wTextColor;
+          drawWord(m.word, x, wy);
+        }
+        // words not yet spoken: draw nothing (invisible)
+
       // ---- INSTANT (default) ----
       } else {
         ctx.fillStyle = isActive ? wActiveColor : wTextColor;

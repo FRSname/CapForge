@@ -469,6 +469,14 @@ def _draw_word_list(
             color = _lerp_color(w_text_color, w_active_color, fade_in * fade_out)
         elif w_word_trans in ("highlight", "underline", "karaoke", "bounce", "scale"):
             color = w_text_color
+        elif w_word_trans == "reveal":
+            if current_time < wm["start"]:
+                # word not yet spoken — skip drawing entirely
+                x += wm["width"]
+                if i < len(word_metrics) - 1:
+                    x += effective_space_w
+                continue
+            color = w_active_color if is_active else w_text_color
         else:  # instant
             color = w_active_color if is_active else w_text_color
 
