@@ -1925,6 +1925,8 @@
       tile.type = "button";
       tile.className = "tpl-tile";
       tile.dataset.tplIdx = String(idx);
+      tile.dataset.wt = s.wordTransition || "instant";
+      tile.dataset.entry = s.animation || "none";
       tile.setAttribute("title", `Apply "${tpl.name}"`);
 
       // Scale template style down into a compact preview banner.
@@ -1952,6 +1954,8 @@
       ].filter(Boolean).join(";");
       banner.style.setProperty("--tpl-active", s.activeColor || "#FFD700");
       banner.style.setProperty("--tpl-text", s.textColor || "#FFFFFF");
+      banner.style.setProperty("--tpl-underline", (s.wsoUnderlineColor || s.activeColor || "#FFD700"));
+      banner.style.setProperty("--tpl-bg-solid", s.bgColor || "#000000");
 
       PREVIEW_WORDS.forEach((w, wi) => {
         const span = document.createElement("span");

@@ -25,10 +25,6 @@
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1A1.75 1.75 0 0 0 0 2.75v10.5C0 14.216.784 15 1.75 15h12.5A1.75 1.75 0 0 0 16 13.25v-8.5A1.75 1.75 0 0 0 14.25 3H7.5a.25.25 0 0 1-.2-.1l-.9-1.2C6.07 1.26 5.55 1 5 1ZM1.5 2.75a.25.25 0 0 1 .25-.25H5c.13 0 .24.06.3.15L6.2 4.1c.33.44.85.7 1.3.9h6.75a.25.25 0 0 1 .25.25v8c0 .138-.112.25-.25.25H1.75a.25.25 0 0 1-.25-.25Z"/></svg>
         Open
       </button>
-      <button id="btn-export" class="titlebar-btn hidden" title="Export SRT">
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06Z"/></svg>
-        Export SRT
-      </button>
       <button id="btn-new" class="titlebar-btn hidden" title="New Transcription">
         <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a.75.75 0 0 1 .75.75v6.5h6.5a.75.75 0 0 1 0 1.5h-6.5v6.5a.75.75 0 0 1-1.5 0v-6.5H.75a.75.75 0 0 1 0-1.5h6.5V.75A.75.75 0 0 1 8 0Z"/></svg>
         New
@@ -557,6 +553,13 @@
                 <span class="studio-card-title">Render</span>
               </header>
               <div class="studio-card-body">
+            <div class="studio-row studio-row-col">
+              <label>Output Directory</label>
+              <div class="dir-picker">
+                <span id="output-dir-display" class="dir-path">./output</span>
+                <button id="btn-pick-dir" class="text-btn">Browse</button>
+              </div>
+            </div>
             <div class="quick-render-row">
               <button id="btn-render-baked" class="quick-render-btn">
                 <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor"><path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25ZM6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/></svg>
@@ -683,12 +686,10 @@
       <label><input type="checkbox" value="vtt" /> VTT</label>
       <label><input type="checkbox" value="subforge" /> CapForge</label>
     </div>
-
-    <label class="setting-label">Output Directory</label>
-    <div class="dir-picker">
-      <span id="output-dir-display" class="dir-path">./output</span>
-      <button id="btn-pick-dir" class="text-btn">Browse</button>
-    </div>
+    <button id="btn-export" class="theme-toggle-btn hidden" title="Export SRT" style="margin-top:8px;">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M2.75 14A1.75 1.75 0 0 1 1 12.25v-2.5a.75.75 0 0 1 1.5 0v2.5c0 .138.112.25.25.25h10.5a.25.25 0 0 0 .25-.25v-2.5a.75.75 0 0 1 1.5 0v2.5A1.75 1.75 0 0 1 13.25 14ZM7.25 7.689V2a.75.75 0 0 1 1.5 0v5.689l1.97-1.969a.749.749 0 1 1 1.06 1.06l-3.25 3.25a.749.749 0 0 1-1.06 0L4.22 6.78a.749.749 0 1 1 1.06-1.06Z"/></svg>
+      <span>Export SRT</span>
+    </button>
 
     <label class="setting-label">Appearance</label>
     <button id="btn-theme-toggle" class="theme-toggle-btn">
