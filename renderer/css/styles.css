@@ -631,6 +631,41 @@ body {
 .timeline-canvas {
   display: block;
 }
+.timeline-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 4px;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.timeline-toolbar-hint {
+  flex: 1;
+  opacity: 0.7;
+  font-size: 10px;
+}
+.tl-zoom-btn {
+  background: var(--bg-secondary);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  min-width: 22px;
+}
+.tl-zoom-btn:hover {
+  background: var(--bg-overlay);
+  border-color: var(--accent);
+}
+.tl-fit-btn { min-width: 32px; }
+.tl-zoom-label {
+  min-width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
 
 .waveform-container {
   width: 100%;
@@ -1292,33 +1327,6 @@ body {
   flex-shrink: 0;
 }
 
-.templates-menu {
-  position: absolute;
-  z-index: 200;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  box-shadow: 0 6px 20px rgba(0,0,0,0.4);
-  padding: 4px 0;
-  min-width: 180px;
-  top: calc(100% + 4px);
-  left: 0;
-}
-.templates-menu.hidden { display: none; }
-.templates-menu-item {
-  padding: 7px 14px;
-  font-size: 12px;
-  cursor: pointer;
-  color: var(--text);
-  white-space: nowrap;
-  border-radius: 4px;
-  margin: 1px 4px;
-}
-.templates-menu-item:hover {
-  background: var(--bg-overlay);
-  color: var(--accent);
-}
-
 .word {
   cursor: pointer;
   border-radius: 2px;
@@ -1750,12 +1758,17 @@ select.setting-input {
   gap: 6px;
 }
 
-.studio-row label {
+.studio-row > label:first-child {
   font-size: 11px;
   color: var(--text-muted);
   width: 80px;
   flex-shrink: 0;
   white-space: nowrap;
+}
+
+.studio-row .toggle-switch {
+  width: 36px;
+  flex: 0 0 36px;
 }
 
 .studio-row select,
@@ -1784,7 +1797,7 @@ select.setting-input {
 .studio-row input[type="range"] {
   flex: 1;
   min-width: 0;
-  accent-color: var(--accent);
+  accent-color: var(--text-muted);
 }
 
 .studio-row input[type="color"] {
@@ -1957,40 +1970,6 @@ select.setting-input {
   margin-bottom: 8px;
 }
 
-/* Style Preview Strip */
-.style-preview-strip {
-  margin-top: 10px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border);
-}
-.style-preview-strip.hidden { display: none; }
-.style-preview-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  margin-bottom: 6px;
-}
-.style-preview-frames {
-  display: flex;
-  gap: 6px;
-}
-.style-preview-frame {
-  flex: 1;
-  border-radius: 6px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  background: #111;
-  cursor: pointer;
-  transition: border-color 0.15s;
-}
-.style-preview-frame:hover { border-color: var(--accent); }
-.style-preview-frame canvas {
-  display: block;
-  width: 100%;
-  height: auto;
-}
-
 /* Render Progress */
 .render-progress {
   margin-top: 8px;
@@ -2115,4 +2094,211 @@ select.setting-input {
   align-items: center;
   gap: 2px;
   user-select: none;
+}
+
+/* =========================================================================
+   STUDIO CARDS  (Caption Styles · User Presets · Custom Settings · Render)
+   ========================================================================= */
+
+.studio-panel {
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.studio-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  transition: border-color 0.2s;
+}
+.studio-card:hover { border-color: color-mix(in srgb, var(--border) 60%, var(--text-muted)); }
+
+.studio-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--text);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  width: 100%;
+  font-family: inherit;
+}
+
+button.studio-card-head {
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, color 0.15s;
+}
+button.studio-card-head:hover { background: var(--bg-secondary); }
+
+.studio-card-title { flex: 1; }
+
+.studio-card-chevron {
+  flex-shrink: 0;
+  color: var(--text-muted);
+  transition: transform 0.2s ease;
+}
+.studio-card-toggle[aria-expanded="true"] .studio-card-chevron {
+  transform: rotate(90deg);
+}
+
+.studio-card-body {
+  padding: 10px 12px;
+}
+
+/* Tighten spacing for preset row inside its card */
+.studio-card .studio-preset-row {
+  padding: 10px 12px;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+/* Collapsible (height + opacity animation) */
+.collapsible {
+  overflow: hidden;
+  transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.2s ease;
+  max-height: 2000px;
+  opacity: 1;
+}
+.collapsible.collapsed {
+  max-height: 0;
+  opacity: 0;
+  padding-top: 0;
+  padding-bottom: 0;
+  pointer-events: none;
+}
+
+/* Drop the legacy outer studio-panel frame — cards have their own borders now */
+#studio-panel.studio-panel {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+
+/* Render card: remove the inner section-label "Render" ghost spacing */
+.studio-card .studio-controls { margin-bottom: 0; }
+.studio-card .quick-render-row { margin-bottom: 8px; }
+.studio-card .custom-render-body { margin-bottom: 6px; }
+
+/* =========================================================================
+   CAPTION STYLE TILES
+   ========================================================================= */
+
+.tpl-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.tpl-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.2s ease, background 0.15s ease;
+}
+.tpl-tile:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  box-shadow: 0 4px 12px -4px rgba(0, 0, 0, 0.35);
+  background: var(--bg-secondary);
+}
+.tpl-tile:active { transform: translateY(0) scale(0.99); }
+.tpl-tile.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+
+.tpl-tile-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 52px;
+  background:
+    repeating-linear-gradient(45deg, var(--bg) 0 6px, var(--bg-overlay) 6px 12px);
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+
+.tpl-tile-banner {
+  font-size: 10px;
+  line-height: 1.1;
+  white-space: nowrap;
+  max-width: calc(100% - 8px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-flex;
+  flex-wrap: nowrap;
+  gap: 0;
+}
+
+.tpl-tile-banner .tpl-word {
+  color: var(--tpl-text);
+  transition: color 0.15s ease;
+  display: inline-block;
+}
+
+@keyframes tpl-word-pulse {
+  0%, 12%   { color: var(--tpl-active); transform: translateY(-1px); }
+  25%, 100% { color: var(--tpl-text);   transform: translateY(0); }
+}
+
+.tpl-tile:hover .tpl-tile-banner .tpl-word {
+  animation: tpl-word-pulse 1.6s ease-in-out infinite;
+}
+
+.tpl-tile-name {
+  font-size: 11px;
+  color: var(--text);
+  text-align: center;
+  font-weight: 500;
+  letter-spacing: 0.1px;
+}
+
+/* =========================================================================
+   POLISH: slider thumbs, focus rings
+   ========================================================================= */
+
+.studio-row input[type="range"]::-webkit-slider-thumb {
+  transition: transform 0.1s ease;
+}
+.studio-row input[type="range"]:active::-webkit-slider-thumb {
+  transform: scale(1.1);
+}
+
+.studio-small-btn { transition: background 0.15s, border-color 0.15s, transform 0.08s; }
+.studio-small-btn:active { transform: scale(0.96); }
+
+.quick-render-btn { transition: border-color 0.15s, background 0.15s, transform 0.08s; }
+.quick-render-btn:active { transform: scale(0.98); }
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .studio-card,
+  .studio-card-chevron,
+  .collapsible,
+  .tpl-tile,
+  .tpl-tile .tpl-word,
+  .studio-small-btn,
+  .quick-render-btn,
+  .studio-row input[type="range"]::-webkit-slider-thumb {
+    transition: none !important;
+    animation: none !important;
+  }
 }

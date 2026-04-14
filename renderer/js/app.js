@@ -51,6 +51,15 @@
   const subtitleOverlayCtx = subtitleOverlay ? subtitleOverlay.getContext("2d") : null;
   const timelineCanvas = document.getElementById("timeline-canvas");
   const timelineCtx = timelineCanvas ? timelineCanvas.getContext("2d") : null;
+  const btnTlZoomIn  = document.getElementById("btn-tl-zoom-in");
+  const btnTlZoomOut = document.getElementById("btn-tl-zoom-out");
+  const btnTlFit     = document.getElementById("btn-tl-fit");
+  const tlZoomLabel  = document.getElementById("tl-zoom-label");
+  // Timeline viewport state — zoom=1 shows entire duration; scrollT shifts visible window
+  let _tlZoom    = 1;
+  let _tlScrollT = 0;
+  const TL_ZOOM_MIN = 1;
+  const TL_ZOOM_MAX = 200;
 
   const btnSettingsToggle = document.getElementById("btn-settings-toggle");
   const settingsPanel = document.getElementById("settings-panel");
@@ -1251,6 +1260,25 @@
     wavesurfer.on("pause", () => {
       iconPlay.classList.remove("hidden");
       iconPause.classList.add("hidden");
+      // Redraw overlay so it reflects paused position (clears caption if past segment end)
+      const pausedAt = wavesurfer.getCurrentTime();
+      drawSubtitleOverlay(pausedAt);
+      drawTimeline(pausedAt);
+    });
+
+    wavesurfer.on("finish", () => {
+      iconPlay.classList.remove("hidden");
+      iconPause.classList.add("hidden");
+      // Clear subtitle overlay — no caption should show after playback ends
+      if (subtitleOverlayCtx && subtitleOverlay) {
+        subtitleOverlayCtx.clearRect(0, 0, subtitleOverlay.width, subtitleOverlay.height);
+      }
+    });
+
+    wavesurfer.on("seeking", (currentTime) => {
+      // Keep overlay in sync when user scrubs
+      drawSubtitleOverlay(currentTime);
+      drawTimeline(currentTime);
     });
 
     wavesurfer.on("timeupdate", (currentTime) => {
@@ -1270,6 +1298,20 @@
       if (groupEditorOpen) highlightActiveGroup(currentTime);
       // Draw subtitle overlay on main video
       drawSubtitleOverlay(currentTime);
+      // Auto-scroll timeline so playhead stays visible when zoomed in
+      if (_tlZoom > 1 && wavesurfer) {
+        const duration = wavesurfer.getDuration();
+        if (duration > 0) {
+          const visibleDur = duration / _tlZoom;
+          if (currentTime < _tlScrollT || currentTime > _tlScrollT + visibleDur) {
+            // Center playhead in viewport
+            _tlScrollT = Math.max(0, Math.min(
+              duration - visibleDur,
+              currentTime - visibleDur / 2
+            ));
+          }
+        }
+      }
       // Update timeline playhead
       drawTimeline(currentTime);
     });
@@ -1802,8 +1844,7 @@
   const studioPreset = document.getElementById("studio-preset");
   const btnPresetSave = document.getElementById("btn-preset-save");
   const btnPresetDelete = document.getElementById("btn-preset-delete");
-  const btnTemplates = document.getElementById("btn-templates");
-  const templatesMenu = document.getElementById("templates-menu");
+  const tplTileGrid = document.getElementById("tpl-tile-grid");
 
   // Built-in style templates
   const BUILTIN_TEMPLATES = [
@@ -1875,25 +1916,92 @@
     },
   ];
 
-  if (btnTemplates && templatesMenu) {
-    // Build menu items once
-    BUILTIN_TEMPLATES.forEach((tpl) => {
-      const item = document.createElement("div");
-      item.className = "templates-menu-item";
-      item.textContent = tpl.name;
-      item.addEventListener("click", () => {
+  // Build Caption Styles tile grid
+  if (tplTileGrid) {
+    const PREVIEW_WORDS = ["Lets", "create", "with", "CapForge"];
+    BUILTIN_TEMPLATES.forEach((tpl, idx) => {
+      const s = tpl.settings;
+      const tile = document.createElement("button");
+      tile.type = "button";
+      tile.className = "tpl-tile";
+      tile.dataset.tplIdx = String(idx);
+      tile.setAttribute("title", `Apply "${tpl.name}"`);
+
+      // Scale template style down into a compact preview banner.
+      const bgAlpha = (Number(s.bgOpacity) || 0) / 100;
+      const strokeW = Math.max(0, Number(s.strokeWidth) || 0);
+      const previewBg = `${hexToRgba(s.bgColor || "#000", bgAlpha)}`;
+      const padX = Math.max(6, Math.round((Number(s.padH) || 20) * 0.28));
+      const padY = Math.max(3, Math.round((Number(s.padV) || 10) * 0.35));
+      const radius = Math.max(2, Math.round((Number(s.radius) || 0) * 0.6));
+      const fontWeight = s.bold ? 700 : 500;
+      const fontFam = s.font || "Arial";
+
+      const preview = document.createElement("div");
+      preview.className = "tpl-tile-preview";
+      const banner = document.createElement("div");
+      banner.className = "tpl-tile-banner";
+      banner.style.cssText = [
+        `background:${previewBg}`,
+        `border-radius:${radius}px`,
+        `padding:${padY}px ${padX}px`,
+        `color:${s.textColor || "#fff"}`,
+        `font-family:${fontFam}`,
+        `font-weight:${fontWeight}`,
+        strokeW > 0 ? `-webkit-text-stroke:${Math.min(2, strokeW * 0.35)}px ${s.strokeColor || "#000"}` : "",
+      ].filter(Boolean).join(";");
+      banner.style.setProperty("--tpl-active", s.activeColor || "#FFD700");
+      banner.style.setProperty("--tpl-text", s.textColor || "#FFFFFF");
+
+      PREVIEW_WORDS.forEach((w, wi) => {
+        const span = document.createElement("span");
+        span.className = "tpl-word";
+        span.style.animationDelay = `${wi * 0.35}s`;
+        span.textContent = w;
+        banner.appendChild(span);
+        if (wi < PREVIEW_WORDS.length - 1) banner.appendChild(document.createTextNode(" "));
+      });
+
+      preview.appendChild(banner);
+      const name = document.createElement("div");
+      name.className = "tpl-tile-name";
+      name.textContent = tpl.name;
+
+      tile.appendChild(preview);
+      tile.appendChild(name);
+      tile.addEventListener("click", () => {
         applyStudioSettings(tpl.settings);
-        templatesMenu.classList.add("hidden");
+        markActiveTile(idx);
         showToast(`Template "${tpl.name}" applied`);
       });
-      templatesMenu.appendChild(item);
+      tplTileGrid.appendChild(tile);
     });
+  }
 
-    btnTemplates.addEventListener("click", (e) => {
-      e.stopPropagation();
-      templatesMenu.classList.toggle("hidden");
+  function markActiveTile(idx) {
+    if (!tplTileGrid) return;
+    tplTileGrid.querySelectorAll(".tpl-tile").forEach((el) => {
+      el.classList.toggle("active", Number(el.dataset.tplIdx) === idx);
     });
-    document.addEventListener("click", () => templatesMenu.classList.add("hidden"));
+  }
+
+  function hexToRgba(hex, a) {
+    const h = (hex || "").replace("#", "");
+    if (h.length !== 6) return `rgba(0,0,0,${a})`;
+    const r = parseInt(h.slice(0, 2), 16);
+    const g = parseInt(h.slice(2, 4), 16);
+    const b = parseInt(h.slice(4, 6), 16);
+    return `rgba(${r},${g},${b},${a})`;
+  }
+
+  // Collapsible: Custom Settings
+  const customSettingsToggle = document.getElementById("custom-settings-toggle");
+  const customSettingsBody = document.getElementById("custom-settings-body");
+  if (customSettingsToggle && customSettingsBody) {
+    customSettingsToggle.addEventListener("click", () => {
+      const collapsed = customSettingsBody.classList.toggle("collapsed");
+      customSettingsToggle.setAttribute("aria-expanded", String(!collapsed));
+    });
   }
 
   /** Gather all current studio control values into a serializable object. */
@@ -2680,88 +2788,8 @@
     });
   }
 
-  // --- Refresh subtitle overlay when studio styles change ---
-  const stylePreviewStrip  = document.getElementById("style-preview-strip");
-  const stylePreviewFrames = document.getElementById("style-preview-frames");
-  let _previewDebounce = null;
-
-  function updatePreviewStrip() {
-    if (!studioGroups.length || !stylePreviewFrames) return;
-    // Show strip now that we have content
-    if (stylePreviewStrip) stylePreviewStrip.classList.remove("hidden");
-
-    // Pick 3 representative timestamps spread across available groups
-    const picks = [];
-    const n = studioGroups.length;
-    if (n === 1) {
-      picks.push(studioGroups[0].start + (studioGroups[0].end - studioGroups[0].start) * 0.3);
-    } else {
-      [0, Math.floor(n / 2), n - 1].forEach(i => {
-        const g = studioGroups[i];
-        picks.push(g.start + (g.end - g.start) * 0.3);
-      });
-    }
-
-    // Ensure we have exactly 3 frame slots
-    while (stylePreviewFrames.children.length < picks.length) {
-      const wrap = document.createElement("div");
-      wrap.className = "style-preview-frame";
-      const c = document.createElement("canvas");
-      wrap.appendChild(c);
-      stylePreviewFrames.appendChild(wrap);
-      wrap.addEventListener("click", () => {
-        const idx = Array.from(stylePreviewFrames.children).indexOf(wrap);
-        if (idx >= 0 && picks[idx] !== undefined) {
-          studioScrubTime = picks[idx];
-          drawSubtitleOverlay(studioScrubTime);
-          if (wavesurfer) wavesurfer.seekTo(studioScrubTime / (wavesurfer.getDuration() || 1));
-        }
-      });
-    }
-    while (stylePreviewFrames.children.length > picks.length) {
-      stylePreviewFrames.removeChild(stylePreviewFrames.lastChild);
-    }
-
-    const [resW, resH] = studioResolution.value.split("x").map(Number);
-    const thumbW = 320;
-    const thumbH = Math.round(thumbW * resH / resW);
-
-    picks.forEach((t, i) => {
-      const wrap = stylePreviewFrames.children[i];
-      const canvas = wrap.querySelector("canvas");
-      canvas.width  = thumbW;
-      canvas.height = thumbH;
-      const ctx2 = canvas.getContext("2d");
-
-      // Draw video frame background (black) then subtitle overlay
-      ctx2.fillStyle = "#111";
-      ctx2.fillRect(0, 0, thumbW, thumbH);
-
-      // Render subtitle overlay at this time into a full-res offscreen canvas,
-      // then scale-copy into the thumbnail
-      const offscreen = document.createElement("canvas");
-      _drawSubtitleOnCanvas(offscreen, t);
-      ctx2.drawImage(offscreen, 0, 0, thumbW, thumbH);
-    });
-  }
-
-  function _drawSubtitleOnCanvas(canvas, currentTime) {
-    if (!studioGroups.length) return;
-    // Render via the real overlay canvas, then copy the result
-    drawSubtitleOverlay(currentTime);
-    if (subtitleOverlay && subtitleOverlay.width > 0) {
-      const [resW, resH] = studioResolution.value.split("x").map(Number);
-      canvas.width  = resW;
-      canvas.height = resH;
-      canvas.getContext("2d").drawImage(subtitleOverlay, 0, 0);
-    }
-  }
-
   function drawStudioFrame() {
     drawSubtitleOverlay(studioScrubTime);
-    // Debounce preview strip update — expensive, no need on every frame
-    if (_previewDebounce) clearTimeout(_previewDebounce);
-    _previewDebounce = setTimeout(updatePreviewStrip, 400);
   }
 
   function roundRect(ctx, x, y, w, h, r) {
@@ -2785,7 +2813,7 @@
   const TIMELINE_H = TIMELINE_RULER_H + TIMELINE_TRACK_H;
 
   function niceTimeStep(duration, widthPx) {
-    const steps = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+    const steps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
     const target = widthPx / 80; // aim for ~80px between marks
     const ideal = duration / target;
     for (const s of steps) { if (s >= ideal) return s; }
@@ -2815,7 +2843,14 @@
 
     const duration = wavesurfer ? wavesurfer.getDuration() : 0;
     if (!duration) return;
-    const pps = cssW / duration; // pixels per second
+    // Viewport: at zoom=1, entire duration fits. At zoom=N, we see duration/N.
+    const visibleDur = duration / _tlZoom;
+    // Clamp scroll so we never pan past the ends
+    _tlScrollT = Math.max(0, Math.min(_tlScrollT, Math.max(0, duration - visibleDur)));
+    const viewT0 = _tlScrollT;
+    const viewT1 = viewT0 + visibleDur;
+    const pps = cssW / visibleDur; // pixels per second within viewport
+    const tToX = (t) => (t - viewT0) * pps;
 
     // ── Ruler background ──
     const isDark = !document.documentElement.classList.contains("light");
@@ -2833,12 +2868,13 @@
     ctx.fillRect(0, TIMELINE_RULER_H, cssW, TIMELINE_TRACK_H);
 
     // ── Tick marks + time labels ──
-    const step = niceTimeStep(duration, cssW);
+    const step = niceTimeStep(visibleDur, cssW);
     ctx.fillStyle = rulerText;
     ctx.font = `${10 * (dpr > 1 ? 1 : 1)}px -apple-system, "Segoe UI", sans-serif`;
     ctx.textBaseline = "middle";
-    for (let t = 0; t <= duration + 0.001; t += step) {
-      const x = Math.round(t * pps);
+    const firstTick = Math.floor(viewT0 / step) * step;
+    for (let t = firstTick; t <= viewT1 + 0.001; t += step) {
+      const x = Math.round(tToX(t));
       ctx.strokeStyle = tickColor;
       ctx.lineWidth = 1;
       ctx.beginPath();
@@ -2847,17 +2883,20 @@
       ctx.stroke();
       const mins = Math.floor(t / 60);
       const secs = Math.floor(t % 60);
+      // Sub-second precision at high zoom
+      const subSec = step < 1 ? (t % 1).toFixed(step < 0.1 ? 2 : 1).slice(1) : "";
       const label = mins > 0
-        ? `${mins}:${String(secs).padStart(2, "0")}`
-        : `${secs}s`;
+        ? `${mins}:${String(secs).padStart(2, "0")}${subSec}`
+        : `${secs}${subSec}s`;
       ctx.fillStyle = rulerText;
       ctx.fillText(label, x + 3, TIMELINE_RULER_H / 2);
     }
 
-    // ── Subtitle blocks ──
+    // ── Subtitle blocks (cull those outside viewport) ──
     const PAD = 3;
     studioGroups.forEach((g) => {
-      const x = g.start * pps;
+      if (g.end < viewT0 || g.start > viewT1) return;
+      const x = tToX(g.start);
       const w = Math.max((g.end - g.start) * pps - 1, 3);
       const y = TIMELINE_RULER_H + PAD;
       const h = TIMELINE_TRACK_H - PAD * 2;
@@ -2894,8 +2933,8 @@
     });
 
     // ── Playhead ──
-    if (currentTime != null && duration > 0) {
-      const px = currentTime * pps;
+    if (currentTime != null && duration > 0 && currentTime >= viewT0 && currentTime <= viewT1) {
+      const px = tToX(currentTime);
       ctx.strokeStyle = headColor;
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -2921,20 +2960,23 @@
     function _tlTimeAtX(clientX) {
       if (!wavesurfer) return 0;
       const rect = timelineCanvas.getBoundingClientRect();
+      const duration = wavesurfer.getDuration() || 0;
+      const visibleDur = duration / _tlZoom;
       const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      return ratio * (wavesurfer.getDuration() || 0);
+      return _tlScrollT + ratio * visibleDur;
     }
 
     function _tlFindEdge(clientX) {
       if (!wavesurfer || !wavesurfer.getDuration()) return null;
       const rect = timelineCanvas.getBoundingClientRect();
       const duration = wavesurfer.getDuration();
-      const pps = rect.width / duration;
+      const visibleDur = duration / _tlZoom;
+      const pps = rect.width / visibleDur;
       const t = _tlTimeAtX(clientX);
       for (let i = 0; i < studioGroups.length; i++) {
         const g = studioGroups[i];
-        const startPx = g.start * pps + rect.left;
-        const endPx   = g.end   * pps + rect.left;
+        const startPx = (g.start - _tlScrollT) * pps + rect.left;
+        const endPx   = (g.end   - _tlScrollT) * pps + rect.left;
         if (Math.abs(clientX - startPx) <= EDGE_HIT) return { groupIdx: i, edge: "start" };
         if (Math.abs(clientX - endPx)   <= EDGE_HIT) return { groupIdx: i, edge: "end" };
         // Inside block body
@@ -2943,15 +2985,83 @@
       return null;
     }
 
+    function _tlUpdateZoomLabel() {
+      if (tlZoomLabel) tlZoomLabel.textContent = Math.round(_tlZoom * 100) + "%";
+    }
+
+    function _tlSetZoom(newZoom, anchorClientX) {
+      const duration = wavesurfer ? wavesurfer.getDuration() : 0;
+      if (!duration) return;
+      const clamped = Math.max(TL_ZOOM_MIN, Math.min(TL_ZOOM_MAX, newZoom));
+      // Keep the time under anchorClientX fixed while zooming
+      let anchorT = _tlScrollT + duration / _tlZoom / 2;
+      if (anchorClientX != null) {
+        const rect = timelineCanvas.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (anchorClientX - rect.left) / rect.width));
+        anchorT = _tlScrollT + ratio * (duration / _tlZoom);
+      }
+      _tlZoom = clamped;
+      const newVisible = duration / _tlZoom;
+      // Anchor at same screen ratio
+      if (anchorClientX != null) {
+        const rect = timelineCanvas.getBoundingClientRect();
+        const ratio = Math.max(0, Math.min(1, (anchorClientX - rect.left) / rect.width));
+        _tlScrollT = anchorT - ratio * newVisible;
+      } else {
+        _tlScrollT = anchorT - newVisible / 2;
+      }
+      _tlScrollT = Math.max(0, Math.min(_tlScrollT, Math.max(0, duration - newVisible)));
+      _tlUpdateZoomLabel();
+      drawTimeline(wavesurfer ? wavesurfer.getCurrentTime() : 0);
+    }
+
+    timelineCanvas.addEventListener("wheel", (e) => {
+      if (!wavesurfer || !wavesurfer.getDuration()) return;
+      if (e.ctrlKey || e.metaKey) {
+        // Zoom centered on cursor
+        e.preventDefault();
+        const factor = Math.exp(-e.deltaY * 0.0015);
+        _tlSetZoom(_tlZoom * factor, e.clientX);
+      } else {
+        // Pan horizontally (support both vertical and horizontal wheel deltas)
+        const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY;
+        if (delta === 0) return;
+        e.preventDefault();
+        const duration = wavesurfer.getDuration();
+        const visibleDur = duration / _tlZoom;
+        _tlScrollT = Math.max(0, Math.min(
+          duration - visibleDur,
+          _tlScrollT + (delta / timelineCanvas.clientWidth) * visibleDur
+        ));
+        drawTimeline(wavesurfer.getCurrentTime());
+      }
+    }, { passive: false });
+
+    if (btnTlZoomIn)  btnTlZoomIn .addEventListener("click", () => _tlSetZoom(_tlZoom * 1.5, null));
+    if (btnTlZoomOut) btnTlZoomOut.addEventListener("click", () => _tlSetZoom(_tlZoom / 1.5, null));
+    if (btnTlFit) btnTlFit.addEventListener("click", () => {
+      _tlZoom = 1;
+      _tlScrollT = 0;
+      _tlUpdateZoomLabel();
+      drawTimeline(wavesurfer ? wavesurfer.getCurrentTime() : 0);
+    });
+
     timelineCanvas.addEventListener("mousemove", (e) => {
       if (_tlDrag) {
         const t = _tlTimeAtX(e.clientX);
         const g = studioGroups[_tlDrag.groupIdx];
+        // Neighbor bounds — caption blocks can't overlap each other
+        const prev = studioGroups[_tlDrag.groupIdx - 1];
+        const next = studioGroups[_tlDrag.groupIdx + 1];
+        const GAP = 0.01; // 10ms minimum gap between adjacent blocks
         if (_tlDrag.edge === "start") {
-          g.start = Math.max(0, Math.min(t, g.end - 0.05));
+          const minStart = prev ? prev.end + GAP : 0;
+          g.start = Math.max(minStart, Math.min(t, g.end - 0.05));
           customGroupsEdited = true;
         } else if (_tlDrag.edge === "end") {
-          g.end = Math.max(g.start + 0.05, t);
+          const duration = wavesurfer ? wavesurfer.getDuration() : Infinity;
+          const maxEnd = next ? next.start - GAP : duration;
+          g.end = Math.min(maxEnd, Math.max(g.start + 0.05, t));
           customGroupsEdited = true;
         } else {
           // Body drag → seek
@@ -2998,18 +3108,23 @@
 
   // --- Subtitle overlay on main video/audio player ---
   function drawSubtitleOverlay(currentTime) {
-    if (!subtitleOverlay || !subtitleOverlayCtx || !studioGroups.length) return;
+    if (!subtitleOverlay || !subtitleOverlayCtx) return;
+
+    // Always clear first so no stale caption stays painted when there is nothing to show.
+    const [resW, resH] = studioResolution.value.split("x").map(Number);
+    if (subtitleOverlay.width !== resW || subtitleOverlay.height !== resH) {
+      subtitleOverlay.width  = resW;
+      subtitleOverlay.height = resH;
+    }
+    subtitleOverlayCtx.clearRect(0, 0, resW, resH);
+
+    if (!studioGroups.length) return;
     const videoWrap = document.getElementById("video-wrap");
     if (!videoWrap) return;
 
     // Canvas buffer = output resolution coordinate space (matches Python renderer exactly).
     // CSS transform scales the canvas to fit inside the player display area,
     // the same way object-fit:contain works, so positions are 1:1 with the export.
-    const [resW, resH] = studioResolution.value.split("x").map(Number);
-    if (subtitleOverlay.width !== resW || subtitleOverlay.height !== resH) {
-      subtitleOverlay.width  = resW;
-      subtitleOverlay.height = resH;
-    }
     // Use the video element rect when playing video; otherwise use the audio preview bg.
     const anchorEl = (videoPlayer && !videoPlayer.classList.contains("hidden"))
       ? videoPlayer
@@ -3026,8 +3141,6 @@
     subtitleOverlay.classList.remove("hidden");
 
     const ctx = subtitleOverlayCtx;
-    ctx.clearRect(0, 0, resW, resH);
-
     // Find active group
     const t = currentTime;
     let activeGroup = null;
