@@ -597,8 +597,37 @@ body {
 
 .video-wrap {
   position: relative;
-  display: inline-block;
+  display: block;
   width: 100%;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #000;
+  touch-action: none;
+}
+.video-wrap.is-zoomed { cursor: grab; }
+.video-wrap.is-panning { cursor: grabbing; }
+
+.video-zoom-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+  transition: transform 0.12s ease-out;
+  will-change: transform;
+}
+.video-zoom-inner.no-transition { transition: none; }
+
+.video-zoom-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  justify-content: flex-end;
+}
+.video-zoom-toolbar .timeline-toolbar-hint {
+  margin-right: auto;
 }
 
 .subtitle-overlay {
@@ -2216,6 +2245,7 @@ button.studio-card-head:hover { background: var(--bg-secondary); }
 }
 
 .tpl-tile {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -2226,6 +2256,57 @@ button.studio-card-head:hover { background: var(--bg-secondary); }
   cursor: pointer;
   font-family: inherit;
   transition: transform 0.15s ease, border-color 0.15s ease, box-shadow 0.2s ease, background 0.15s ease;
+}
+
+.tpl-tile-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 14px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease, background 0.15s ease, transform 0.15s ease;
+  z-index: 2;
+  user-select: none;
+}
+.tpl-tile:hover .tpl-tile-delete { opacity: 1; }
+.tpl-tile-delete:hover {
+  background: #e5484d;
+  transform: scale(1.1);
+}
+
+.tpl-tile.tpl-tile-add {
+  align-items: center;
+  justify-content: center;
+  min-height: 92px;
+  border-style: dashed;
+  background: transparent;
+  color: var(--text-muted);
+}
+.tpl-tile.tpl-tile-add:hover {
+  background: var(--bg-secondary);
+  color: var(--accent);
+}
+.tpl-tile-add-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+.tpl-tile-add-plus {
+  font-size: 24px;
+  line-height: 1;
+  font-weight: 300;
+}
+.tpl-tile-add-label {
+  font-size: 11px;
 }
 .tpl-tile:hover {
   transform: translateY(-1px);

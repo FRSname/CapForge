@@ -55,6 +55,95 @@
   const btnTlZoomOut = document.getElementById("btn-tl-zoom-out");
   const btnTlFit     = document.getElementById("btn-tl-fit");
   const tlZoomLabel  = document.getElementById("tl-zoom-label");
+
+  // Video-preview zoom
+  const videoWrapEl   = document.getElementById("video-wrap");
+  const videoZoomInner = document.getElementById("video-zoom-inner");
+  const btnVzIn      = document.getElementById("btn-vz-in");
+  const btnVzOut     = document.getElementById("btn-vz-out");
+  const btnVzReset   = document.getElementById("btn-vz-reset");
+  const vzLabel      = document.getElementById("vz-label");
+  let _vz = 1, _vzTx = 0, _vzTy = 0;
+  const VZ_MIN = 1, VZ_MAX = 6;
+  function applyVideoZoom(animate) {
+    if (!videoZoomInner) return;
+    if (_vz <= 1.001) { _vz = 1; _vzTx = 0; _vzTy = 0; }
+    if (videoWrapEl) videoWrapEl.classList.toggle("is-zoomed", _vz > 1);
+    videoZoomInner.classList.toggle("no-transition", !animate);
+    videoZoomInner.style.transform = `translate(${_vzTx}px, ${_vzTy}px) scale(${_vz})`;
+    if (vzLabel) vzLabel.textContent = Math.round(_vz * 100) + "%";
+  }
+  function clampVzPan() {
+    if (!videoWrapEl) return;
+    const w = videoWrapEl.clientWidth, h = videoWrapEl.clientHeight;
+    const maxX = (_vz - 1) * w, maxY = (_vz - 1) * h;
+    _vzTx = Math.min(0, Math.max(-maxX, _vzTx));
+    _vzTy = Math.min(0, Math.max(-maxY, _vzTy));
+  }
+  function zoomAt(cx, cy, factor) {
+    if (!videoWrapEl) return;
+    const newZ = Math.min(VZ_MAX, Math.max(VZ_MIN, _vz * factor));
+    if (Math.abs(newZ - _vz) < 1e-4) return;
+    // Keep point under cursor stationary: solve for new translation.
+    // visualPt = translate + scale * layoutPt → layoutPt = (cx - _vzTx) / _vz
+    const lx = (cx - _vzTx) / _vz;
+    const ly = (cy - _vzTy) / _vz;
+    _vz = newZ;
+    _vzTx = cx - lx * _vz;
+    _vzTy = cy - ly * _vz;
+    clampVzPan();
+    applyVideoZoom(true);
+  }
+  if (videoWrapEl) {
+    videoWrapEl.addEventListener("wheel", (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const rect = videoWrapEl.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
+      zoomAt(cx, cy, factor);
+    }, { passive: false });
+    let dragging = false, lastX = 0, lastY = 0;
+    videoWrapEl.addEventListener("mousedown", (e) => {
+      if (_vz <= 1 || e.button !== 0) return;
+      dragging = true; lastX = e.clientX; lastY = e.clientY;
+      videoWrapEl.classList.add("is-panning");
+      e.preventDefault();
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!dragging) return;
+      _vzTx += e.clientX - lastX;
+      _vzTy += e.clientY - lastY;
+      lastX = e.clientX; lastY = e.clientY;
+      clampVzPan();
+      applyVideoZoom(false);
+    });
+    window.addEventListener("mouseup", () => {
+      if (!dragging) return;
+      dragging = false;
+      videoWrapEl.classList.remove("is-panning");
+    });
+    videoWrapEl.addEventListener("dblclick", (e) => {
+      const rect = videoWrapEl.getBoundingClientRect();
+      const cx = e.clientX - rect.left;
+      const cy = e.clientY - rect.top;
+      zoomAt(cx, cy, _vz > 1 ? 1 / _vz : 2);
+    });
+  }
+  if (btnVzIn)    btnVzIn.addEventListener("click", () => {
+    if (!videoWrapEl) return;
+    const r = videoWrapEl.getBoundingClientRect();
+    zoomAt(r.width / 2, r.height / 2, 1.25);
+  });
+  if (btnVzOut)   btnVzOut.addEventListener("click", () => {
+    if (!videoWrapEl) return;
+    const r = videoWrapEl.getBoundingClientRect();
+    zoomAt(r.width / 2, r.height / 2, 1 / 1.25);
+  });
+  if (btnVzReset) btnVzReset.addEventListener("click", () => {
+    _vz = 1; _vzTx = 0; _vzTy = 0; applyVideoZoom(true);
+  });
   // Timeline viewport state — zoom=1 shows entire duration; scrollT shifts visible window
   let _tlZoom    = 1;
   let _tlScrollT = 0;
@@ -955,6 +1044,7 @@
   }
 
   function enterEditMode() {
+    if (groupEditorOpen) closeGroupEditor();
     editMode = true;
     hasEdits = false;
     btnEditToggle.classList.add("active");
@@ -1219,7 +1309,7 @@
       freshVideo.id = "video-player";
       freshVideo.className = "video-player";
       freshVideo.src = audioSrc;
-      const wrap = document.getElementById("video-wrap");
+      const wrap = document.getElementById("video-zoom-inner") || document.getElementById("video-wrap");
       wrap.replaceChild(freshVideo, videoPlayer);
       videoPlayer = freshVideo;
       if (audioPrevBg) audioPrevBg.classList.add("hidden");
@@ -1335,7 +1425,7 @@
     const blank = document.createElement("video");
     blank.id = "video-player";
     blank.className = "video-player hidden";
-    const wrap = document.getElementById("video-wrap");
+    const wrap = document.getElementById("video-zoom-inner") || document.getElementById("video-wrap");
     wrap.replaceChild(blank, videoPlayer);
     videoPlayer = blank;
     const prevBg = document.getElementById("audio-preview-bg");
@@ -1841,10 +1931,8 @@
   }
 
   // --- Style Presets ---
-  const studioPreset = document.getElementById("studio-preset");
-  const btnPresetSave = document.getElementById("btn-preset-save");
-  const btnPresetDelete = document.getElementById("btn-preset-delete");
   const tplTileGrid = document.getElementById("tpl-tile-grid");
+  let _userPresets = []; // [{ name, settings }]
 
   // Built-in style templates
   const BUILTIN_TEMPLATES = [
@@ -1916,77 +2004,142 @@
     },
   ];
 
-  // Build Caption Styles tile grid
-  if (tplTileGrid) {
-    const PREVIEW_WORDS = ["Lets", "create", "with", "CapForge"];
-    BUILTIN_TEMPLATES.forEach((tpl, idx) => {
-      const s = tpl.settings;
-      const tile = document.createElement("button");
-      tile.type = "button";
-      tile.className = "tpl-tile";
-      tile.dataset.tplIdx = String(idx);
-      tile.dataset.wt = s.wordTransition || "instant";
-      tile.dataset.entry = s.animation || "none";
-      tile.setAttribute("title", `Apply "${tpl.name}"`);
+  const PREVIEW_WORDS = ["Lets", "create", "with", "CapForge"];
 
-      // Scale template style down into a compact preview banner.
-      const bgAlpha = (Number(s.bgOpacity) || 0) / 100;
-      const strokeW = Math.max(0, Number(s.strokeWidth) || 0);
-      const previewBg = `${hexToRgba(s.bgColor || "#000", bgAlpha)}`;
-      const padX = Math.max(6, Math.round((Number(s.padH) || 20) * 0.28));
-      const padY = Math.max(3, Math.round((Number(s.padV) || 10) * 0.35));
-      const radius = Math.max(2, Math.round((Number(s.radius) || 0) * 0.6));
-      const fontWeight = s.bold ? 700 : 500;
-      const fontFam = s.font || "Arial";
+  function buildTileBanner(s) {
+    const bgAlpha = (Number(s.bgOpacity) || 0) / 100;
+    const strokeW = Math.max(0, Number(s.strokeWidth) || 0);
+    const previewBg = `${hexToRgba(s.bgColor || "#000", bgAlpha)}`;
+    const padX = Math.max(6, Math.round((Number(s.padH) || 20) * 0.28));
+    const padY = Math.max(3, Math.round((Number(s.padV) || 10) * 0.35));
+    const radius = Math.max(2, Math.round((Number(s.radius) || 0) * 0.6));
+    const fontWeight = s.bold ? 700 : 500;
+    const fontFam = s.font || "Arial";
 
-      const preview = document.createElement("div");
-      preview.className = "tpl-tile-preview";
-      const banner = document.createElement("div");
-      banner.className = "tpl-tile-banner";
-      banner.style.cssText = [
-        `background:${previewBg}`,
-        `border-radius:${radius}px`,
-        `padding:${padY}px ${padX}px`,
-        `color:${s.textColor || "#fff"}`,
-        `font-family:${fontFam}`,
-        `font-weight:${fontWeight}`,
-        strokeW > 0 ? `-webkit-text-stroke:${Math.min(2, strokeW * 0.35)}px ${s.strokeColor || "#000"}` : "",
-      ].filter(Boolean).join(";");
-      banner.style.setProperty("--tpl-active", s.activeColor || "#FFD700");
-      banner.style.setProperty("--tpl-text", s.textColor || "#FFFFFF");
-      banner.style.setProperty("--tpl-underline", (s.wsoUnderlineColor || s.activeColor || "#FFD700"));
-      banner.style.setProperty("--tpl-bg-solid", s.bgColor || "#000000");
+    const preview = document.createElement("div");
+    preview.className = "tpl-tile-preview";
+    const banner = document.createElement("div");
+    banner.className = "tpl-tile-banner";
+    banner.style.cssText = [
+      `background:${previewBg}`,
+      `border-radius:${radius}px`,
+      `padding:${padY}px ${padX}px`,
+      `color:${s.textColor || "#fff"}`,
+      `font-family:${fontFam}`,
+      `font-weight:${fontWeight}`,
+      strokeW > 0 ? `-webkit-text-stroke:${Math.min(2, strokeW * 0.35)}px ${s.strokeColor || "#000"}` : "",
+    ].filter(Boolean).join(";");
+    banner.style.setProperty("--tpl-active", s.activeColor || "#FFD700");
+    banner.style.setProperty("--tpl-text", s.textColor || "#FFFFFF");
+    banner.style.setProperty("--tpl-underline", (s.wsoUnderlineColor || s.activeColor || "#FFD700"));
+    banner.style.setProperty("--tpl-bg-solid", s.bgColor || "#000000");
 
-      PREVIEW_WORDS.forEach((w, wi) => {
-        const span = document.createElement("span");
-        span.className = "tpl-word";
-        span.style.animationDelay = `${wi * 0.35}s`;
-        span.textContent = w;
-        banner.appendChild(span);
-        if (wi < PREVIEW_WORDS.length - 1) banner.appendChild(document.createTextNode(" "));
-      });
-
-      preview.appendChild(banner);
-      const name = document.createElement("div");
-      name.className = "tpl-tile-name";
-      name.textContent = tpl.name;
-
-      tile.appendChild(preview);
-      tile.appendChild(name);
-      tile.addEventListener("click", () => {
-        applyStudioSettings(tpl.settings);
-        markActiveTile(idx);
-        showToast(`Template "${tpl.name}" applied`);
-      });
-      tplTileGrid.appendChild(tile);
+    PREVIEW_WORDS.forEach((w, wi) => {
+      const span = document.createElement("span");
+      span.className = "tpl-word";
+      span.style.animationDelay = `${wi * 0.35}s`;
+      span.textContent = w;
+      banner.appendChild(span);
+      if (wi < PREVIEW_WORDS.length - 1) banner.appendChild(document.createTextNode(" "));
     });
+    preview.appendChild(banner);
+    return preview;
   }
 
-  function markActiveTile(idx) {
-    if (!tplTileGrid) return;
-    tplTileGrid.querySelectorAll(".tpl-tile").forEach((el) => {
-      el.classList.toggle("active", Number(el.dataset.tplIdx) === idx);
+  function makeTile({ name, settings, kind, idx, presetName }) {
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "tpl-tile";
+    tile.dataset.kind = kind;
+    if (kind === "builtin") tile.dataset.tplIdx = String(idx);
+    else if (kind === "user") tile.dataset.presetName = presetName;
+    tile.dataset.wt = settings.wordTransition || "instant";
+    tile.dataset.entry = settings.animation || "none";
+    tile.setAttribute("title", `Apply "${name}"`);
+
+    tile.appendChild(buildTileBanner(settings));
+
+    const nameEl = document.createElement("div");
+    nameEl.className = "tpl-tile-name";
+    nameEl.textContent = name;
+    tile.appendChild(nameEl);
+
+    if (kind === "user") {
+      const del = document.createElement("span");
+      del.className = "tpl-tile-delete";
+      del.setAttribute("role", "button");
+      del.setAttribute("title", "Delete style");
+      del.textContent = "×";
+      del.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!window.subforge || !window.subforge.deletePreset) return;
+        try {
+          await window.subforge.deletePreset(presetName);
+          showToast(`Style "${presetName}" deleted`);
+          await refreshPresetList();
+        } catch (_) {
+          showToast("Failed to delete style", "error");
+        }
+      });
+      tile.appendChild(del);
+    }
+
+    tile.addEventListener("click", () => {
+      applyStudioSettings(settings);
+      markActiveTile(tile);
+      showToast(`${kind === "builtin" ? "Template" : "Style"} "${name}" applied`);
     });
+
+    return tile;
+  }
+
+  function makeAddTile() {
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "tpl-tile tpl-tile-add";
+    tile.setAttribute("title", "Save current settings as a new caption style");
+
+    const inner = document.createElement("div");
+    inner.className = "tpl-tile-add-inner";
+    inner.innerHTML = `<span class="tpl-tile-add-plus">+</span><span class="tpl-tile-add-label">Add new</span>`;
+    tile.appendChild(inner);
+
+    tile.addEventListener("click", async () => {
+      const name = await showPromptModal("Name for this caption style");
+      if (!name || !name.trim()) return;
+      const trimmed = name.trim();
+      if (!window.subforge || !window.subforge.savePreset) return;
+      try {
+        await window.subforge.savePreset(trimmed, gatherStudioSettings());
+        showToast(`Style "${trimmed}" saved`, "success");
+        await refreshPresetList();
+      } catch (_) {
+        showToast("Failed to save style", "error");
+      }
+    });
+    return tile;
+  }
+
+  function rebuildTileGrid() {
+    if (!tplTileGrid) return;
+    tplTileGrid.innerHTML = "";
+    BUILTIN_TEMPLATES.forEach((tpl, idx) => {
+      tplTileGrid.appendChild(makeTile({
+        name: tpl.name, settings: tpl.settings, kind: "builtin", idx,
+      }));
+    });
+    _userPresets.forEach((p) => {
+      tplTileGrid.appendChild(makeTile({
+        name: p.name, settings: p.settings, kind: "user", presetName: p.name,
+      }));
+    });
+    tplTileGrid.appendChild(makeAddTile());
+  }
+
+  function markActiveTile(tileEl) {
+    if (!tplTileGrid) return;
+    tplTileGrid.querySelectorAll(".tpl-tile").forEach((el) => el.classList.remove("active"));
+    if (tileEl) tileEl.classList.add("active");
   }
 
   function hexToRgba(hex, a) {
@@ -2123,48 +2276,21 @@
     drawStudioFrame();
   }
 
-  /** Refresh the preset dropdown with saved preset names. */
+  /** Load user presets from disk and rebuild the tile grid. */
   async function refreshPresetList() {
-    if (!window.subforge || !window.subforge.listPresets) return;
-    try {
-      const names = await window.subforge.listPresets();
-      // Remove existing preset options (keep the first "— Presets —" option)
-      while (studioPreset.options.length > 1) studioPreset.remove(1);
-      names.forEach((name) => {
-        const opt = document.createElement("option");
-        opt.value = name;
-        opt.textContent = name;
-        studioPreset.appendChild(opt);
-      });
-      // Auto-restore last used preset if still present.
-      if (window.subforge.getState) {
-        const last = await window.subforge.getState("lastPreset", null);
-        if (last && names.includes(last)) {
-          studioPreset.value = last;
-          const preset = await window.subforge.loadPreset(last);
-          if (preset) applyStudioSettings(preset);
-        }
-      }
-    } catch (_) { /* preset API not available */ }
-  }
-
-  if (studioPreset) {
-    studioPreset.addEventListener("change", async () => {
-      const name = studioPreset.value;
-      if (!name || !window.subforge) return;
+    _userPresets = [];
+    if (window.subforge && window.subforge.listPresets) {
       try {
-        const preset = await window.subforge.loadPreset(name);
-        if (preset) {
-          applyStudioSettings(preset);
-          if (window.subforge.setState) {
-            window.subforge.setState("lastPreset", name);
-          }
-          showToast(`Preset "${name}" loaded`, "success");
+        const names = await window.subforge.listPresets();
+        for (const n of names) {
+          try {
+            const settings = await window.subforge.loadPreset(n);
+            if (settings) _userPresets.push({ name: n, settings });
+          } catch (_) { /* skip broken */ }
         }
-      } catch (err) {
-        showToast("Failed to load preset", "error");
-      }
-    });
+      } catch (_) { /* preset API not available */ }
+    }
+    rebuildTileGrid();
   }
 
   /** Show a custom prompt modal. Returns the entered string or null. */
@@ -2196,37 +2322,6 @@
       okBtn.addEventListener("click", onOk);
       cancelBtn.addEventListener("click", onCancel);
       input.addEventListener("keydown", onKey);
-    });
-  }
-
-  if (btnPresetSave) {
-    btnPresetSave.addEventListener("click", async () => {
-      const name = await showPromptModal("Preset name");
-      if (!name || !name.trim()) return;
-      const trimmed = name.trim();
-      if (!window.subforge || !window.subforge.savePreset) return;
-      try {
-        await window.subforge.savePreset(trimmed, gatherStudioSettings());
-        await refreshPresetList();
-        studioPreset.value = trimmed;
-        showToast(`Preset "${trimmed}" saved`, "success");
-      } catch (err) {
-        showToast("Failed to save preset", "error");
-      }
-    });
-  }
-
-  if (btnPresetDelete) {
-    btnPresetDelete.addEventListener("click", async () => {
-      const name = studioPreset.value;
-      if (!name || !window.subforge || !window.subforge.deletePreset) return;
-      try {
-        await window.subforge.deletePreset(name);
-        await refreshPresetList();
-        showToast(`Preset "${name}" deleted`);
-      } catch (err) {
-        showToast("Failed to delete preset");
-      }
     });
   }
 
@@ -2274,17 +2369,26 @@
   // Group Editor
   // ============================
 
-  // Toggle group editor panel
+  // Toggle group editor panel (mutually exclusive with edit mode — acts like a page)
+  function openGroupEditor() {
+    if (editMode) exitEditMode();
+    groupEditorOpen = true;
+    btnGroupToggle.classList.add("active");
+    groupEditorEl.classList.remove("hidden");
+    resultsPreview.classList.add("hidden");
+    if (!studioGroups.length) buildStudioGroups();
+    renderGroupEditor();
+  }
+  function closeGroupEditor() {
+    groupEditorOpen = false;
+    btnGroupToggle.classList.remove("active");
+    groupEditorEl.classList.add("hidden");
+    resultsPreview.classList.remove("hidden");
+  }
   if (btnGroupToggle) {
     btnGroupToggle.addEventListener("click", () => {
-      groupEditorOpen = !groupEditorOpen;
-      btnGroupToggle.classList.toggle("active", groupEditorOpen);
-      groupEditorEl.classList.toggle("hidden", !groupEditorOpen);
-      resultsPreview.classList.toggle("hidden", groupEditorOpen);
-      if (groupEditorOpen) {
-        if (!studioGroups.length) buildStudioGroups();
-        renderGroupEditor();
-      }
+      if (groupEditorOpen) closeGroupEditor();
+      else openGroupEditor();
     });
   }
 
@@ -3134,10 +3238,13 @@
       ? videoPlayer
       : document.getElementById("audio-preview-bg");
     if (!anchorEl || anchorEl.classList.contains("hidden")) return;
-    const rect = anchorEl.getBoundingClientRect();
-    const cssScale = Math.min(rect.width / resW, rect.height / resH);
-    const cssOX    = (rect.width  - resW * cssScale) / 2;
-    const cssOY    = (rect.height - resH * cssScale) / 2;
+    // Use layout dimensions (offsetWidth/Height) so this works correctly
+    // when the shared .video-zoom-inner ancestor is scaled by the preview zoom.
+    const layoutW = anchorEl.offsetWidth || anchorEl.getBoundingClientRect().width;
+    const layoutH = anchorEl.offsetHeight || anchorEl.getBoundingClientRect().height;
+    const cssScale = Math.min(layoutW / resW, layoutH / resH);
+    const cssOX    = (layoutW - resW * cssScale) / 2;
+    const cssOY    = (layoutH - resH * cssScale) / 2;
     subtitleOverlay.style.width           = resW + "px";
     subtitleOverlay.style.height          = resH + "px";
     subtitleOverlay.style.transformOrigin = "0 0";
