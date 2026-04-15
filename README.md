@@ -23,7 +23,7 @@ A standalone desktop app built with Electron + Python that turns any audio or vi
 
 ## Screenshot
 
-> *Coming soon*
+![CapForge v0.9.0](CapForge-v0.9.0.png)
 
 ---
 
