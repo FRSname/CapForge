@@ -1888,6 +1888,7 @@
     opt.value = fontName;
     opt.textContent = fontName + " ★";
     opt.dataset.customPath = fontPath || "";
+    opt.style.fontFamily = `"${fontName}", sans-serif`;
     studioFont.insertBefore(opt, studioFont.firstChild);
   }
 
@@ -1900,20 +1901,27 @@
     });
   }
 
-  // Load saved fonts on startup
+  // Load bundled + saved fonts on startup
   (async function loadSavedFonts() {
-    if (!window.subforge || !window.subforge.listFonts) return;
+    if (!window.subforge) return;
+    const loadFont = async (f) => {
+      try {
+        const buf = await window.subforge.readFont(f.path);
+        if (!buf) return;
+        const face = new FontFace(f.name, buf);
+        await face.load();
+        document.fonts.add(face);
+        addFontToDropdown(f.name, f.path);
+      } catch (_) { /* skip broken fonts */ }
+    };
     try {
-      const fonts = await window.subforge.listFonts();
-      for (const f of fonts) {
-        try {
-          const buf = await window.subforge.readFont(f.path);
-          if (!buf) continue;
-          const face = new FontFace(f.name, buf);
-          await face.load();
-          document.fonts.add(face);
-          addFontToDropdown(f.name, f.path);
-        } catch (_) { /* skip broken fonts */ }
+      if (window.subforge.listBundledFonts) {
+        const bundled = await window.subforge.listBundledFonts();
+        for (const f of bundled) await loadFont(f);
+      }
+      if (window.subforge.listFonts) {
+        const fonts = await window.subforge.listFonts();
+        for (const f of fonts) await loadFont(f);
       }
       // Sync customFontPath with current dropdown selection (it may have been
       // set by a preset before the options existed, so re-check now)
@@ -2662,6 +2670,7 @@
           const opt = document.createElement("option");
           opt.value = o.value; opt.textContent = o.textContent;
           if (o.dataset.customPath) opt.dataset.customPath = o.dataset.customPath;
+          if (o.style.fontFamily) opt.style.fontFamily = o.style.fontFamily;
           sel.appendChild(opt);
         });
       }

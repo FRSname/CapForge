@@ -29,7 +29,9 @@
       "Bash(cp /opt/homebrew/bin/ffmpeg /Users/tobbot/capforge/CapForge/resources/bin-mac/ffmpeg)",
       "Bash(cp /opt/homebrew/bin/ffprobe /Users/tobbot/capforge/CapForge/resources/bin-mac/ffprobe)",
       "Bash(npm run:*)",
-      "Bash(node --check renderer/js/app.js)"
+      "Bash(node --check renderer/js/app.js)",
+      "Bash(node --check electron/main.js)",
+      "Bash(node --check electron/preload.js)"
     ]
   }
 }

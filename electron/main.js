@@ -334,6 +334,9 @@ app.whenReady().then(async () => {
 
   // IPC: save a font file to persistent storage (receives binary data + filename)
   const fontsDir = path.join(app.getPath("userData"), "fonts");
+  const bundledFontsDir = app.isPackaged
+    ? path.join(process.resourcesPath, "Fonts")
+    : path.join(__dirname, "..", "Fonts");
   ipcMain.handle("fonts:save", async (_event, fileName, dataBuffer) => {
     if (!fileName || !dataBuffer) return null;
     // Sanitize filename — keep only the basename
@@ -346,12 +349,20 @@ app.whenReady().then(async () => {
   });
 
   // IPC: list all saved fonts
+  const FONT_EXTS = [".ttf", ".otf", ".woff", ".woff2"];
   ipcMain.handle("fonts:list", async () => {
     if (!fs.existsSync(fontsDir)) return [];
-    const exts = [".ttf", ".otf", ".woff", ".woff2"];
     return fs.readdirSync(fontsDir)
-      .filter(f => exts.includes(path.extname(f).toLowerCase()))
+      .filter(f => FONT_EXTS.includes(path.extname(f).toLowerCase()))
       .map(f => ({ name: f.replace(/\.[^.]+$/, ""), path: path.join(fontsDir, f) }));
+  });
+
+  // IPC: list fonts shipped with the app (read-only bundle)
+  ipcMain.handle("fonts:listBundled", async () => {
+    if (!fs.existsSync(bundledFontsDir)) return [];
+    return fs.readdirSync(bundledFontsDir)
+      .filter(f => FONT_EXTS.includes(path.extname(f).toLowerCase()))
+      .map(f => ({ name: f.replace(/\.[^.]+$/, ""), path: path.join(bundledFontsDir, f) }));
   });
 
   // IPC: delete a saved font
@@ -361,9 +372,11 @@ app.whenReady().then(async () => {
     return false;
   });
 
-  // IPC: read a font file as ArrayBuffer
+  // IPC: read a font file as ArrayBuffer (user dir or bundled dir)
   ipcMain.handle("fonts:read", async (_event, fontPath) => {
-    if (!fontPath || !fontPath.startsWith(fontsDir) || !fs.existsSync(fontPath)) return null;
+    if (!fontPath || !fs.existsSync(fontPath)) return null;
+    const allowed = fontPath.startsWith(fontsDir) || fontPath.startsWith(bundledFontsDir);
+    if (!allowed) return null;
     return fs.readFileSync(fontPath).buffer;
   });
 

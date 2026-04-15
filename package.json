@@ -72,6 +72,11 @@
           "from": "resources/python",
           "to": "python",
           "filter": ["python-embed.zip"]
+        },
+        {
+          "from": "Fonts",
+          "to": "Fonts",
+          "filter": ["**/*.{ttf,otf,woff,woff2,TTF,OTF}"]
         }
       ]
     },
@@ -93,6 +98,11 @@
           "from": "resources/python",
           "to": "python",
           "filter": ["python-mac-arm64.tar.gz"]
+        },
+        {
+          "from": "Fonts",
+          "to": "Fonts",
+          "filter": ["**/*.{ttf,otf,woff,woff2,TTF,OTF}"]
         }
       ]
     },

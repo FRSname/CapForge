@@ -21,6 +21,9 @@ contextBridge.exposeInMainWorld("subforge", {
   /** List all saved custom fonts. Returns [{name, path}]. */
   listFonts: () => ipcRenderer.invoke("fonts:list"),
 
+  /** List fonts bundled with the app. Returns [{name, path}]. */
+  listBundledFonts: () => ipcRenderer.invoke("fonts:listBundled"),
+
   /** Delete a saved font. Returns boolean. */
   deleteFont: (fontPath) => ipcRenderer.invoke("fonts:delete", fontPath),
 
