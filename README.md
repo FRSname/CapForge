@@ -4,6 +4,15 @@
 
 A standalone desktop app built with Electron + Python that turns any audio or video file into precisely timed subtitles — powered by [WhisperX](https://github.com/m-bain/whisperX) and NVIDIA CUDA.
 
+## ⬇ Download
+
+| Platform | Installer |
+|----------|-----------|
+| **Windows** | [CapForge-Setup-0.9.0.exe](https://github.com/FRSname/CapForge/releases/download/Setup/CapForge-Setup-0.9.0.exe) |
+| **macOS** | [CapForge-0.9.0.dmg](https://github.com/FRSname/CapForge/releases/download/Setup/CapForge-0.9.0.dmg) |
+
+See [all releases](https://github.com/FRSname/CapForge/releases) for older versions and changelogs.
+
 ---
 
 ## Features
