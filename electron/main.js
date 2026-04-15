@@ -15,6 +15,27 @@ let mainWindow = null;
 let setupWindow = null;
 let pythonBackend = null;
 
+// ---------------------------------------------------------------------------
+// Crash logs — write uncaught main-process exceptions to <logs>/crash.log
+// so users can ship them back via the "Open Logs Folder" menu item.
+// ---------------------------------------------------------------------------
+function logCrash(label, err) {
+  try {
+    const logDir = app.getPath("logs");
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
+    const line = `[${new Date().toISOString()}] ${label}: ${err && err.stack ? err.stack : String(err)}\n`;
+    fs.appendFileSync(path.join(logDir, "crash.log"), line, "utf-8");
+  } catch (_) { /* best-effort */ }
+}
+process.on("uncaughtException", (err) => {
+  logCrash("uncaughtException", err);
+  console.error("[CapForge] uncaughtException:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  logCrash("unhandledRejection", reason);
+  console.error("[CapForge] unhandledRejection:", reason);
+});
+
 function createWindow() {
   // Restore last window position/size if we have one.
   const saved = appState.get("window", {});
@@ -88,6 +109,10 @@ function createWindow() {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+  });
+
+  mainWindow.webContents.on("render-process-gone", (_e, details) => {
+    logCrash("renderer-gone", new Error(`reason=${details.reason} exitCode=${details.exitCode}`));
   });
 }
 

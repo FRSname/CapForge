@@ -9,7 +9,7 @@ A standalone desktop app built with Electron + Python that turns any audio or vi
 ## Features
 
 - **Word-level timestamps** — every word gets a precise start and end time
-- **Speaker diarization** — identifies who said what (via pyannote-audio)
+- **Speaker diarization** *(optional)* — identifies who said what (via pyannote-audio). Requires a free [Hugging Face access token](https://huggingface.co/settings/tokens) and one-time gating acceptance for the [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) and [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0) models. Skip it if you don't need per-speaker labels.
 - **99 languages** — supports all Whisper-supported languages with auto-detection
 - **GPU auto-detection** — recommends the optimal model size and precision based on your VRAM
 - **Inline editing** — edit subtitles directly in the app with Tab navigation and loop-play
@@ -75,8 +75,8 @@ Electron spawns the Python backend on startup. The frontend communicates via RES
 
 ```bash
 # Clone the repo
-git clone https://github.com/FRSname/Subtittles-auto-generator.git
-cd Subtittles-auto-generator
+git clone https://github.com/FRSname/CapForge.git
+cd CapForge
 
 # Create Python venv
 python -m venv .venv

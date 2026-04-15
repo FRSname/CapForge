@@ -2336,6 +2336,56 @@
   // Load preset list on startup
   refreshPresetList();
 
+  // --- Acknowledgments modal ---
+  const ackModal = document.getElementById("ack-modal");
+  const ackOkBtn = document.getElementById("ack-modal-ok");
+  const ackAgreeRow = document.getElementById("ack-agree-row");
+  const ackAgreeCheck = document.getElementById("ack-agree-check");
+  const btnAcknowledgments = document.getElementById("btn-acknowledgments");
+
+  function showAcknowledgments({ requireAccept } = { requireAccept: false }) {
+    if (!ackModal) return;
+    if (requireAccept) {
+      ackAgreeRow.classList.remove("hidden");
+      ackAgreeCheck.checked = false;
+      ackOkBtn.textContent = "Accept & Continue";
+      ackOkBtn.disabled = true;
+    } else {
+      ackAgreeRow.classList.add("hidden");
+      ackOkBtn.textContent = "Close";
+      ackOkBtn.disabled = false;
+    }
+    ackModal.classList.remove("hidden");
+
+    function onCheck() { ackOkBtn.disabled = !ackAgreeCheck.checked; }
+    function onClose() {
+      if (requireAccept) {
+        if (!ackAgreeCheck.checked) return;
+        if (window.subforge && window.subforge.setState) {
+          window.subforge.setState("acknowledgmentsAccepted", true);
+        }
+      }
+      ackModal.classList.add("hidden");
+      ackOkBtn.removeEventListener("click", onClose);
+      ackAgreeCheck.removeEventListener("change", onCheck);
+    }
+    ackOkBtn.addEventListener("click", onClose);
+    ackAgreeCheck.addEventListener("change", onCheck);
+  }
+
+  if (btnAcknowledgments) {
+    btnAcknowledgments.addEventListener("click", () => showAcknowledgments({ requireAccept: false }));
+  }
+
+  // First-launch: show acknowledgments and require acceptance.
+  (async function checkAcknowledgments() {
+    if (!window.subforge || !window.subforge.getState) return;
+    try {
+      const accepted = await window.subforge.getState("acknowledgmentsAccepted", false);
+      if (!accepted) showAcknowledgments({ requireAccept: true });
+    } catch (_) { /* non-blocking */ }
+  })();
+
   // --- Build word groups from current transcription ---
   function buildStudioGroups() {
     studioGroups = [];

@@ -1319,6 +1319,83 @@ body {
   justify-content: flex-end;
 }
 
+/* --- Acknowledgments modal --- */
+.ack-modal {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 22px 24px;
+  width: min(560px, 90vw);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.ack-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.ack-modal-body {
+  overflow-y: auto;
+  padding-right: 6px;
+  flex: 1;
+  min-height: 0;
+}
+
+.ack-intro {
+  margin: 0 0 12px 0;
+  font-size: 13px;
+  color: var(--text-muted, #aaa);
+  line-height: 1.5;
+}
+
+.ack-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 14px 0;
+  font-size: 12.5px;
+  line-height: 1.7;
+}
+
+.ack-list li {
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.ack-list li:last-child { border-bottom: none; }
+
+.ack-list a { color: var(--accent); text-decoration: none; }
+.ack-list a:hover { text-decoration: underline; }
+
+.ack-purpose {
+  color: var(--text-muted, #888);
+  font-size: 11.5px;
+}
+
+.ack-footnote {
+  margin: 0 0 4px 0;
+  font-size: 11.5px;
+  color: var(--text-muted, #888);
+  font-style: italic;
+}
+
+.ack-agree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 0;
+  font-size: 13px;
+  user-select: none;
+  cursor: pointer;
+}
+
+.ack-agree-row input[type="checkbox"] {
+  width: 16px; height: 16px;
+  cursor: pointer;
+}
+
 /* --- Preset row --- */
 .studio-preset-row {
   display: flex;

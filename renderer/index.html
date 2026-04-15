@@ -687,7 +687,45 @@
       <span id="theme-toggle-icon" class="theme-icon">☀</span>
       <span id="theme-toggle-label">Light Mode</span>
     </button>
+
+    <label class="setting-label">About</label>
+    <button id="btn-acknowledgments" class="theme-toggle-btn" title="Third-party licenses & acknowledgments">
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16Zm.93-9.412-1 4.705c-.07.34.029.533.304.533.194 0 .487-.07.686-.246l-.088.416c-.287.346-.92.598-1.465.598-.703 0-1.002-.422-.808-1.319l.738-3.468c.064-.293.006-.399-.287-.47l-.451-.081.082-.381 2.29-.287zM8 5.5a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"/></svg>
+      <span>Acknowledgments</span>
+    </button>
   </aside>
+
+  <!-- Acknowledgments Modal -->
+  <div id="ack-modal" class="prompt-modal-overlay hidden">
+    <div class="ack-modal">
+      <div class="ack-modal-title" id="ack-modal-title">Acknowledgments</div>
+      <div class="ack-modal-body">
+        <p class="ack-intro">CapForge stands on the shoulders of these open-source projects. By using this app you agree to comply with their respective licenses.</p>
+        <ul class="ack-list">
+          <li><strong>Electron</strong> — MIT License — <span class="ack-purpose">desktop shell</span></li>
+          <li><strong>Python</strong> — Python Software Foundation License — <span class="ack-purpose">embedded runtime</span></li>
+          <li><strong>FFmpeg</strong> — LGPL v2.1+ — <span class="ack-purpose">audio/video decode &amp; encode</span></li>
+          <li><strong>WhisperX</strong> — BSD-2-Clause — <span class="ack-purpose">word-aligned transcription</span></li>
+          <li><strong>faster-whisper / CTranslate2</strong> — MIT — <span class="ack-purpose">Whisper inference engine</span></li>
+          <li><strong>OpenAI Whisper</strong> — MIT — <span class="ack-purpose">underlying ASR model</span></li>
+          <li><strong>pyannote-audio</strong> — MIT — <span class="ack-purpose">speaker diarization (optional)</span></li>
+          <li><strong>PyTorch / torchaudio</strong> — BSD-3-Clause — <span class="ack-purpose">ML framework</span></li>
+          <li><strong>Pillow</strong> — HPND — <span class="ack-purpose">subtitle text rasterization</span></li>
+          <li><strong>FastAPI &amp; uvicorn</strong> — MIT / BSD-3 — <span class="ack-purpose">backend HTTP/WS server</span></li>
+          <li><strong>wavesurfer.js</strong> — BSD-3-Clause — <span class="ack-purpose">audio waveform UI</span></li>
+          <li><strong>Bundled fonts</strong> — 100% Free license via <a href="https://www.dafont.com" target="_blank" rel="noopener">dafont.com</a> — <span class="ack-purpose">caption typefaces</span></li>
+        </ul>
+        <p class="ack-footnote">Full license texts for each component are distributed with their respective binaries inside the installed application folder.</p>
+      </div>
+      <label class="ack-agree-row hidden" id="ack-agree-row">
+        <input type="checkbox" id="ack-agree-check" />
+        <span>I have read and accept the licenses above</span>
+      </label>
+      <div class="prompt-modal-actions">
+        <button id="ack-modal-ok" class="primary-btn">Close</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Prompt Modal -->
   <div id="prompt-modal" class="prompt-modal-overlay hidden">

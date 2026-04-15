@@ -22,7 +22,7 @@
 const { app, dialog, shell } = require("electron");
 const https = require("https");
 
-const GITHUB_REPO = "FRScz/capforge"; // <-- update to the real repo when published
+const GITHUB_REPO = "FRSname/CapForge";
 const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
 const FETCH_TIMEOUT_MS = 5000;
 
