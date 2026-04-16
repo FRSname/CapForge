@@ -1,81 +1,95 @@
 /**
- * Manages a transcription job: connects to the backend WebSocket, streams
- * progress events, and resolves with the final TranscriptionResult.
- *
- * Usage:
- *   const { progress, start, cancel } = useTranscription()
- *   await start(filePath, options)
+ * Manages a transcription job via the CapForge backend API.
+ * Mirrors the flow in renderer/js/app.js: POST /api/transcribe,
+ * stream /ws/progress, then GET /api/result.
  */
 
 import { useCallback, useRef, useState } from 'react'
-import type { ProgressEvent, TranscriptionResult } from '../types/app'
+import { api } from '../lib/api'
+import type { ProgressUpdate } from '../lib/api'
+import type { TranscriptionResult } from '../types/app'
 
 interface TranscriptionOptions {
   language?: string
   model?: string
   diarize?: boolean
+  outputDir?: string
 }
 
 interface UseTranscriptionReturn {
-  progress: ProgressEvent | null
+  progress: ProgressUpdate | null
   start: (filePath: string, options?: TranscriptionOptions) => Promise<TranscriptionResult>
   cancel: () => void
 }
 
 export function useTranscription(): UseTranscriptionReturn {
-  const [progress, setProgress] = useState<ProgressEvent | null>(null)
-  const wsRef = useRef<WebSocket | null>(null)
+  const [progress, setProgress] = useState<ProgressUpdate | null>(null)
+  const resolveRef = useRef<((result: TranscriptionResult) => void) | null>(null)
+  const rejectRef  = useRef<((err: Error) => void) | null>(null)
+  const cancelledRef = useRef(false)
 
   const cancel = useCallback(() => {
-    wsRef.current?.close()
-    wsRef.current = null
+    cancelledRef.current = true
+    api.disconnectProgress()
+    api.cancelJob().catch(() => {/* best-effort */})
+    rejectRef.current?.(new Error('Cancelled'))
+    resolveRef.current = null
+    rejectRef.current = null
   }, [])
 
   const start = useCallback(async (
     filePath: string,
     options: TranscriptionOptions = {}
   ): Promise<TranscriptionResult> => {
-    const port = await window.subforge.getBackendPort()
-    const baseUrl = `http://127.0.0.1:${port}`
+    cancelledRef.current = false
+    setProgress(null)
 
-    // POST to kick off the job
-    const res = await fetch(`${baseUrl}/transcribe`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ file_path: filePath, ...options }),
+    // Ensure API knows the current port
+    const port = await window.subforge.getBackendPort()
+    api.setPort(port)
+
+    // Kick off the job
+    await api.startTranscription({
+      file_path: filePath,
+      language:  options.language,
+      model:     options.model,
+      diarize:   options.diarize,
+      output_dir: options.outputDir,
     })
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ detail: res.statusText }))
-      throw new Error(err.detail ?? 'Transcription failed')
-    }
+    return new Promise<TranscriptionResult>((resolve, reject) => {
+      resolveRef.current = resolve
+      rejectRef.current  = reject
 
-    const { job_id } = await res.json() as { job_id: string }
+      api.connectProgress((update: ProgressUpdate) => {
+        if (cancelledRef.current) return
 
-    // Stream progress over WebSocket
-    return new Promise((resolve, reject) => {
-      const ws = new WebSocket(`ws://127.0.0.1:${port}/ws/progress/${job_id}`)
-      wsRef.current = ws
+        setProgress(update)
 
-      ws.onmessage = (e: MessageEvent) => {
-        const event = JSON.parse(e.data as string) as ProgressEvent
-        setProgress(event)
-
-        if (event.step === 'done') {
-          ws.close()
-          // Fetch final result
-          fetch(`${baseUrl}/result/${job_id}`)
-            .then(r => r.json() as Promise<TranscriptionResult>)
-            .then(resolve)
-            .catch(reject)
-        } else if (event.step === 'error') {
-          ws.close()
-          reject(new Error(event.message))
+        if (update.step === 'done') {
+          api.disconnectProgress()
+          // Map from API result shape to our app types
+          api.getResult().then(raw => {
+            const result: TranscriptionResult = {
+              segments: raw.segments.map(s => ({
+                id:      s.id ?? crypto.randomUUID(),
+                start:   s.start,
+                end:     s.end,
+                text:    s.text,
+                words:   s.words,
+                speaker: s.speaker,
+              })),
+              language:  raw.language,
+              duration:  raw.duration,
+              audioPath: raw.audio_path,
+            }
+            resolve(result)
+          }).catch(reject)
+        } else if (update.step === 'error') {
+          api.disconnectProgress()
+          reject(new Error(update.message))
         }
-      }
-
-      ws.onerror = () => reject(new Error('WebSocket error'))
-      ws.onclose = (e) => { if (!e.wasClean) reject(new Error('WebSocket closed unexpectedly')) }
+      })
     })
   }, [])
 

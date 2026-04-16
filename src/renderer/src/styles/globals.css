@@ -60,3 +60,45 @@ html, body, #root {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255 255 255 / 0.12); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255 255 255 / 0.22); }
+
+/* ── Shared button utilities ─────────────────────────────────── */
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  transition: color var(--duration-fast), background var(--duration-fast);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+.icon-btn:hover:not(:disabled) { color: var(--color-text); background: rgba(255 255 255 / 0.06); }
+.icon-btn:disabled              { opacity: 0.4; cursor: default; }
+
+.tl-btn {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255 255 255 / 0.1);
+  color: rgba(255 255 255 / 0.5);
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--duration-fast), border-color var(--duration-fast);
+  line-height: 1.6;
+}
+.tl-btn:hover { color: rgba(255 255 255 / 0.9); border-color: rgba(255 255 255 / 0.25); }
+
+.titlebar-btn {
+  font-size: 12px;
+  padding: 2px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(255 255 255 / 0.1);
+  color: var(--color-text-muted);
+  background: transparent;
+  cursor: pointer;
+  transition: color var(--duration-fast), background var(--duration-fast);
+}
+.titlebar-btn:hover { color: var(--color-text); background: rgba(255 255 255 / 0.06); }
