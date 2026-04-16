@@ -4,18 +4,18 @@ import { TitleBar } from './components/TitleBar/TitleBar'
 import { DropZoneScreen } from './components/screens/DropZoneScreen'
 import { ProgressScreen } from './components/screens/ProgressScreen'
 import { ResultsScreen } from './components/screens/ResultsScreen'
+import { SettingsPanel } from './components/SettingsPanel'
 
 export function App() {
-  const [screen, setScreen] = useState<Screen>('file')
-  const [filePath, setFilePath] = useState<string | null>(null)
-  const [result, setResult] = useState<TranscriptionResult | null>(null)
+  const [screen,          setScreen]          = useState<Screen>('file')
+  const [filePath,        setFilePath]        = useState<string | null>(null)
+  const [result,          setResult]          = useState<TranscriptionResult | null>(null)
+  const [settingsOpen,    setSettingsOpen]    = useState(false)
 
-  function handleFileSelected(path: string) {
-    setFilePath(path)
-  }
+  function handleFileSelected(path: string) { setFilePath(path || null) }
 
-  function handleTranscribeStart() {
-    setScreen('progress')
+  function handleStart() {
+    if (filePath) setScreen('progress')
   }
 
   function handleTranscribeDone(data: TranscriptionResult) {
@@ -23,17 +23,18 @@ export function App() {
     setScreen('results')
   }
 
-  function handleNewTranscription() {
+  function handleNew() {
     setFilePath(null)
     setResult(null)
     setScreen('file')
   }
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full" style={{ background: 'var(--color-bg)' }}>
       <TitleBar
         screen={screen}
-        onNew={handleNewTranscription}
+        onNew={handleNew}
+        onSettingsToggle={() => setSettingsOpen(o => !o)}
       />
 
       <main className="flex-1 overflow-hidden">
@@ -41,24 +42,25 @@ export function App() {
           <DropZoneScreen
             filePath={filePath}
             onFileSelected={handleFileSelected}
-            onStart={handleTranscribeStart}
+            onStart={handleStart}
           />
         )}
-
         {screen === 'progress' && (
           <ProgressScreen
             filePath={filePath!}
             onDone={handleTranscribeDone}
-            onCancel={handleNewTranscription}
+            onCancel={handleNew}
           />
         )}
-
         {screen === 'results' && result && (
-          <ResultsScreen
-            result={result}
-          />
+          <ResultsScreen result={result} />
         )}
       </main>
+
+      <SettingsPanel
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+      />
     </div>
   )
 }
