@@ -1,7 +1,7 @@
 {
   "name": "capforge",
   "productName": "CapForge",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "description": "CapForge — Auto subtitle generator with word-by-word alignment",
   "main": "electron/main.js",
   "author": {
@@ -12,6 +12,9 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "dev:react": "electron-vite dev",
+    "build:react": "electron-vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json",
     "backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
@@ -19,8 +22,18 @@
     "dist:dir": "electron-builder --dir"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
     "electron": "^33.0.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^5.0.0",
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5",
+    "tailwindcss": "^4.2.2",
+    "typescript": "^6.0.2",
+    "vite": "^8.0.8"
   },
   "dependencies": {
     "tree-kill": "^1.2.2",
@@ -66,22 +79,30 @@
         {
           "from": "resources/bin-win",
           "to": "bin",
-          "filter": ["**/*"]
+          "filter": [
+            "**/*"
+          ]
         },
         {
           "from": "resources/python",
           "to": "python",
-          "filter": ["python-embed.zip"]
+          "filter": [
+            "python-embed.zip"
+          ]
         },
         {
           "from": "Fonts",
           "to": "Fonts",
-          "filter": ["**/*.{ttf,otf,woff,woff2,TTF,OTF}"]
+          "filter": [
+            "**/*.{ttf,otf,woff,woff2,TTF,OTF}"
+          ]
         }
       ]
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "category": "public.app-category.video",
       "hardenedRuntime": true,
       "entitlements": "build/entitlements.mac.plist",
@@ -92,17 +113,23 @@
         {
           "from": "resources/bin-mac",
           "to": "bin",
-          "filter": ["**/*"]
+          "filter": [
+            "**/*"
+          ]
         },
         {
           "from": "resources/python",
           "to": "python",
-          "filter": ["python-mac-arm64.tar.gz"]
+          "filter": [
+            "python-mac-arm64.tar.gz"
+          ]
         },
         {
           "from": "Fonts",
           "to": "Fonts",
-          "filter": ["**/*.{ttf,otf,woff,woff2,TTF,OTF}"]
+          "filter": [
+            "**/*.{ttf,otf,woff,woff2,TTF,OTF}"
+          ]
         }
       ]
     },
