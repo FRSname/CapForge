@@ -1850,18 +1850,19 @@ select.setting-input {
   padding: 12px;
 }
 
-/* Style Controls */
+/* Style Controls 
 .studio-controls {
   display: grid;
   grid-template-columns: 1fr;
   gap: 6px 12px;
   margin-bottom: 12px;
 }
+*/
 
 .studio-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  padding-top: 8px;
 }
 
 .studio-row.studio-row-col {
@@ -2285,7 +2286,8 @@ button.studio-card-head:hover { background: var(--bg-secondary); }
 
 /* Collapsible (height + opacity animation) */
 .collapsible {
-  overflow: hidden;
+  overflow-y: clip;   /* clips vertically for max-height anim; does NOT clip x */
+  overflow-x: visible;
   transition: max-height 0.25s ease, opacity 0.2s ease, padding 0.2s ease;
   max-height: 2000px;
   opacity: 1;
@@ -2303,6 +2305,7 @@ button.studio-card-head:hover { background: var(--bg-secondary); }
   background: transparent;
   border: none;
   border-radius: 0;
+  padding: 0;
 }
 
 /* Render card: remove the inner section-label "Render" ghost spacing */
