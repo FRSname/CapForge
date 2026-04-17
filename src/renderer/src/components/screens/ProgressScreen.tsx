@@ -51,7 +51,7 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
   const stepKeys = STEPS.map(s => s.key)
   const currentKey  = (progress?.step ?? 'loading_model') as StepKey
   const currentIdx  = stepKeys.indexOf(currentKey)
-  const pct         = progress?.pct ?? 0
+  const pct         = Math.round(progress?.pct ?? 0)
 
   function handleCancel() { cancel(); onCancel() }
 

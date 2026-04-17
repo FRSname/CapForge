@@ -24,6 +24,17 @@ export interface WordStyleDefaults {
   bold:        boolean
   /** The global font name, if any — used only to render "— Global —" label context. */
   fontName?:   string
+  /** Global word transition — used as the effective transition when override is "— Global —". */
+  wordTransition?: WordTransition
+  // Global sub-settings — pre-fill values shown for per-word overrides
+  highlightRadius?:    number
+  highlightPadX?:      number
+  highlightPadY?:      number
+  highlightOpacity?:   number
+  underlineThickness?: number
+  underlineColor?:     string
+  bounceStrength?:     number
+  scaleFactor?:        number
 }
 
 interface WordStylePopupProps {
@@ -49,8 +60,8 @@ const TRANSITIONS: Array<[WordTransition | '', string]> = [
 ]
 
 // Popup dimensions used for viewport clamping (approximate).
-const POPUP_W = 260
-const POPUP_H = 340
+const POPUP_W = 280
+const POPUP_H = 480
 
 // Re-export for call sites that want a single import path.
 export type { WordOverrides } from '../../types/app'
@@ -69,6 +80,21 @@ export function WordStylePopup({
   const [fontFamily,   setFontFamily]   = useState(overrides.font_family       ?? '')
   const [fontPath,     setFontPath]     = useState(overrides.custom_font_path  ?? '')
   const [transition,   setTransition]   = useState<WordTransition | ''>(overrides.word_transition ?? '')
+
+  // Per-word position nudge (px) — additive to the row layout.
+  const [posOffX,      setPosOffX]      = useState(overrides.pos_offset_x ?? 0)
+  const [posOffY,      setPosOffY]      = useState(overrides.pos_offset_y ?? 0)
+
+  // Per-effect sub-settings — pre-fill with global values so sliders show
+  // something sensible before the user changes them.
+  const [hlRadius,     setHlRadius]     = useState(overrides.highlight_radius    ?? defaults.highlightRadius    ?? 0)
+  const [hlPadX,       setHlPadX]       = useState(overrides.highlight_padding_x ?? defaults.highlightPadX      ?? 0)
+  const [hlPadY,       setHlPadY]       = useState(overrides.highlight_padding_y ?? defaults.highlightPadY      ?? 0)
+  const [hlOpacity,    setHlOpacity]    = useState(overrides.highlight_opacity   ?? defaults.highlightOpacity   ?? 1)
+  const [ulThick,      setUlThick]      = useState(overrides.underline_thickness ?? defaults.underlineThickness ?? 3)
+  const [ulColor,      setUlColor]      = useState(overrides.underline_color     ?? defaults.underlineColor     ?? defaults.activeColor)
+  const [bStrength,    setBStrength]    = useState(overrides.bounce_strength     ?? defaults.bounceStrength     ?? 0.3)
+  const [sFactor,      setSFactor]      = useState(overrides.scale_factor        ?? defaults.scaleFactor        ?? 1.2)
 
   const [fonts,        setFonts]        = useState<FontInfo[]>([])
   const popupRef = useRef<HTMLDivElement>(null)
@@ -114,6 +140,27 @@ export function WordStylePopup({
 
   // ── Actions ────────────────────────────────────────────────────
 
+  // Effective transition — what will actually run for this word at render time.
+  // Used to decide which sub-settings UI to show.
+  const effectiveTransition: WordTransition | '' = transition || (defaults.wordTransition ?? '')
+
+  // Live preview — re-apply on every state change so the editor reflects
+  // edits without the user clicking Apply. The Apply button is now just an
+  // explicit "I'm done" close action.
+  // Using a ref to skip the very first render avoids an unnecessary state
+  // ping when the popup opens for a word that already has overrides.
+  const firstRenderRef = useRef(true)
+  useEffect(() => {
+    if (firstRenderRef.current) { firstRenderRef.current = false; return }
+    onApply(buildOverrides())
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    textColor, activeColor, scale, bold, fontFamily, fontPath, transition,
+    posOffX, posOffY,
+    hlRadius, hlPadX, hlPadY, hlOpacity,
+    ulThick, ulColor, bStrength, sFactor,
+  ])
+
   function buildOverrides(): WordOverrides {
     // Mirror vanilla's "hasOverride" logic: only include fields that differ
     // from the global. The exporter uses defined-keys to know what to apply.
@@ -127,6 +174,29 @@ export function WordStylePopup({
       if (fontPath) next.custom_font_path = fontPath
     }
     if (transition) next.word_transition = transition
+
+    if (posOffX !== 0) next.pos_offset_x = posOffX
+    if (posOffY !== 0) next.pos_offset_y = posOffY
+
+    // Sub-settings — only saved when they differ from the global default AND
+    // the effective transition uses them. Avoids polluting the override blob
+    // with unrelated values.
+    if (effectiveTransition === 'highlight') {
+      if (hlRadius  !== (defaults.highlightRadius  ?? 0)) next.highlight_radius    = hlRadius
+      if (hlPadX    !== (defaults.highlightPadX    ?? 0)) next.highlight_padding_x = hlPadX
+      if (hlPadY    !== (defaults.highlightPadY    ?? 0)) next.highlight_padding_y = hlPadY
+      if (hlOpacity !== (defaults.highlightOpacity ?? 1)) next.highlight_opacity   = hlOpacity
+    }
+    if (effectiveTransition === 'underline') {
+      if (ulThick !== (defaults.underlineThickness ?? 3))                       next.underline_thickness = ulThick
+      if (ulColor !== (defaults.underlineColor ?? defaults.activeColor))        next.underline_color     = ulColor
+    }
+    if (effectiveTransition === 'bounce') {
+      if (bStrength !== (defaults.bounceStrength ?? 0.3)) next.bounce_strength = bStrength
+    }
+    if (effectiveTransition === 'scale') {
+      if (sFactor !== (defaults.scaleFactor ?? 1.2)) next.scale_factor = sFactor
+    }
     return next
   }
 
@@ -159,11 +229,13 @@ export function WordStylePopup({
     <div
       ref={popupRef}
       style={popupStyle}
-      className="w-[260px] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl flex flex-col gap-2 p-3 text-xs"
+      className="w-[280px] max-h-[80vh] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl flex flex-col p-3 text-xs"
     >
-      <div className="font-semibold text-[var(--color-text-2)]">
+      <div className="font-semibold text-[var(--color-text-2)] mb-2 shrink-0">
         Style: &ldquo;{word}&rdquo;
       </div>
+
+      <div className="flex flex-col gap-2 overflow-y-auto pr-1 min-h-0">
 
       <ColorRow label="Text color"   value={textColor}   onChange={setTextColor} />
       <ColorRow label="Active color" value={activeColor} onChange={setActiveColor} />
@@ -260,8 +332,46 @@ export function WordStylePopup({
         </select>
       </div>
 
+      {/* Conditional animation sub-settings — scoped to the effective
+          transition so the popup doesn't show options that won't take effect. */}
+      {effectiveTransition === 'highlight' && (
+        <SubSettings title="Highlight options">
+          <NumberRow label="Radius"   value={hlRadius}  onChange={setHlRadius}  min={0} max={50} />
+          <NumberRow label="Pad X"    value={hlPadX}    onChange={setHlPadX}    min={0} max={100} />
+          <NumberRow label="Pad Y"    value={hlPadY}    onChange={setHlPadY}    min={0} max={100} />
+          <NumberRow label="Opacity"  value={hlOpacity} onChange={setHlOpacity} min={0} max={1} step={0.05} />
+        </SubSettings>
+      )}
+
+      {effectiveTransition === 'underline' && (
+        <SubSettings title="Underline options">
+          <NumberRow label="Thickness" value={ulThick} onChange={setUlThick} min={1} max={20} />
+          <ColorRow  label="Color"     value={ulColor} onChange={setUlColor} />
+        </SubSettings>
+      )}
+
+      {effectiveTransition === 'bounce' && (
+        <SubSettings title="Bounce options">
+          <NumberRow label="Strength" value={bStrength} onChange={setBStrength} min={0} max={2} step={0.05} />
+        </SubSettings>
+      )}
+
+      {effectiveTransition === 'scale' && (
+        <SubSettings title="Scale options">
+          <NumberRow label="Factor" value={sFactor} onChange={setSFactor} min={1} max={3} step={0.05} />
+        </SubSettings>
+      )}
+
+      {/* Position offsets — additive to the row layout, in px. */}
+      <SubSettings title="Position offset">
+        <NumberRow label="Offset X" value={posOffX} onChange={setPosOffX} min={-200} max={200} />
+        <NumberRow label="Offset Y" value={posOffY} onChange={setPosOffY} min={-200} max={200} />
+      </SubSettings>
+
+      </div>
+
       {/* Footer */}
-      <div className="flex gap-2 mt-1">
+      <div className="flex gap-2 mt-2 shrink-0">
         <button
           className="flex-1 py-1 rounded border border-[var(--color-border)] hover:bg-white/[0.04] text-[var(--color-text-2)] text-xs transition-colors"
           onClick={handleClear}
@@ -273,9 +383,58 @@ export function WordStylePopup({
           className="flex-1 py-1 rounded bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs transition-colors"
           onClick={handleApply}
         >
-          Apply
+          Done
         </button>
       </div>
+    </div>
+  )
+}
+
+// ── SubSettings (collapsible-looking group) ────────────────────────
+
+function SubSettings({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5 pt-1.5 border-t border-[var(--color-border)]">
+      <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-3)]">
+        {title}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// ── NumberRow ────────────────────────────────────────────────────
+
+interface NumberRowProps {
+  label:    string
+  value:    number
+  onChange: (v: number) => void
+  min:      number
+  max:      number
+  step?:    number
+}
+
+function NumberRow({ label, value, onChange, min, max, step = 1 }: NumberRowProps) {
+  return (
+    <div className="flex items-center gap-2">
+      <label className="w-20 shrink-0 text-[var(--color-text-2)]">{label}</label>
+      <input
+        type="range"
+        min={min} max={max} step={step}
+        value={value}
+        onChange={e => onChange(parseFloat(e.target.value))}
+        className="flex-1 min-w-0"
+      />
+      <input
+        type="number"
+        min={min} max={max} step={step}
+        value={value}
+        onChange={e => {
+          const v = parseFloat(e.target.value)
+          if (!isNaN(v)) onChange(v)
+        }}
+        className="w-14 shrink-0 bg-[var(--color-surface-2)] border border-[var(--color-border)] rounded px-1 py-0.5 text-xs tabular-nums"
+      />
     </div>
   )
 }

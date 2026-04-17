@@ -1,83 +1,55 @@
 /**
- * Export / Render panel — quick-render buttons + full custom render flow.
- * Ports renderSubtitleVideo() from app.js:3644-3760.
+ * Export / Render panel — quick-render buttons, SRT/VTT exports, output picker.
  *
- * The payload sent to /api/render-video is assembled by buildRenderBody()
- * (lib/render.ts). This component is just UI + progress wiring.
+ * Custom Render (the controls + "Render with current settings" button) lives
+ * in CustomRenderPanel below this card.
+ *
+ * The render lifecycle is owned by useRender() in StudioPanel — both panels
+ * share one controller so progress is consistent regardless of which button
+ * triggered the render.
  */
 
-import { useRef, useState } from 'react'
 import { StudioCard } from './StudioCard'
 import { api } from '../../lib/api'
-import { buildRenderBody, type RenderOverrides } from '../../lib/render'
-import type { StudioSettings } from './StudioPanel'
-import type { Segment } from '../../types/app'
+import { dirname } from '../../lib/render'
+import type { VideoInfo } from '../../lib/api'
+import type { RenderController } from '../../hooks/useRender'
 
 interface ExportPanelProps {
-  settings:     StudioSettings
-  groups:       Segment[]
-  groupsEdited: boolean
+  audioPath:       string
+  sourceVideoInfo: VideoInfo | null
+  render:          RenderController
+  outputDir:       string
+  onOutputDir:     (dir: string) => void
 }
 
-type RenderStatus = 'idle' | 'rendering' | 'done' | 'error'
+export function ExportPanel({ audioPath, sourceVideoInfo, render, outputDir, onOutputDir }: ExportPanelProps) {
+  const { busy, startRender } = render
 
-export function ExportPanel({ settings, groups, groupsEdited }: ExportPanelProps) {
-  const [status,    setStatus]    = useState<RenderStatus>('idle')
-  const [progress,  setProgress]  = useState(0)
-  const [elapsed,   setElapsed]   = useState('')
-  const [message,   setMessage]   = useState<string>('')
-  const [outputDir, setOutputDir] = useState<string>('')
-  const timerRef                  = useRef<number | null>(null)
+  // Empty outputDir means "Same as source" — derive the source file's folder.
+  const effectiveOutputDir = outputDir || dirname(audioPath)
 
-  function stopTimer() {
-    if (timerRef.current != null) {
-      clearInterval(timerRef.current)
-      timerRef.current = null
-    }
+  // Quick-render uses source resolution + fps when available, falls back to
+  // 1080p/30fps for audio-only files.
+  const srcRes: [number, number] = (sourceVideoInfo?.width && sourceVideoInfo?.height)
+    ? [sourceVideoInfo.width, sourceVideoInfo.height]
+    : [1920, 1080]
+  const srcFps = sourceVideoInfo?.fps ? Math.round(sourceVideoInfo.fps) : 30
+
+  const hasVideo = !!(sourceVideoInfo?.width && sourceVideoInfo?.height)
+
+  function quickBaked() {
+    startRender(
+      { renderMode: 'baked', format: 'mp4', resolution: srcRes, fps: srcFps, bitrate: '40M' },
+      effectiveOutputDir,
+    )
   }
-
-  async function startRender(overrides: RenderOverrides = {}) {
-    setStatus('rendering')
-    setProgress(0)
-    setElapsed('00:00')
-    setMessage('Starting…')
-
-    const t0 = Date.now()
-    stopTimer()
-    timerRef.current = window.setInterval(() => {
-      const s = Math.floor((Date.now() - t0) / 1000)
-      setElapsed(`${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`)
-    }, 1000)
-
-    api.connectProgress(update => {
-      setProgress(update.pct)
-      if (update.message)     setMessage(update.message)
-      if (update.step === 'done')  { stopTimer(); setStatus('done');  api.disconnectProgress() }
-      if (update.step === 'error') { stopTimer(); setStatus('error'); api.disconnectProgress() }
-    })
-
-    try {
-      const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir || undefined)
-      await api.renderVideo(body)
-    } catch (err) {
-      stopTimer()
-      const msg = err instanceof Error ? err.message : 'Render failed'
-      const cancelled = msg.toLowerCase().includes('cancel')
-      setMessage(cancelled ? 'Cancelled.' : `Error: ${msg}`)
-      setStatus(cancelled ? 'idle' : 'error')
-      api.disconnectProgress()
-    }
+  function quickOverlay() {
+    startRender(
+      { renderMode: 'overlay', format: 'mov', resolution: srcRes, fps: srcFps, bitrate: '40M' },
+      effectiveOutputDir,
+    )
   }
-
-  function cancelRender() {
-    api.cancelJob().catch(() => { /* ignore */ })
-    api.disconnectProgress()
-    stopTimer()
-    setStatus('idle')
-    setMessage('Cancelled.')
-  }
-
-  const busy = status === 'rendering'
 
   return (
     <StudioCard title="Export / Render" defaultOpen>
@@ -87,45 +59,57 @@ export function ExportPanel({ settings, groups, groupsEdited }: ExportPanelProps
         <span className="text-[10px] text-[var(--color-text-3)] shrink-0">Output:</span>
         <span
           className="flex-1 min-w-0 text-[11px] text-[var(--color-text-2)] truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
-          title={outputDir || 'Same as source file'}
+          title={outputDir || `Same as source (${effectiveOutputDir})`}
         >
-          {outputDir ? outputDir.split('/').pop() || outputDir : 'Same as source'}
+          {outputDir
+            ? outputDir.split(/[\\/]/).pop() || outputDir
+            : 'Same as source'}
         </span>
         <button
           className="btn-ghost text-[11px] py-1 px-2 shrink-0"
           onClick={async () => {
             const dir = await window.subforge.pickOutputDir()
-            if (dir) setOutputDir(dir)
+            if (dir) onOutputDir(dir)
           }}
           disabled={busy}
         >
           Browse
         </button>
+        {outputDir && (
+          <button
+            className="btn-ghost text-[11px] py-1 px-2 shrink-0"
+            onClick={() => onOutputDir('')}
+            disabled={busy}
+            title="Reset to Same as source"
+          >
+            ✕
+          </button>
+        )}
       </div>
 
-      {/* Quick render buttons — fixed 1080p MP4 baked / MOV overlay. */}
+      {/* Quick render buttons — source resolution/fps + max bitrate. */}
       <div className="grid grid-cols-2 gap-2">
         <QuickRenderBtn
           icon={<VideoIcon />}
           title="Render Video"
-          sub="MP4 · baked in"
-          disabled={busy}
-          onClick={() => startRender({ renderMode: 'baked', format: 'mp4', resolution: [1920, 1080] })}
+          sub={hasVideo ? `MP4 · ${srcRes[0]}×${srcRes[1]} · ${srcFps}fps` : 'MP4 · audio-only fallback'}
+          disabled={busy || !hasVideo}
+          onClick={quickBaked}
         />
         <QuickRenderBtn
           icon={<OverlayIcon />}
           title="Subtitles Only"
-          sub="MOV · transparent"
+          sub={`MOV · ${srcRes[0]}×${srcRes[1]} · ${srcFps}fps`}
           disabled={busy}
-          onClick={() => startRender({ renderMode: 'overlay', format: 'mov', resolution: [1920, 1080] })}
+          onClick={quickOverlay}
         />
       </div>
 
-      {/* SRT / ASS / VTT export row */}
+      {/* SRT / VTT export row */}
       <div className="flex gap-1.5 mt-1">
         <button
           className="btn-ghost flex-1 text-[11px] py-1 justify-center"
-          onClick={() => api.exportResult({ formats: ['srt_word'] }).catch(() => {})}
+          onClick={() => api.exportResult(buildExportParams(['srt_word'], effectiveOutputDir)).catch(() => {})}
           disabled={busy}
           title="Word-aligned SRT (per-word timing)"
         >
@@ -133,7 +117,7 @@ export function ExportPanel({ settings, groups, groupsEdited }: ExportPanelProps
         </button>
         <button
           className="btn-ghost flex-1 text-[11px] py-1 justify-center"
-          onClick={() => api.exportResult({ formats: ['srt_standard'] }).catch(() => {})}
+          onClick={() => api.exportResult(buildExportParams(['srt_standard'], effectiveOutputDir)).catch(() => {})}
           disabled={busy}
           title="Classic SRT (sentence timing)"
         >
@@ -141,51 +125,19 @@ export function ExportPanel({ settings, groups, groupsEdited }: ExportPanelProps
         </button>
         <button
           className="btn-ghost flex-1 text-[11px] py-1 justify-center"
-          onClick={() => api.exportResult({ formats: ['vtt'] }).catch(() => {})}
+          onClick={() => api.exportResult(buildExportParams(['vtt'], effectiveOutputDir)).catch(() => {})}
           disabled={busy}
         >
           .VTT
         </button>
       </div>
-
-      {/* Custom render — uses everything from the Render card above. */}
-      <button
-        className="btn-primary w-full justify-center mt-2"
-        disabled={busy}
-        onClick={() => startRender()}
-      >
-        Render with current settings
-      </button>
-      <p className="text-[10px] text-[var(--color-text-3)] text-center">
-        {settings.resolution[0]}×{settings.resolution[1]} · {settings.fps}fps · {settings.format.toUpperCase()} · {settings.renderMode}
-      </p>
-
-      {/* Render progress */}
-      {busy && (
-        <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-[var(--color-border)]">
-          <div className="w-full h-1 rounded-full overflow-hidden bg-[var(--color-surface-3)]">
-            <div
-              className="h-full rounded-full transition-all duration-300 bg-[var(--color-accent)]"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-xs tabular-nums text-[var(--color-text-2)]">{progress}%</span>
-            <span className="text-[10px] text-[var(--color-text-3)] truncate flex-1">{message}</span>
-            <span className="text-xs tabular-nums text-[var(--color-text-3)]">{elapsed}</span>
-            <button className="btn-danger text-[11px] py-0.5 px-2.5" onClick={cancelRender}>Cancel</button>
-          </div>
-        </div>
-      )}
-
-      {status === 'done' && (
-        <p className="text-xs mt-2 text-[var(--color-success)]">✓ Render complete</p>
-      )}
-      {status === 'error' && (
-        <p className="text-xs mt-2 text-[var(--color-danger)]">{message || 'Render failed — check logs'}</p>
-      )}
     </StudioCard>
   )
+}
+
+/** Backend rejects empty output_dir; only include the field when set. */
+function buildExportParams(formats: string[], outputDir: string) {
+  return outputDir ? { formats, output_dir: outputDir } : { formats }
 }
 
 // ── Sub-components ──────────────────────────────────────────

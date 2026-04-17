@@ -7,12 +7,42 @@ const { app } = require("electron");
 const path = require("path");
 const http = require("http");
 const fs = require("fs");
+const net = require("net");
 
 const { getRuntimePaths, isRuntimeReady } = require("./runtime-setup");
 const platform = require("./platform");
 
 const PROJECT_ROOT = path.join(__dirname, "..");
-const PORT = 8000;
+// Picked from IANA dynamic/private range (49152-65535) to avoid collisions
+// with common dev tools that camp on 8000/3000/5000/etc. The free-port lookup
+// below still falls back to an OS-assigned port if even this one is busy.
+// Mirrored in: backend/main.py (__main__ fallback), package.json `backend`
+// script, src/renderer/src/lib/api.ts (constructor default).
+const PREFERRED_PORT = 53421;
+
+/**
+ * Resolve a free TCP port, preferring `preferred`. If that's busy (another
+ * CapForge instance, an unrelated dev server, etc.), fall back to an
+ * OS-assigned ephemeral port. The renderer reads the actual port via the
+ * `backend:port` IPC handler, so the value isn't hardcoded anywhere else.
+ */
+function findFreePort(preferred) {
+  return new Promise((resolve) => {
+    const tryListen = (port, onFail) => {
+      const srv = net.createServer();
+      srv.unref();
+      srv.once("error", () => {
+        try { srv.close(); } catch {}
+        onFail();
+      });
+      srv.listen(port, "127.0.0.1", () => {
+        const got = srv.address().port;
+        srv.close(() => resolve(got));
+      });
+    };
+    tryListen(preferred, () => tryListen(0, () => resolve(preferred)));
+  });
+}
 
 // Maximum size of the backend log file before it is rotated. Small enough to
 // open quickly in Notepad, large enough to capture one long transcription.
@@ -85,7 +115,7 @@ function findPython() {
 class PythonBackend {
   constructor() {
     this.process = null;
-    this.port = PORT;
+    this.port = PREFERRED_PORT;
     this._output = [];
     this._logStream = null;
   }
@@ -96,7 +126,17 @@ class PythonBackend {
   }
 
   /** Start the uvicorn server. Resolves when the server is reachable. */
-  start() {
+  async start() {
+    // Resolve a free port BEFORE spawning uvicorn. If PREFERRED_PORT is busy
+    // (another CapForge instance, unrelated dev server), fall back to an
+    // OS-assigned port. Without this the spawn still happens, uvicorn fails
+    // to bind silently, and _waitForReady times out 30s later with no
+    // useful diagnostic.
+    this.port = await findFreePort(PREFERRED_PORT);
+    if (this.port !== PREFERRED_PORT) {
+      console.log(`[CapForge] Port ${PREFERRED_PORT} busy — using ${this.port} instead.`);
+    }
+
     return new Promise((resolve, reject) => {
       const python = findPython();
       const binDir = findBundledBinDir();

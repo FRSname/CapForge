@@ -388,7 +388,7 @@ app.whenReady().then(async () => {
 
   // IPC: get backend port
   ipcMain.handle("backend:port", () => {
-    return pythonBackend ? pythonBackend.port : 8000;
+    return pythonBackend ? pythonBackend.port : 53421;
   });
 
   // IPC: save a font file to persistent storage (receives binary data + filename)

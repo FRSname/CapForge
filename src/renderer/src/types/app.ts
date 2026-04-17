@@ -13,6 +13,19 @@ export interface WordOverrides {
   font_family?:        string
   custom_font_path?:   string
   word_transition?:    WordTransition
+  // Per-word position nudge (px) — additive to the row layout.
+  pos_offset_x?:       number
+  pos_offset_y?:       number
+  // Per-word transition sub-setting overrides (only used when the effective
+  // transition for this word matches).
+  highlight_radius?:   number
+  highlight_padding_x?: number
+  highlight_padding_y?: number
+  highlight_opacity?:  number
+  underline_thickness?: number
+  underline_color?:    string
+  bounce_strength?:    number
+  scale_factor?:       number
 }
 
 export type WordTransition =

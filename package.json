@@ -1,7 +1,7 @@
 {
   "name": "capforge",
   "productName": "CapForge",
-  "version": "0.9.1",
+  "version": "0.9.9",
   "description": "CapForge — Auto subtitle generator with word-by-word alignment",
   "main": "electron/main.js",
   "author": {
@@ -15,7 +15,7 @@
     "dev:react": "electron-vite dev",
     "build:react": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.web.json",
-    "backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 8000",
+    "backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 53421",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
@@ -25,7 +25,7 @@
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
+    "@vitejs/plugin-react": "^5.0.0",
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^5.0.0",
@@ -33,7 +33,7 @@
     "react-dom": "^19.2.5",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
-    "vite": "^8.0.8"
+    "vite": "^7.0.0"
   },
   "dependencies": {
     "tree-kill": "^1.2.2",

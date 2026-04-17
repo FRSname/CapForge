@@ -33,6 +33,8 @@ export interface VanillaPreset {
   bgHeightExtra?:   string | number
   textOffsetX?:     string | number
   textOffsetY?:     string | number
+  textAlignH?:      string
+  textAlignV?:      string
   wordTransition?:  string
   animation?:       string
   animDur?:         string | number
@@ -70,6 +72,14 @@ export function vanillaToStudio(p: VanillaPreset): Partial<StudioSettings> {
   if (p.radius != null)         out.bgRadius      = num(p.radius,        STUDIO_DEFAULTS.bgRadius)
   if (p.bgWidthExtra != null)   out.bgWidthExtra  = num(p.bgWidthExtra,  STUDIO_DEFAULTS.bgWidthExtra)
   if (p.bgHeightExtra != null)  out.bgHeightExtra = num(p.bgHeightExtra, STUDIO_DEFAULTS.bgHeightExtra)
+  if (p.textOffsetX != null)    out.textOffsetX   = num(p.textOffsetX,   STUDIO_DEFAULTS.textOffsetX)
+  if (p.textOffsetY != null)    out.textOffsetY   = num(p.textOffsetY,   STUDIO_DEFAULTS.textOffsetY)
+  if (p.textAlignH === 'left' || p.textAlignH === 'center' || p.textAlignH === 'right') {
+    out.textAlignH = p.textAlignH
+  }
+  if (p.textAlignV === 'top' || p.textAlignV === 'middle' || p.textAlignV === 'bottom') {
+    out.textAlignV = p.textAlignV
+  }
 
   if (p.wpg != null)            out.wordsPerGroup = num(p.wpg,           STUDIO_DEFAULTS.wordsPerGroup)
   if (p.lines != null)          out.lines         = num(p.lines,         STUDIO_DEFAULTS.lines)
@@ -118,6 +128,10 @@ export function studioToVanilla(s: StudioSettings): VanillaPreset {
     posY:           String(s.posY),
     bgWidthExtra:   String(s.bgWidthExtra),
     bgHeightExtra:  String(s.bgHeightExtra),
+    textOffsetX:    String(s.textOffsetX),
+    textOffsetY:    String(s.textOffsetY),
+    textAlignH:     s.textAlignH,
+    textAlignV:     s.textAlignV,
     animation:      s.animationType,
     animDur:        String(s.animDuration),
     wordTransition: s.wordStyle,

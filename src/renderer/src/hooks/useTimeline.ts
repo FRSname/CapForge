@@ -6,7 +6,7 @@
  * and mouse-event handlers to attach to the canvas element.
  */
 
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { Segment } from '../types/app'
 
 const RULER_H  = 20
@@ -15,6 +15,13 @@ const TOTAL_H  = RULER_H + TRACK_H
 const EDGE_HIT = 6   // px tolerance for edge-drag detection
 
 export const TIMELINE_HEIGHT = TOTAL_H
+
+// Read a CSS custom property from :root so canvas drawing tracks the theme.
+function cssVar(name: string, fallback: string): string {
+  if (typeof window === 'undefined') return fallback
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
+  return v || fallback
+}
 
 interface UseTimelineOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>
@@ -38,17 +45,20 @@ export function useTimeline({
   canvasRef,
   segments,
   duration,
-  blockColor = '#D4952A',
+  blockColor,
   onSeek,
   onSegmentEdge,
 }: UseTimelineOptions) {
   // Zoom + scroll are mutable refs — we don't need React re-renders when they change,
   // the draw function reads them directly.
   const stateRef = useRef<TimelineState>({ zoom: 1, scrollT: 0 })
+  // Cached current time so the theme observer can redraw without prop plumbing.
+  const lastTimeRef = useRef<number>(0)
 
   // ── Draw ──────────────────────────────────────────────────────────
 
   const draw = useCallback((currentTime: number) => {
+    lastTimeRef.current = currentTime
     const canvas = canvasRef.current
     if (!canvas || !duration) return
 
@@ -72,6 +82,15 @@ export function useTimeline({
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
     ctx.clearRect(0, 0, cssW, cssH)
 
+    // Resolve theme colors fresh each draw so the canvas tracks light/dark.
+    const rulerBg   = cssVar('--color-bg',        '#0d1117')
+    const trackBg   = cssVar('--color-surface',   '#161b22')
+    const tickLine  = cssVar('--color-border-2',  '#30363d')
+    const tickLabel = cssVar('--color-text-3',    '#8b949e')
+    const blockBg   = blockColor || cssVar('--color-amber', '#D4952A')
+    const blockText = '#ffffff'  // amber stays brand-colored — white text reads on both themes
+    const accent    = cssVar('--color-accent',    '#4f8ef7')
+
     const { zoom, scrollT: rawScrollT } = stateRef.current
     const visibleDur = duration / zoom
     const scrollT = Math.max(0, Math.min(rawScrollT, Math.max(0, duration - visibleDur)))
@@ -83,21 +102,20 @@ export function useTimeline({
     const tToX = (t: number) => (t - t0) * pps
 
     // ── Background ────────────────────────────────────────────────
-    ctx.fillStyle = '#0d1117'
+    ctx.fillStyle = rulerBg
     ctx.fillRect(0, 0, cssW, RULER_H)
-    ctx.fillStyle = '#161b22'
+    ctx.fillStyle = trackBg
     ctx.fillRect(0, RULER_H, cssW, TRACK_H)
 
     // ── Ruler ticks + labels ─────────────────────────────────────
     const step = niceStep(visibleDur, cssW)
-    ctx.fillStyle = '#8b949e'
     ctx.font = '10px -apple-system, "Segoe UI", sans-serif'
     ctx.textBaseline = 'middle'
 
     const firstTick = Math.floor(t0 / step) * step
     for (let t = firstTick; t <= t1 + 0.001; t += step) {
       const x = Math.round(tToX(t))
-      ctx.strokeStyle = '#30363d'
+      ctx.strokeStyle = tickLine
       ctx.lineWidth = 1
       ctx.beginPath()
       ctx.moveTo(x + 0.5, 0)
@@ -110,7 +128,7 @@ export function useTimeline({
       const label = mins > 0
         ? `${mins}:${String(secs).padStart(2, '0')}${sub}`
         : `${secs}${sub}s`
-      ctx.fillStyle = '#8b949e'
+      ctx.fillStyle = tickLabel
       ctx.fillText(label, x + 3, RULER_H / 2)
     }
 
@@ -125,7 +143,7 @@ export function useTimeline({
       const h = TRACK_H - PAD * 2
       const r = Math.min(4, h / 2)
 
-      ctx.fillStyle = blockColor
+      ctx.fillStyle = blockBg
       ctx.beginPath()
       ctx.moveTo(x + r, y)
       ctx.lineTo(x + w - r, y)
@@ -144,7 +162,7 @@ export function useTimeline({
         ctx.beginPath()
         ctx.rect(x + 5, y, Math.max(w - 10, 1), h)
         ctx.clip()
-        ctx.fillStyle = '#ffffff'
+        ctx.fillStyle = blockText
         ctx.font = 'bold 11px -apple-system, "Segoe UI", sans-serif'
         ctx.textBaseline = 'middle'
         const label = seg.words.slice(0, 5).map(w => w.word).join(' ').trim()
@@ -157,13 +175,13 @@ export function useTimeline({
     // ── Playhead ──────────────────────────────────────────────────
     if (currentTime != null && currentTime >= t0 && currentTime <= t1) {
       const px = tToX(currentTime)
-      ctx.strokeStyle = '#4f8ef7'
+      ctx.strokeStyle = accent
       ctx.lineWidth = 2
       ctx.beginPath()
       ctx.moveTo(px, 0)
       ctx.lineTo(px, cssH)
       ctx.stroke()
-      ctx.fillStyle = '#4f8ef7'
+      ctx.fillStyle = accent
       ctx.beginPath()
       ctx.moveTo(px - 5, 0)
       ctx.lineTo(px + 5, 0)
@@ -172,6 +190,14 @@ export function useTimeline({
       ctx.fill()
     }
   }, [canvasRef, segments, duration, blockColor])
+
+  // Redraw when the theme class on <html> flips so colors switch live.
+  useEffect(() => {
+    const root = document.documentElement
+    const obs = new MutationObserver(() => draw(lastTimeRef.current))
+    obs.observe(root, { attributes: true, attributeFilter: ['class'] })
+    return () => obs.disconnect()
+  }, [draw])
 
   // ── Interactions ──────────────────────────────────────────────────
 

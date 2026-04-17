@@ -12,7 +12,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TranscriptionResult, Segment } from '../../types/app'
-import { api } from '../../lib/api'
+import { api, type VideoInfo } from '../../lib/api'
 import { buildStudioGroups } from '../../lib/groups'
 import type { ProjectFile, ProjectIOHandle } from '../../lib/project'
 import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
@@ -39,6 +39,7 @@ export function ResultsScreen({ result, projectIORef }: ResultsScreenProps) {
   const [seekTarget, setSeekTarget] = useState<number | null>(null)
   const [settings, setSettings] = useState<StudioSettings>({ ...STUDIO_DEFAULTS })
   const [view, setView] = useState<EditorView>('text')
+  const [sourceVideoInfo, setSourceVideoInfo] = useState<VideoInfo | null>(null)
 
   // Display groups — held as state (not useMemo) so manual merge/split edits
   // from GroupEditor stick. The useEffect below re-derives them whenever the
@@ -116,6 +117,7 @@ export function ResultsScreen({ result, projectIORef }: ResultsScreenProps) {
     api.getVideoInfo(result.audioPath)
       .then(info => {
         if (cancelled) return
+        setSourceVideoInfo(info)
         setSettings(prev => {
           const next = { ...prev }
           if (info.width && info.height) {
@@ -155,7 +157,21 @@ export function ResultsScreen({ result, projectIORef }: ResultsScreenProps) {
     activeColor: settings.activeColor,
     bold:        settings.fontWeight >= 600,
     fontName:    settings.fontName,
-  }), [settings.textColor, settings.activeColor, settings.fontWeight, settings.fontName])
+    wordTransition:     settings.wordStyle as WordStyleDefaults['wordTransition'],
+    highlightRadius:    settings.highlightRadius,
+    highlightPadX:      settings.highlightPadX,
+    highlightPadY:      settings.highlightPadY,
+    highlightOpacity:   settings.highlightOpacity,
+    underlineThickness: settings.underlineThickness,
+    underlineColor:     settings.underlineColor,
+    bounceStrength:     settings.bounceStrength,
+    scaleFactor:        settings.scaleFactor,
+  }), [
+    settings.textColor, settings.activeColor, settings.fontWeight, settings.fontName,
+    settings.wordStyle, settings.highlightRadius, settings.highlightPadX, settings.highlightPadY,
+    settings.highlightOpacity, settings.underlineThickness, settings.underlineColor,
+    settings.bounceStrength, settings.scaleFactor,
+  ])
 
   return (
     <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -214,6 +230,8 @@ export function ResultsScreen({ result, projectIORef }: ResultsScreenProps) {
         onChange={setSettings}
         groups={groups}
         groupsEdited={groupsEdited}
+        audioPath={result.audioPath}
+        sourceVideoInfo={sourceVideoInfo}
       />
     </div>
   )

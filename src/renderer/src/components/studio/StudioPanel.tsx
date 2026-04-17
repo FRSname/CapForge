@@ -9,8 +9,11 @@ import { StudioRow } from './StudioRow'
 import { ColorSwatch } from '../ui/ColorSwatch'
 import { FontPicker } from '../ui/FontPicker'
 import { ExportPanel } from './ExportPanel'
+import { CustomRenderPanel } from './CustomRenderPanel'
 import { PresetPicker } from './PresetPicker'
+import { useRender } from '../../hooks/useRender'
 import type { Segment } from '../../types/app'
+import type { VideoInfo } from '../../lib/api'
 
 // ── Settings shape ────────────────────────────────────────────
 export interface StudioSettings {
@@ -38,6 +41,11 @@ export interface StudioSettings {
   bgRadius:      number
   bgWidthExtra:  number
   bgHeightExtra: number
+  // Text fine-tune within bg
+  textOffsetX:   number
+  textOffsetY:   number
+  textAlignH:    'left' | 'center' | 'right'
+  textAlignV:    'top'  | 'middle' | 'bottom'
   // Animation
   animationType: string
   animDuration:  number
@@ -69,17 +77,6 @@ export interface StudioSettings {
   resolutionIsSource: boolean
 }
 
-// Preset resolutions offered in the picker (order mirrors vanilla).
-const RESOLUTION_PRESETS: Array<{ value: [number, number]; label: string }> = [
-  { value: [1920, 1080], label: '1920×1080 (16:9 1080p)' },
-  { value: [3840, 2160], label: '3840×2160 (16:9 4K)' },
-  { value: [1280, 720],  label: '1280×720 (16:9 720p)' },
-  { value: [1080, 1920], label: '1080×1920 (9:16 1080p)' },
-  { value: [2160, 3840], label: '2160×3840 (9:16 4K)' },
-  { value: [1080, 1350], label: '1080×1350 (4:5 Instagram)' },
-  { value: [1080, 1080], label: '1080×1080 (1:1 Square)' },
-]
-
 const FPS_PRESETS = [24, 25, 30, 48, 50, 60]
 
 const DEFAULTS: StudioSettings = {
@@ -104,6 +101,10 @@ const DEFAULTS: StudioSettings = {
   bgRadius:      16,
   bgWidthExtra:  0,
   bgHeightExtra: 0,
+  textOffsetX:   0,
+  textOffsetY:   0,
+  textAlignH:    'center',
+  textAlignV:    'middle',
   animationType: 'fade',
   animDuration:  12,
   wordStyle:     'highlight',
@@ -137,6 +138,10 @@ interface StudioPanelProps {
   groups?:   Segment[]
   /** True once the user has manually edited groups (merge/split/reorder/overrides). */
   groupsEdited?: boolean
+  /** Source media path — used for "Same as source" output dir + quick-render metadata. */
+  audioPath?: string
+  /** Probed source video info — drives quick-render resolution/fps. */
+  sourceVideoInfo?: VideoInfo | null
 }
 
 export { DEFAULTS as STUDIO_DEFAULTS }
@@ -155,26 +160,16 @@ export function snapFps(sourceFps: number): number {
   return best
 }
 
-/**
- * Build the resolution <option> list. If the source resolution isn't one of the
- * presets, prepend a "(Source)" option so it's selectable. Mirrors app.js:791-800.
- */
-function buildResolutionOptions(current: [number, number], isSource: boolean) {
-  const key = (w: number, h: number) => `${w}x${h}`
-  const currentKey = key(current[0], current[1])
-  const preset = RESOLUTION_PRESETS.find(p => key(p.value[0], p.value[1]) === currentKey)
-  const opts: Array<{ value: string; label: string; source?: boolean }> = []
-  if (!preset && isSource) {
-    opts.push({ value: currentKey, label: `${current[0]}×${current[1]} (Source)`, source: true })
-  }
-  for (const p of RESOLUTION_PRESETS) {
-    opts.push({ value: key(p.value[0], p.value[1]), label: p.label })
-  }
-  return opts
-}
-
-export function StudioPanel({ settings: externalSettings, onChange, groups = [], groupsEdited = false }: StudioPanelProps) {
+export function StudioPanel({
+  settings: externalSettings,
+  onChange,
+  groups = [],
+  groupsEdited = false,
+  audioPath = '',
+  sourceVideoInfo = null,
+}: StudioPanelProps) {
   const [internalS, setInternalS] = useState<StudioSettings>({ ...DEFAULTS })
+  const [outputDir, setOutputDir] = useState<string>('')
   // Merge with defaults so older saved projects that lack new fields don't produce undefined/NaN
   const s: StudioSettings = externalSettings ? { ...DEFAULTS, ...externalSettings } : internalS
 
@@ -183,6 +178,12 @@ export function StudioPanel({ settings: externalSettings, onChange, groups = [],
     if (onChange) onChange(next)
     else setInternalS(next)
   }
+
+  const onChangeMerged = (next: StudioSettings) => {
+    if (onChange) onChange(next); else setInternalS(next)
+  }
+
+  const render = useRender({ settings: s, groups, groupsEdited })
 
   return (
     <aside
@@ -200,7 +201,7 @@ export function StudioPanel({ settings: externalSettings, onChange, groups = [],
       </div>
 
       {/* Scrollable body */}
-      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2.5 flex flex-col gap-2">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2.5 flex flex-col gap-2 [&>*]:shrink-0">
 
         {/* ── Typography ──────────────────────────────────────── */}
         <StudioCard title="Typography">
@@ -257,6 +258,48 @@ export function StudioPanel({ settings: externalSettings, onChange, groups = [],
           <StudioRow label="BG radius"   value={s.bgRadius}      min={0}   max={80}  unit="px" def={DEFAULTS.bgRadius}      onChange={v => set('bgRadius', v)} />
           <StudioRow label="BG width +"  value={s.bgWidthExtra}  min={-50} max={200} unit="px" def={DEFAULTS.bgWidthExtra}  onChange={v => set('bgWidthExtra', v)} />
           <StudioRow label="BG height +" value={s.bgHeightExtra} min={-50} max={200} unit="px" def={DEFAULTS.bgHeightExtra} onChange={v => set('bgHeightExtra', v)} />
+
+          <div className="divider" />
+          <span className="text-[10px] text-[var(--color-text-3)] uppercase tracking-wider">Text in BG box</span>
+
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Align H</span>
+            <div className="flex flex-1 min-w-0 rounded-md overflow-hidden border border-[var(--color-border)]">
+              {(['left','center','right'] as const).map(a => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => set('textAlignH', a)}
+                  className={`flex-1 text-[11px] py-1 capitalize transition-colors ${
+                    s.textAlignH === a
+                      ? 'bg-[var(--color-accent)] text-white'
+                      : 'bg-[var(--color-surface-2)] text-[var(--color-text-2)] hover:bg-[var(--color-surface-3)]'
+                  }`}
+                >{a}</button>
+              ))}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Align V</span>
+            <div className="flex flex-1 min-w-0 rounded-md overflow-hidden border border-[var(--color-border)]">
+              {(['top','middle','bottom'] as const).map(a => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => set('textAlignV', a)}
+                  className={`flex-1 text-[11px] py-1 capitalize transition-colors ${
+                    s.textAlignV === a
+                      ? 'bg-[var(--color-accent)] text-white'
+                      : 'bg-[var(--color-surface-2)] text-[var(--color-text-2)] hover:bg-[var(--color-surface-3)]'
+                  }`}
+                >{a}</button>
+              ))}
+            </div>
+          </div>
+
+          <StudioRow label="Offset X" value={s.textOffsetX} min={-100} max={100} unit="px" def={DEFAULTS.textOffsetX} onChange={v => set('textOffsetX', v)} />
+          <StudioRow label="Offset Y" value={s.textOffsetY} min={-50}  max={50}  unit="px" def={DEFAULTS.textOffsetY} onChange={v => set('textOffsetY', v)} />
         </StudioCard>
 
         {/* ── Animation ───────────────────────────────────────── */}
@@ -334,80 +377,48 @@ export function StudioPanel({ settings: externalSettings, onChange, groups = [],
 
         </StudioCard>
 
-        {/* ── Render ──────────────────────────────────────────── */}
-        <StudioCard title="Render" defaultOpen={false}>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Resolution</span>
-            <select
-              className="field-input flex-1 min-w-0 text-xs"
-              value={`${s.resolution[0]}x${s.resolution[1]}`}
-              onChange={e => {
-                const [w, h] = e.target.value.split('x').map(Number) as [number, number]
-                const picked = RESOLUTION_PRESETS.some(p => p.value[0] === w && p.value[1] === h)
-                // Picking a preset drops the "(Source)" tag; picking the source option keeps it.
-                const nextIsSource = !picked && s.resolutionIsSource
-                const next = { ...s, resolution: [w, h] as [number, number], resolutionIsSource: nextIsSource }
-                if (onChange) onChange(next); else setInternalS(next)
-              }}
-            >
-              {buildResolutionOptions(s.resolution, s.resolutionIsSource).map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">FPS</span>
-            <select
-              className="field-input flex-1 min-w-0 text-xs"
-              value={String(s.fps)}
-              onChange={e => set('fps', Number(e.target.value))}
-            >
-              {FPS_PRESETS.map(f => <option key={f} value={f}>{f} fps</option>)}
-            </select>
-          </div>
-          <div className="divider" />
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Format</span>
-            <select
-              className="field-input flex-1 min-w-0 text-xs"
-              value={s.format}
-              onChange={e => set('format', e.target.value as StudioSettings['format'])}
-            >
-              <option value="webm">WebM (VP9 + Alpha)</option>
-              <option value="mov">MOV (ProRes 4444)</option>
-              <option value="mp4">MP4 (H.264)</option>
-            </select>
-          </div>
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Mode</span>
-            <select
-              className="field-input flex-1 min-w-0 text-xs"
-              value={s.renderMode}
-              onChange={e => set('renderMode', e.target.value as StudioSettings['renderMode'])}
-            >
-              <option value="overlay">Transparent Overlay</option>
-              <option value="baked">Baked into Video</option>
-            </select>
-          </div>
-          {s.renderMode === 'baked' && (
-            <div className="flex items-center gap-1.5 min-w-0">
-              <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Bitrate</span>
-              <select
-                className="field-input flex-1 min-w-0 text-xs"
-                value={s.bitrate}
-                onChange={e => set('bitrate', e.target.value)}
-              >
-                <option value="8M">8 Mbps (Good)</option>
-                <option value="15M">15 Mbps (High)</option>
-                <option value="25M">25 Mbps (Very High)</option>
-                <option value="40M">40 Mbps (Maximum)</option>
-              </select>
-            </div>
-          )}
-        </StudioCard>
-
         {/* ── Export / Render ─────────────────────────────────── */}
-        <ExportPanel settings={s} groups={groups} groupsEdited={groupsEdited} />
+        <ExportPanel
+          audioPath={audioPath}
+          sourceVideoInfo={sourceVideoInfo}
+          render={render}
+          outputDir={outputDir}
+          onOutputDir={setOutputDir}
+        />
+
+        {/* ── Custom Render ───────────────────────────────────── */}
+        <CustomRenderPanel
+          settings={s}
+          onChange={onChangeMerged}
+          audioPath={audioPath}
+          outputDir={outputDir}
+          render={render}
+        />
+
+        {/* Shared render progress — visible when ANY render is in flight. */}
+        {render.busy && (
+          <div className="flex flex-col gap-2 mt-1 p-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)]">
+            <div className="w-full h-1 rounded-full overflow-hidden bg-[var(--color-surface-3)]">
+              <div
+                className="h-full rounded-full transition-all duration-300 bg-[var(--color-accent)]"
+                style={{ width: `${render.progress}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs tabular-nums text-[var(--color-text-2)]">{render.progress}%</span>
+              <span className="text-[10px] text-[var(--color-text-3)] truncate flex-1">{render.message}</span>
+              <span className="text-xs tabular-nums text-[var(--color-text-3)]">{render.elapsed}</span>
+              <button className="btn-danger text-[11px] py-0.5 px-2.5" onClick={render.cancelRender}>Cancel</button>
+            </div>
+          </div>
+        )}
+
+        {render.status === 'done' && (
+          <p className="text-xs mt-1 text-[var(--color-success)]">✓ Render complete</p>
+        )}
+        {render.status === 'error' && (
+          <p className="text-xs mt-1 text-[var(--color-danger)]">{render.message || 'Render failed — check logs'}</p>
+        )}
       </div>
     </aside>
   )

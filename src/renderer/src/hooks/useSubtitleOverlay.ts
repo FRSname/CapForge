@@ -159,12 +159,23 @@ export function useSubtitleOverlay({
     const cx           = resW * (posX / 100)
     const cy           = resH * (posY / 100) + slideOffset
 
+    // Slack between bg and text grows when bgWidthExtra/bgHeightExtra > 0;
+    // alignment shifts text within that slack. Center/middle = no shift.
+    const alignH = settings.textAlignH ?? 'center'
+    const alignV = settings.textAlignV ?? 'middle'
+    const txOff  = settings.textOffsetX ?? 0
+    const tyOff  = settings.textOffsetY ?? 0
+    const alignShiftX = alignH === 'left'   ? -bgWidthExtra  / 2
+                      : alignH === 'right'  ?  bgWidthExtra  / 2 : 0
+    const alignShiftY = alignV === 'top'    ? -bgHeightExtra / 2
+                      : alignV === 'bottom' ?  bgHeightExtra / 2 : 0
+
     // Pre-compute word positions
     const wordXPos: number[] = []
     const wordYPos: number[] = []
     rows.forEach((row, ri) => {
-      const rowY = cy - totalTextH / 2 + sf / 2 + ri * (sf + rowLineGap)
-      let wx = cx - rowWidths[ri] / 2
+      const rowY = cy + alignShiftY + tyOff - totalTextH / 2 + sf / 2 + ri * (sf + rowLineGap)
+      let wx = cx + alignShiftX + txOff - rowWidths[ri] / 2
       row.forEach(m => { wordXPos.push(wx); wordYPos.push(rowY); wx += m.width + effectiveSpaceW })
     })
 
@@ -192,24 +203,37 @@ export function useSubtitleOverlay({
     const sFactor   = settings.scaleFactor       ?? 1.25
 
     // ── Highlight pill (drawn BEFORE words) ─────────────────────
-    if (wordTransition === 'highlight') {
+    // The highlight is per-active-word, so per-word overrides for the active
+    // word's effective transition + sub-settings apply here.
+    {
       const ai = wm.findIndex(m => m.start <= currentTime && currentTime < m.end)
       if (ai >= 0) {
-        const m = wm[ai]
-        const hlX = wordXPos[ai], hlY = wordYPos[ai]
-        ctx.save()
-        ctx.globalAlpha = animAlpha * hlOpacity
-        ctx.fillStyle   = activeColor
-        roundRect(ctx, hlX - hlPadX, hlY - sf / 2 - hlPadY, m.width + hlPadX * 2, sf + hlPadY * 2, hlRadius)
-        ctx.fill()
-        ctx.restore()
+        const m  = wm[ai]
+        const ov = m.overrides
+        const wTransActive = ov?.word_transition ?? wordTransition
+        if (wTransActive === 'highlight') {
+          const hlX = wordXPos[ai] + (ov?.pos_offset_x ?? 0)
+          const hlY = wordYPos[ai] + (ov?.pos_offset_y ?? 0)
+          const wHlPadX   = ov?.highlight_padding_x ?? hlPadX
+          const wHlPadY   = ov?.highlight_padding_y ?? hlPadY
+          const wHlRadius = ov?.highlight_radius    ?? hlRadius
+          const wHlOpac   = ov?.highlight_opacity   ?? hlOpacity
+          ctx.save()
+          ctx.globalAlpha = animAlpha * wHlOpac
+          ctx.fillStyle   = activeColor
+          roundRect(ctx, hlX - wHlPadX, hlY - sf / 2 - wHlPadY, m.width + wHlPadX * 2, sf + wHlPadY * 2, wHlRadius)
+          ctx.fill()
+          ctx.restore()
+        }
       }
     }
 
     // ── Words ────────────────────────────────────────────────────
     wm.forEach((m, i) => {
-      const x        = wordXPos[i]
-      const wy       = wordYPos[i]
+      const wOffX    = m.overrides?.pos_offset_x ?? 0
+      const wOffY    = m.overrides?.pos_offset_y ?? 0
+      const x        = wordXPos[i] + wOffX
+      const wy       = wordYPos[i] + wOffY
       const isActive = m.start <= currentTime && currentTime < m.end
       const wordDur  = Math.max(m.end - m.start, 0.001)
       const wordProg = isActive ? Math.min(Math.max((currentTime - m.start) / wordDur, 0), 1) : 0
@@ -220,6 +244,11 @@ export function useSubtitleOverlay({
       const wFontFamily  = m.overrides?.font_family        ?? fontName
       const wSizeScale   = m.overrides?.font_size_scale    ?? 1
       const wTransition  = m.overrides?.word_transition    ?? wordTransition
+      // Per-word transition sub-settings — fall back to global if not overridden.
+      const wUlThick     = m.overrides?.underline_thickness ?? ulThick
+      const wUlColor     = m.overrides?.underline_color     ?? ulColor
+      const wBStrength   = m.overrides?.bounce_strength     ?? bStrength
+      const wSFactor     = m.overrides?.scale_factor        ?? sFactor
 
       ctx.save()
       ctx.globalAlpha = animAlpha
@@ -276,12 +305,12 @@ export function useSubtitleOverlay({
           ctx.fillStyle = isActive ? wActiveColor : wTextColor
           drawW(m.word, x, wy)
           if (isActive) {
-            ctx.fillStyle = ulColor || wActiveColor
-            ctx.fillRect(x, wy + sf / 2 + 2, m.width, ulThick)
+            ctx.fillStyle = wUlColor || wActiveColor
+            ctx.fillRect(x, wy + sf / 2 + 2, m.width, wUlThick)
           }
           break
         case 'bounce': {
-          const BOUNCE = sf * bStrength
+          const BOUNCE = sf * wBStrength
           const bounceY = isActive ? wy - BOUNCE * Math.sin(wordProg * Math.PI) : wy
           ctx.fillStyle = isActive ? wActiveColor : wTextColor
           drawW(m.word, x, bounceY)
@@ -290,7 +319,7 @@ export function useSubtitleOverlay({
         case 'scale':
           if (isActive) {
             const wordCx = x + m.width / 2
-            ctx.translate(wordCx, wy); ctx.scale(sFactor, sFactor); ctx.translate(-wordCx, -wy)
+            ctx.translate(wordCx, wy); ctx.scale(wSFactor, wSFactor); ctx.translate(-wordCx, -wy)
             ctx.fillStyle = wActiveColor
           } else {
             ctx.fillStyle = wTextColor

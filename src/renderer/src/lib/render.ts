@@ -9,6 +9,13 @@
 import type { Segment } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 
+/** Cross-platform dirname — strips the last path segment (handles \ and /). */
+export function dirname(filePath: string): string {
+  if (!filePath) return ''
+  const i = Math.max(filePath.lastIndexOf('/'), filePath.lastIndexOf('\\'))
+  return i >= 0 ? filePath.slice(0, i) : filePath
+}
+
 export interface RenderOverrides {
   /** Quick-render flag — forces "baked" mode regardless of current settings. */
   renderMode?: 'overlay' | 'baked'
@@ -16,6 +23,10 @@ export interface RenderOverrides {
   format?:     'webm' | 'mov' | 'mp4'
   /** Quick-render flag — forces resolution. */
   resolution?: [number, number]
+  /** Quick-render flag — forces frame rate. */
+  fps?:        number
+  /** Quick-render flag — forces bitrate (e.g. "40M"). */
+  bitrate?:    string
 }
 
 export interface RenderBody {
@@ -45,6 +56,8 @@ export function buildRenderBody(
 ): RenderBody {
   const renderMode = overrides.renderMode ?? settings.renderMode
   const [resW, resH] = overrides.resolution ?? settings.resolution
+  const fps = overrides.fps ?? settings.fps
+  const bitrate = overrides.bitrate ?? settings.bitrate
   // Baked quick-render defaults to MP4; overlay defaults to whatever the user picked.
   const format = overrides.format ?? (renderMode === 'baked' ? 'mp4' : settings.format)
 
@@ -70,8 +83,10 @@ export function buildRenderBody(
     bg_width_extra:     settings.bgWidthExtra,
     bg_height_extra:    settings.bgHeightExtra,
 
-    text_offset_x:      0,
-    text_offset_y:      0,
+    text_offset_x:      settings.textOffsetX,
+    text_offset_y:      settings.textOffsetY,
+    text_align_h:       settings.textAlignH,
+    text_align_v:       settings.textAlignV,
 
     words_per_group:    settings.wordsPerGroup,
     lines:              settings.lines,
@@ -81,11 +96,11 @@ export function buildRenderBody(
 
     resolution_w:       resW,
     resolution_h:       resH,
-    fps:                settings.fps,
+    fps:                fps,
 
     output_format:      format,
     render_mode:        renderMode,
-    video_bitrate:      settings.bitrate,
+    video_bitrate:      bitrate,
 
     animation:          settings.animationType,
     animation_duration: settings.animDuration / 100,

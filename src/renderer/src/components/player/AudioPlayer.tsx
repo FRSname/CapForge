@@ -139,9 +139,17 @@ export function AudioPlayer({ audioPath, segments, settings, resolution = [1920,
             }}
             className="relative w-full mx-auto overflow-hidden bg-black"
             style={{
-              aspectRatio: `${resolution[0]} / ${resolution[1]}`,
-              maxHeight: '55vh',
-              maxWidth:  `calc(55vh * ${resolution[0] / resolution[1]})`,
+              // When zoomed, drop the aspect-ratio constraint so the wrapper
+              // can use the full available main-area width — otherwise the
+              // 55vh × aspect maxWidth clips the scaled content on the sides.
+              // Video stays correct aspect via object-contain inside.
+              ...(vz.isZoomed
+                ? { height: '55vh' }
+                : {
+                    aspectRatio: `${resolution[0]} / ${resolution[1]}`,
+                    maxHeight: '55vh',
+                    maxWidth:  `calc(55vh * ${resolution[0] / resolution[1]})`,
+                  }),
               cursor: vz.isZoomed ? 'grab' : 'default',
             }}
             {...vz.handlers}

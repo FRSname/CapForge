@@ -393,16 +393,27 @@ def _draw_word_list(
         wx += wm["width"] + effective_space_w
 
     # Draw sliding highlight BEFORE words so it sits behind the text.
-    if word_transition == "highlight":
-        h_pad   = max(highlight_padding_x, outline_sw + 2)
-        h_pad_v = max(highlight_padding_y, outline_sw + 2)
-        h_rad   = highlight_radius
-        hl_alpha = anim_alpha * highlight_opacity
+    # Highlight is per-active-word, so per-word overrides for the active word's
+    # effective transition + sub-settings apply here.
+    active_idx = next((i for i, wm in enumerate(word_metrics)
+                       if wm["start"] <= current_time < wm["end"]), -1)
+    active_ov  = (word_metrics[active_idx].get("overrides") or {}) if active_idx >= 0 else {}
+    effective_transition = active_ov.get("word_transition") or word_transition
 
-        active_idx = next((i for i, wm in enumerate(word_metrics)
-                           if wm["start"] <= current_time < wm["end"]), -1)
-        if active_idx >= 0:
-            target_x = word_x_positions[active_idx]
+    if effective_transition == "highlight" and active_idx >= 0:
+        w_hl_pad_x  = float(active_ov.get("highlight_padding_x", highlight_padding_x))
+        w_hl_pad_y  = float(active_ov.get("highlight_padding_y", highlight_padding_y))
+        w_hl_radius = int(active_ov.get("highlight_radius", highlight_radius))
+        w_hl_opac   = float(active_ov.get("highlight_opacity", highlight_opacity))
+        h_pad   = max(w_hl_pad_x, outline_sw + 2)
+        h_pad_v = max(w_hl_pad_y, outline_sw + 2)
+        h_rad   = w_hl_radius
+        hl_alpha = anim_alpha * w_hl_opac
+
+        if True:
+            hl_off_x = float(active_ov.get("pos_offset_x", 0))
+            hl_off_y = float(active_ov.get("pos_offset_y", 0))
+            target_x = word_x_positions[active_idx] + hl_off_x
             target_w = word_metrics[active_idx]["width"]
 
             if highlight_anim == "slide" and active_idx > 0:
@@ -423,9 +434,9 @@ def _draw_word_list(
             _draw_rounded_rect(
                 draw,
                 (hl_x - h_pad,
-                 center_y - text_h / 2 - h_pad_v,
+                 center_y - text_h / 2 - h_pad_v + hl_off_y,
                  hl_x + hl_w + h_pad,
-                 center_y + text_h / 2 + h_pad_v),
+                 center_y + text_h / 2 + h_pad_v + hl_off_y),
                 h_rad, hl_rgba,
             )
 
@@ -448,6 +459,17 @@ def _draw_word_list(
         w_font_family   = ov.get("font_family") or config.font_family
         w_font_path     = ov.get("custom_font_path") or getattr(config, "custom_font_path", None)
         w_word_trans    = ov.get("word_transition") or word_transition
+        # Per-word position nudge (additive — does not affect layout of next words)
+        w_off_x         = float(ov.get("pos_offset_x", 0))
+        w_off_y         = float(ov.get("pos_offset_y", 0))
+        # Per-word transition sub-settings
+        w_bounce        = float(ov.get("bounce_strength",     bounce_strength))
+        w_scale_fac     = float(ov.get("scale_factor",        scale_factor))
+        w_ul_thick      = int(ov.get("underline_thickness",   ul_thickness))
+        w_ul_color      = ov.get("underline_color")
+        if w_ul_color is None or w_ul_color == "":
+            w_ul_color = ul_color_hex
+        w_bounce_px     = text_h * w_bounce
         needs_new_font  = (w_scale != 1.0 or w_bold != config.bold or w_font_family != config.font_family)
         if needs_new_font:
             base_size = font.size if hasattr(font, "size") else config.font_size
@@ -480,8 +502,8 @@ def _draw_word_list(
         else:  # instant
             color = w_active_color if is_active else w_text_color
 
-        word_x = x
-        word_y = y - (w_text_h - text_h) / 2  # vertically centre scaled words on the baseline
+        word_x = x + w_off_x
+        word_y = y - (w_text_h - text_h) / 2 + w_off_y  # vertically centre scaled words on the baseline
 
         # ------------------------------------------------------------------ #
         # BOUNCE — shift active word upward
@@ -489,7 +511,7 @@ def _draw_word_list(
         if w_word_trans == "bounce" and is_active:
             import math
             bounce_t = math.sin(word_prog * math.pi)
-            word_y = y - BOUNCE_PX * bounce_t - (w_text_h - text_h) / 2
+            word_y = y - w_bounce_px * bounce_t - (w_text_h - text_h) / 2 + w_off_y
             color = w_active_color
 
         if w_word_trans == "highlight" and is_active:
@@ -497,7 +519,7 @@ def _draw_word_list(
 
         if w_word_trans == "scale" and is_active:
             word_cx = word_x + wm["width"] / 2
-            word_cy = center_y
+            word_cy = center_y + w_off_y
             pad = int(w_text_h * 0.5)
             tmp_w = int(wm["width"]) + pad * 2
             tmp_h = int(w_text_h) + pad * 2
@@ -508,8 +530,8 @@ def _draw_word_list(
                 tmp_draw, wm["word"], pad, pad - w_bbox[1],
                 w_font, w_active_color, tracking, outline_sw, tmp_stroke,
             )
-            new_w = int(tmp_w * SCALE_FACTOR)
-            new_h = int(tmp_h * SCALE_FACTOR)
+            new_w = int(tmp_w * w_scale_fac)
+            new_h = int(tmp_h * w_scale_fac)
             scaled = tmp.resize((max(new_w, 1), max(new_h, 1)), Image.LANCZOS)
             paste_x = int(word_cx - new_w / 2)
             paste_y = int(word_cy - new_h / 2)
@@ -549,9 +571,9 @@ def _draw_word_list(
             continue
 
         if w_word_trans == "underline" and is_active:
-            bar_h    = max(1, ul_thickness)
-            bar_y    = center_y + w_text_h / 2 + 2
-            ul_hex   = ul_color_hex if ul_color_hex else config.active_word_color
+            bar_h    = max(1, w_ul_thick)
+            bar_y    = center_y + w_text_h / 2 + 2 + w_off_y
+            ul_hex   = w_ul_color if w_ul_color else config.active_word_color
             bar_rgba = _hex_to_rgba(ul_hex, anim_alpha)
             draw.rectangle(
                 [word_x, bar_y, word_x + wm["width"], bar_y + bar_h],
@@ -667,6 +689,8 @@ def _render_frame(
     bg_height_extra = getattr(config, "bg_height_extra", 0)
     text_offset_x   = getattr(config, "text_offset_x",   0)
     text_offset_y   = getattr(config, "text_offset_y",   0)
+    text_align_h    = getattr(config, "text_align_h",    "center")
+    text_align_v    = getattr(config, "text_align_v",    "middle")
     position_x      = getattr(config, "position_x",      0.5)
     num_lines       = max(1, getattr(config, "lines",     1))
 
@@ -694,11 +718,18 @@ def _render_frame(
     center_x = config.resolution_w * position_x
     center_y = config.resolution_h * config.position_y + slide_offset
 
+    # Slack between bg and text grows when bg_*_extra > 0; alignment shifts text
+    # within that slack. Center/middle = no shift (current behavior).
+    align_shift_x = (-bg_width_extra  / 2) if text_align_h == "left"   else \
+                    ( bg_width_extra  / 2) if text_align_h == "right"  else 0
+    align_shift_y = (-bg_height_extra / 2) if text_align_v == "top"    else \
+                    ( bg_height_extra / 2) if text_align_v == "bottom" else 0
+
     def _draw_all_rows(tgt_draw: "ImageDraw.ImageDraw", tgt_img: "Image.Image", cx: float, cy: float) -> None:
-        top_y = cy - total_text_h / 2 + text_h / 2
+        top_y = cy - total_text_h / 2 + text_h / 2 + align_shift_y + text_offset_y
         for ri, row in enumerate(rows):
-            row_cx = cx + text_offset_x
-            row_cy = top_y + ri * (text_h + row_gap) + text_offset_y
+            row_cx = cx + align_shift_x + text_offset_x
+            row_cy = top_y + ri * (text_h + row_gap)
             _draw_word_list(tgt_draw, row, font, current_time, config,
                             tracking, effective_space_w, bbox,
                             row_cx, row_cy,

@@ -63,7 +63,7 @@ class CapForgeAPI {
   private _wsReconnectDelay = 1000
   private _wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-  constructor(port = 8000) {
+  constructor(port = 53421) {
     this.base = `http://127.0.0.1:${port}`
     this.wsBase = `ws://127.0.0.1:${port}`
   }

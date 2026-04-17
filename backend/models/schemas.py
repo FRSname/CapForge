@@ -134,6 +134,8 @@ class VideoRenderConfig(BaseModel):
     bg_height_extra: int = Field(0, ge=-50, le=200, description="Extra height added to background box in px (can be negative to shrink)")
     text_offset_x: int = Field(0, ge=-100, le=100, description="Nudge text horizontally within background box in px")
     text_offset_y: int = Field(0, ge=-50, le=50, description="Nudge text vertically within background box in px")
+    text_align_h: str = Field("center", description="Horizontal text alignment within bg box: left, center, right")
+    text_align_v: str = Field("middle", description="Vertical text alignment within bg box: top, middle, bottom")
     words_per_group: int = Field(3, ge=1, le=10)
     lines: int = Field(1, ge=1, le=4, description="Number of subtitle rows per group")
     position_y: float = Field(0.82, ge=0.0, le=1.0, description="Vertical position (0=top, 1=bottom)")
