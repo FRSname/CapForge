@@ -81,9 +81,10 @@ export function useSubtitleOverlay({
     const bgOpacity  = bgOpacityPct / 100
     const fontWeight = fwNum >= 700 ? 'bold' : 'normal'
     const animDur    = animDurFrames / 100
-    const padH = settings.marginH > 0 ? settings.marginH : 12
+    // Use marginH as-is so the preview matches the backend (which doesn't apply
+    // a 12px floor when the user sets 0).
+    const padH = settings.marginH
     const padV = 8
-    const rowLineGap = sf * 0.3
 
     // ── Animation phase ─────────────────────────────────────────
     const age       = currentTime - activeGroup.start
@@ -109,9 +110,20 @@ export function useSubtitleOverlay({
     }
 
     // ── Font + measure ──────────────────────────────────────────
+    // Use real font metrics (ascent + descent of "Ayg") instead of the EM
+    // square — matches the backend's PIL textbbox so pill / underline / bounce
+    // sit on the visual glyph centre, not the EM centre. This is critical for
+    // fonts where the EM box is asymmetric (e.g. BarberChop).
     ctx.font         = `${fontWeight} ${sf}px "${fontName || '-apple-system'}", sans-serif`
-    ctx.textBaseline = 'middle'
+    ctx.textBaseline = 'alphabetic'
     ctx.textAlign    = 'left'
+
+    const aygMetrics = ctx.measureText('Ayg')
+    const ascent     = aygMetrics.actualBoundingBoxAscent  || sf * 0.8
+    const descent    = aygMetrics.actualBoundingBoxDescent || sf * 0.2
+    const textH      = ascent + descent
+    const baselineShift = (ascent - descent) / 2  // y-add to put baseline so visual centre = wordY
+    const rowLineGap = textH * 0.3
 
     const measureWord = (text: string) => {
       if (sTracking === 0) return ctx.measureText(text).width
@@ -153,9 +165,11 @@ export function useSubtitleOverlay({
     })
     const maxRowW = Math.max(...rowWidths)
 
-    const bgW          = maxRowW + padH * 2 + bgWidthExtra
-    const totalTextH   = rows.length * sf + (rows.length - 1) * rowLineGap
-    const bgH          = totalTextH + padV * 2 + bgHeightExtra
+    // Match backend: bg includes stroke padding so the box matches when stroke > 0.
+    const strokePad    = sStroke
+    const bgW          = maxRowW + padH * 2 + strokePad * 2 + bgWidthExtra
+    const totalTextH   = rows.length * textH + (rows.length - 1) * rowLineGap
+    const bgH          = totalTextH + padV * 2 + strokePad * 2 + bgHeightExtra
     const cx           = resW * (posX / 100)
     const cy           = resH * (posY / 100) + slideOffset
 
@@ -170,11 +184,13 @@ export function useSubtitleOverlay({
     const alignShiftY = alignV === 'top'    ? -bgHeightExtra / 2
                       : alignV === 'bottom' ?  bgHeightExtra / 2 : 0
 
-    // Pre-compute word positions
+    // Pre-compute word positions. wordYPos is the *visual centre* of each row
+    // (matches backend's center_y for that row). When we draw text we shift to
+    // alphabetic baseline; pill / underline / bounce can use it directly.
     const wordXPos: number[] = []
     const wordYPos: number[] = []
     rows.forEach((row, ri) => {
-      const rowY = cy + alignShiftY + tyOff - totalTextH / 2 + sf / 2 + ri * (sf + rowLineGap)
+      const rowY = cy + alignShiftY + tyOff - totalTextH / 2 + textH / 2 + ri * (textH + rowLineGap)
       let wx = cx + alignShiftX + txOff - rowWidths[ri] / 2
       row.forEach(m => { wordXPos.push(wx); wordYPos.push(rowY); wx += m.width + effectiveSpaceW })
     })
@@ -214,14 +230,16 @@ export function useSubtitleOverlay({
         if (wTransActive === 'highlight') {
           const hlX = wordXPos[ai] + (ov?.pos_offset_x ?? 0)
           const hlY = wordYPos[ai] + (ov?.pos_offset_y ?? 0)
-          const wHlPadX   = ov?.highlight_padding_x ?? hlPadX
-          const wHlPadY   = ov?.highlight_padding_y ?? hlPadY
+          // Backend enforces min pad = stroke + 2 so the pill always clears the
+          // stroke; mirror that here so the preview matches.
+          const wHlPadX   = Math.max(ov?.highlight_padding_x ?? hlPadX, sStroke + 2)
+          const wHlPadY   = Math.max(ov?.highlight_padding_y ?? hlPadY, sStroke + 2)
           const wHlRadius = ov?.highlight_radius    ?? hlRadius
           const wHlOpac   = ov?.highlight_opacity   ?? hlOpacity
           ctx.save()
           ctx.globalAlpha = animAlpha * wHlOpac
           ctx.fillStyle   = activeColor
-          roundRect(ctx, hlX - wHlPadX, hlY - sf / 2 - wHlPadY, m.width + wHlPadX * 2, sf + wHlPadY * 2, wHlRadius)
+          roundRect(ctx, hlX - wHlPadX, hlY - textH / 2 - wHlPadY, m.width + wHlPadX * 2, textH + wHlPadY * 2, wHlRadius)
           ctx.fill()
           ctx.restore()
         }
@@ -274,15 +292,18 @@ export function useSubtitleOverlay({
         ctx.lineJoin    = 'round'
       }
 
+      // wy2 is the visual centre (matches backend's center_y for the row).
+      // Convert to alphabetic baseline so text glyphs sit centred on wy2.
       const drawW = (word: string, wx: number, wy2: number) => {
+        const by = wy2 + baselineShift
         if (sTracking === 0) {
-          if (sStroke > 0) ctx.strokeText(word, wx, wy2)
-          ctx.fillText(word, wx, wy2)
+          if (sStroke > 0) ctx.strokeText(word, wx, by)
+          ctx.fillText(word, wx, by)
         } else {
           let cx2 = wx
           for (const ch of word) {
-            if (sStroke > 0) ctx.strokeText(ch, cx2, wy2)
-            ctx.fillText(ch, cx2, wy2)
+            if (sStroke > 0) ctx.strokeText(ch, cx2, by)
+            ctx.fillText(ch, cx2, by)
             cx2 += ctx.measureText(ch).width + sTracking
           }
         }
@@ -306,11 +327,11 @@ export function useSubtitleOverlay({
           drawW(m.word, x, wy)
           if (isActive) {
             ctx.fillStyle = wUlColor || wActiveColor
-            ctx.fillRect(x, wy + sf / 2 + 2, m.width, wUlThick)
+            ctx.fillRect(x, wy + textH / 2 + 2, m.width, wUlThick)
           }
           break
         case 'bounce': {
-          const BOUNCE = sf * wBStrength
+          const BOUNCE = textH * wBStrength
           const bounceY = isActive ? wy - BOUNCE * Math.sin(wordProg * Math.PI) : wy
           ctx.fillStyle = isActive ? wActiveColor : wTextColor
           drawW(m.word, x, bounceY)
@@ -331,7 +352,7 @@ export function useSubtitleOverlay({
           drawW(m.word, x, wy)
           if (isActive && wordProg > 0) {
             ctx.save()
-            ctx.beginPath(); ctx.rect(x, wy - sf, m.width * wordProg, sf * 2); ctx.clip()
+            ctx.beginPath(); ctx.rect(x, wy - textH, m.width * wordProg, textH * 2); ctx.clip()
             ctx.fillStyle = wActiveColor
             drawW(m.word, x, wy)
             ctx.restore()

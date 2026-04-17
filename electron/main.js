@@ -47,9 +47,9 @@ function createWindow() {
     title: "CapForge",
     icon: path.join(__dirname, '..', 'resources', 'icon.png'),
     webPreferences: {
-      preload: app.isPackaged
-        ? path.join(process.resourcesPath, 'preload.js')
-        : path.join(app.getAppPath(), 'electron', 'preload.js'),
+      // preload.js sits next to main.js in both dev (electron/) and packaged
+      // (app.asar/electron/), so __dirname works in both modes.
+      preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -86,7 +86,9 @@ function createWindow() {
   if (process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
   } else {
-    mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
+    // electron-vite emits the renderer to out/renderer/, not the legacy
+    // renderer/ folder — load from there in the packaged app too.
+    mainWindow.loadFile(path.join(__dirname, '..', 'out', 'renderer', 'index.html'))
   }
   Menu.setApplicationMenu(buildAppMenu());
 

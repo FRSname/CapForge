@@ -65,7 +65,10 @@ export function buildRenderBody(
     font_family:        settings.fontName,
     custom_font_path:   settings.fontPath || null,
     font_size:          settings.fontSize,
-    bold:               settings.fontWeight >= 600,
+    // Match the preview's threshold (useSubtitleOverlay.ts) so the render
+    // doesn't go bold at semi-bold weights when the preview shows them as
+    // regular. Keep both at 700 — i.e. only "bold" or heavier triggers PIL bold.
+    bold:               settings.fontWeight >= 700,
     tracking:           settings.letterSpacing,
     word_spacing:       0,
 

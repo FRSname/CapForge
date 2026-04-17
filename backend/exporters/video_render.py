@@ -64,41 +64,6 @@ def _hex_to_rgba(hex_color: str, opacity: float = 1.0) -> tuple[int, int, int, i
     return (r, g, b, int(opacity * 255))
 
 
-def _composite_shadow(
-    img: Image.Image,
-    shadow_layer: Image.Image,
-    shadow_color: str,
-    shadow_opacity: float,
-    shadow_blur: int,
-    offset_x: int,
-    offset_y: int,
-) -> None:
-    """Blur the alpha channel of *shadow_layer*, tint it with *shadow_color*,
-    and composite the result onto *img* in-place (below any content already in img).
-    """
-    # Extract alpha mask from the shadow layer
-    alpha = shadow_layer.split()[3]
-    if shadow_blur > 0:
-        alpha = alpha.filter(ImageFilter.GaussianBlur(radius=shadow_blur))
-
-    h_r, h_g, h_b = (
-        int(shadow_color.lstrip("#")[0:2], 16),
-        int(shadow_color.lstrip("#")[2:4], 16),
-        int(shadow_color.lstrip("#")[4:6], 16),
-    )
-    # Build a solid-colour shadow image at the same size, then scale alpha
-    shadow_solid = Image.new("RGBA", img.size, (h_r, h_g, h_b, 0))
-    # Scale alpha by shadow_opacity using Pillow's point() — no numpy needed
-    alpha_scaled = alpha.point(lambda p: int(p * shadow_opacity))
-    shadow_solid.putalpha(alpha_scaled)
-
-    # Paste shadow behind current content: create blank, paste shadow first, then img on top
-    combined = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    combined.paste(shadow_solid, (offset_x, offset_y), shadow_solid)
-    combined.alpha_composite(img)
-    img.paste(combined)
-
-
 def _find_font_candidates(family: str, bold: bool) -> list[str]:
     """Return an ordered list of font file paths to try for the given family.
 
@@ -359,6 +324,7 @@ def _draw_word_list(
     word_transition: str,
     anim_alpha: float,
     img: Image.Image,
+    pill_draw: ImageDraw.ImageDraw | None = None,
 ) -> None:
     """Draw all words at the given centre position with the chosen word animation."""
     text_h = bbox[3] - bbox[1]
@@ -431,8 +397,11 @@ def _draw_word_list(
                 hl_w = target_w
 
             hl_rgba = _hex_to_rgba(config.active_word_color, hl_alpha)
+            # If a dedicated pill_draw was supplied, render the pill there so the
+            # caller can composite it under the text shadow (without the pill
+            # itself contributing to the shadow alpha).
             _draw_rounded_rect(
-                draw,
+                pill_draw if pill_draw is not None else draw,
                 (hl_x - h_pad,
                  center_y - text_h / 2 - h_pad_v + hl_off_y,
                  hl_x + hl_w + h_pad,
@@ -725,7 +694,8 @@ def _render_frame(
     align_shift_y = (-bg_height_extra / 2) if text_align_v == "top"    else \
                     ( bg_height_extra / 2) if text_align_v == "bottom" else 0
 
-    def _draw_all_rows(tgt_draw: "ImageDraw.ImageDraw", tgt_img: "Image.Image", cx: float, cy: float) -> None:
+    def _draw_all_rows(tgt_draw: "ImageDraw.ImageDraw", tgt_img: "Image.Image", cx: float, cy: float,
+                       pill_draw: "ImageDraw.ImageDraw | None" = None) -> None:
         top_y = cy - total_text_h / 2 + text_h / 2 + align_shift_y + text_offset_y
         for ri, row in enumerate(rows):
             row_cx = cx + align_shift_x + text_offset_x
@@ -733,7 +703,8 @@ def _render_frame(
             _draw_word_list(tgt_draw, row, font, current_time, config,
                             tracking, effective_space_w, bbox,
                             row_cx, row_cy,
-                            outline_sw, word_transition, anim_alpha, tgt_img)
+                            outline_sw, word_transition, anim_alpha, tgt_img,
+                            pill_draw=pill_draw)
 
     # ---------------------------------------------------------------------------
     # Pop: render at reduced scale into a temp surface, paste centred
@@ -769,23 +740,53 @@ def _render_frame(
                             center_x + bg_w / 2, center_y + bg_h / 2),
                            config.bg_corner_radius, bg_rgba)
 
-    # Drop shadow: render text onto a separate layer, blur, composite behind
+    # Render the highlight pill and the text into separate layers so the
+    # composite order can be: bg → pill → text-shadow → text. That way the
+    # text's drop shadow falls *on top of* the pill (matching the canvas
+    # preview, which only attaches `ctx.shadowBlur` to per-word draw calls).
+    pill_layer = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
+    pill_draw  = ImageDraw.Draw(pill_layer)
+    text_layer = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
+    text_draw  = ImageDraw.Draw(text_layer)
+    _draw_all_rows(text_draw, text_layer, center_x, center_y, pill_draw=pill_draw)
+
+    # Pill goes down first (no shadow — matches preview behavior).
+    img.alpha_composite(pill_layer)
+
     shadow_enabled = getattr(config, "shadow_enabled", False)
     if shadow_enabled:
-        shadow_layer = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
-        shadow_draw  = ImageDraw.Draw(shadow_layer)
-        _draw_all_rows(shadow_draw, shadow_layer, center_x, center_y)
-        _composite_shadow(
-            img,
-            shadow_layer,
-            getattr(config, "shadow_color",   "#000000"),
-            getattr(config, "shadow_opacity",  0.8),
-            getattr(config, "shadow_blur",     8),
-            getattr(config, "shadow_offset_x", 3),
-            getattr(config, "shadow_offset_y", 3),
-        )
+        shadow_color   = getattr(config, "shadow_color",   "#000000")
+        shadow_opacity = float(getattr(config, "shadow_opacity",  0.8))
+        shadow_blur    = int(getattr(config, "shadow_blur",     8))
+        offset_x       = int(getattr(config, "shadow_offset_x", 3))
+        offset_y       = int(getattr(config, "shadow_offset_y", 3))
 
-    _draw_all_rows(draw, img, center_x, center_y)
+        # Shadow alpha is built from the TEXT layer only (excludes the pill).
+        alpha = text_layer.getchannel("A")
+        if shadow_blur > 0:
+            # Canvas's `ctx.shadowBlur` is ~2× the Gaussian sigma it applies, so
+            # to match the preview we use radius/2 here. Without this, thin
+            # glyphs (e.g. weight 100) blur into a wide halo with a peak alpha
+            # near zero and the shadow effectively disappears.
+            alpha = alpha.filter(ImageFilter.GaussianBlur(radius=shadow_blur / 2.0))
+        if shadow_opacity < 1.0:
+            alpha = alpha.point(lambda p: int(p * shadow_opacity))
+
+        # Shift the alpha mask (single 'L' channel) onto a same-size canvas at
+        # (offset_x, offset_y). Shifting the colored RGBA via paste-with-mask
+        # would square the alpha at anti-aliased edges and gut the shadow.
+        shifted_alpha = Image.new("L", img.size, 0)
+        shifted_alpha.paste(alpha, (offset_x, offset_y))
+
+        h = shadow_color.lstrip("#")
+        h_r, h_g, h_b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        shadow_layer = Image.new("RGBA", img.size, (h_r, h_g, h_b, 0))
+        shadow_layer.putalpha(shifted_alpha)
+
+        img.alpha_composite(shadow_layer)
+
+    # Text goes on top of its own shadow.
+    img.alpha_composite(text_layer)
 
     return img
 

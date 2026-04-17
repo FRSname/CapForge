@@ -49,7 +49,7 @@
     },
     "files": [
       "electron/**/*",
-      "renderer/**/*",
+      "out/renderer/**/*",
       "backend/**/*.py",
       "backend/requirements.txt",
       "!backend/__pycache__/**",

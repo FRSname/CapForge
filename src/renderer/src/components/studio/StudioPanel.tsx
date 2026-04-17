@@ -11,6 +11,7 @@ import { FontPicker } from '../ui/FontPicker'
 import { ExportPanel } from './ExportPanel'
 import { CustomRenderPanel } from './CustomRenderPanel'
 import { PresetPicker } from './PresetPicker'
+import { RenderProgressModal } from './RenderProgressModal'
 import { useRender } from '../../hooks/useRender'
 import type { Segment } from '../../types/app'
 import type { VideoInfo } from '../../lib/api'
@@ -83,7 +84,7 @@ const DEFAULTS: StudioSettings = {
   fontName:      '',
   fontPath:      '',
   fontSize:      52,
-  fontWeight:    700,
+  fontWeight:    100,
   lineHeight:    1.2,
   letterSpacing: 0,
   textColor:     '#FFFFFF',
@@ -211,7 +212,7 @@ export function StudioPanel({
           }} />
           <div className="divider" />
           <StudioRow label="Size"    value={s.fontSize}      min={12}  max={120} step={1}    unit="px"  def={DEFAULTS.fontSize}      onChange={v => set('fontSize', v)} />
-          <StudioRow label="Weight"  value={s.fontWeight}    min={100} max={900} step={100}  unit=""    def={DEFAULTS.fontWeight}    onChange={v => set('fontWeight', v)} />
+          <StudioRow label="Bold"    value={s.fontWeight}    min={100} max={900} step={100}  unit=""    def={DEFAULTS.fontWeight}    onChange={v => set('fontWeight', v)} />
           <StudioRow label="Leading" value={s.lineHeight}    min={0.8} max={3}   step={0.05} unit=""    def={DEFAULTS.lineHeight}    onChange={v => set('lineHeight', v)} />
           <StudioRow label="Tracking" value={s.letterSpacing} min={-5} max={20}  step={1}    unit="px"  def={DEFAULTS.letterSpacing} onChange={v => set('letterSpacing', v)} />
         </StudioCard>
@@ -395,24 +396,6 @@ export function StudioPanel({
           render={render}
         />
 
-        {/* Shared render progress — visible when ANY render is in flight. */}
-        {render.busy && (
-          <div className="flex flex-col gap-2 mt-1 p-2 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)]">
-            <div className="w-full h-1 rounded-full overflow-hidden bg-[var(--color-surface-3)]">
-              <div
-                className="h-full rounded-full transition-all duration-300 bg-[var(--color-accent)]"
-                style={{ width: `${render.progress}%` }}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs tabular-nums text-[var(--color-text-2)]">{render.progress}%</span>
-              <span className="text-[10px] text-[var(--color-text-3)] truncate flex-1">{render.message}</span>
-              <span className="text-xs tabular-nums text-[var(--color-text-3)]">{render.elapsed}</span>
-              <button className="btn-danger text-[11px] py-0.5 px-2.5" onClick={render.cancelRender}>Cancel</button>
-            </div>
-          </div>
-        )}
-
         {render.status === 'done' && (
           <p className="text-xs mt-1 text-[var(--color-success)]">✓ Render complete</p>
         )}
@@ -420,6 +403,9 @@ export function StudioPanel({
           <p className="text-xs mt-1 text-[var(--color-danger)]">{render.message || 'Render failed — check logs'}</p>
         )}
       </div>
+
+      {/* Blocking modal — shown while a render is in flight. */}
+      <RenderProgressModal render={render} />
     </aside>
   )
 }
