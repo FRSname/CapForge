@@ -11,24 +11,18 @@ export function StudioCard({ title, defaultOpen = true, children }: StudioCardPr
 
   return (
     <div
-      className="rounded-lg overflow-hidden"
-      style={{
-        background: 'var(--color-surface)',
-        border: '1px solid var(--color-border)',
-      }}
+      className="rounded-lg overflow-hidden bg-[var(--color-surface)] border border-[var(--color-border)]"
     >
       {/* Header */}
       <button
         type="button"
-        className="w-full flex items-center justify-between px-3 py-2 text-left transition-colors"
-        style={{ background: open ? 'rgba(255 255 255 / 0.02)' : 'transparent' }}
+        className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors ${open ? 'bg-white/[0.02]' : 'bg-transparent'}`}
         onClick={() => setOpen(o => !o)}
       >
         <span className="label-xs">{title}</span>
         <svg
-          className="shrink-0 transition-transform duration-200"
+          className="shrink-0 transition-transform duration-200 text-[var(--color-text-3)]"
           style={{
-            color: 'var(--color-text-3)',
             transform: open ? 'rotate(0deg)' : 'rotate(-90deg)',
           }}
           width="11" height="11" viewBox="0 0 16 16" fill="currentColor"
@@ -37,21 +31,12 @@ export function StudioCard({ title, defaultOpen = true, children }: StudioCardPr
         </svg>
       </button>
 
-      {/* Body — overflow-y:clip keeps max-height animation without clipping x */}
+      {/* Collapsible body */}
       <div
-        className="transition-all"
-        style={{
-          overflowY: 'clip',
-          overflowX: 'visible',
-          maxHeight: open ? '1200px' : '0px',
-          opacity:   open ? 1 : 0,
-          transitionDuration: '220ms',
-          transitionTimingFunction: 'var(--ease-out-expo)',
-        }}
+        className={open ? '' : 'hidden'}
       >
         <div
-          className="px-3 pb-3 pt-1.5 flex flex-col gap-2"
-          style={{ borderTop: '1px solid var(--color-border)' }}
+          className="px-3 pb-3 pt-1.5 flex flex-col gap-2 border-t border-[var(--color-border)]"
         >
           {children}
         </div>

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import type { TranscriptionResult } from '../../types/app'
 import { useTranscription } from '../../hooks/useTranscription'
 
@@ -20,12 +20,31 @@ interface ProgressScreenProps {
 
 export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenProps) {
   const { progress, start, cancel } = useTranscription()
+  // Guard against React StrictMode's dev-only double-mount:
+  // without this, we POST /api/transcribe twice and the second call 409s.
+  const startedRef = useRef(false)
 
   useEffect(() => {
-    start(filePath).then(onDone).catch(err => {
+    if (startedRef.current) return
+    startedRef.current = true
+
+    async function run() {
+      const [language, diarize, hfToken] = await Promise.all([
+        window.subforge.getState<string>('language', ''),
+        window.subforge.getState<boolean>('diarize', false),
+        window.subforge.getState<string>('hf_token', ''),
+      ])
+      return start(filePath, {
+        language: language || undefined,
+        diarize,
+        hfToken: hfToken || undefined,
+      })
+    }
+    run().then(onDone).catch(err => {
       if ((err as Error).message !== 'Cancelled') console.error('Transcription error:', err)
     })
-    return cancel
+    // No cleanup: we don't want StrictMode's unmount to cancel an in-flight job.
+    // Real user-initiated cancel goes through handleCancel below.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filePath])
 
@@ -58,14 +77,12 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
                 )}
                 {/* Dot */}
                 <div
-                  className="relative flex items-center justify-center w-7 h-7 rounded-full border transition-all duration-300"
+                  className={`relative flex items-center justify-center w-7 h-7 rounded-full border transition-all duration-300 ${
+                    isDone   ? 'bg-[var(--color-success)] border-[var(--color-success)]'
+                  : isActive ? 'bg-[var(--color-accent)] border-[var(--color-accent)]'
+                  :            'bg-[var(--color-surface-3)] border-[var(--color-border-2)]'
+                  }`}
                   style={{
-                    background:   isDone   ? 'var(--color-success)'
-                                : isActive ? 'var(--color-accent)'
-                                :            'var(--color-surface-3)',
-                    borderColor:  isDone   ? 'var(--color-success)'
-                                : isActive ? 'var(--color-accent)'
-                                :            'var(--color-border-2)',
                     boxShadow:    isActive ? '0 0 12px 2px var(--color-accent-glow)' : 'none',
                     transform:    isActive ? 'scale(1.15)' : 'scale(1)',
                   }}
@@ -78,14 +95,12 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
                     <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
                   ) : (
                     <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ background: isPending ? 'var(--color-text-3)' : 'white' }}
+                      className={`w-2 h-2 rounded-full ${isPending ? 'bg-[var(--color-text-3)]' : 'bg-white'}`}
                     />
                   )}
                 </div>
                 <span
-                  className="text-[10px] font-medium tracking-wide text-center"
-                  style={{ color: isActive ? 'var(--color-text-2)' : 'var(--color-text-3)' }}
+                  className={`text-[10px] font-medium tracking-wide text-center ${isActive ? 'text-[var(--color-text-2)]' : 'text-[var(--color-text-3)]'}`}
                 >
                   {step.label}
                 </span>
@@ -95,23 +110,22 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
         </div>
 
         {/* Step connector line behind dots — decorative */}
-        <div className="relative -mt-11 mb-3 mx-3.5 h-[1px] -z-0 pointer-events-none" style={{ background: 'var(--color-border)' }} />
+        <div className="relative -mt-11 mb-3 mx-3.5 h-[1px] -z-0 pointer-events-none bg-[var(--color-border)]" />
 
         {/* Message */}
         <div className="text-center pt-2">
-          <p className="font-medium text-sm mb-1.5" style={{ color: 'var(--color-text)' }}>
+          <p className="font-medium text-sm mb-1.5 text-[var(--color-text)]">
             {progress?.message ?? 'Starting…'}
           </p>
           {progress?.sub_message && (
-            <p className="text-xs" style={{ color: 'var(--color-text-2)' }}>{progress.sub_message}</p>
+            <p className="text-xs text-[var(--color-text-2)]">{progress.sub_message}</p>
           )}
         </div>
 
         {/* Progress bar */}
         <div className="flex flex-col gap-2">
           <div
-            className="w-full h-1.5 rounded-full overflow-hidden"
-            style={{ background: 'var(--color-surface-3)' }}
+            className="w-full h-1.5 rounded-full overflow-hidden bg-[var(--color-surface-3)]"
           >
             <div
               className="h-full rounded-full transition-all duration-500"
@@ -121,7 +135,7 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
               }}
             />
           </div>
-          <div className="flex justify-between text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+          <div className="flex justify-between text-[11px] text-[var(--color-text-3)]">
             <span>{progress?.message && pct > 0 ? `${pct}%` : ''}</span>
             <span className="tabular-nums">{pct > 0 ? `${pct}%` : ''}</span>
           </div>

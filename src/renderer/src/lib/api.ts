@@ -10,11 +10,12 @@ export interface ApiError extends Error {
 }
 
 export interface TranscribeParams {
-  file_path: string
+  audio_path: string
   language?: string
-  model?: string
-  diarize?: boolean
+  enable_diarization?: boolean
+  hf_token?: string
   output_dir?: string
+  export_formats?: string[]
 }
 
 export interface ProgressUpdate {
@@ -115,7 +116,19 @@ class CapForgeAPI {
   }
 
   getSystemInfo() { return this.get('/api/system-info') }
-  getLanguages()  { return this.get<string[]>('/api/languages') }
+  getLanguages(): Promise<string[]> {
+    return this.get<unknown>('/api/languages').then(r => {
+      // Backend returns { languages: { code: name, ... } }; also tolerate array or plain dict
+      if (Array.isArray(r)) return r as string[]
+      if (r && typeof r === 'object') {
+        const inner = (r as { languages?: unknown }).languages ?? r
+        if (Array.isArray(inner)) return inner as string[]
+        if (inner && typeof inner === 'object') return Object.keys(inner)
+      }
+      console.warn('[api.getLanguages] unexpected response shape:', r)
+      return []
+    })
+  }
   getModels()     { return this.get<string[]>('/api/models') }
   getStatus()     { return this.get('/api/status') }
   getResult()     { return this.get<TranscriptionResult>('/api/result') }
@@ -162,7 +175,15 @@ class CapForgeAPI {
 
     this.ws.onmessage = (event: MessageEvent) => {
       try {
-        const data = JSON.parse(event.data as string) as ProgressUpdate
+        const raw = JSON.parse(event.data as string)
+        // Backend sends { status, progress, message, detail } (Pydantic model).
+        // Map to the ProgressUpdate shape the frontend expects.
+        const data: ProgressUpdate = {
+          step:        raw.step    ?? raw.status ?? 'loading_model',
+          pct:         raw.pct     ?? raw.progress ?? 0,
+          message:     raw.message ?? '',
+          sub_message: raw.sub_message ?? raw.detail ?? undefined,
+        }
         this._onProgress?.(data)
       } catch { /* ignore malformed */ }
     }

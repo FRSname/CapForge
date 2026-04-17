@@ -57,6 +57,51 @@
   --duration-slow:    350ms;
 }
 
+/* ╔══════════════════════════════════════════════════════════╗
+   ║  Light Theme Override                                   ║
+   ╚══════════════════════════════════════════════════════════╝ */
+
+:root.light {
+  --color-bg:         #f6f8fa;
+  --color-base:       #ffffff;
+  --color-surface:    #ffffff;
+  --color-surface-2:  #eef1f4;
+  --color-surface-3:  #e2e6ea;
+
+  --color-border:     rgba(0 0 0 / 0.10);
+  --color-border-2:   rgba(0 0 0 / 0.16);
+  --color-border-3:   rgba(0 0 0 / 0.24);
+
+  --color-text:       #1f2328;
+  --color-text-2:     #636c76;
+  --color-text-3:     #8b949e;
+
+  --color-accent:     #0969da;
+  --color-accent-2:   #0550ae;
+  --color-accent-glow: rgba(9 105 218 / 0.18);
+  --color-accent-subtle: rgba(9 105 218 / 0.06);
+
+  --color-amber:      #9a6700;
+  --color-amber-2:    #bf8700;
+  --color-amber-subtle: rgba(154 103 0 / 0.12);
+
+  --color-success:    #1a7f37;
+  --color-warning:    #9a6700;
+  --color-danger:     #d1242f;
+  --color-danger-subtle: rgba(209 36 47 / 0.08);
+}
+
+/* Light-mode scrollbar */
+:root.light ::-webkit-scrollbar-thumb { background: rgba(0 0 0 / 0.15); }
+:root.light ::-webkit-scrollbar-thumb:hover { background: rgba(0 0 0 / 0.25); }
+
+/* Light-mode hover adjustments for buttons with hardcoded rgba(255…) */
+:root.light .icon-btn:hover:not(:disabled) { background: rgba(0 0 0 / 0.06); }
+:root.light .icon-btn:active:not(:disabled) { background: rgba(0 0 0 / 0.1); }
+:root.light .tl-btn:hover { background: rgba(0 0 0 / 0.04); }
+:root.light .titlebar-btn:hover { background: rgba(0 0 0 / 0.06); }
+:root.light .btn-ghost:hover { background: rgba(0 0 0 / 0.04); }
+
 /* ── Base reset ─────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 

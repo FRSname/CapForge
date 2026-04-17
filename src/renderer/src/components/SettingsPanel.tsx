@@ -24,6 +24,15 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [diarize,   setDiarize]   = useState(false)
   const [hfToken,   setHfToken]   = useState('')
   const [sysInfo,   setSysInfo]   = useState<SystemInfo | null>(null)
+  const [lightMode, setLightMode] = useState(
+    () => localStorage.getItem('capforge-theme') === 'light',
+  )
+
+  // Apply theme class on mount and whenever lightMode changes
+  useEffect(() => {
+    document.documentElement.classList.toggle('light', lightMode)
+    localStorage.setItem('capforge-theme', lightMode ? 'light' : 'dark')
+  }, [lightMode])
 
   useEffect(() => {
     async function init() {
@@ -37,7 +46,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           window.subforge.getState('diarize', false),
           window.subforge.getState('hf_token', ''),
         ])
-        setLanguages(langs)
+        setLanguages(Array.isArray(langs) ? langs : [])
         setSysInfo(info)
         setLanguage(savedLang as string)
         setDiarize(savedDiarize as boolean)
@@ -74,10 +83,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
       {/* Panel */}
       <aside
-        className="fixed right-0 top-0 bottom-0 z-50 w-72 flex flex-col border-l shadow-2xl transition-transform"
+        className="fixed right-0 top-0 bottom-0 z-50 w-72 flex flex-col border-l shadow-2xl transition-transform bg-[var(--color-base)] border-[var(--color-border-2)]"
         style={{
-          background:    'var(--color-base)',
-          borderColor:   'var(--color-border-2)',
           transform:     open ? 'translateX(0)' : 'translateX(100%)',
           transitionDuration: '220ms',
           transitionTimingFunction: 'var(--ease-out-expo)',
@@ -85,8 +92,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       >
         {/* Header */}
         <div
-          className="flex items-center justify-between px-4 py-3 shrink-0 border-b"
-          style={{ borderColor: 'var(--color-border)' }}
+          className="flex items-center justify-between px-4 py-3 shrink-0 border-b border-[var(--color-border)]"
         >
           <span className="font-semibold text-sm">Settings</span>
           <button className="icon-btn" onClick={onClose} aria-label="Close settings">
@@ -101,15 +107,15 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
           {/* Hardware info */}
           {sysInfo && (
-            <div className="rounded-lg p-3 text-xs flex flex-col gap-1" style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}>
+            <div className="rounded-lg p-3 text-xs flex flex-col gap-1 bg-[var(--color-surface)] border border-[var(--color-border)]">
               <span className="label-xs mb-1">Hardware</span>
               {sysInfo.gpu_name ? (
                 <>
-                  <span style={{ color: 'var(--color-accent-2)' }}>{sysInfo.gpu_name}</span>
-                  {sysInfo.vram_gb && <span style={{ color: 'var(--color-text-3)' }}>{sysInfo.vram_gb} GB VRAM</span>}
+                  <span className="text-[var(--color-accent-2)]">{sysInfo.gpu_name}</span>
+                  {sysInfo.vram_gb && <span className="text-[var(--color-text-3)]">{sysInfo.vram_gb} GB VRAM</span>}
                 </>
               ) : (
-                <span style={{ color: 'var(--color-text-2)' }}>CPU mode</span>
+                <span className="text-[var(--color-text-2)]">CPU mode</span>
               )}
             </div>
           )}
@@ -123,7 +129,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               onChange={e => handleLanguageChange(e.target.value)}
             >
               <option value="">Auto-detect</option>
-              {languages.map(l => <option key={l} value={l}>{l}</option>)}
+              {(Array.isArray(languages) ? languages : []).map(l => <option key={l} value={l}>{l}</option>)}
             </select>
           </div>
 
@@ -145,11 +151,21 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   placeholder="hf_…"
                   className="field-input text-xs font-mono"
                 />
-                <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+                <p className="text-[11px] text-[var(--color-text-3)]">
                   Required for pyannote diarization. Get a token at huggingface.co.
                 </p>
               </div>
             )}
+          </div>
+
+          {/* Theme */}
+          <div className="flex flex-col gap-2">
+            <label className="label-xs">Appearance</label>
+            <Toggle
+              checked={lightMode}
+              onChange={setLightMode}
+              label={lightMode ? 'Light Mode' : 'Dark Mode'}
+            />
           </div>
 
           {/* Logs */}

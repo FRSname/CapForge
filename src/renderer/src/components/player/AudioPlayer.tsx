@@ -10,30 +10,48 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import { useWaveSurfer } from '../../hooks/useWaveSurfer'
 import { useTimeline, TIMELINE_HEIGHT } from '../../hooks/useTimeline'
+import { useSubtitleOverlay } from '../../hooks/useSubtitleOverlay'
+import { useVideoZoom } from '../../hooks/useVideoZoom'
 import type { Segment } from '../../types/app'
+import type { StudioSettings } from '../studio/StudioPanel'
 
 const VIDEO_EXTS = /\.(mp4|mkv|webm|mov|avi|m4v)$/i
 
 interface AudioPlayerProps {
   audioPath: string
   segments: Segment[]
+  settings: StudioSettings
+  resolution?: [number, number]
   onTimeUpdate?: (time: number) => void
   onSeek?: () => void
   /** When set, AudioPlayer immediately seeks to this time then calls onSeek(). */
   seekTo?: number | null
+  /** Called when user drags a subtitle block edge in the timeline. */
+  onSegmentEdge?: (segId: string, edge: 'start' | 'end', newTime: number) => void
 }
 
-export function AudioPlayer({ audioPath, segments, onTimeUpdate, onSeek, seekTo }: AudioPlayerProps) {
+export function AudioPlayer({ audioPath, segments, settings, resolution = [1920, 1080], onTimeUpdate, onSeek, seekTo, onSegmentEdge }: AudioPlayerProps) {
   const isVideo = VIDEO_EXTS.test(audioPath)
   const audioUrl = api.audioUrl(audioPath)
 
   // DOM refs
-  const videoRef    = useRef<HTMLVideoElement>(null)
-  const waveformRef = useRef<HTMLDivElement>(null)
-  const canvasRef   = useRef<HTMLCanvasElement>(null)
+  const videoRef      = useRef<HTMLVideoElement>(null)
+  const waveformRef   = useRef<HTMLDivElement>(null)
+  const canvasRef     = useRef<HTMLCanvasElement>(null)
+  const overlayRef    = useRef<HTMLCanvasElement>(null)
+  const previewAreaRef = useRef<HTMLDivElement>(null)
 
   const [zoom, setZoomState] = useState(1)
   const zoomLabel = `${Math.round(zoom * 100)}%`
+
+  // ── Subtitle overlay ────────────────────────────────────────────
+  const { draw: overlayDraw } = useSubtitleOverlay({
+    canvasRef: overlayRef,
+    anchorRef: previewAreaRef as React.RefObject<HTMLElement>,
+    segments,
+    settings,
+    resolution,
+  })
 
   // ── WaveSurfer ──────────────────────────────────────────────────
   const { playing, currentTime, duration, ready, playPause, seekTo: wsSeekTo } = useWaveSurfer({
@@ -43,7 +61,8 @@ export function AudioPlayer({ audioPath, segments, onTimeUpdate, onSeek, seekTo 
     onTimeUpdate: useCallback((t: number) => {
       onTimeUpdate?.(t)
       timelineDraw(t)
-    }, []),  // eslint-disable-line react-hooks/exhaustive-deps
+      overlayDraw(t)
+    }, [overlayDraw]),  // eslint-disable-line react-hooks/exhaustive-deps
     onSeek: useCallback(() => onSeek?.(), [onSeek]),
   })
 
@@ -61,20 +80,22 @@ export function AudioPlayer({ audioPath, segments, onTimeUpdate, onSeek, seekTo 
     segments,
     duration,
     onSeek: wsSeekTo,
+    onSegmentEdge,
   })
 
   // Initial draw when ready
   useEffect(() => {
-    if (ready) timelineDraw(0)
-  }, [ready, segments]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (ready) { timelineDraw(0); overlayDraw(0) }
+  }, [ready, segments, overlayDraw, timelineDraw])
 
-  // Re-draw when segments or duration changes (e.g. after edit)
+  // Re-draw when segments, duration, settings, or draw functions change
   useEffect(() => {
     timelineDraw(currentTime)
-  }, [segments, duration]) // eslint-disable-line react-hooks/exhaustive-deps
+    overlayDraw(currentTime)
+  }, [segments, duration, settings, overlayDraw, timelineDraw]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Video zoom (video-area zoom, independent of timeline zoom) ──
-  const [vzoom, setVzoom] = useState(1)
+  const vz = useVideoZoom()
 
   // ── Timeline zoom controls ───────────────────────────────────────
   function handleZoomIn() {
@@ -102,29 +123,62 @@ export function AudioPlayer({ audioPath, segments, onTimeUpdate, onSeek, seekTo 
       <div className="relative flex-1 min-h-0">
         {/* Video zoom toolbar */}
         <div className="absolute top-1 right-1 z-10 flex items-center gap-1 bg-black/50 rounded px-1.5 py-0.5">
-          <span className="text-[10px] text-white/40 mr-1 hidden sm:block">Ctrl+Wheel: zoom</span>
-          <button className="tl-btn" onClick={() => setVzoom(v => Math.max(0.2, v / 1.2))}>−</button>
-          <span className="text-[10px] text-white/60 w-10 text-center">{Math.round(vzoom * 100)}%</span>
-          <button className="tl-btn" onClick={() => setVzoom(v => Math.min(5, v * 1.2))}>+</button>
-          <button className="tl-btn" onClick={() => setVzoom(1)}>Reset</button>
+          <span className="text-[10px] text-white/40 mr-1 hidden sm:block">Ctrl+Wheel: zoom · Dbl-click: toggle</span>
+          <button className="tl-btn" onClick={vz.zoomOut}>−</button>
+          <span className="text-[10px] text-white/60 w-10 text-center">{Math.round(vz.zoom * 100)}%</span>
+          <button className="tl-btn" onClick={vz.zoomIn}>+</button>
+          <button className="tl-btn" onClick={vz.zoomReset}>Reset</button>
         </div>
 
         {isVideo ? (
-          <div className="overflow-hidden flex items-center justify-center bg-black" style={{ height: 160 }}>
-            <div style={{ transform: `scale(${vzoom})`, transformOrigin: 'center', transition: 'transform 0.1s' }}>
+          <div
+            ref={(el) => {
+              // Assign to both refs — previewAreaRef for overlay, wrapRef for zoom
+              (previewAreaRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
+              (vz.wrapRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+            }}
+            className="relative w-full mx-auto overflow-hidden bg-black"
+            style={{
+              aspectRatio: `${resolution[0]} / ${resolution[1]}`,
+              maxHeight: '55vh',
+              maxWidth:  `calc(55vh * ${resolution[0] / resolution[1]})`,
+              cursor: vz.isZoomed ? 'grab' : 'default',
+            }}
+            {...vz.handlers}
+          >
+            <div
+              className="relative w-full h-full"
+              style={{ transform: vz.transform, transformOrigin: '0 0', transition: 'none' }}
+            >
               <video
                 ref={videoRef}
                 src={audioUrl}
-                className="max-h-40 max-w-full"
+                className="w-full h-full object-contain"
+              />
+              <canvas
+                ref={overlayRef}
+                className="absolute inset-0 pointer-events-none"
               />
             </div>
           </div>
         ) : (
           <div
-            className="w-full flex items-center justify-center bg-[#0d1117]"
-            style={{ height: 80 }}
+            ref={previewAreaRef}
+            className="relative w-full mx-auto overflow-hidden bg-[#0d1117] flex items-center justify-center"
+            style={{
+              // Audio-only: use the configured resolution so captions still preview
+              // at the correct aspect ratio against a neutral backdrop.
+              aspectRatio: `${resolution[0]} / ${resolution[1]}`,
+              maxHeight: '40vh',
+              maxWidth:  `calc(40vh * ${resolution[0] / resolution[1]})`,
+            }}
           >
             <span className="text-xs text-white/20">Audio only</span>
+            {/* Subtitle overlay canvas for audio-only mode */}
+            <canvas
+              ref={overlayRef}
+              className="absolute inset-0 pointer-events-none"
+            />
           </div>
         )}
       </div>

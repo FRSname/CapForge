@@ -45,9 +45,11 @@ function createWindow() {
     minWidth: 760,
     minHeight: 560,
     title: "CapForge",
-    icon: path.join(__dirname, "..", "renderer", "assets", "icon.png"),
+    icon: path.join(__dirname, '..', 'resources', 'icon.png'),
     webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
+      preload: app.isPackaged
+        ? path.join(process.resourcesPath, 'preload.js')
+        : path.join(app.getAppPath(), 'electron', 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -73,18 +75,50 @@ function createWindow() {
 
   mainWindow = new BrowserWindow(opts);
 
+  // In dev mode, disable Chromium's HTTP cache so Vite module updates are always fresh
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.webContents.session.clearCache();
+  }
+
   if (saved.maximized) mainWindow.maximize();
 
-  mainWindow.loadFile(path.join(__dirname, "..", "renderer", "index.html"));
+  // electron-vite: use dev server in dev mode, built file in production
+  if (process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'))
+  }
   Menu.setApplicationMenu(buildAppMenu());
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
   });
 
-  // Open DevTools in dev mode
-  if (process.argv.includes("--dev")) {
-    mainWindow.webContents.openDevTools();
+  // Safety net: if ready-to-show never fires, show the window after 3s anyway
+  setTimeout(() => {
+    if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
+      console.warn("[CapForge] ready-to-show did not fire, forcing show()");
+      mainWindow.show();
+    }
+  }, 3000);
+
+  // Log renderer crashes/unresponsive events that would otherwise be silent
+  mainWindow.webContents.on("render-process-gone", (_e, details) => {
+    console.error("[CapForge] render-process-gone:", details);
+  });
+  mainWindow.webContents.on("unresponsive", () => {
+    console.error("[CapForge] renderer unresponsive");
+  });
+  mainWindow.webContents.on("did-fail-load", (_e, code, desc, url) => {
+    console.error("[CapForge] did-fail-load:", code, desc, url);
+  });
+  mainWindow.webContents.on("preload-error", (_e, preloadPath, err) => {
+    console.error("[CapForge] preload-error:", preloadPath, err);
+  });
+
+  // Open DevTools in dev mode (--dev flag OR electron-vite dev server)
+  if (process.argv.includes("--dev") || process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.webContents.openDevTools({ mode: "detach" });
   }
 
   // Persist window bounds whenever they change. Debounce via a timer so

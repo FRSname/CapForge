@@ -235,12 +235,30 @@ export function useTimeline({
     const rect = canvas.getBoundingClientRect()
     const pps = rect.width / (duration / zoom)
     const dt  = (e.clientX - dragRef.current.startClientX) / pps
-    const newVal = Math.max(0, Math.min(duration, dragRef.current.origVal + dt))
+    let newVal = Math.max(0, Math.min(duration, dragRef.current.origVal + dt))
+
+    // Prevent overlap with adjacent segments
+    const segIdx = segments.findIndex(s => s.id === dragRef.current!.segId)
+    if (segIdx >= 0) {
+      const seg = segments[segIdx]
+      const MIN_GAP = 0.01 // minimum 10ms gap between groups
+      if (dragRef.current.edge === 'start') {
+        // Can't move start past the segment's own end
+        newVal = Math.min(newVal, seg.end - MIN_GAP)
+        // Can't overlap previous segment
+        if (segIdx > 0) newVal = Math.max(newVal, segments[segIdx - 1].end + MIN_GAP)
+      } else {
+        // Can't move end before the segment's own start
+        newVal = Math.max(newVal, seg.start + MIN_GAP)
+        // Can't overlap next segment
+        if (segIdx < segments.length - 1) newVal = Math.min(newVal, segments[segIdx + 1].start - MIN_GAP)
+      }
+    }
 
     onSegmentEdge?.(dragRef.current.segId!, dragRef.current.edge!, newVal)
     e.preventDefault()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [duration, onSegmentEdge])
+  }, [segments, duration, onSegmentEdge])
 
   const onMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!dragRef.current) {

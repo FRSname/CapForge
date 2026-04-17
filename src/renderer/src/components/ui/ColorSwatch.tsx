@@ -11,7 +11,8 @@ interface ColorSwatchProps {
   onChange: (hex: string) => void
 }
 
-export function ColorSwatch({ label, value, onChange }: ColorSwatchProps) {
+export function ColorSwatch({ label, value: rawValue, onChange }: ColorSwatchProps) {
+  const value = rawValue || '#000000'
   const [open, setOpen]   = useState(false)
   const [hex,  setHexRaw] = useState(value.toUpperCase())
   const popRef = useRef<HTMLDivElement>(null)
@@ -78,8 +79,15 @@ export function ColorSwatch({ label, value, onChange }: ColorSwatchProps) {
         )}
       </div>
 
-      {/* Inline hex */}
-      <span className="text-[11px] font-mono text-[var(--color-text-3)] truncate">{value.toUpperCase()}</span>
+      {/* Inline editable hex */}
+      <input
+        type="text"
+        value={hex}
+        maxLength={7}
+        onChange={handleHex}
+        className="w-[68px] text-[11px] font-mono text-[var(--color-text-3)] bg-transparent border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] focus:text-[var(--color-text)] outline-none transition-colors px-0.5"
+        placeholder="#RRGGBB"
+      />
     </div>
   )
 }

@@ -9,7 +9,8 @@ interface StudioRowProps {
   onChange: (value: number) => void
 }
 
-export function StudioRow({ label, value, min, max, step = 1, unit = '', def, onChange }: StudioRowProps) {
+export function StudioRow({ label, value: rawValue, min, max, step = 1, unit = '', def, onChange }: StudioRowProps) {
+  const value = Number.isFinite(rawValue) ? rawValue : def
   const display = step < 1 ? value.toFixed(2).replace(/\.?0+$/, '') : String(Math.round(value))
   const isDirty = Math.abs(value - def) > 0.001
 
@@ -17,8 +18,7 @@ export function StudioRow({ label, value, min, max, step = 1, unit = '', def, on
     <div className="flex items-center gap-1.5 min-w-0">
       {/* Label */}
       <span
-        className="w-[72px] shrink-0 text-xs truncate"
-        style={{ color: 'var(--color-text-2)' }}
+        className="w-[72px] shrink-0 text-xs truncate text-[var(--color-text-2)]"
       >
         {label}
       </span>
@@ -29,14 +29,12 @@ export function StudioRow({ label, value, min, max, step = 1, unit = '', def, on
         min={min} max={max} step={step}
         value={value}
         onChange={e => onChange(Number(e.target.value))}
-        className="flex-1 min-w-0 h-[3px]"
-        style={{ accentColor: isDirty ? 'var(--color-accent-2)' : 'var(--color-accent)' }}
+        className={`flex-1 min-w-0 h-[3px] ${isDirty ? 'accent-[var(--color-accent-2)]' : 'accent-[var(--color-accent)]'}`}
       />
 
       {/* Numeric display */}
       <span
-        className="w-10 shrink-0 text-right text-[11px] tabular-nums"
-        style={{ color: isDirty ? 'var(--color-text)' : 'var(--color-text-3)' }}
+        className={`w-10 shrink-0 text-right text-[11px] tabular-nums ${isDirty ? 'text-[var(--color-text)]' : 'text-[var(--color-text-3)]'}`}
       >
         {display}{unit}
       </span>

@@ -2,32 +2,33 @@ import type { Screen } from '../../types/app'
 
 interface TitleBarProps {
   screen: Screen
-  onNew:           () => void
+  onNew:            () => void
+  onSave:           () => void
+  onOpen:           () => void
   onSettingsToggle: () => void
-  onExport?:       () => void
+  onExport?:        () => void
 }
 
-export function TitleBar({ screen, onNew, onSettingsToggle, onExport }: TitleBarProps) {
+export function TitleBar({ screen, onNew, onSave, onOpen, onSettingsToggle, onExport }: TitleBarProps) {
   const showResults = screen === 'results'
 
   return (
     <header
-      className="app-drag flex items-center justify-between px-3 shrink-0"
+      className="app-drag flex items-center justify-between px-3 shrink-0 border-b border-[var(--color-border)]"
       style={{
         height: 'var(--titlebar-h)',
         background: 'linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 100%)',
-        borderBottom: '1px solid var(--color-border)',
       }}
     >
       {/* Left: logo */}
       <div className="flex items-center gap-2 select-none">
         <svg
           width="15" height="15" viewBox="0 0 16 16" fill="currentColor"
-          style={{ color: 'var(--color-accent)' }}
+          className="text-[var(--color-accent)]"
         >
           <path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25ZM3 5.5a.75.75 0 0 1 .75-.75h8.5a.75.75 0 0 1 0 1.5h-8.5A.75.75 0 0 1 3 5.5Zm.75 2.75a.75.75 0 0 0 0 1.5h5.5a.75.75 0 0 0 0-1.5Z" />
         </svg>
-        <span className="font-semibold tracking-tight text-[13px]" style={{ color: 'var(--color-text)' }}>
+        <span className="font-semibold tracking-tight text-[13px] text-[var(--color-text)]">
           CapForge
         </span>
       </div>
@@ -52,7 +53,7 @@ export function TitleBar({ screen, onNew, onSettingsToggle, onExport }: TitleBar
             <button
               className="titlebar-btn"
               title="Save Project (Ctrl+S)"
-              onClick={() => window.subforge.saveProject(null).catch(() => {})}
+              onClick={onSave}
             >
               Save
             </button>
@@ -63,7 +64,7 @@ export function TitleBar({ screen, onNew, onSettingsToggle, onExport }: TitleBar
         <button
           className="titlebar-btn"
           title="Open Project (Ctrl+O)"
-          onClick={() => window.subforge.openProject().catch(() => {})}
+          onClick={onOpen}
         >
           Open
         </button>

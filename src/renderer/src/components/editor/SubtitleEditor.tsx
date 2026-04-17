@@ -9,14 +9,18 @@
  */
 
 import { useCallback, useMemo, useRef, useState } from 'react'
-import type { Segment, Word } from '../../types/app'
-import { WordStylePopup, type WordOverrides } from './WordStylePopup'
+import type { Segment, Word, WordOverrides } from '../../types/app'
+import { WordStylePopup, type WordStyleDefaults } from './WordStylePopup'
 
 interface SubtitleEditorProps {
   segments: Segment[]
   currentTime: number
   onSeek:   (time: number) => void
   onChange: (segments: Segment[]) => void
+  /** Called before an edit to snapshot state for undo. */
+  onBeforeEdit?: () => void
+  /** Global style defaults — popup uses these to compute "hasOverride". */
+  defaults: WordStyleDefaults
 }
 
 interface PopupState {
@@ -25,7 +29,7 @@ interface PopupState {
   anchorRect: DOMRect
 }
 
-export function SubtitleEditor({ segments, currentTime, onSeek, onChange }: SubtitleEditorProps) {
+export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBeforeEdit, defaults }: SubtitleEditorProps) {
   const [editMode,  setEditMode]  = useState(false)
   const [popup,     setPopup]     = useState<PopupState | null>(null)
   const [hasEdits,  setHasEdits]  = useState(false)
@@ -51,6 +55,7 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange }: Subt
 
   // ── Apply / reset word overrides ─────────────────────────────
   function applyWordOverride(segIdx: number, wordIdx: number, overrides: WordOverrides) {
+    onBeforeEdit?.()
     const next = segments.map((s, si) =>
       si !== segIdx ? s : {
         ...s,
@@ -71,6 +76,7 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange }: Subt
   function handleTimingChange(segIdx: number, field: 'start' | 'end', value: string) {
     const parsed = parseTimePrecise(value)
     if (isNaN(parsed)) return
+    onBeforeEdit?.()
     const next = segments.map((s, i) =>
       i !== segIdx ? s : { ...s, [field]: parsed }
     )
@@ -78,7 +84,27 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange }: Subt
     setHasEdits(true)
   }
 
-  const activePopupSeg  = popup ? segments[popup.segIdx]  : null
+  // ── Inline text editing (edit mode) ──────────────────────────
+  function handleTextEdit(segIdx: number, newText: string) {
+    onBeforeEdit?.()
+    const seg = segments[segIdx]
+    const words = newText.split(/\s+/).filter(Boolean)
+    // Map new words to old word timings (best effort) — mirrors vanilla logic
+    const newWords = words.map((word, i) => {
+      if (i < seg.words.length) {
+        return { ...seg.words[i], word }
+      }
+      // Extra words — reuse last word's timing
+      const last = seg.words[seg.words.length - 1]
+      return { ...last, word }
+    })
+    const next = segments.map((s, si) =>
+      si !== segIdx ? s : { ...s, text: newText, words: newWords }
+    )
+    onChange(next)
+    setHasEdits(true)
+  }
+
   const activePopupWord = popup ? segments[popup.segIdx]?.words[popup.wordIdx] : null
 
   return (
@@ -96,8 +122,21 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange }: Subt
         >
           {editMode ? '✏ Edit mode ON' : 'Edit mode'}
         </button>
+        {editMode && (
+          <button
+            className="text-xs px-2.5 py-1 rounded transition-colors bg-[var(--color-accent)] text-white hover:opacity-90"
+            onClick={() => {
+              // Blur any active contentEditable to commit pending changes
+              if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+              setEditMode(false)
+              setHasEdits(false)
+            }}
+          >
+            Done
+          </button>
+        )}
         {hasEdits && editMode && (
-          <span className="text-xs text-[var(--color-warning)]">Unsaved changes</span>
+          <span className="text-xs text-[var(--color-warning)]">Click outside a field or press Done to save</span>
         )}
       </div>
 
@@ -114,6 +153,7 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange }: Subt
             onWordClick={handleWordClick}
             onWordContextMenu={handleWordContextMenu}
             onTimingChange={handleTimingChange}
+            onTextEdit={handleTextEdit}
           />
         ))}
       </div>
@@ -122,11 +162,9 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange }: Subt
       {popup && activePopupWord && (
         <WordStylePopup
           word={activePopupWord.word}
-          overrides={(activePopupWord as { overrides?: WordOverrides }).overrides ?? {}}
+          overrides={activePopupWord.overrides ?? {}}
           anchorRect={popup.anchorRect}
-          defaultTextColor="#ffffff"
-          defaultOutlineColor="#000000"
-          defaultBgColor="#D4952A"
+          defaults={defaults}
           onApply={ov => applyWordOverride(popup.segIdx, popup.wordIdx, ov)}
           onReset={() => resetWordOverride(popup.segIdx, popup.wordIdx)}
           onClose={() => setPopup(null)}
@@ -147,9 +185,10 @@ interface SegmentRowProps {
   onWordClick: (word: Word) => void
   onWordContextMenu: (e: React.MouseEvent, si: number, wi: number) => void
   onTimingChange: (si: number, field: 'start' | 'end', value: string) => void
+  onTextEdit: (si: number, newText: string) => void
 }
 
-function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWordContextMenu, onTimingChange }: SegmentRowProps) {
+function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWordContextMenu, onTimingChange, onTextEdit }: SegmentRowProps) {
   return (
     <div
       className={[
@@ -176,31 +215,45 @@ function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWo
           {formatTime(seg.start)}
         </button>
 
-        {/* Word chips */}
-        <div className="flex flex-wrap gap-x-0.5 gap-y-0.5 leading-relaxed">
-          {seg.words.length > 0
-            ? seg.words.map((w, wi) => {
-                const ov = (w as { overrides?: WordOverrides }).overrides
-                return (
-                  <span
-                    key={wi}
-                    className={[
-                      'cursor-pointer rounded px-0.5 transition-colors',
-                      ov ? 'text-[var(--color-accent)] underline decoration-dotted' : '',
-                      'hover:bg-white/[0.06]',
-                    ].join(' ')}
-                    style={ov?.text_color ? { color: ov.text_color } : undefined}
-                    onClick={() => onWordClick(w)}
-                    onContextMenu={e => onWordContextMenu(e, segIdx, wi)}
-                    title={`${formatTimePrecise(w.start)} → ${formatTimePrecise(w.end)}`}
-                  >
-                    {w.word}
-                  </span>
-                )
-              })
-            : <span className="text-[var(--color-text-muted)]">{seg.text}</span>
-          }
-        </div>
+        {/* Word chips (read mode) / editable text (edit mode) */}
+        {editMode ? (
+          <div
+            className="flex-1 min-w-0 text-sm leading-relaxed px-1 py-0.5 rounded border border-transparent focus:border-[var(--color-accent)] focus:outline-none bg-[var(--color-surface)]"
+            contentEditable
+            suppressContentEditableWarning
+            spellCheck
+            onBlur={e => {
+              const text = (e.currentTarget.textContent ?? '').trim()
+              if (text !== seg.text) onTextEdit(segIdx, text)
+            }}
+            dangerouslySetInnerHTML={{ __html: seg.words.map(w => w.word).join(' ') || seg.text }}
+          />
+        ) : (
+          <div className="flex flex-wrap gap-x-0.5 gap-y-0.5 leading-relaxed">
+            {seg.words.length > 0
+              ? seg.words.map((w, wi) => {
+                  const ov = w.overrides
+                  return (
+                    <span
+                      key={wi}
+                      className={[
+                        'cursor-pointer rounded px-0.5 transition-colors',
+                        ov ? 'text-[var(--color-accent)] underline decoration-dotted' : '',
+                        'hover:bg-white/[0.06]',
+                      ].join(' ')}
+                      style={ov?.text_color ? { color: ov.text_color } : undefined}
+                      onClick={() => onWordClick(w)}
+                      onContextMenu={e => onWordContextMenu(e, segIdx, wi)}
+                      title={`${formatTimePrecise(w.start)} → ${formatTimePrecise(w.end)}`}
+                    >
+                      {w.word}
+                    </span>
+                  )
+                })
+              : <span className="text-[var(--color-text-muted)]">{seg.text}</span>
+            }
+          </div>
+        )}
       </div>
 
       {/* Timing editor (edit mode only) */}

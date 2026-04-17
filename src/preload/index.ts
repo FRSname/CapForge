@@ -3,7 +3,7 @@
  * Mirrors electron/preload.js with full TypeScript types.
  */
 
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 export interface FontInfo {
   name: string
@@ -15,6 +15,8 @@ export interface PresetSettings {
 }
 
 export interface SubforgeApi {
+  /** Electron 32+ replacement for File.path (sync). */
+  getPathForFile: (file: File) => string
   pickAudioFile: () => Promise<string | null>
   pickOutputDir: () => Promise<string | null>
   getBackendPort: () => Promise<number>
@@ -42,6 +44,7 @@ declare global {
 }
 
 contextBridge.exposeInMainWorld('subforge', {
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
   pickAudioFile: () => ipcRenderer.invoke('dialog:openFile'),
   pickOutputDir: () => ipcRenderer.invoke('dialog:openDir'),
   getBackendPort: () => ipcRenderer.invoke('backend:port'),

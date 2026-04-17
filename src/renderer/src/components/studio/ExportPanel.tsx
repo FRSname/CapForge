@@ -1,172 +1,188 @@
 /**
- * Export / Render panel — lives at the bottom of StudioPanel.
- * Ports the quick-render buttons + custom render options from the HTML.
+ * Export / Render panel — quick-render buttons + full custom render flow.
+ * Ports renderSubtitleVideo() from app.js:3644-3760.
+ *
+ * The payload sent to /api/render-video is assembled by buildRenderBody()
+ * (lib/render.ts). This component is just UI + progress wiring.
  */
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { StudioCard } from './StudioCard'
 import { api } from '../../lib/api'
+import { buildRenderBody, type RenderOverrides } from '../../lib/render'
 import type { StudioSettings } from './StudioPanel'
+import type { Segment } from '../../types/app'
 
 interface ExportPanelProps {
-  settings: StudioSettings
+  settings:     StudioSettings
+  groups:       Segment[]
+  groupsEdited: boolean
 }
 
 type RenderStatus = 'idle' | 'rendering' | 'done' | 'error'
 
-const RESOLUTIONS = [
-  { value: '1920x1080', label: '1920×1080 (16:9 1080p)' },
-  { value: '3840x2160', label: '3840×2160 (16:9 4K)' },
-  { value: '1280x720',  label: '1280×720  (16:9 720p)' },
-  { value: '1080x1920', label: '1080×1920 (9:16 1080p)' },
-  { value: '1080x1080', label: '1080×1080 (1:1 Square)' },
-]
+export function ExportPanel({ settings, groups, groupsEdited }: ExportPanelProps) {
+  const [status,    setStatus]    = useState<RenderStatus>('idle')
+  const [progress,  setProgress]  = useState(0)
+  const [elapsed,   setElapsed]   = useState('')
+  const [message,   setMessage]   = useState<string>('')
+  const [outputDir, setOutputDir] = useState<string>('')
+  const timerRef                  = useRef<number | null>(null)
 
-const FORMATS = [
-  { value: 'mp4',  label: 'MP4 (H.264)' },
-  { value: 'webm', label: 'WebM (VP9 + Alpha)' },
-  { value: 'mov',  label: 'MOV (ProRes 4444)' },
-]
+  function stopTimer() {
+    if (timerRef.current != null) {
+      clearInterval(timerRef.current)
+      timerRef.current = null
+    }
+  }
 
-const MODES = [
-  { value: 'overlay', label: 'Transparent Overlay' },
-  { value: 'baked',   label: 'Baked into Video' },
-]
-
-export function ExportPanel({ settings: _settings }: ExportPanelProps) {
-  const [resolution, setResolution] = useState('1920x1080')
-  const [format,     setFormat]     = useState('mp4')
-  const [mode,       setMode]       = useState('overlay')
-  const [status,     setStatus]     = useState<RenderStatus>('idle')
-  const [progress,   setProgress]   = useState(0)
-  const [elapsed,    setElapsed]    = useState('')
-  const [showCustom, setShowCustom] = useState(false)
-
-  async function startRender(quickMode?: 'baked' | 'overlay') {
+  async function startRender(overrides: RenderOverrides = {}) {
     setStatus('rendering')
     setProgress(0)
-
-    const params = {
-      resolution: quickMode ? '1920x1080' : resolution,
-      format:     quickMode ? 'mp4' : format,
-      mode:       quickMode ?? mode,
-    }
+    setElapsed('00:00')
+    setMessage('Starting…')
 
     const t0 = Date.now()
-    const timer = setInterval(() => {
+    stopTimer()
+    timerRef.current = window.setInterval(() => {
       const s = Math.floor((Date.now() - t0) / 1000)
-      setElapsed(`${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`)
+      setElapsed(`${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`)
     }, 1000)
 
-    // Connect to progress WS for render updates
     api.connectProgress(update => {
       setProgress(update.pct)
-      if (update.step === 'done')  { clearInterval(timer); setStatus('done')  }
-      if (update.step === 'error') { clearInterval(timer); setStatus('error') }
+      if (update.message)     setMessage(update.message)
+      if (update.step === 'done')  { stopTimer(); setStatus('done');  api.disconnectProgress() }
+      if (update.step === 'error') { stopTimer(); setStatus('error'); api.disconnectProgress() }
     })
 
     try {
-      await api.renderVideo(params)
-    } catch {
-      clearInterval(timer)
-      setStatus('error')
+      const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir || undefined)
+      await api.renderVideo(body)
+    } catch (err) {
+      stopTimer()
+      const msg = err instanceof Error ? err.message : 'Render failed'
+      const cancelled = msg.toLowerCase().includes('cancel')
+      setMessage(cancelled ? 'Cancelled.' : `Error: ${msg}`)
+      setStatus(cancelled ? 'idle' : 'error')
+      api.disconnectProgress()
     }
   }
 
   function cancelRender() {
-    api.cancelJob().catch(() => {/**/})
+    api.cancelJob().catch(() => { /* ignore */ })
     api.disconnectProgress()
+    stopTimer()
     setStatus('idle')
+    setMessage('Cancelled.')
   }
+
+  const busy = status === 'rendering'
 
   return (
     <StudioCard title="Export / Render" defaultOpen>
 
-      {/* Quick render buttons */}
+      {/* Output folder picker */}
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-[10px] text-[var(--color-text-3)] shrink-0">Output:</span>
+        <span
+          className="flex-1 min-w-0 text-[11px] text-[var(--color-text-2)] truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
+          title={outputDir || 'Same as source file'}
+        >
+          {outputDir ? outputDir.split('/').pop() || outputDir : 'Same as source'}
+        </span>
+        <button
+          className="btn-ghost text-[11px] py-1 px-2 shrink-0"
+          onClick={async () => {
+            const dir = await window.subforge.pickOutputDir()
+            if (dir) setOutputDir(dir)
+          }}
+          disabled={busy}
+        >
+          Browse
+        </button>
+      </div>
+
+      {/* Quick render buttons — fixed 1080p MP4 baked / MOV overlay. */}
       <div className="grid grid-cols-2 gap-2">
         <QuickRenderBtn
           icon={<VideoIcon />}
           title="Render Video"
           sub="MP4 · baked in"
-          disabled={status === 'rendering'}
-          onClick={() => startRender('baked')}
+          disabled={busy}
+          onClick={() => startRender({ renderMode: 'baked', format: 'mp4', resolution: [1920, 1080] })}
         />
         <QuickRenderBtn
           icon={<OverlayIcon />}
           title="Subtitles Only"
           sub="MOV · transparent"
-          disabled={status === 'rendering'}
-          onClick={() => startRender('overlay')}
+          disabled={busy}
+          onClick={() => startRender({ renderMode: 'overlay', format: 'mov', resolution: [1920, 1080] })}
         />
       </div>
 
-      {/* SRT / ASS export row */}
+      {/* SRT / ASS / VTT export row */}
       <div className="flex gap-1.5 mt-1">
-        {(['srt', 'ass', 'vtt'] as const).map(fmt => (
-          <button
-            key={fmt}
-            className="btn-ghost flex-1 text-[11px] py-1 justify-center"
-            onClick={() => api.exportResult({ format: fmt }).catch(() => {})}
-          >
-            .{fmt.toUpperCase()}
-          </button>
-        ))}
+        <button
+          className="btn-ghost flex-1 text-[11px] py-1 justify-center"
+          onClick={() => api.exportResult({ formats: ['srt_word'] }).catch(() => {})}
+          disabled={busy}
+          title="Word-aligned SRT (per-word timing)"
+        >
+          .SRT (Word)
+        </button>
+        <button
+          className="btn-ghost flex-1 text-[11px] py-1 justify-center"
+          onClick={() => api.exportResult({ formats: ['srt_standard'] }).catch(() => {})}
+          disabled={busy}
+          title="Classic SRT (sentence timing)"
+        >
+          .SRT
+        </button>
+        <button
+          className="btn-ghost flex-1 text-[11px] py-1 justify-center"
+          onClick={() => api.exportResult({ formats: ['vtt'] }).catch(() => {})}
+          disabled={busy}
+        >
+          .VTT
+        </button>
       </div>
 
-      {/* Custom render toggle */}
+      {/* Custom render — uses everything from the Render card above. */}
       <button
-        type="button"
-        className="flex items-center gap-1.5 text-xs w-full mt-1"
-        style={{ color: 'var(--color-text-2)' }}
-        onClick={() => setShowCustom(s => !s)}
+        className="btn-primary w-full justify-center mt-2"
+        disabled={busy}
+        onClick={() => startRender()}
       >
-        <svg
-          width="10" height="10" viewBox="0 0 16 16" fill="currentColor"
-          className="transition-transform"
-          style={{ transform: showCustom ? 'rotate(90deg)' : 'rotate(0deg)' }}
-        >
-          <path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/>
-        </svg>
-        Custom render
+        Render with current settings
       </button>
-
-      {showCustom && (
-        <div className="flex flex-col gap-2 mt-1">
-          <SelectRow label="Resolution" value={resolution} options={RESOLUTIONS} onChange={setResolution} />
-          <SelectRow label="Format"     value={format}     options={FORMATS}      onChange={setFormat} />
-          <SelectRow label="Mode"       value={mode}       options={MODES}        onChange={setMode} />
-          <button
-            className="btn-primary w-full justify-center mt-1"
-            disabled={status === 'rendering'}
-            onClick={() => startRender()}
-          >
-            Render with Custom Settings
-          </button>
-        </div>
-      )}
+      <p className="text-[10px] text-[var(--color-text-3)] text-center">
+        {settings.resolution[0]}×{settings.resolution[1]} · {settings.fps}fps · {settings.format.toUpperCase()} · {settings.renderMode}
+      </p>
 
       {/* Render progress */}
-      {status === 'rendering' && (
-        <div className="flex flex-col gap-2 mt-2 pt-2" style={{ borderTop: '1px solid var(--color-border)' }}>
-          <div className="w-full h-1 rounded-full overflow-hidden" style={{ background: 'var(--color-surface-3)' }}>
+      {busy && (
+        <div className="flex flex-col gap-2 mt-2 pt-2 border-t border-[var(--color-border)]">
+          <div className="w-full h-1 rounded-full overflow-hidden bg-[var(--color-surface-3)]">
             <div
-              className="h-full rounded-full transition-all duration-300"
-              style={{ width: `${progress}%`, background: 'var(--color-accent)' }}
+              className="h-full rounded-full transition-all duration-300 bg-[var(--color-accent)]"
+              style={{ width: `${progress}%` }}
             />
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-2)' }}>{progress}%</span>
-            <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-3)' }}>{elapsed}</span>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-xs tabular-nums text-[var(--color-text-2)]">{progress}%</span>
+            <span className="text-[10px] text-[var(--color-text-3)] truncate flex-1">{message}</span>
+            <span className="text-xs tabular-nums text-[var(--color-text-3)]">{elapsed}</span>
             <button className="btn-danger text-[11px] py-0.5 px-2.5" onClick={cancelRender}>Cancel</button>
           </div>
         </div>
       )}
 
       {status === 'done' && (
-        <p className="text-xs mt-2" style={{ color: 'var(--color-success)' }}>✓ Render complete</p>
+        <p className="text-xs mt-2 text-[var(--color-success)]">✓ Render complete</p>
       )}
       {status === 'error' && (
-        <p className="text-xs mt-2" style={{ color: 'var(--color-danger)' }}>Render failed — check logs</p>
+        <p className="text-xs mt-2 text-[var(--color-danger)]">{message || 'Render failed — check logs'}</p>
       )}
     </StudioCard>
   )
@@ -175,10 +191,10 @@ export function ExportPanel({ settings: _settings }: ExportPanelProps) {
 // ── Sub-components ──────────────────────────────────────────
 
 function QuickRenderBtn({ icon, title, sub, onClick, disabled }: {
-  icon: React.ReactNode
-  title: string
-  sub: string
-  onClick: () => void
+  icon:     React.ReactNode
+  title:    string
+  sub:      string
+  onClick:  () => void
   disabled?: boolean
 }) {
   return (
@@ -186,38 +202,14 @@ function QuickRenderBtn({ icon, title, sub, onClick, disabled }: {
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex flex-col items-center gap-1.5 py-3 px-2 rounded-lg border transition-all"
-      style={{
-        background: 'var(--color-surface-2)',
-        borderColor: 'var(--color-border-2)',
-      }}
-      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-3)' }}
+      className="flex flex-col items-center gap-1.5 py-3 px-2 rounded-lg border transition-all bg-[var(--color-surface-2)] border-[var(--color-border-2)] disabled:opacity-50"
+      onMouseEnter={e => { if (!disabled) (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-3)' }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-2)' }}
     >
-      <span style={{ color: 'var(--color-accent)' }}>{icon}</span>
-      <span className="text-xs font-semibold" style={{ color: 'var(--color-text)' }}>{title}</span>
-      <span className="text-[10px]" style={{ color: 'var(--color-text-3)' }}>{sub}</span>
+      <span className="text-[var(--color-accent)]">{icon}</span>
+      <span className="text-xs font-semibold text-[var(--color-text)]">{title}</span>
+      <span className="text-[10px] text-[var(--color-text-3)]">{sub}</span>
     </button>
-  )
-}
-
-function SelectRow({ label, value, options, onChange }: {
-  label: string
-  value: string
-  options: { value: string; label: string }[]
-  onChange: (v: string) => void
-}) {
-  return (
-    <div className="flex items-center gap-1.5">
-      <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>{label}</span>
-      <select
-        className="field-input flex-1 text-xs"
-        value={value}
-        onChange={e => onChange(e.target.value)}
-      >
-        {options.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-      </select>
-    </div>
   )
 }
 

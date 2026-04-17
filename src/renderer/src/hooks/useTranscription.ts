@@ -11,8 +11,8 @@ import type { TranscriptionResult } from '../types/app'
 
 interface TranscriptionOptions {
   language?: string
-  model?: string
   diarize?: boolean
+  hfToken?: string
   outputDir?: string
 }
 
@@ -24,17 +24,12 @@ interface UseTranscriptionReturn {
 
 export function useTranscription(): UseTranscriptionReturn {
   const [progress, setProgress] = useState<ProgressUpdate | null>(null)
-  const resolveRef = useRef<((result: TranscriptionResult) => void) | null>(null)
-  const rejectRef  = useRef<((err: Error) => void) | null>(null)
   const cancelledRef = useRef(false)
 
   const cancel = useCallback(() => {
     cancelledRef.current = true
     api.disconnectProgress()
     api.cancelJob().catch(() => {/* best-effort */})
-    rejectRef.current?.(new Error('Cancelled'))
-    resolveRef.current = null
-    rejectRef.current = null
   }, [])
 
   const start = useCallback(async (
@@ -48,49 +43,48 @@ export function useTranscription(): UseTranscriptionReturn {
     const port = await window.subforge.getBackendPort()
     api.setPort(port)
 
-    // Kick off the job
-    await api.startTranscription({
-      file_path: filePath,
-      language:  options.language,
-      model:     options.model,
-      diarize:   options.diarize,
-      output_dir: options.outputDir,
+    // Subscribe to progress BEFORE posting — backend's HTTP POST is synchronous
+    // (it only returns 200 when the job is fully done), so we must be listening
+    // on the WebSocket first or we miss every progress event.
+    api.connectProgress((update: ProgressUpdate) => {
+      if (cancelledRef.current) return
+      setProgress(update)
     })
 
-    return new Promise<TranscriptionResult>((resolve, reject) => {
-      resolveRef.current = resolve
-      rejectRef.current  = reject
-
-      api.connectProgress((update: ProgressUpdate) => {
-        if (cancelledRef.current) return
-
-        setProgress(update)
-
-        if (update.step === 'done') {
-          api.disconnectProgress()
-          // Map from API result shape to our app types
-          api.getResult().then(raw => {
-            const result: TranscriptionResult = {
-              segments: raw.segments.map(s => ({
-                id:      s.id ?? crypto.randomUUID(),
-                start:   s.start,
-                end:     s.end,
-                text:    s.text,
-                words:   s.words,
-                speaker: s.speaker,
-              })),
-              language:  raw.language,
-              duration:  raw.duration,
-              audioPath: raw.audio_path,
-            }
-            resolve(result)
-          }).catch(reject)
-        } else if (update.step === 'error') {
-          api.disconnectProgress()
-          reject(new Error(update.message))
-        }
+    try {
+      // Blocks until the job is done on the server (possibly minutes)
+      await api.startTranscription({
+        audio_path:         filePath,
+        language:           options.language || undefined,
+        enable_diarization: options.diarize ?? false,
+        hf_token:           options.hfToken || undefined,
+        output_dir:         options.outputDir || undefined,
       })
-    })
+
+      if (cancelledRef.current) throw new Error('Cancelled')
+
+      // Job finished successfully — fetch the full result
+      const raw = await api.getResult()
+      api.disconnectProgress()
+
+      const result: TranscriptionResult = {
+        segments: raw.segments.map(s => ({
+          id:      s.id ?? crypto.randomUUID(),
+          start:   s.start,
+          end:     s.end,
+          text:    s.text,
+          words:   s.words,
+          speaker: s.speaker,
+        })),
+        language:  raw.language,
+        duration:  raw.duration,
+        audioPath: raw.audio_path,
+      }
+      return result
+    } catch (err) {
+      api.disconnectProgress()
+      throw err
+    }
   }, [])
 
   return { progress, start, cancel }
