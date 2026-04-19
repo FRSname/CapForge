@@ -61,7 +61,6 @@ export function vanillaToStudio(p: VanillaPreset): Partial<StudioSettings> {
   if (p.customFontPath != null) out.fontPath      = p.customFontPath
   if (p.fontSize != null)       out.fontSize      = num(p.fontSize,      STUDIO_DEFAULTS.fontSize)
   if (p.bold != null)           out.fontWeight    = p.bold ? 700 : 400
-  if (p.tracking != null)       out.letterSpacing = num(p.tracking,      STUDIO_DEFAULTS.letterSpacing)
 
   if (p.strokeWidth != null)    out.outlineWidth  = num(p.strokeWidth,   STUDIO_DEFAULTS.outlineWidth)
   if (p.strokeColor != null)    out.outlineColor  = p.strokeColor
@@ -114,7 +113,6 @@ export function studioToVanilla(s: StudioSettings): VanillaPreset {
     customFontPath: s.fontPath || undefined,
     fontSize:       String(s.fontSize),
     bold:           s.fontWeight >= 700,
-    tracking:       String(s.letterSpacing),
     strokeWidth:    String(s.outlineWidth),
     strokeColor:    s.outlineColor,
     textColor:      s.textColor,

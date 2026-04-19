@@ -73,7 +73,6 @@ export function useSubtitleOverlay({
       posX, posY,
       wordsPerGroup: _wpg, lines: numLines,
       bgRadius: sr, bgWidthExtra, bgHeightExtra,
-      letterSpacing: sTracking, lineHeight: _lh,
       animationType: animation, animDuration: animDurFrames,
       wordStyle: wordTransition,
     } = settings
@@ -123,16 +122,10 @@ export function useSubtitleOverlay({
     const descent    = aygMetrics.actualBoundingBoxDescent || sf * 0.2
     const textH      = ascent + descent
     const baselineShift = (ascent - descent) / 2  // y-add to put baseline so visual centre = wordY
-    const rowLineGap = textH * 0.3
+    const rowLineGap = textH * 0.2
 
     const measureWord = (text: string) => {
-      if (sTracking === 0) return ctx.measureText(text).width
-      let w = 0
-      for (let i = 0; i < text.length; i++) {
-        w += ctx.measureText(text[i]).width
-        if (i < text.length - 1) w += sTracking
-      }
-      return w
+      return ctx.measureText(text).width
     }
 
     const baseSpaceW        = ctx.measureText(' ').width
@@ -296,17 +289,8 @@ export function useSubtitleOverlay({
       // Convert to alphabetic baseline so text glyphs sit centred on wy2.
       const drawW = (word: string, wx: number, wy2: number) => {
         const by = wy2 + baselineShift
-        if (sTracking === 0) {
-          if (sStroke > 0) ctx.strokeText(word, wx, by)
-          ctx.fillText(word, wx, by)
-        } else {
-          let cx2 = wx
-          for (const ch of word) {
-            if (sStroke > 0) ctx.strokeText(ch, cx2, by)
-            ctx.fillText(ch, cx2, by)
-            cx2 += ctx.measureText(ch).width + sTracking
-          }
-        }
+        if (sStroke > 0) ctx.strokeText(word, wx, by)
+        ctx.fillText(word, wx, by)
       }
 
       switch (wTransition) {

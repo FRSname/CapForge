@@ -57,6 +57,25 @@ def _check_cancel() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _probe_duration(ffmpeg_path: str, media_path: str) -> Optional[float]:
+    """Get the duration of a media file using ffprobe (sibling of ffmpeg)."""
+    try:
+        ffprobe = ffmpeg_path.replace("ffmpeg", "ffprobe")
+        if not shutil.which(ffprobe):
+            ffprobe = "ffprobe"
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", media_path],
+            capture_output=True, text=True, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return float(out.stdout.strip())
+    except Exception:
+        pass
+    return None
+
+
 def _hex_to_rgba(hex_color: str, opacity: float = 1.0) -> tuple[int, int, int, int]:
     """Convert '#RRGGBB' to (R, G, B, A)."""
     h = hex_color.lstrip("#")
@@ -286,11 +305,11 @@ def _draw_single_word(
     y: float,
     font: ImageFont.FreeTypeFont,
     color: tuple,
-    tracking: int,
+    tracking: float,
     outline_sw: int,
     stroke_rgba: tuple | None,
 ) -> None:
-    """Draw one word (or char-by-char if tracking) at (x, y)."""
+    """Draw one word (full string when tracking=0, char-by-char otherwise)."""
     if tracking == 0:
         if outline_sw > 0:
             draw.text((x, y), text, font=font, fill=color,
@@ -299,12 +318,15 @@ def _draw_single_word(
             draw.text((x, y), text, font=font, fill=color)
     else:
         cx = x
-        for ch in text:
+        for ci, ch in enumerate(text):
             if outline_sw > 0:
                 draw.text((cx, y), ch, font=font, fill=color,
                           stroke_width=outline_sw, stroke_fill=stroke_rgba)
             else:
                 draw.text((cx, y), ch, font=font, fill=color)
+            cx += font.getlength(ch)
+            if ci < len(text) - 1:
+                cx += tracking
             cb = draw.textbbox((0, 0), ch, font=font)
             cx += (cb[2] - cb[0]) + tracking
 
@@ -528,9 +550,10 @@ def _draw_word_list(
                 mask = Image.new("L", (max(tmp_w, 1), max(tmp_h, 1)), 0)
                 ImageDraw.Draw(mask).rectangle([0, 0, fill_w, tmp_h], fill=255)
                 orig_alpha = tmp.getchannel("A")
-                combined = Image.fromarray(
-                    bytes(min(a, m) for a, m in zip(orig_alpha.tobytes(), mask.tobytes())),
+                combined = Image.frombytes(
                     "L",
+                    (max(tmp_w, 1), max(tmp_h, 1)),
+                    bytes(min(a, m) for a, m in zip(orig_alpha.tobytes(), mask.tobytes())),
                 )
                 tmp.putalpha(combined)
                 img.paste(tmp, (int(word_x) - pad, int(word_y + w_bbox[1]) - pad), tmp)
@@ -609,28 +632,23 @@ def _render_frame(
 
     def _measure_word(text: str) -> float:
         if tracking == 0:
-            wb = draw.textbbox((0, 0), text, font=font)
-            return wb[2] - wb[0]
+            return font.getlength(text)
         w = 0.0
         for ci, ch in enumerate(text):
-            cb = draw.textbbox((0, 0), ch, font=font)
-            w += cb[2] - cb[0]
+            w += font.getlength(ch)
             if ci < len(text) - 1:
                 w += tracking
         return w
 
     words = group["words"]
-    space_bb = draw.textbbox((0, 0), " ", font=font)
-    effective_space_w = (space_bb[2] - space_bb[0]) + extra_word_spacing
+    effective_space_w = font.getlength(" ") + extra_word_spacing
 
     def _measure_with_font(text: str, f: ImageFont.FreeTypeFont) -> float:
         if tracking == 0:
-            wb = draw.textbbox((0, 0), text, font=f)
-            return wb[2] - wb[0]
+            return f.getlength(text)
         ww = 0.0
         for ci, ch in enumerate(text):
-            cb = draw.textbbox((0, 0), ch, font=f)
-            ww += cb[2] - cb[0]
+            ww += f.getlength(ch)
             if ci < len(text) - 1:
                 ww += tracking
         return ww
@@ -651,7 +669,8 @@ def _render_frame(
 
     bbox    = draw.textbbox((0, 0), "Ayg", font=font)
     text_h  = bbox[3] - bbox[1]
-    row_gap = text_h * 0.3
+    line_height = getattr(config, "line_height", 1.2)
+    row_gap = text_h * (line_height - 1)
 
     stroke_pad    = outline_sw
     bg_width_extra  = getattr(config, "bg_width_extra",  0)
@@ -835,7 +854,13 @@ def render_subtitle_video(
     if not groups:
         raise ValueError("No subtitle data to render")
 
-    duration = result.duration or groups[-1]["end"] + 1.0
+    # Use the actual media duration so the full video is rendered, not just
+    # up to the last subtitle. Fall back to result.duration, then to subtitles.
+    duration = (
+        _probe_duration(ffmpeg_path, result.audio_path)
+        or result.duration
+        or groups[-1]["end"] + 1.0
+    )
     font = _get_font(config.font_family, config.font_size, getattr(config, 'custom_font_path', None), bold=config.bold)
 
     def _report(msg: str, pct: float, status: JobStatus = JobStatus.RENDERING) -> None:

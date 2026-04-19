@@ -29,10 +29,17 @@ interface PopupState {
   anchorRect: DOMRect
 }
 
+/** Which word is being time-edited: segIdx + wordIdx */
+interface WordTimingEdit {
+  segIdx:  number
+  wordIdx: number
+}
+
 export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBeforeEdit, defaults }: SubtitleEditorProps) {
   const [editMode,  setEditMode]  = useState(false)
   const [popup,     setPopup]     = useState<PopupState | null>(null)
   const [hasEdits,  setHasEdits]  = useState(false)
+  const [wordTimingEdit, setWordTimingEdit] = useState<WordTimingEdit | null>(null)
 
   // Active segment index (for highlight)
   const activeSegIdx = useMemo(() => {
@@ -79,6 +86,23 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
     onBeforeEdit?.()
     const next = segments.map((s, i) =>
       i !== segIdx ? s : { ...s, [field]: parsed }
+    )
+    onChange(next)
+    setHasEdits(true)
+  }
+
+  // ── Word timing edit (edit mode) ─────────────────────────────
+  function handleWordTimingChange(segIdx: number, wordIdx: number, field: 'start' | 'end', value: string) {
+    const parsed = parseTimePrecise(value)
+    if (isNaN(parsed)) return
+    onBeforeEdit?.()
+    const next = segments.map((s, si) =>
+      si !== segIdx ? s : {
+        ...s,
+        words: s.words.map((w, wi) =>
+          wi !== wordIdx ? w : { ...w, [field]: parsed }
+        ),
+      }
     )
     onChange(next)
     setHasEdits(true)
@@ -154,6 +178,9 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
             onWordContextMenu={handleWordContextMenu}
             onTimingChange={handleTimingChange}
             onTextEdit={handleTextEdit}
+            wordTimingEdit={wordTimingEdit}
+            onWordTimingEditToggle={setWordTimingEdit}
+            onWordTimingChange={handleWordTimingChange}
           />
         ))}
       </div>
@@ -186,9 +213,12 @@ interface SegmentRowProps {
   onWordContextMenu: (e: React.MouseEvent, si: number, wi: number) => void
   onTimingChange: (si: number, field: 'start' | 'end', value: string) => void
   onTextEdit: (si: number, newText: string) => void
+  wordTimingEdit: WordTimingEdit | null
+  onWordTimingEditToggle: (edit: WordTimingEdit | null) => void
+  onWordTimingChange: (si: number, wi: number, field: 'start' | 'end', value: string) => void
 }
 
-function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWordContextMenu, onTimingChange, onTextEdit }: SegmentRowProps) {
+function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWordContextMenu, onTimingChange, onTextEdit, wordTimingEdit, onWordTimingEditToggle, onWordTimingChange }: SegmentRowProps) {
   return (
     <div
       className={[
@@ -215,19 +245,53 @@ function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWo
           {formatTime(seg.start)}
         </button>
 
-        {/* Word chips (read mode) / editable text (edit mode) */}
+        {/* Word chips (read mode) / editable text + word timing (edit mode) */}
         {editMode ? (
-          <div
-            className="flex-1 min-w-0 text-sm leading-relaxed px-1 py-0.5 rounded border border-transparent focus:border-[var(--color-accent)] focus:outline-none bg-[var(--color-surface)]"
-            contentEditable
-            suppressContentEditableWarning
-            spellCheck
-            onBlur={e => {
-              const text = (e.currentTarget.textContent ?? '').trim()
-              if (text !== seg.text) onTextEdit(segIdx, text)
-            }}
-            dangerouslySetInnerHTML={{ __html: seg.words.map(w => w.word).join(' ') || seg.text }}
-          />
+          <div className="flex-1 min-w-0 flex flex-col gap-1.5">
+            {/* Editable text */}
+            <div
+              className="text-sm leading-relaxed px-1 py-0.5 rounded border border-transparent focus:border-[var(--color-accent)] focus:outline-none bg-[var(--color-surface)]"
+              contentEditable
+              suppressContentEditableWarning
+              spellCheck
+              onBlur={e => {
+                const text = (e.currentTarget.textContent ?? '').trim()
+                if (text !== seg.text) onTextEdit(segIdx, text)
+              }}
+              dangerouslySetInnerHTML={{ __html: seg.words.map(w => w.word).join(' ') || seg.text }}
+            />
+            {/* Per-word timing chips */}
+            {seg.words.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {seg.words.map((w, wi) => {
+                  const isEditingThis = wordTimingEdit?.segIdx === segIdx && wordTimingEdit?.wordIdx === wi
+                  return (
+                    <div key={wi} className="flex flex-col items-center">
+                      <button
+                        type="button"
+                        className={[
+                          'text-[10px] px-1.5 py-0.5 rounded transition-colors tabular-nums',
+                          isEditingThis
+                            ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)] border border-[var(--color-accent)]/40'
+                            : 'bg-[var(--color-surface)] text-[var(--color-text-muted)] border border-[var(--color-border)] hover:border-[var(--color-accent)]/40',
+                        ].join(' ')}
+                        onClick={() => onWordTimingEditToggle(isEditingThis ? null : { segIdx, wordIdx: wi })}
+                        title="Edit word timing"
+                      >
+                        {w.word}
+                      </button>
+                      {isEditingThis && (
+                        <div className="flex items-center gap-1 mt-1">
+                          <TimingField label="S" value={w.start} onChange={v => onWordTimingChange(segIdx, wi, 'start', v)} />
+                          <TimingField label="E" value={w.end}   onChange={v => onWordTimingChange(segIdx, wi, 'end', v)} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         ) : (
           <div className="flex flex-wrap gap-x-0.5 gap-y-0.5 leading-relaxed">
             {seg.words.length > 0

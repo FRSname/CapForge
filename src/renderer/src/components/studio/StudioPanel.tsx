@@ -23,8 +23,6 @@ export interface StudioSettings {
   fontPath:      string
   fontSize:      number
   fontWeight:    number
-  lineHeight:    number
-  letterSpacing: number
   // Colors
   textColor:     string
   outlineColor:  string
@@ -85,8 +83,6 @@ const DEFAULTS: StudioSettings = {
   fontPath:      '',
   fontSize:      52,
   fontWeight:    100,
-  lineHeight:    1.2,
-  letterSpacing: 0,
   textColor:     '#FFFFFF',
   outlineColor:  '#000000',
   bgColor:       '#D4952A',
@@ -213,8 +209,6 @@ export function StudioPanel({
           <div className="divider" />
           <StudioRow label="Size"    value={s.fontSize}      min={12}  max={120} step={1}    unit="px"  def={DEFAULTS.fontSize}      onChange={v => set('fontSize', v)} />
           <StudioRow label="Bold"    value={s.fontWeight}    min={100} max={900} step={100}  unit=""    def={DEFAULTS.fontWeight}    onChange={v => set('fontWeight', v)} />
-          <StudioRow label="Leading" value={s.lineHeight}    min={0.8} max={3}   step={0.05} unit=""    def={DEFAULTS.lineHeight}    onChange={v => set('lineHeight', v)} />
-          <StudioRow label="Tracking" value={s.letterSpacing} min={-5} max={20}  step={1}    unit="px"  def={DEFAULTS.letterSpacing} onChange={v => set('letterSpacing', v)} />
         </StudioCard>
 
         {/* ── Colors ──────────────────────────────────────────── */}

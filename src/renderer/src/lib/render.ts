@@ -69,7 +69,7 @@ export function buildRenderBody(
     // doesn't go bold at semi-bold weights when the preview shows them as
     // regular. Keep both at 700 — i.e. only "bold" or heavier triggers PIL bold.
     bold:               settings.fontWeight >= 700,
-    tracking:           settings.letterSpacing,
+    tracking:           0,
     word_spacing:       0,
 
     stroke_width:       settings.outlineWidth,
@@ -93,6 +93,7 @@ export function buildRenderBody(
 
     words_per_group:    settings.wordsPerGroup,
     lines:              settings.lines,
+    line_height:        1.2,
 
     position_x:         settings.posX / 100,
     position_y:         settings.posY / 100,

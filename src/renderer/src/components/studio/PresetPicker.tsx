@@ -30,7 +30,10 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
   const [open, setOpen]               = useState(false)
   const [userPresets, setUserPresets] = useState<UserPreset[]>([])
   const [busy, setBusy]               = useState(false)
+  const [saving, setSaving]           = useState(false)
+  const [saveName, setSaveName]       = useState('')
   const rootRef                       = useRef<HTMLDivElement>(null)
+  const saveInputRef                  = useRef<HTMLInputElement>(null)
 
   // ── Load user presets once on mount (and after save/delete) ─────
   const refresh = useCallback(async () => {
@@ -73,21 +76,27 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
     setOpen(false)
   }
 
-  const handleSave = async () => {
-    const name = window.prompt('Save current style as preset:\nName?')?.trim()
-    if (!name) return
+  const handleSaveClick = () => {
+    setSaving(true)
+    setSaveName('')
+    setTimeout(() => saveInputRef.current?.focus(), 50)
+  }
+
+  const handleSaveConfirm = async () => {
+    const name = saveName.trim()
+    if (!name) { setSaving(false); return }
     if (!window.subforge?.savePreset) {
-      window.alert('Preset API not available.')
+      setSaving(false)
       return
     }
     setBusy(true)
     try {
       await window.subforge.savePreset(name, studioToVanilla(settings) as Record<string, unknown>)
       await refresh()
-    } catch (err) {
-      window.alert(`Failed to save preset: ${(err as Error).message}`)
-    } finally {
+    } catch { /* ignore */ }
+    finally {
       setBusy(false)
+      setSaving(false)
     }
   }
 
@@ -122,14 +131,35 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)]">
             <span className="text-[11px] font-medium text-[var(--color-text-2)]">Style presets</span>
-            <button
-              className="btn-ghost text-[10px] py-0.5 px-1.5"
-              onClick={handleSave}
-              disabled={busy}
-              title="Save current settings as a new preset"
-            >
-              + Save current
-            </button>
+            {saving ? (
+              <div className="flex items-center gap-1">
+                <input
+                  ref={saveInputRef}
+                  type="text"
+                  value={saveName}
+                  onChange={e => setSaveName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') handleSaveConfirm(); if (e.key === 'Escape') setSaving(false) }}
+                  placeholder="Preset name"
+                  className="w-24 text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:border-[var(--color-accent)] outline-none"
+                />
+                <button
+                  className="btn-ghost text-[10px] py-0.5 px-1"
+                  onClick={handleSaveConfirm}
+                  disabled={busy || !saveName.trim()}
+                >
+                  Save
+                </button>
+              </div>
+            ) : (
+              <button
+                className="btn-ghost text-[10px] py-0.5 px-1.5"
+                onClick={handleSaveClick}
+                disabled={busy}
+                title="Save current settings as a new preset"
+              >
+                + Save current
+              </button>
+            )}
           </div>
 
           <div className="overflow-y-auto" style={{ maxHeight: 'calc(70vh - 40px)' }}>

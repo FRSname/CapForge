@@ -51,16 +51,38 @@ export function ResultsScreen({ result, projectIORef }: ResultsScreenProps) {
   // to the backend so renderSubtitleVideo uses `custom_groups` instead of
   // re-chunking from the stored transcription.
   const [groupsEdited, setGroupsEdited] = useState(false)
+  // True once the user edits segments (text, timing, etc.) — ensures the
+  // re-derived groups are still sent to the backend for rendering.
+  const [segmentsEdited, setSegmentsEdited] = useState(false)
 
   // ── Undo/redo for segment edits ────────────────────────────────
   const { pushUndo, undo, redo, clear: clearUndo, canUndo, canRedo } = useUndoRedo(segments, setSegments)
 
   useEffect(() => {
-    // Source changed → reset to the auto-chunked groups and clear the edited
-    // flag. Any manual edits are discarded (matches vanilla's rebuild on wpg).
-    setGroups(buildStudioGroups(segments, settings.wordsPerGroup))
-    setGroupsEdited(false)
-  }, [segments, settings.wordsPerGroup])
+    if (groupsEdited) {
+      // Groups were manually edited — preserve group boundaries but sync
+      // updated word data (text, timing, overrides) from the new segments.
+      // Flatten the new segment words, then re-slice into existing group sizes.
+      const allWords = segments.flatMap(s => s.words)
+      let wi = 0
+      setGroups(prev => prev.map(g => {
+        const count = g.words.length
+        const updated = allWords.slice(wi, wi + count)
+        wi += count
+        if (updated.length === 0) return g
+        return {
+          ...g,
+          start: updated[0].start,
+          end:   updated[updated.length - 1].end,
+          text:  updated.map(w => w.word).join(' '),
+          words: updated,
+        }
+      }))
+    } else {
+      // No manual group edits — rebuild from scratch.
+      setGroups(buildStudioGroups(segments, settings.wordsPerGroup))
+    }
+  }, [segments, settings.wordsPerGroup])  // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wrapper that GroupEditor calls — flips the edited flag the first time the
   // user touches the groups. Referential equality of `next` vs `groups` would
@@ -88,16 +110,19 @@ export function ResultsScreen({ result, projectIORef }: ResultsScreenProps) {
   useEffect(() => {
     if (!projectIORef) return
     projectIORef.current = {
-      gather: () => ({
-        version:             PROJECT_VERSION,
-        suggestedName:       suggestProjectName(result.audioPath),
-        selectedFilePath:    result.audioPath,
-        outputDir:           'output',
-        transcriptionResult: result,
-        studioSettings:      settings,
-        customGroupsEdited:  groupsEdited,
-        studioGroups:        groupsEdited ? groups : null,
-      }),
+      gather: () => {
+        const anyEdited = groupsEdited || segmentsEdited
+        return {
+          version:             PROJECT_VERSION,
+          suggestedName:       suggestProjectName(result.audioPath),
+          selectedFilePath:    result.audioPath,
+          outputDir:           'output',
+          transcriptionResult: { ...result, segments },
+          studioSettings:      settings,
+          customGroupsEdited:  anyEdited,
+          studioGroups:        anyEdited ? groups : null,
+        }
+      },
       restore: (file: ProjectFile) => {
         setSettings(file.studioSettings)
         if (file.customGroupsEdited && file.studioGroups) {
@@ -208,7 +233,7 @@ export function ResultsScreen({ result, projectIORef }: ResultsScreenProps) {
             segments={segments}
             currentTime={currentTime}
             onSeek={handleSeek}
-            onChange={setSegments}
+            onChange={(next: Segment[]) => { setSegments(next); setSegmentsEdited(true) }}
             onBeforeEdit={pushUndo}
             defaults={wordStyleDefaults}
           />
@@ -229,7 +254,7 @@ export function ResultsScreen({ result, projectIORef }: ResultsScreenProps) {
         settings={settings}
         onChange={setSettings}
         groups={groups}
-        groupsEdited={groupsEdited}
+        groupsEdited={groupsEdited || segmentsEdited}
         audioPath={result.audioPath}
         sourceVideoInfo={sourceVideoInfo}
       />
