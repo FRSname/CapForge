@@ -57,46 +57,30 @@ def _check_cancel() -> None:
 # ---------------------------------------------------------------------------
 
 
+def _probe_duration(ffmpeg_path: str, media_path: str) -> Optional[float]:
+    """Get the duration of a media file using ffprobe (sibling of ffmpeg)."""
+    try:
+        ffprobe = ffmpeg_path.replace("ffmpeg", "ffprobe")
+        if not shutil.which(ffprobe):
+            ffprobe = "ffprobe"
+        out = subprocess.run(
+            [ffprobe, "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", media_path],
+            capture_output=True, text=True, timeout=10,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        if out.returncode == 0 and out.stdout.strip():
+            return float(out.stdout.strip())
+    except Exception:
+        pass
+    return None
+
+
 def _hex_to_rgba(hex_color: str, opacity: float = 1.0) -> tuple[int, int, int, int]:
     """Convert '#RRGGBB' to (R, G, B, A)."""
     h = hex_color.lstrip("#")
     r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
     return (r, g, b, int(opacity * 255))
-
-
-def _composite_shadow(
-    img: Image.Image,
-    shadow_layer: Image.Image,
-    shadow_color: str,
-    shadow_opacity: float,
-    shadow_blur: int,
-    offset_x: int,
-    offset_y: int,
-) -> None:
-    """Blur the alpha channel of *shadow_layer*, tint it with *shadow_color*,
-    and composite the result onto *img* in-place (below any content already in img).
-    """
-    # Extract alpha mask from the shadow layer
-    alpha = shadow_layer.split()[3]
-    if shadow_blur > 0:
-        alpha = alpha.filter(ImageFilter.GaussianBlur(radius=shadow_blur))
-
-    h_r, h_g, h_b = (
-        int(shadow_color.lstrip("#")[0:2], 16),
-        int(shadow_color.lstrip("#")[2:4], 16),
-        int(shadow_color.lstrip("#")[4:6], 16),
-    )
-    # Build a solid-colour shadow image at the same size, then scale alpha
-    shadow_solid = Image.new("RGBA", img.size, (h_r, h_g, h_b, 0))
-    # Scale alpha by shadow_opacity using Pillow's point() — no numpy needed
-    alpha_scaled = alpha.point(lambda p: int(p * shadow_opacity))
-    shadow_solid.putalpha(alpha_scaled)
-
-    # Paste shadow behind current content: create blank, paste shadow first, then img on top
-    combined = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    combined.paste(shadow_solid, (offset_x, offset_y), shadow_solid)
-    combined.alpha_composite(img)
-    img.paste(combined)
 
 
 def _find_font_candidates(family: str, bold: bool) -> list[str]:
@@ -321,11 +305,11 @@ def _draw_single_word(
     y: float,
     font: ImageFont.FreeTypeFont,
     color: tuple,
-    tracking: int,
+    tracking: float,
     outline_sw: int,
     stroke_rgba: tuple | None,
 ) -> None:
-    """Draw one word (or char-by-char if tracking) at (x, y)."""
+    """Draw one word (full string when tracking=0, char-by-char otherwise)."""
     if tracking == 0:
         if outline_sw > 0:
             draw.text((x, y), text, font=font, fill=color,
@@ -334,12 +318,15 @@ def _draw_single_word(
             draw.text((x, y), text, font=font, fill=color)
     else:
         cx = x
-        for ch in text:
+        for ci, ch in enumerate(text):
             if outline_sw > 0:
                 draw.text((cx, y), ch, font=font, fill=color,
                           stroke_width=outline_sw, stroke_fill=stroke_rgba)
             else:
                 draw.text((cx, y), ch, font=font, fill=color)
+            cx += font.getlength(ch)
+            if ci < len(text) - 1:
+                cx += tracking
             cb = draw.textbbox((0, 0), ch, font=font)
             cx += (cb[2] - cb[0]) + tracking
 
@@ -359,6 +346,7 @@ def _draw_word_list(
     word_transition: str,
     anim_alpha: float,
     img: Image.Image,
+    pill_draw: ImageDraw.ImageDraw | None = None,
 ) -> None:
     """Draw all words at the given centre position with the chosen word animation."""
     text_h = bbox[3] - bbox[1]
@@ -393,16 +381,27 @@ def _draw_word_list(
         wx += wm["width"] + effective_space_w
 
     # Draw sliding highlight BEFORE words so it sits behind the text.
-    if word_transition == "highlight":
-        h_pad   = max(highlight_padding_x, outline_sw + 2)
-        h_pad_v = max(highlight_padding_y, outline_sw + 2)
-        h_rad   = highlight_radius
-        hl_alpha = anim_alpha * highlight_opacity
+    # Highlight is per-active-word, so per-word overrides for the active word's
+    # effective transition + sub-settings apply here.
+    active_idx = next((i for i, wm in enumerate(word_metrics)
+                       if wm["start"] <= current_time < wm["end"]), -1)
+    active_ov  = (word_metrics[active_idx].get("overrides") or {}) if active_idx >= 0 else {}
+    effective_transition = active_ov.get("word_transition") or word_transition
 
-        active_idx = next((i for i, wm in enumerate(word_metrics)
-                           if wm["start"] <= current_time < wm["end"]), -1)
-        if active_idx >= 0:
-            target_x = word_x_positions[active_idx]
+    if effective_transition == "highlight" and active_idx >= 0:
+        w_hl_pad_x  = float(active_ov.get("highlight_padding_x", highlight_padding_x))
+        w_hl_pad_y  = float(active_ov.get("highlight_padding_y", highlight_padding_y))
+        w_hl_radius = int(active_ov.get("highlight_radius", highlight_radius))
+        w_hl_opac   = float(active_ov.get("highlight_opacity", highlight_opacity))
+        h_pad   = max(w_hl_pad_x, outline_sw + 2)
+        h_pad_v = max(w_hl_pad_y, outline_sw + 2)
+        h_rad   = w_hl_radius
+        hl_alpha = anim_alpha * w_hl_opac
+
+        if True:
+            hl_off_x = float(active_ov.get("pos_offset_x", 0))
+            hl_off_y = float(active_ov.get("pos_offset_y", 0))
+            target_x = word_x_positions[active_idx] + hl_off_x
             target_w = word_metrics[active_idx]["width"]
 
             if highlight_anim == "slide" and active_idx > 0:
@@ -420,12 +419,15 @@ def _draw_word_list(
                 hl_w = target_w
 
             hl_rgba = _hex_to_rgba(config.active_word_color, hl_alpha)
+            # If a dedicated pill_draw was supplied, render the pill there so the
+            # caller can composite it under the text shadow (without the pill
+            # itself contributing to the shadow alpha).
             _draw_rounded_rect(
-                draw,
+                pill_draw if pill_draw is not None else draw,
                 (hl_x - h_pad,
-                 center_y - text_h / 2 - h_pad_v,
+                 center_y - text_h / 2 - h_pad_v + hl_off_y,
                  hl_x + hl_w + h_pad,
-                 center_y + text_h / 2 + h_pad_v),
+                 center_y + text_h / 2 + h_pad_v + hl_off_y),
                 h_rad, hl_rgba,
             )
 
@@ -448,6 +450,17 @@ def _draw_word_list(
         w_font_family   = ov.get("font_family") or config.font_family
         w_font_path     = ov.get("custom_font_path") or getattr(config, "custom_font_path", None)
         w_word_trans    = ov.get("word_transition") or word_transition
+        # Per-word position nudge (additive — does not affect layout of next words)
+        w_off_x         = float(ov.get("pos_offset_x", 0))
+        w_off_y         = float(ov.get("pos_offset_y", 0))
+        # Per-word transition sub-settings
+        w_bounce        = float(ov.get("bounce_strength",     bounce_strength))
+        w_scale_fac     = float(ov.get("scale_factor",        scale_factor))
+        w_ul_thick      = int(ov.get("underline_thickness",   ul_thickness))
+        w_ul_color      = ov.get("underline_color")
+        if w_ul_color is None or w_ul_color == "":
+            w_ul_color = ul_color_hex
+        w_bounce_px     = text_h * w_bounce
         needs_new_font  = (w_scale != 1.0 or w_bold != config.bold or w_font_family != config.font_family)
         if needs_new_font:
             base_size = font.size if hasattr(font, "size") else config.font_size
@@ -480,8 +493,8 @@ def _draw_word_list(
         else:  # instant
             color = w_active_color if is_active else w_text_color
 
-        word_x = x
-        word_y = y - (w_text_h - text_h) / 2  # vertically centre scaled words on the baseline
+        word_x = x + w_off_x
+        word_y = y - (w_text_h - text_h) / 2 + w_off_y  # vertically centre scaled words on the baseline
 
         # ------------------------------------------------------------------ #
         # BOUNCE — shift active word upward
@@ -489,7 +502,7 @@ def _draw_word_list(
         if w_word_trans == "bounce" and is_active:
             import math
             bounce_t = math.sin(word_prog * math.pi)
-            word_y = y - BOUNCE_PX * bounce_t - (w_text_h - text_h) / 2
+            word_y = y - w_bounce_px * bounce_t - (w_text_h - text_h) / 2 + w_off_y
             color = w_active_color
 
         if w_word_trans == "highlight" and is_active:
@@ -497,7 +510,7 @@ def _draw_word_list(
 
         if w_word_trans == "scale" and is_active:
             word_cx = word_x + wm["width"] / 2
-            word_cy = center_y
+            word_cy = center_y + w_off_y
             pad = int(w_text_h * 0.5)
             tmp_w = int(wm["width"]) + pad * 2
             tmp_h = int(w_text_h) + pad * 2
@@ -508,8 +521,8 @@ def _draw_word_list(
                 tmp_draw, wm["word"], pad, pad - w_bbox[1],
                 w_font, w_active_color, tracking, outline_sw, tmp_stroke,
             )
-            new_w = int(tmp_w * SCALE_FACTOR)
-            new_h = int(tmp_h * SCALE_FACTOR)
+            new_w = int(tmp_w * w_scale_fac)
+            new_h = int(tmp_h * w_scale_fac)
             scaled = tmp.resize((max(new_w, 1), max(new_h, 1)), Image.LANCZOS)
             paste_x = int(word_cx - new_w / 2)
             paste_y = int(word_cy - new_h / 2)
@@ -537,9 +550,10 @@ def _draw_word_list(
                 mask = Image.new("L", (max(tmp_w, 1), max(tmp_h, 1)), 0)
                 ImageDraw.Draw(mask).rectangle([0, 0, fill_w, tmp_h], fill=255)
                 orig_alpha = tmp.getchannel("A")
-                combined = Image.fromarray(
-                    bytes(min(a, m) for a, m in zip(orig_alpha.tobytes(), mask.tobytes())),
+                combined = Image.frombytes(
                     "L",
+                    (max(tmp_w, 1), max(tmp_h, 1)),
+                    bytes(min(a, m) for a, m in zip(orig_alpha.tobytes(), mask.tobytes())),
                 )
                 tmp.putalpha(combined)
                 img.paste(tmp, (int(word_x) - pad, int(word_y + w_bbox[1]) - pad), tmp)
@@ -549,9 +563,9 @@ def _draw_word_list(
             continue
 
         if w_word_trans == "underline" and is_active:
-            bar_h    = max(1, ul_thickness)
-            bar_y    = center_y + w_text_h / 2 + 2
-            ul_hex   = ul_color_hex if ul_color_hex else config.active_word_color
+            bar_h    = max(1, w_ul_thick)
+            bar_y    = center_y + w_text_h / 2 + 2 + w_off_y
+            ul_hex   = w_ul_color if w_ul_color else config.active_word_color
             bar_rgba = _hex_to_rgba(ul_hex, anim_alpha)
             draw.rectangle(
                 [word_x, bar_y, word_x + wm["width"], bar_y + bar_h],
@@ -618,28 +632,23 @@ def _render_frame(
 
     def _measure_word(text: str) -> float:
         if tracking == 0:
-            wb = draw.textbbox((0, 0), text, font=font)
-            return wb[2] - wb[0]
+            return font.getlength(text)
         w = 0.0
         for ci, ch in enumerate(text):
-            cb = draw.textbbox((0, 0), ch, font=font)
-            w += cb[2] - cb[0]
+            w += font.getlength(ch)
             if ci < len(text) - 1:
                 w += tracking
         return w
 
     words = group["words"]
-    space_bb = draw.textbbox((0, 0), " ", font=font)
-    effective_space_w = (space_bb[2] - space_bb[0]) + extra_word_spacing
+    effective_space_w = font.getlength(" ") + extra_word_spacing
 
     def _measure_with_font(text: str, f: ImageFont.FreeTypeFont) -> float:
         if tracking == 0:
-            wb = draw.textbbox((0, 0), text, font=f)
-            return wb[2] - wb[0]
+            return f.getlength(text)
         ww = 0.0
         for ci, ch in enumerate(text):
-            cb = draw.textbbox((0, 0), ch, font=f)
-            ww += cb[2] - cb[0]
+            ww += f.getlength(ch)
             if ci < len(text) - 1:
                 ww += tracking
         return ww
@@ -660,13 +669,16 @@ def _render_frame(
 
     bbox    = draw.textbbox((0, 0), "Ayg", font=font)
     text_h  = bbox[3] - bbox[1]
-    row_gap = text_h * 0.3
+    line_height = getattr(config, "line_height", 1.2)
+    row_gap = text_h * (line_height - 1)
 
     stroke_pad    = outline_sw
     bg_width_extra  = getattr(config, "bg_width_extra",  0)
     bg_height_extra = getattr(config, "bg_height_extra", 0)
     text_offset_x   = getattr(config, "text_offset_x",   0)
     text_offset_y   = getattr(config, "text_offset_y",   0)
+    text_align_h    = getattr(config, "text_align_h",    "center")
+    text_align_v    = getattr(config, "text_align_v",    "middle")
     position_x      = getattr(config, "position_x",      0.5)
     num_lines       = max(1, getattr(config, "lines",     1))
 
@@ -694,15 +706,24 @@ def _render_frame(
     center_x = config.resolution_w * position_x
     center_y = config.resolution_h * config.position_y + slide_offset
 
-    def _draw_all_rows(tgt_draw: "ImageDraw.ImageDraw", tgt_img: "Image.Image", cx: float, cy: float) -> None:
-        top_y = cy - total_text_h / 2 + text_h / 2
+    # Slack between bg and text grows when bg_*_extra > 0; alignment shifts text
+    # within that slack. Center/middle = no shift (current behavior).
+    align_shift_x = (-bg_width_extra  / 2) if text_align_h == "left"   else \
+                    ( bg_width_extra  / 2) if text_align_h == "right"  else 0
+    align_shift_y = (-bg_height_extra / 2) if text_align_v == "top"    else \
+                    ( bg_height_extra / 2) if text_align_v == "bottom" else 0
+
+    def _draw_all_rows(tgt_draw: "ImageDraw.ImageDraw", tgt_img: "Image.Image", cx: float, cy: float,
+                       pill_draw: "ImageDraw.ImageDraw | None" = None) -> None:
+        top_y = cy - total_text_h / 2 + text_h / 2 + align_shift_y + text_offset_y
         for ri, row in enumerate(rows):
-            row_cx = cx + text_offset_x
-            row_cy = top_y + ri * (text_h + row_gap) + text_offset_y
+            row_cx = cx + align_shift_x + text_offset_x
+            row_cy = top_y + ri * (text_h + row_gap)
             _draw_word_list(tgt_draw, row, font, current_time, config,
                             tracking, effective_space_w, bbox,
                             row_cx, row_cy,
-                            outline_sw, word_transition, anim_alpha, tgt_img)
+                            outline_sw, word_transition, anim_alpha, tgt_img,
+                            pill_draw=pill_draw)
 
     # ---------------------------------------------------------------------------
     # Pop: render at reduced scale into a temp surface, paste centred
@@ -738,23 +759,53 @@ def _render_frame(
                             center_x + bg_w / 2, center_y + bg_h / 2),
                            config.bg_corner_radius, bg_rgba)
 
-    # Drop shadow: render text onto a separate layer, blur, composite behind
+    # Render the highlight pill and the text into separate layers so the
+    # composite order can be: bg → pill → text-shadow → text. That way the
+    # text's drop shadow falls *on top of* the pill (matching the canvas
+    # preview, which only attaches `ctx.shadowBlur` to per-word draw calls).
+    pill_layer = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
+    pill_draw  = ImageDraw.Draw(pill_layer)
+    text_layer = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
+    text_draw  = ImageDraw.Draw(text_layer)
+    _draw_all_rows(text_draw, text_layer, center_x, center_y, pill_draw=pill_draw)
+
+    # Pill goes down first (no shadow — matches preview behavior).
+    img.alpha_composite(pill_layer)
+
     shadow_enabled = getattr(config, "shadow_enabled", False)
     if shadow_enabled:
-        shadow_layer = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
-        shadow_draw  = ImageDraw.Draw(shadow_layer)
-        _draw_all_rows(shadow_draw, shadow_layer, center_x, center_y)
-        _composite_shadow(
-            img,
-            shadow_layer,
-            getattr(config, "shadow_color",   "#000000"),
-            getattr(config, "shadow_opacity",  0.8),
-            getattr(config, "shadow_blur",     8),
-            getattr(config, "shadow_offset_x", 3),
-            getattr(config, "shadow_offset_y", 3),
-        )
+        shadow_color   = getattr(config, "shadow_color",   "#000000")
+        shadow_opacity = float(getattr(config, "shadow_opacity",  0.8))
+        shadow_blur    = int(getattr(config, "shadow_blur",     8))
+        offset_x       = int(getattr(config, "shadow_offset_x", 3))
+        offset_y       = int(getattr(config, "shadow_offset_y", 3))
 
-    _draw_all_rows(draw, img, center_x, center_y)
+        # Shadow alpha is built from the TEXT layer only (excludes the pill).
+        alpha = text_layer.getchannel("A")
+        if shadow_blur > 0:
+            # Canvas's `ctx.shadowBlur` is ~2× the Gaussian sigma it applies, so
+            # to match the preview we use radius/2 here. Without this, thin
+            # glyphs (e.g. weight 100) blur into a wide halo with a peak alpha
+            # near zero and the shadow effectively disappears.
+            alpha = alpha.filter(ImageFilter.GaussianBlur(radius=shadow_blur / 2.0))
+        if shadow_opacity < 1.0:
+            alpha = alpha.point(lambda p: int(p * shadow_opacity))
+
+        # Shift the alpha mask (single 'L' channel) onto a same-size canvas at
+        # (offset_x, offset_y). Shifting the colored RGBA via paste-with-mask
+        # would square the alpha at anti-aliased edges and gut the shadow.
+        shifted_alpha = Image.new("L", img.size, 0)
+        shifted_alpha.paste(alpha, (offset_x, offset_y))
+
+        h = shadow_color.lstrip("#")
+        h_r, h_g, h_b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        shadow_layer = Image.new("RGBA", img.size, (h_r, h_g, h_b, 0))
+        shadow_layer.putalpha(shifted_alpha)
+
+        img.alpha_composite(shadow_layer)
+
+    # Text goes on top of its own shadow.
+    img.alpha_composite(text_layer)
 
     return img
 
@@ -803,7 +854,13 @@ def render_subtitle_video(
     if not groups:
         raise ValueError("No subtitle data to render")
 
-    duration = result.duration or groups[-1]["end"] + 1.0
+    # Use the actual media duration so the full video is rendered, not just
+    # up to the last subtitle. Fall back to result.duration, then to subtitles.
+    duration = (
+        _probe_duration(ffmpeg_path, result.audio_path)
+        or result.duration
+        or groups[-1]["end"] + 1.0
+    )
     font = _get_font(config.font_family, config.font_size, getattr(config, 'custom_font_path', None), bold=config.bold)
 
     def _report(msg: str, pct: float, status: JobStatus = JobStatus.RENDERING) -> None:

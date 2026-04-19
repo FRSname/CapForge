@@ -227,10 +227,30 @@ class Transcriber:
                 words=words,
                 speaker=seg.get("speaker"),
             ))
+
+        # Probe actual media duration so renders cover the full file
+        media_duration: Optional[float] = None
+        try:
+            import shutil
+            import subprocess
+            ffprobe = shutil.which("ffprobe")
+            if ffprobe:
+                out = subprocess.run(
+                    [ffprobe, "-v", "error", "-show_entries", "format=duration",
+                     "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
+                    capture_output=True, text=True, timeout=10,
+                    creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                )
+                if out.returncode == 0 and out.stdout.strip():
+                    media_duration = float(out.stdout.strip())
+        except Exception:
+            pass
+
         return TranscriptionResult(
             segments=segments,
             language=language,
             audio_path=audio_path,
+            duration=media_duration,
         )
 
     @staticmethod

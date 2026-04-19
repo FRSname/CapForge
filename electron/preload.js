@@ -2,9 +2,15 @@
  * Preload script — exposes safe IPC methods to the renderer.
  */
 
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("subforge", {
+  /**
+   * Electron 32+ removed File.path; use webUtils.getPathForFile(file) instead.
+   * Call this from drag/drop or <input type=file> handlers in the renderer.
+   */
+  getPathForFile: (file) => webUtils.getPathForFile(file),
+
   /** Open native file picker for audio files. Returns path or null. */
   pickAudioFile: () => ipcRenderer.invoke("dialog:openFile"),
 

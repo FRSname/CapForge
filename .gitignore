@@ -54,3 +54,4 @@ Thumbs.db
 
 # Build artifacts
 *.spec
+tsconfig.web.tsbuildinfo
