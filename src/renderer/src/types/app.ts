@@ -24,6 +24,8 @@ export interface WordOverrides {
   highlight_opacity?:  number
   underline_thickness?: number
   underline_color?:    string
+  underline_offset_y?: number
+  underline_width?:    number
   bounce_strength?:    number
   scale_factor?:       number
 }

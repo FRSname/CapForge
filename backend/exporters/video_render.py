@@ -2,6 +2,11 @@
 
 Renders word-by-word highlighted subtitle overlays as transparent video
 using Pillow for frame generation and FFmpeg for encoding.
+
+Shared rendering constants (pad_v, crossfade duration, line_height, etc.)
+are defined in src/renderer/src/lib/renderConstants.ts and sent to this
+module via the VideoRenderConfig. Do not hardcode new magic numbers here —
+add them to renderConstants.ts and pass through render.ts instead.
 """
 
 from __future__ import annotations
@@ -327,8 +332,6 @@ def _draw_single_word(
             cx += font.getlength(ch)
             if ci < len(text) - 1:
                 cx += tracking
-            cb = draw.textbbox((0, 0), ch, font=font)
-            cx += (cb[2] - cb[0]) + tracking
 
 
 def _draw_word_list(
@@ -506,35 +509,47 @@ def _draw_word_list(
             color = w_active_color
 
         if w_word_trans == "highlight" and is_active:
-            color = _hex_to_rgba(config.bg_color, anim_alpha)
+            hl_text_hex = getattr(config, "highlight_text_color", "") or config.bg_color
+            color = _hex_to_rgba(hl_text_hex, anim_alpha)
 
         if w_word_trans == "scale" and is_active:
+            # Render at the scaled font size directly — avoids anti-aliasing
+            # artifacts from double-rasterisation and matches Canvas ctx.scale().
+            base_size = font.size if hasattr(font, "size") else config.font_size
+            sc_size = max(1, round(base_size * w_scale_fac))
+            sc_key = (w_font_family, sc_size, w_bold)
+            if sc_key not in _font_cache:
+                _font_cache[sc_key] = _get_font(w_font_family, sc_size, w_font_path, w_bold)
+            sc_font = _font_cache[sc_key]
+            sc_bbox = draw.textbbox((0, 0), "Ayg", font=sc_font)
+            sc_text_h = sc_bbox[3] - sc_bbox[1]
+            if tracking == 0:
+                sc_word_w = sc_font.getlength(wm["word"])
+            else:
+                sc_word_w = sum(sc_font.getlength(ch) for ch in wm["word"]) + tracking * max(0, len(wm["word"]) - 1)
+
+            # Centre the scaled word on the same position as the unscaled word
             word_cx = word_x + wm["width"] / 2
             word_cy = center_y + w_off_y
-            pad = int(w_text_h * 0.5)
-            tmp_w = int(wm["width"]) + pad * 2
-            tmp_h = int(w_text_h) + pad * 2
-            tmp = Image.new("RGBA", (max(tmp_w, 1), max(tmp_h, 1)), (0, 0, 0, 0))
-            tmp_draw = ImageDraw.Draw(tmp)
-            tmp_stroke = _hex_to_rgba(config.stroke_color, anim_alpha) if outline_sw > 0 else None
+            sc_x = word_cx - sc_word_w / 2
+            sc_y = word_cy - sc_text_h / 2 - sc_bbox[1]
+
+            sc_stroke = _hex_to_rgba(config.stroke_color, anim_alpha) if outline_sw > 0 else None
             _draw_single_word(
-                tmp_draw, wm["word"], pad, pad - w_bbox[1],
-                w_font, w_active_color, tracking, outline_sw, tmp_stroke,
+                draw, wm["word"], sc_x, sc_y,
+                sc_font, w_active_color, tracking, outline_sw, sc_stroke,
             )
-            new_w = int(tmp_w * w_scale_fac)
-            new_h = int(tmp_h * w_scale_fac)
-            scaled = tmp.resize((max(new_w, 1), max(new_h, 1)), Image.LANCZOS)
-            paste_x = int(word_cx - new_w / 2)
-            paste_y = int(word_cy - new_h / 2)
-            img.paste(scaled, (paste_x, paste_y), scaled)
             x += wm["width"]
             if i < len(word_metrics) - 1:
                 x += effective_space_w
             continue
 
         if w_word_trans == "karaoke":
+            # Already-spoken words stay in active color; future words in text color.
+            is_past = current_time >= wm["end"]
+            base_color = w_active_color if is_past else w_text_color
             _draw_single_word(draw, wm["word"], word_x, word_y,
-                              w_font, w_text_color, tracking, outline_sw, stroke_rgba)
+                              w_font, base_color, tracking, outline_sw, stroke_rgba)
             if is_active and word_prog > 0:
                 pad = outline_sw + 2
                 tmp_w = int(wm["width"]) + pad * 2
@@ -564,11 +579,15 @@ def _draw_word_list(
 
         if w_word_trans == "underline" and is_active:
             bar_h    = max(1, w_ul_thick)
-            bar_y    = center_y + w_text_h / 2 + 2 + w_off_y
+            ul_off_y = int(ov.get("underline_offset_y", getattr(config, "underline_offset_y", 2)))
+            ul_w_px  = int(ov.get("underline_width",    getattr(config, "underline_width",    0)))
+            bar_y    = center_y + w_text_h / 2 + ul_off_y + w_off_y
             ul_hex   = w_ul_color if w_ul_color else config.active_word_color
             bar_rgba = _hex_to_rgba(ul_hex, anim_alpha)
+            bar_width = ul_w_px if ul_w_px > 0 else wm["width"]
+            bar_x     = word_x + (wm["width"] - bar_width) / 2 if ul_w_px > 0 else word_x
             draw.rectangle(
-                [word_x, bar_y, word_x + wm["width"], bar_y + bar_h],
+                [bar_x, bar_y, bar_x + bar_width, bar_y + bar_h],
                 fill=bar_rgba,
             )
             color = w_active_color
@@ -683,9 +702,28 @@ def _render_frame(
     num_lines       = max(1, getattr(config, "lines",     1))
 
     # Split into rows
+    max_width_frac = getattr(config, "max_width", 0.9)
+    max_w_px = config.resolution_w * max_width_frac
     rows: list[list[dict]] = []
     if num_lines <= 1:
-        rows = [all_metrics]
+        # Greedy word-wrap: if total width exceeds max_width, break into rows
+        total_w = sum(m["width"] for m in all_metrics) + effective_space_w * max(0, len(all_metrics) - 1)
+        if total_w > max_w_px and len(all_metrics) > 1:
+            row: list[dict] = []
+            row_w = 0.0
+            for m in all_metrics:
+                add_w = (effective_space_w + m["width"]) if row else m["width"]
+                if row and row_w + add_w > max_w_px:
+                    rows.append(row)
+                    row = [m]
+                    row_w = m["width"]
+                else:
+                    row.append(m)
+                    row_w += add_w
+            if row:
+                rows.append(row)
+        else:
+            rows = [all_metrics]
     else:
         per_row = max(1, -(-len(all_metrics) // num_lines))  # ceil div
         for r in range(num_lines):
@@ -741,12 +779,23 @@ def _render_frame(
                                config.bg_corner_radius, bg_rgba)
         _draw_all_rows(tmp_draw, tmp, center_x, center_y)
 
-        new_w = max(1, int(config.resolution_w * scale))
-        new_h = max(1, int(config.resolution_h * scale))
-        scaled = tmp.resize((new_w, new_h), Image.LANCZOS)
-        paste_x = (config.resolution_w - new_w) // 2
-        paste_y = (config.resolution_h - new_h) // 2
-        img.paste(scaled, (paste_x, paste_y), scaled)
+        # Affine transform centred on (center_x, center_y), matching Canvas
+        # ctx.translate(cx,cy) → ctx.scale(s,s) → ctx.translate(-cx,-cy).
+        # The inverse affine maps destination → source: scale by 1/s around the
+        # subtitle centre so the pop shrinks toward the subtitle, not the frame centre.
+        inv = 1.0 / scale
+        # coefficients for Image.transform AFFINE: (a, b, c, d, e, f)
+        # dst(x,y) ← src(a*x + b*y + c, d*x + e*y + f)
+        a = inv
+        e = inv
+        c = center_x * (1 - inv)
+        f = center_y * (1 - inv)
+        scaled = tmp.transform(
+            (config.resolution_w, config.resolution_h),
+            Image.AFFINE, (a, 0, c, 0, e, f),
+            resample=Image.LANCZOS,
+        )
+        img.paste(scaled, (0, 0), scaled)
         return img
 
     # ---------------------------------------------------------------------------
@@ -783,10 +832,11 @@ def _render_frame(
         # Shadow alpha is built from the TEXT layer only (excludes the pill).
         alpha = text_layer.getchannel("A")
         if shadow_blur > 0:
-            # Canvas's `ctx.shadowBlur` is ~2× the Gaussian sigma it applies, so
-            # to match the preview we use radius/2 here. Without this, thin
-            # glyphs (e.g. weight 100) blur into a wide halo with a peak alpha
-            # near zero and the shadow effectively disappears.
+            # Canvas `ctx.shadowBlur` uses a browser-specific kernel that is
+            # roughly 2× the Gaussian sigma. Dividing by 2 is the best
+            # approximation; the remaining discrepancy is most visible at
+            # blur 1-4px with thin weights. Full parity would require
+            # matching the exact browser kernel, which varies across engines.
             alpha = alpha.filter(ImageFilter.GaussianBlur(radius=shadow_blur / 2.0))
         if shadow_opacity < 1.0:
             alpha = alpha.point(lambda p: int(p * shadow_opacity))
@@ -997,7 +1047,14 @@ def _render_overlay(
     BATCH = n_workers * 4  # frames per batch submitted to the pool
     report_interval = max(1, total_frames // 50)
 
+    # Pre-render the blank frame — reused for every frame with no active group.
+    # This avoids re-rendering a transparent RGBA image thousands of times
+    # during gaps between subtitle groups.
+    blank_bytes = _render_frame(config, font, None, 0.0).tobytes()
+
     def _render_one(fn: int) -> tuple[int, bytes]:
+        if frame_groups[fn] is None:
+            return fn, blank_bytes
         t = fn / config.fps
         img = _render_frame(config, font, frame_groups[fn], t)
         return fn, img.tobytes()
@@ -1197,11 +1254,11 @@ def _render_baked(
             # Build source frame as PIL image
             src_frame = Image.frombytes("RGB", (out_w, out_h), raw)
 
-            # Render subtitle overlay (RGBA) at target resolution
-            sub_frame = _render_frame(config, font, active_group, t)
-
-            # Composite: paste subtitle on source using alpha
-            src_frame.paste(sub_frame, (0, 0), sub_frame)
+            if active_group is not None:
+                # Render subtitle overlay (RGBA) at target resolution
+                sub_frame = _render_frame(config, font, active_group, t)
+                # Composite: paste subtitle on source using alpha
+                src_frame.paste(sub_frame, (0, 0), sub_frame)
 
             # Write composited RGB frame to encoder
             encode_proc.stdin.write(src_frame.tobytes())

@@ -36,6 +36,7 @@
     "vite": "^7.0.0"
   },
   "dependencies": {
+    "lottie-web": "^5.13.0",
     "tree-kill": "^1.2.2",
     "wavesurfer.js": "^7.12.5"
   },

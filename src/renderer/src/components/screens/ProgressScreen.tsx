@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
+import lottie from 'lottie-web/build/player/lottie_light'
 import type { TranscriptionResult } from '../../types/app'
 import { useTranscription } from '../../hooks/useTranscription'
+import chatAnimation from '../../assets/chat-loading.json'
 
 const STEPS = [
   { key: 'loading_model', label: 'Load Model' },
@@ -56,11 +58,14 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
   function handleCancel() { cancel(); onCancel() }
 
   return (
-    <div className="flex flex-col items-center justify-center h-full gap-8 p-10">
-      <div className="w-full max-w-[400px] flex flex-col gap-7">
+    <div className="flex flex-col items-center justify-center h-full gap-4 p-10">
+      <div className="w-full max-w-[400px] flex flex-col items-center gap-5">
+
+        {/* Lottie chat animation */}
+        <LottieChat />
 
         {/* Pipeline pills */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full">
           {STEPS.map((step, i) => {
             const isDone   = i < currentIdx
             const isActive = i === currentIdx
@@ -79,11 +84,11 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
                 <div
                   className={`relative flex items-center justify-center w-7 h-7 rounded-full border transition-all duration-300 ${
                     isDone   ? 'bg-[var(--color-success)] border-[var(--color-success)]'
-                  : isActive ? 'bg-[var(--color-accent)] border-[var(--color-accent)]'
+                  : isActive ? 'bg-[#D4952A] border-[#D4952A]'
                   :            'bg-[var(--color-surface-3)] border-[var(--color-border-2)]'
                   }`}
                   style={{
-                    boxShadow:    isActive ? '0 0 12px 2px var(--color-accent-glow)' : 'none',
+                    boxShadow:    isActive ? '0 0 12px 2px rgba(212,149,42,0.3)' : 'none',
                     transform:    isActive ? 'scale(1.15)' : 'scale(1)',
                   }}
                 >
@@ -109,13 +114,10 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
           })}
         </div>
 
-        {/* Step connector line behind dots — decorative */}
-        <div className="relative -mt-11 mb-3 mx-3.5 h-[1px] -z-0 pointer-events-none bg-[var(--color-border)]" />
-
         {/* Message */}
-        <div className="text-center pt-2">
+        <div className="text-center">
           <p className="font-medium text-sm mb-1.5 text-[var(--color-text)]">
-            {progress?.message ?? 'Starting…'}
+            {progress?.message ?? 'Starting\u2026'}
           </p>
           {progress?.sub_message && (
             <p className="text-xs text-[var(--color-text-2)]">{progress.sub_message}</p>
@@ -123,7 +125,7 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
         </div>
 
         {/* Progress bar */}
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 w-full">
           <div
             className="w-full h-1.5 rounded-full overflow-hidden bg-[var(--color-surface-3)]"
           >
@@ -131,12 +133,11 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
               className="h-full rounded-full transition-all duration-500"
               style={{
                 width: `${pct}%`,
-                background: 'linear-gradient(90deg, var(--color-accent) 0%, var(--color-accent-2) 100%)',
+                background: 'linear-gradient(90deg, #D4952A 0%, #E8C078 100%)',
               }}
             />
           </div>
-          <div className="flex justify-between text-[11px] text-[var(--color-text-3)]">
-            <span>{progress?.message && pct > 0 ? `${pct}%` : ''}</span>
+          <div className="text-right text-[11px] text-[var(--color-text-3)]">
             <span className="tabular-nums">{pct > 0 ? `${pct}%` : ''}</span>
           </div>
         </div>
@@ -148,4 +149,23 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
       </div>
     </div>
   )
+}
+
+function LottieChat() {
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const el = containerRef.current
+    if (!el) return
+    const anim = lottie.loadAnimation({
+      container: el,
+      renderer: 'svg',
+      loop: true,
+      autoplay: true,
+      animationData: chatAnimation,
+    })
+    return () => anim.destroy()
+  }, [])
+
+  return <div ref={containerRef} className="w-[120px] h-[120px]" />
 }

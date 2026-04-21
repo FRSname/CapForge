@@ -1,4 +1,5 @@
 import type { Screen } from '../../types/app'
+import appIcon from '../../assets/icon.png'
 
 interface TitleBarProps {
   screen: Screen
@@ -21,15 +22,10 @@ export function TitleBar({ screen, onNew, onSave, onOpen, onSettingsToggle, onEx
       }}
     >
       {/* Left: logo */}
-      <div className="flex items-center gap-2 select-none">
-        <svg
-          width="15" height="15" viewBox="0 0 16 16" fill="currentColor"
-          className="text-[var(--color-accent)]"
-        >
-          <path d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25ZM3 5.5a.75.75 0 0 1 .75-.75h8.5a.75.75 0 0 1 0 1.5h-8.5A.75.75 0 0 1 3 5.5Zm.75 2.75a.75.75 0 0 0 0 1.5h5.5a.75.75 0 0 0 0-1.5Z" />
-        </svg>
-        <span className="font-semibold tracking-tight text-[13px] text-[var(--color-text)]">
-          CapForge
+      <div className="flex items-center gap-1.5 select-none">
+        <img src={appIcon} alt="" width="22" height="22" className="rounded-[4px]" draggable={false} />
+        <span className="text-[13px] text-[var(--color-text)]" style={{ fontWeight: 800, letterSpacing: '-0.035em' }}>
+          Cap<span style={{ color: '#D4952A' }}>Forge</span>
         </span>
       </div>
 
