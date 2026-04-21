@@ -8,6 +8,7 @@
 
 import type { Segment } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
+import { DEFAULT_PAD_V } from './renderConstants'
 
 /** Cross-platform dirname — strips the last path segment (handles \ and /). */
 export function dirname(filePath: string): string {
@@ -69,7 +70,7 @@ export function buildRenderBody(
     // doesn't go bold at semi-bold weights when the preview shows them as
     // regular. Keep both at 700 — i.e. only "bold" or heavier triggers PIL bold.
     bold:               settings.fontWeight >= 700,
-    tracking:           0,
+    tracking:           settings.tracking ?? 0,
     word_spacing:       0,
 
     stroke_width:       settings.outlineWidth,
@@ -81,7 +82,7 @@ export function buildRenderBody(
     bg_color:           settings.bgColor,
     bg_opacity:         settings.bgOpacity / 100,
     bg_padding_h:       settings.marginH,
-    bg_padding_v:       8,
+    bg_padding_v:       settings.marginV ?? DEFAULT_PAD_V,
     bg_corner_radius:   settings.bgRadius,
     bg_width_extra:     settings.bgWidthExtra,
     bg_height_extra:    settings.bgHeightExtra,
@@ -93,7 +94,8 @@ export function buildRenderBody(
 
     words_per_group:    settings.wordsPerGroup,
     lines:              settings.lines,
-    line_height:        1.2,
+    max_width:          settings.maxWidth / 100,
+    line_height:        settings.lineHeight,
 
     position_x:         settings.posX / 100,
     position_y:         settings.posY / 100,
@@ -116,8 +118,11 @@ export function buildRenderBody(
     highlight_padding_y:  settings.highlightPadY,
     highlight_opacity:    settings.highlightOpacity,
     highlight_animation:  settings.highlightAnim,
+    highlight_text_color: settings.highlightTextColor ?? '',
     underline_thickness:  settings.underlineThickness,
     underline_color:      settings.underlineColor,
+    underline_offset_y:   settings.underlineOffsetY ?? 2,
+    underline_width:      settings.underlineWidth ?? 0,
     bounce_strength:      settings.bounceStrength,
     scale_factor:         settings.scaleFactor,
 

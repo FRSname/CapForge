@@ -23,6 +23,7 @@ export interface StudioSettings {
   fontPath:      string
   fontSize:      number
   fontWeight:    number
+  tracking:      number  // letter spacing in px (0 = normal)
   // Colors
   textColor:     string
   outlineColor:  string
@@ -33,6 +34,7 @@ export interface StudioSettings {
   posX:          number
   posY:          number
   marginH:       number
+  marginV:       number
   maxWidth:      number
   wordsPerGroup: number
   lines:         number
@@ -45,6 +47,8 @@ export interface StudioSettings {
   textOffsetY:   number
   textAlignH:    'left' | 'center' | 'right'
   textAlignV:    'top'  | 'middle' | 'bottom'
+  // Line spacing
+  lineHeight:    number  // multiplier (1.0 = no gap, 1.2 = 20% gap between rows)
   // Animation
   animationType: string
   animDuration:  number
@@ -55,8 +59,11 @@ export interface StudioSettings {
   highlightPadY:     number
   highlightOpacity:  number
   highlightAnim:     string   // 'jump' | 'slide'
+  highlightTextColor: string  // hex, '' = use bgColor (legacy behaviour)
   underlineThickness: number
   underlineColor:    string   // hex, '' = use activeColor
+  underlineOffsetY:  number   // vertical offset from text baseline in px
+  underlineWidth:    number   // 0 = match word width, >0 = fixed width in px
   bounceStrength:    number   // 0-1 fraction of fontSize
   scaleFactor:       number   // 1-2.5
   // Drop shadow
@@ -81,8 +88,9 @@ const FPS_PRESETS = [24, 25, 30, 48, 50, 60]
 const DEFAULTS: StudioSettings = {
   fontName:      '',
   fontPath:      '',
-  fontSize:      52,
+  fontSize:      70,
   fontWeight:    100,
+  tracking:      0,
   textColor:     '#FFFFFF',
   outlineColor:  '#000000',
   bgColor:       '#D4952A',
@@ -91,6 +99,7 @@ const DEFAULTS: StudioSettings = {
   posX:          50,
   posY:          82,
   marginH:       8,
+  marginV:       8,
   maxWidth:      90,
   wordsPerGroup: 3,
   lines:         1,
@@ -102,6 +111,7 @@ const DEFAULTS: StudioSettings = {
   textOffsetY:   0,
   textAlignH:    'center',
   textAlignV:    'middle',
+  lineHeight:    1.2,
   animationType: 'fade',
   animDuration:  12,
   wordStyle:     'highlight',
@@ -110,8 +120,11 @@ const DEFAULTS: StudioSettings = {
   highlightPadY:     6,
   highlightOpacity:  0.85,
   highlightAnim:     'jump',
+  highlightTextColor: '',
   underlineThickness: 4,
   underlineColor:    '',
+  underlineOffsetY:  2,
+  underlineWidth:    0,
   bounceStrength:    0.18,
   scaleFactor:       1.25,
   shadowEnabled:  false,
@@ -207,8 +220,15 @@ export function StudioPanel({
             if (onChange) onChange(next); else setInternalS(next)
           }} />
           <div className="divider" />
-          <StudioRow label="Size"    value={s.fontSize}      min={12}  max={120} step={1}    unit="px"  def={DEFAULTS.fontSize}      onChange={v => set('fontSize', v)} />
-          <StudioRow label="Bold"    value={s.fontWeight}    min={100} max={900} step={100}  unit=""    def={DEFAULTS.fontWeight}    onChange={v => set('fontWeight', v)} />
+          <StudioRow label="Size"    value={s.fontSize}      min={50}  max={180} step={1}    unit="px"  def={DEFAULTS.fontSize}      onChange={v => set('fontSize', v)} />
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Bold</span>
+            <label className="flex items-center gap-1.5 text-xs text-[var(--color-text-2)] cursor-pointer">
+              <input type="checkbox" checked={s.fontWeight >= 700} onChange={e => set('fontWeight', e.target.checked ? 700 : 100)} className="accent-[var(--color-accent)]" />
+              {s.fontWeight >= 700 ? 'On' : 'Off'}
+            </label>
+          </div>
+          <StudioRow label="Tracking" value={s.tracking}     min={-5}  max={20}  step={0.5}  unit="px"  def={DEFAULTS.tracking}     onChange={v => set('tracking', v)} />
         </StudioCard>
 
         {/* ── Colors ──────────────────────────────────────────── */}
@@ -244,15 +264,16 @@ export function StudioPanel({
           <StudioRow label="X Pos"     value={s.posX}          min={0}  max={100} unit="%" def={DEFAULTS.posX}          onChange={v => set('posX', v)} />
           <StudioRow label="Y Pos"     value={s.posY}          min={10} max={95}  unit="%" def={DEFAULTS.posY}          onChange={v => set('posY', v)} />
           <StudioRow label="Max width" value={s.maxWidth}      min={20} max={100} unit="%" def={DEFAULTS.maxWidth}      onChange={v => set('maxWidth', v)} />
-          <StudioRow label="Margin H"  value={s.marginH}       min={0}  max={25}  unit="%" def={DEFAULTS.marginH}       onChange={v => set('marginH', v)} />
         </StudioCard>
 
-        {/* ── Fine-tune ───────────────────────────────────────── */}
-        <StudioCard title="Fine-tune" defaultOpen={false}>
+        {/* ── Background ──────────────────────────────────────── */}
+        <StudioCard title="Background" defaultOpen={false}>
           <StudioRow label="BG opacity"  value={s.bgOpacity}     min={0}   max={100} unit="%" def={DEFAULTS.bgOpacity}     onChange={v => set('bgOpacity', v)} />
           <StudioRow label="BG radius"   value={s.bgRadius}      min={0}   max={80}  unit="px" def={DEFAULTS.bgRadius}      onChange={v => set('bgRadius', v)} />
           <StudioRow label="BG width +"  value={s.bgWidthExtra}  min={-50} max={200} unit="px" def={DEFAULTS.bgWidthExtra}  onChange={v => set('bgWidthExtra', v)} />
           <StudioRow label="BG height +" value={s.bgHeightExtra} min={-50} max={200} unit="px" def={DEFAULTS.bgHeightExtra} onChange={v => set('bgHeightExtra', v)} />
+          <StudioRow label="Margin H"    value={s.marginH}       min={0}   max={25}  unit="%" def={DEFAULTS.marginH}       onChange={v => set('marginH', v)} />
+          <StudioRow label="Margin V"    value={s.marginV}       min={0}   max={50}  unit="px" def={DEFAULTS.marginV}      onChange={v => set('marginV', v)} />
 
           <div className="divider" />
           <span className="text-[10px] text-[var(--color-text-3)] uppercase tracking-wider">Text in BG box</span>
@@ -338,9 +359,10 @@ export function StudioPanel({
           {s.wordStyle === 'highlight' && (<>
             <div className="divider" />
             <span className="text-[10px] text-[var(--color-text-3)] uppercase tracking-wider">Highlight Options</span>
+            <ColorSwatch label="Text" value={s.highlightTextColor || s.bgColor} onChange={v => set('highlightTextColor', v)} />
             <StudioRow label="Radius"    value={s.highlightRadius}  min={0}  max={80}  unit="px" def={DEFAULTS.highlightRadius}  onChange={v => set('highlightRadius', v)} />
-            <StudioRow label="Pad X"     value={s.highlightPadX}    min={0}  max={40}  unit="px" def={DEFAULTS.highlightPadX}    onChange={v => set('highlightPadX', v)} />
-            <StudioRow label="Pad Y"     value={s.highlightPadY}    min={0}  max={40}  unit="px" def={DEFAULTS.highlightPadY}    onChange={v => set('highlightPadY', v)} />
+            <StudioRow label="Width"     value={s.highlightPadX}    min={0}  max={40}  unit="px" def={DEFAULTS.highlightPadX}    onChange={v => set('highlightPadX', v)} />
+            <StudioRow label="Height"    value={s.highlightPadY}    min={0}  max={40}  unit="px" def={DEFAULTS.highlightPadY}    onChange={v => set('highlightPadY', v)} />
             <StudioRow label="Opacity"   value={Math.round(s.highlightOpacity * 100)} min={0} max={100} unit="%" def={Math.round(DEFAULTS.highlightOpacity * 100)} onChange={v => set('highlightOpacity', v / 100)} />
             <div className="flex items-center gap-1.5 min-w-0">
               <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Movement</span>
@@ -354,7 +376,9 @@ export function StudioPanel({
           {s.wordStyle === 'underline' && (<>
             <div className="divider" />
             <span className="text-[10px] text-[var(--color-text-3)] uppercase tracking-wider">Underline Options</span>
-            <StudioRow label="Thickness" value={s.underlineThickness} min={1} max={30} unit="px" def={DEFAULTS.underlineThickness} onChange={v => set('underlineThickness', v)} />
+            <StudioRow label="Thickness" value={s.underlineThickness} min={1}   max={30}  unit="px" def={DEFAULTS.underlineThickness} onChange={v => set('underlineThickness', v)} />
+            <StudioRow label="Offset Y"  value={s.underlineOffsetY}  min={-20} max={30}  unit="px" def={DEFAULTS.underlineOffsetY}  onChange={v => set('underlineOffsetY', v)} />
+            <StudioRow label="Width"     value={s.underlineWidth}    min={0}   max={100} unit="px" def={DEFAULTS.underlineWidth}    onChange={v => set('underlineWidth', v)} />
             <ColorSwatch label="Color" value={s.underlineColor || s.activeColor} onChange={v => set('underlineColor', v)} />
           </>)}
 

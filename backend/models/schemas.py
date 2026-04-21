@@ -138,6 +138,7 @@ class VideoRenderConfig(BaseModel):
     text_align_v: str = Field("middle", description="Vertical text alignment within bg box: top, middle, bottom")
     words_per_group: int = Field(3, ge=1, description="Words per subtitle group")
     lines: int = Field(1, ge=1, le=10, description="Number of subtitle rows per group")
+    max_width: float = Field(0.9, ge=0.0, le=1.0, description="Max subtitle width as fraction of resolution (0-1). When lines=1 and measured width exceeds this, words wrap automatically.")
     line_height: float = Field(1.2, ge=0.5, le=5.0, description="Line height multiplier (1.0 = no gap, 1.2 = 20% gap)")
     position_y: float = Field(0.82, ge=0.0, le=1.0, description="Vertical position (0=top, 1=bottom)")
     position_x: float = Field(0.5, ge=0.0, le=1.0, description="Horizontal position (0=left, 1=right, 0.5=center)")
@@ -157,9 +158,12 @@ class VideoRenderConfig(BaseModel):
     highlight_padding_y: int = Field(6, ge=0, description="Vertical padding around the highlight box")
     highlight_opacity: float = Field(0.85, ge=0.0, le=1.0, description="Opacity of the highlight box")
     highlight_animation: str = Field("jump", description="Highlight box movement: jump or slide")
+    highlight_text_color: str = Field("", description="Text color inside highlight pill; empty = use bg_color")
     # Underline options
     underline_thickness: int = Field(4, ge=1, description="Underline bar thickness in px")
     underline_color: str = Field("", description="Underline color hex; empty = use active_word_color")
+    underline_offset_y: int = Field(2, description="Vertical offset of underline from text bottom in px")
+    underline_width: int = Field(0, ge=0, description="Fixed underline width in px; 0 = match word width")
     # Bounce options
     bounce_strength: float = Field(0.18, ge=0.0, description="Bounce height as fraction of font size")
     # Scale options

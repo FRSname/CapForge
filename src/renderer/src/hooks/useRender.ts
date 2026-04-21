@@ -14,6 +14,7 @@ import { api } from '../lib/api'
 import { buildRenderBody, type RenderOverrides } from '../lib/render'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import type { Segment } from '../types/app'
+import { useToast } from './useToast'
 
 export type RenderStatus = 'idle' | 'rendering' | 'done' | 'error'
 
@@ -40,6 +41,7 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
   const [elapsed,  setElapsed]  = useState('')
   const [message,  setMessage]  = useState<string>('')
   const timerRef                = useRef<number | null>(null)
+  const { toast }               = useToast()
 
   const stopTimer = useCallback(() => {
     if (timerRef.current != null) {
@@ -96,6 +98,7 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
       setProgress(100)
       setStatus('done')
       api.disconnectProgress()
+      toast('Render complete', 'success')
     } catch (err) {
       stopTimer()
       const msg = err instanceof Error ? err.message : 'Render failed'
@@ -103,8 +106,9 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
       setMessage(cancelled ? 'Cancelled.' : `Error: ${msg}`)
       setStatus(cancelled ? 'idle' : 'error')
       api.disconnectProgress()
+      if (!cancelled) toast(msg, 'error')
     }
-  }, [settings, groups, groupsEdited, stopTimer])
+  }, [settings, groups, groupsEdited, stopTimer, toast])
 
   const cancelRender = useCallback(() => {
     api.cancelJob().catch(() => { /* ignore */ })

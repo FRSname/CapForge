@@ -6,7 +6,7 @@
  * For audio-only:  renders an audio-preview background + waveform.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
 import { api } from '../../lib/api'
 import { useWaveSurfer } from '../../hooks/useWaveSurfer'
 import { useTimeline, TIMELINE_HEIGHT } from '../../hooks/useTimeline'
@@ -16,6 +16,12 @@ import type { Segment } from '../../types/app'
 import type { StudioSettings } from '../studio/StudioPanel'
 
 const VIDEO_EXTS = /\.(mp4|mkv|webm|mov|avi|m4v)$/i
+
+export interface AudioPlayerHandle {
+  seekRelative: (dt: number) => void
+  seekToTime: (t: number) => void
+  playPause: () => void
+}
 
 interface AudioPlayerProps {
   audioPath: string
@@ -30,7 +36,7 @@ interface AudioPlayerProps {
   onSegmentEdge?: (segId: string, edge: 'start' | 'end', newTime: number) => void
 }
 
-export function AudioPlayer({ audioPath, segments, settings, resolution = [1920, 1080], onTimeUpdate, onSeek, seekTo, onSegmentEdge }: AudioPlayerProps) {
+export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer({ audioPath, segments, settings, resolution = [1920, 1080], onTimeUpdate, onSeek, seekTo, onSegmentEdge }, ref) {
   const isVideo = VIDEO_EXTS.test(audioPath)
   const audioUrl = api.audioUrl(audioPath)
 
@@ -65,6 +71,16 @@ export function AudioPlayer({ audioPath, segments, settings, resolution = [1920,
     }, [overlayDraw]),  // eslint-disable-line react-hooks/exhaustive-deps
     onSeek: useCallback(() => onSeek?.(), [onSeek]),
   })
+
+  // ── Imperative handle for keyboard shortcuts ─────────────────
+  useImperativeHandle(ref, () => ({
+    seekRelative: (dt: number) => {
+      const t = Math.max(0, Math.min(currentTime + dt, duration || Infinity))
+      wsSeekTo(t)
+    },
+    seekToTime: (t: number) => wsSeekTo(t),
+    playPause,
+  }), [currentTime, duration, wsSeekTo, playPause])
 
   // Respond to external seekTo prop (driven by SubtitleEditor word click)
   useEffect(() => {
@@ -122,10 +138,10 @@ export function AudioPlayer({ audioPath, segments, settings, resolution = [1920,
       {/* ── Video / audio preview area ──────────────────────────── */}
       <div className="relative flex-1 min-h-0">
         {/* Video zoom toolbar */}
-        <div className="absolute top-1 right-1 z-10 flex items-center gap-1 bg-black/50 rounded px-1.5 py-0.5">
-          <span className="text-[10px] text-white/40 mr-1 hidden sm:block">Ctrl+Wheel: zoom · Dbl-click: toggle</span>
+        <div className="absolute top-1 right-1 z-10 flex items-center gap-1 rounded px-1.5 py-0.5" style={{ background: 'var(--color-surface)' }}>
+          <span className="text-[10px] mr-1 hidden sm:block" style={{ color: 'var(--color-text-3)' }}>Ctrl+Wheel: zoom · Dbl-click: toggle</span>
           <button className="tl-btn" onClick={vz.zoomOut}>−</button>
-          <span className="text-[10px] text-white/60 w-10 text-center">{Math.round(vz.zoom * 100)}%</span>
+          <span className="text-[10px] w-10 text-center" style={{ color: 'var(--color-text-2)' }}>{Math.round(vz.zoom * 100)}%</span>
           <button className="tl-btn" onClick={vz.zoomIn}>+</button>
           <button className="tl-btn" onClick={vz.zoomReset}>Reset</button>
         </div>
@@ -137,7 +153,8 @@ export function AudioPlayer({ audioPath, segments, settings, resolution = [1920,
               (previewAreaRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
               (vz.wrapRef as React.MutableRefObject<HTMLDivElement | null>).current = el
             }}
-            className="relative w-full mx-auto overflow-hidden bg-black"
+            className="relative w-full mx-auto overflow-hidden"
+            style={{ background: 'var(--color-bg)' }}
             style={{
               // When zoomed, drop the aspect-ratio constraint so the wrapper
               // can use the full available main-area width — otherwise the
@@ -193,9 +210,9 @@ export function AudioPlayer({ audioPath, segments, settings, resolution = [1920,
 
       {/* ── Timeline zoom toolbar ───────────────────────────────── */}
       <div className="flex items-center gap-1 px-2 py-1 border-t border-[var(--color-border)]">
-        <span className="text-[10px] text-white/30 flex-1">Ctrl+Wheel: zoom · Wheel: pan</span>
+        <span className="text-[10px] flex-1" style={{ color: 'var(--color-text-3)' }}>Ctrl+Wheel: zoom · Wheel: pan</span>
         <button className="tl-btn" title="Zoom out" onClick={handleZoomOut}>−</button>
-        <span className="text-[10px] text-white/60 w-10 text-center">{zoomLabel}</span>
+        <span className="text-[10px] w-10 text-center" style={{ color: 'var(--color-text-2)' }}>{zoomLabel}</span>
         <button className="tl-btn" title="Zoom in"  onClick={handleZoomIn}>+</button>
         <button className="tl-btn" title="Fit"      onClick={handleZoomReset}>Fit</button>
       </div>
@@ -240,7 +257,7 @@ export function AudioPlayer({ audioPath, segments, settings, resolution = [1920,
       </div>
     </div>
   )
-}
+})
 
 function formatTime(s: number): string {
   const m = Math.floor(s / 60)

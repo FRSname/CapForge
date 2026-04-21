@@ -66,13 +66,19 @@ export function DropZoneScreen({ filePath, onFileSelected, onStart }: DropZoneSc
         </div>
 
         <div className="text-center">
-          <p className="font-semibold text-sm mb-1 text-[var(--color-text)]">
+          <p
+            className="text-base mb-1"
+            style={{ fontFamily: 'var(--cf-font-display)', fontStyle: 'italic', color: 'var(--color-text)' }}
+          >
             Drop your file here
           </p>
           <p className="text-xs text-[var(--color-text-2)]">or click to browse</p>
         </div>
 
-        <p className="text-[11px] tracking-widest uppercase text-[var(--color-text-3)]">
+        <p
+          className="text-[11px] tracking-widest uppercase text-[var(--color-text-3)]"
+          style={{ fontFamily: 'var(--cf-font-mono)' }}
+        >
           {ACCEPTED_EXTS.join(' · ')}
         </p>
       </div>

@@ -14,6 +14,7 @@ import { api } from '../../lib/api'
 import { dirname } from '../../lib/render'
 import type { VideoInfo } from '../../lib/api'
 import type { RenderController } from '../../hooks/useRender'
+import { useToast } from '../../hooks/useToast'
 
 interface ExportPanelProps {
   audioPath:       string
@@ -25,6 +26,7 @@ interface ExportPanelProps {
 
 export function ExportPanel({ audioPath, sourceVideoInfo, render, outputDir, onOutputDir }: ExportPanelProps) {
   const { busy, startRender } = render
+  const { toast } = useToast()
 
   // Empty outputDir means "Same as source" — derive the source file's folder.
   const effectiveOutputDir = outputDir || dirname(audioPath)
@@ -109,7 +111,9 @@ export function ExportPanel({ audioPath, sourceVideoInfo, render, outputDir, onO
       <div className="flex gap-1.5 mt-1">
         <button
           className="btn-ghost flex-1 text-[11px] py-1 justify-center"
-          onClick={() => api.exportResult(buildExportParams(['srt_word'], effectiveOutputDir)).catch(() => {})}
+          onClick={() => api.exportResult(buildExportParams(['srt_word'], effectiveOutputDir))
+            .then(() => toast('Exported SRT (word-aligned)', 'success'))
+            .catch(e => toast(e.message || 'Export failed', 'error'))}
           disabled={busy}
           title="Word-aligned SRT (per-word timing)"
         >
@@ -117,7 +121,9 @@ export function ExportPanel({ audioPath, sourceVideoInfo, render, outputDir, onO
         </button>
         <button
           className="btn-ghost flex-1 text-[11px] py-1 justify-center"
-          onClick={() => api.exportResult(buildExportParams(['srt_standard'], effectiveOutputDir)).catch(() => {})}
+          onClick={() => api.exportResult(buildExportParams(['srt_standard'], effectiveOutputDir))
+            .then(() => toast('Exported SRT', 'success'))
+            .catch(e => toast(e.message || 'Export failed', 'error'))}
           disabled={busy}
           title="Classic SRT (sentence timing)"
         >
@@ -125,7 +131,9 @@ export function ExportPanel({ audioPath, sourceVideoInfo, render, outputDir, onO
         </button>
         <button
           className="btn-ghost flex-1 text-[11px] py-1 justify-center"
-          onClick={() => api.exportResult(buildExportParams(['vtt'], effectiveOutputDir)).catch(() => {})}
+          onClick={() => api.exportResult(buildExportParams(['vtt'], effectiveOutputDir))
+            .then(() => toast('Exported VTT', 'success'))
+            .catch(e => toast(e.message || 'Export failed', 'error'))}
           disabled={busy}
         >
           .VTT
@@ -158,7 +166,7 @@ function QuickRenderBtn({ icon, title, sub, onClick, disabled }: {
       onMouseEnter={e => { if (!disabled) (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-3)' }}
       onMouseLeave={e => { (e.currentTarget as HTMLElement).style.borderColor = 'var(--color-border-2)' }}
     >
-      <span className="text-[var(--color-accent)]">{icon}</span>
+      <span>{icon}</span>
       <span className="text-xs font-semibold text-[var(--color-text)]">{title}</span>
       <span className="text-[10px] text-[var(--color-text-3)]">{sub}</span>
     </button>
@@ -167,16 +175,30 @@ function QuickRenderBtn({ icon, title, sub, onClick, disabled }: {
 
 function VideoIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M1.75 1h12.5c.966 0 1.75.784 1.75 1.75v10.5A1.75 1.75 0 0 1 14.25 15H1.75A1.75 1.75 0 0 1 0 13.25V2.75C0 1.784.784 1 1.75 1ZM1.5 2.75v10.5c0 .138.112.25.25.25h12.5a.25.25 0 0 0 .25-.25V2.75a.25.25 0 0 0-.25-.25H1.75a.25.25 0 0 0-.25.25ZM6.5 5a.75.75 0 0 1 .4.114l4 2.667a.75.75 0 0 1 0 1.248l-4 2.667A.75.75 0 0 1 5.75 11V5.75A.75.75 0 0 1 6.5 5Z"/>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      {/* Clapperboard body */}
+      <rect x="2" y="8" width="20" height="13" rx="2.5" fill="#F59E0B" />
+      {/* Clapperboard clapper */}
+      <path d="M2 8h20V6.5A2.5 2.5 0 0 0 19.5 4H4.5A2.5 2.5 0 0 0 2 6.5V8Z" fill="#D97706" />
+      {/* Clapper stripes */}
+      <path d="M5.5 4 8 8M10 4l2.5 4M14.5 4 17 8" stroke="#FDE68A" strokeWidth="1" strokeLinecap="round" />
+      {/* Play triangle */}
+      <path d="M10 12.5l5 2.5-5 2.5v-5Z" fill="#FEF3C7" />
     </svg>
   )
 }
 
 function OverlayIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 16 16" fill="currentColor">
-      <path d="M8 0C3.58 0 0 3.58 0 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8ZM1.5 8a6.5 6.5 0 1 1 13 0 6.5 6.5 0 0 1-13 0Zm6-2.19 3.5 2.19-3.5 2.19V5.81Z"/>
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+      {/* Film frame */}
+      <rect x="2" y="3" width="20" height="18" rx="2.5" stroke="#F59E0B" strokeWidth="1.5" />
+      {/* Dashed centre (transparent feel) */}
+      <rect x="4" y="5" width="16" height="8" rx="1" stroke="#F59E0B" strokeWidth="0.8" strokeDasharray="2 2" opacity="0.5" />
+      {/* Subtitle bar */}
+      <rect x="4" y="15" width="16" height="4" rx="1.5" fill="#F59E0B" />
+      {/* Text lines */}
+      <line x1="6" y1="17" x2="14" y2="17" stroke="#FEF3C7" strokeWidth="1.2" strokeLinecap="round" />
     </svg>
   )
 }

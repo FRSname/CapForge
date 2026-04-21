@@ -350,6 +350,7 @@ app.whenReady().then(async () => {
   // "View logs" action in the renderer.
   ipcMain.handle("logs:openFolder", () => { openLogsFolder(); return true; });
   ipcMain.handle("logs:openFile", () => { openLogFile(); return true; });
+  ipcMain.handle("shell:showInFolder", (_event, filePath) => { shell.showItemInFolder(filePath); });
 
   // IPC: open file dialog — restore last-used directory as starting point,
   // and remember the chosen file so the renderer can reopen it next launch.

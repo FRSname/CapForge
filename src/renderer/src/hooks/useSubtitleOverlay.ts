@@ -11,6 +11,7 @@
 import { useCallback } from 'react'
 import type { Segment } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
+import { DEFAULT_PAD_V, CROSSFADE_DUR, DEFAULT_LINE_HEIGHT } from '../lib/renderConstants'
 
 export interface OverlayOptions {
   canvasRef:  React.RefObject<HTMLCanvasElement | null>
@@ -83,7 +84,7 @@ export function useSubtitleOverlay({
     // Use marginH as-is so the preview matches the backend (which doesn't apply
     // a 12px floor when the user sets 0).
     const padH = settings.marginH
-    const padV = 8
+    const padV = settings.marginV ?? DEFAULT_PAD_V
 
     // ── Animation phase ─────────────────────────────────────────
     const age       = currentTime - activeGroup.start
@@ -122,10 +123,18 @@ export function useSubtitleOverlay({
     const descent    = aygMetrics.actualBoundingBoxDescent || sf * 0.2
     const textH      = ascent + descent
     const baselineShift = (ascent - descent) / 2  // y-add to put baseline so visual centre = wordY
-    const rowLineGap = textH * 0.2
+    const rowLineGap = textH * ((settings.lineHeight ?? DEFAULT_LINE_HEIGHT) - 1)
+
+    const trk = settings.tracking ?? 0
 
     const measureWord = (text: string) => {
-      return ctx.measureText(text).width
+      if (trk === 0) return ctx.measureText(text).width
+      let w = 0
+      for (let ci = 0; ci < text.length; ci++) {
+        w += ctx.measureText(text[ci]).width
+        if (ci < text.length - 1) w += trk
+      }
+      return w
     }
 
     const baseSpaceW        = ctx.measureText(' ').width
@@ -141,8 +150,28 @@ export function useSubtitleOverlay({
 
     // Split into rows
     const rows: typeof wm[] = []
+    const maxW = (settings.maxWidth ?? 90) / 100 * resW
     if (numLines <= 1) {
-      rows.push(wm)
+      // Greedy word-wrap: if total width exceeds maxWidth, break into rows
+      const totalW = wm.reduce((s, m, i) => s + m.width + (i > 0 ? effectiveSpaceW : 0), 0)
+      if (totalW > maxW && wm.length > 1) {
+        let row: typeof wm = []
+        let rowW = 0
+        for (const m of wm) {
+          const addW = row.length > 0 ? effectiveSpaceW + m.width : m.width
+          if (row.length > 0 && rowW + addW > maxW) {
+            rows.push(row)
+            row = [m]
+            rowW = m.width
+          } else {
+            row.push(m)
+            rowW += addW
+          }
+        }
+        if (row.length) rows.push(row)
+      } else {
+        rows.push(wm)
+      }
     } else {
       const perRow = Math.ceil(wm.length / numLines)
       for (let r = 0; r < numLines; r++) {
@@ -208,6 +237,8 @@ export function useSubtitleOverlay({
     const hlOpacity = settings.highlightOpacity ?? 0.85
     const ulThick   = settings.underlineThickness ?? 4
     const ulColor   = settings.underlineColor   ?? ''
+    const ulOffsetY = settings.underlineOffsetY  ?? 2
+    const ulWidth   = settings.underlineWidth    ?? 0
     const bStrength = settings.bounceStrength    ?? 0.18
     const sFactor   = settings.scaleFactor       ?? 1.25
 
@@ -258,6 +289,8 @@ export function useSubtitleOverlay({
       // Per-word transition sub-settings — fall back to global if not overridden.
       const wUlThick     = m.overrides?.underline_thickness ?? ulThick
       const wUlColor     = m.overrides?.underline_color     ?? ulColor
+      const wUlOffsetY   = m.overrides?.underline_offset_y  ?? ulOffsetY
+      const wUlWidth     = m.overrides?.underline_width     ?? ulWidth
       const wBStrength   = m.overrides?.bounce_strength     ?? bStrength
       const wSFactor     = m.overrides?.scale_factor        ?? sFactor
 
@@ -281,7 +314,10 @@ export function useSubtitleOverlay({
       // Stroke
       if (sStroke > 0) {
         ctx.strokeStyle = outlineColor
-        ctx.lineWidth   = sStroke * 2
+        // PIL stroke_width is the full symmetric width; Canvas lineWidth is also
+        // symmetric (half inside, half outside the path). Use the same nominal
+        // value for closest parity — sub-pixel difference for typical 0-10px strokes.
+        ctx.lineWidth   = sStroke
         ctx.lineJoin    = 'round'
       }
 
@@ -289,29 +325,44 @@ export function useSubtitleOverlay({
       // Convert to alphabetic baseline so text glyphs sit centred on wy2.
       const drawW = (word: string, wx: number, wy2: number) => {
         const by = wy2 + baselineShift
-        if (sStroke > 0) ctx.strokeText(word, wx, by)
-        ctx.fillText(word, wx, by)
+        if (trk === 0) {
+          if (sStroke > 0) ctx.strokeText(word, wx, by)
+          ctx.fillText(word, wx, by)
+        } else {
+          let cx = wx
+          for (let ci = 0; ci < word.length; ci++) {
+            const ch = word[ci]
+            if (sStroke > 0) ctx.strokeText(ch, cx, by)
+            ctx.fillText(ch, cx, by)
+            cx += ctx.measureText(ch).width
+            if (ci < word.length - 1) cx += trk
+          }
+        }
       }
 
       switch (wTransition) {
         case 'crossfade': {
-          const CDUR = 0.06
+          const CDUR = CROSSFADE_DUR
           const fi   = Math.min(Math.max((currentTime - m.start) / CDUR, 0), 1)
           const fo   = Math.min(Math.max((m.end - currentTime)   / CDUR, 0), 1)
           ctx.fillStyle = lerpColor(hexToRgb(wTextColor), hexToRgb(wActiveColor), fi * fo)
           drawW(m.word, x, wy)
           break
         }
-        case 'highlight':
-          ctx.fillStyle = isActive ? bgColor : wTextColor
+        case 'highlight': {
+          const hlTextCol = settings.highlightTextColor || bgColor
+          ctx.fillStyle = isActive ? hlTextCol : wTextColor
           drawW(m.word, x, wy)
           break
+        }
         case 'underline':
           ctx.fillStyle = isActive ? wActiveColor : wTextColor
           drawW(m.word, x, wy)
           if (isActive) {
             ctx.fillStyle = wUlColor || wActiveColor
-            ctx.fillRect(x, wy + textH / 2 + 2, m.width, wUlThick)
+            const ulW = wUlWidth > 0 ? wUlWidth : m.width
+            const ulX = wUlWidth > 0 ? x + (m.width - ulW) / 2 : x
+            ctx.fillRect(ulX, wy + textH / 2 + wUlOffsetY, ulW, wUlThick)
           }
           break
         case 'bounce': {
@@ -331,8 +382,10 @@ export function useSubtitleOverlay({
           }
           drawW(m.word, x, wy)
           break
-        case 'karaoke':
-          ctx.fillStyle = wTextColor
+        case 'karaoke': {
+          // Already-spoken words stay in active color; future words in text color.
+          const isPast = currentTime >= m.end
+          ctx.fillStyle = isPast ? wActiveColor : wTextColor
           drawW(m.word, x, wy)
           if (isActive && wordProg > 0) {
             ctx.save()
@@ -342,6 +395,7 @@ export function useSubtitleOverlay({
             ctx.restore()
           }
           break
+        }
         case 'reveal':
           if (currentTime >= m.start) {
             ctx.fillStyle = isActive ? wActiveColor : wTextColor

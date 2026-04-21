@@ -55,6 +55,11 @@
   --duration-fast:    120ms;
   --duration-normal:  220ms;
   --duration-slow:    350ms;
+
+  /* ── Design System Fonts ──────────────────────────── */
+  --cf-font-ui:      'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --cf-font-display: 'Instrument Serif', Georgia, serif;
+  --cf-font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
 }
 
 /* ╔══════════════════════════════════════════════════════════╗
@@ -109,7 +114,7 @@ html, body, #root {
   height: 100%;
   margin: 0;
   overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", system-ui, sans-serif;
+  font-family: var(--cf-font-ui);
   background: var(--color-bg);
   color: var(--color-text);
   font-size: 13px;
@@ -130,6 +135,7 @@ html, body, #root {
 
 /* ── Typography helpers ─────────────────────────────────────── */
 .label-xs {
+  font-family: var(--cf-font-mono);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.07em;
@@ -312,4 +318,13 @@ input[type="range"] {
 }
 .toggle-track.active .toggle-thumb {
   transform: translateX(14px);
+}
+
+/* ── Toast animation ──────────────────────────────────────────── */
+@keyframes toast-in {
+  from { opacity: 0; transform: translateX(16px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.animate-toast-in {
+  animation: toast-in 200ms ease-out;
 }

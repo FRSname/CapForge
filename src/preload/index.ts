@@ -35,6 +35,7 @@ export interface SubforgeApi {
   setState: (key: string, value: unknown) => Promise<void>
   openLogsFolder: () => Promise<void>
   openLogFile: () => Promise<void>
+  showInFolder: (filePath: string) => Promise<void>
 }
 
 declare global {
@@ -63,4 +64,5 @@ contextBridge.exposeInMainWorld('subforge', {
   setState: (key: string, value: unknown) => ipcRenderer.invoke('state:set', key, value),
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),
+  showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),
 } satisfies SubforgeApi)
