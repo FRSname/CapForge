@@ -41,6 +41,9 @@ release/
 .env.*.local
 *.log
 
+# Build state
+.notarization-last-status
+
 # IDE
 .vscode/
 .idea/
