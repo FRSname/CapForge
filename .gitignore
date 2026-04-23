@@ -14,6 +14,7 @@ whisperx/
 Subs/
 output/
 resources/
+resources/python-mac-extracted/
 
 # Legacy standalone scripts
 import whisperx.py
@@ -36,6 +37,8 @@ release/
 
 # Environment
 .env
+.env.local
+.env.*.local
 *.log
 
 # IDE
@@ -55,3 +58,5 @@ Thumbs.db
 # Build artifacts
 *.spec
 tsconfig.web.tsbuildinfo
+CLAUDE.md
+CLAUDE.md

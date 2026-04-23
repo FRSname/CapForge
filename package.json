@@ -1,7 +1,7 @@
 {
   "name": "capforge",
   "productName": "CapForge",
-  "version": "0.9.9",
+  "version": "1.0.0",
   "description": "CapForge — Auto subtitle generator with word-by-word alignment",
   "main": "electron/main.js",
   "author": {
@@ -19,13 +19,16 @@
     "dist": "electron-builder",
     "dist:win": "electron-builder --win",
     "dist:mac": "electron-builder --mac",
-    "dist:dir": "electron-builder --dir"
+    "dist:dir": "electron-builder --dir",
+    "release:mac": "bash scripts/release-mac.sh"
   },
   "devDependencies": {
+    "@electron/notarize": "^3.1.1",
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
+    "dotenv": "^17.4.2",
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^5.0.0",
@@ -44,6 +47,9 @@
     "appId": "cz.frscz.capforge",
     "productName": "CapForge",
     "copyright": "Copyright © 2026 FRScz",
+    "afterSign": "scripts/notarize.js",
+    "afterPack": "scripts/sign-mac-python.js",
+    "beforeBuild": "scripts/before-build.js",
     "directories": {
       "output": "dist",
       "buildResources": "build"
@@ -104,8 +110,10 @@
       "target": [
         "dmg"
       ],
+      "identity": null,
       "category": "public.app-category.video",
       "hardenedRuntime": true,
+      "gatekeeperAssess": false,
       "entitlements": "build/entitlements.mac.plist",
       "entitlementsInherit": "build/entitlements.mac.plist",
       "icon": "build/icon.icns",
@@ -119,11 +127,8 @@
           ]
         },
         {
-          "from": "resources/python",
-          "to": "python",
-          "filter": [
-            "python-mac-arm64.tar.gz"
-          ]
+          "from": "resources/python-mac-extracted",
+          "to": "python"
         },
         {
           "from": "Fonts",
