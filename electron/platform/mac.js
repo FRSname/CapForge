@@ -45,38 +45,61 @@ const fs = require("fs");
 // Python runtime bootstrapping
 // ---------------------------------------------------------------------------
 
+/**
+ * Locate the bundled Python runtime.
+ *
+ * The returned path is a DIRECTORY (not a tarball) on macOS — Apple's
+ * notarization service recursively scans inside tar/zip archives and rejects
+ * unsigned Mach-O binaries, so we extract at build time and ship the folder.
+ * Each binary inside gets signed by electron-builder's signing pass.
+ *
+ * Packaged layout:  <appResources>/python/bin/python3
+ * Dev layout:       <repo>/resources/python-mac-extracted/bin/python3
+ *
+ * Dev-mode autoextract: if the dev folder is missing but the tarball exists,
+ * unpack on-the-fly so `npm run dev` still works without a manual step.
+ */
 function findBundledPythonArchive() {
-  const fileName = "python-mac-arm64.tar.gz";
   if (process.resourcesPath) {
-    const packaged = path.join(process.resourcesPath, "python", fileName);
-    if (fs.existsSync(packaged)) return packaged;
+    const packaged = path.join(process.resourcesPath, "python");
+    if (fs.existsSync(path.join(packaged, "bin", "python3"))) return packaged;
   }
-  const dev = path.join(__dirname, "..", "..", "resources", "python", fileName);
-  if (fs.existsSync(dev)) return dev;
+
+  const devExtracted = path.join(__dirname, "..", "..", "resources", "python-mac-extracted");
+  if (fs.existsSync(path.join(devExtracted, "bin", "python3"))) return devExtracted;
+
+  const devTarball = path.join(__dirname, "..", "..", "resources", "python", "python-mac-arm64.tar.gz");
+  if (fs.existsSync(devTarball)) {
+    const { execFileSync } = require("child_process");
+    fs.mkdirSync(devExtracted, { recursive: true });
+    execFileSync("tar", ["--strip-components=1", "-xzf", devTarball, "-C", devExtracted]);
+    return devExtracted;
+  }
+
   throw new Error(
-    `Bundled Python not found. Expected ${fileName} in resources/python/. ` +
-    `Download a build from https://github.com/astral-sh/python-build-standalone.`
+    "Bundled Python not found. Run `node scripts/prepare-mac-python.js` or " +
+    "download a build from https://github.com/astral-sh/python-build-standalone " +
+    "into resources/python/python-mac-arm64.tar.gz."
   );
 }
 
 /**
- * Extract a .tar.gz using the system `tar`. macOS ships with a usable tar
- * that handles gzip natively (`-z`). No Node dependency needed.
+ * Copy the pre-extracted, codesigned Python runtime into the user's writable
+ * runtime dir. Uses `ditto` to preserve symlinks, executable bits, and
+ * extended attributes — including the codesign signatures applied at build time.
+ * `cp -R` mangles Python's bin/ symlinks; `ditto` doesn't.
  */
-function extractPython(archivePath, destDir) {
+function extractPython(sourceDir, destDir) {
   return new Promise((resolve, reject) => {
     fs.mkdirSync(destDir, { recursive: true });
-    // --strip-components=1 removes the top-level "python/" directory that
-    // python-build-standalone install_only tarballs wrap everything in, so the
-    // interpreter lands at <destDir>/bin/python3, not <destDir>/python/bin/python3.
-    const proc = spawn("tar", ["--strip-components=1", "-xzf", archivePath, "-C", destDir], {
+    const proc = spawn("ditto", [sourceDir, destDir], {
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stderr = "";
     proc.stderr.on("data", (d) => { stderr += d.toString(); });
     proc.on("exit", (code) => {
       if (code === 0) resolve();
-      else reject(new Error(`tar -xzf failed (${code}): ${stderr}`));
+      else reject(new Error(`ditto failed (${code}): ${stderr}`));
     });
     proc.on("error", reject);
   });

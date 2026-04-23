@@ -63,15 +63,27 @@ The Canvas preview (`useSubtitleOverlay.ts`) and the Python renderer (`video_ren
 - Canvas `measureText().width` ↔ PIL `font.getlength()` (NOT `textbbox` — that strips side bearings)
 - Canvas font string `"bold 64px Arial"` ↔ PIL `ImageFont.truetype(path, size)` + bold threshold at weight >= 700
 - Both use the same formulas for row gap, background box sizing, word positioning, and animation curves
+- Shared magic numbers live in `lib/renderConstants.ts` — the backend receives them via the render config, so they stay synced automatically
+- When changing any rendering formula (word positioning, background box sizing, animation curves, word-wrap), both renderers must be updated in lockstep
 
 ### TypeScript Config
 
-Three tsconfig files: `tsconfig.json` (root references), `tsconfig.node.json` (main + preload), `tsconfig.web.json` (renderer). Type-check the renderer with `npm run typecheck`.
+Three tsconfig files: `tsconfig.json` (root references), `tsconfig.node.json` (main + preload), `tsconfig.web.json` (renderer). Type-check the renderer with `npm run typecheck`. Path alias `@/*` maps to `src/renderer/src/*`.
 
 ## Key Conventions
 
-- **snake_case ↔ camelCase bridge**: The Python backend uses snake_case everywhere. The React frontend uses camelCase. The bridge happens in one place: `src/renderer/src/lib/render.ts` (`buildRenderBody()`).
-- **StudioSettings**: Single flat interface in `StudioPanel.tsx` holding all subtitle style settings. Passed down as props, never fragmented.
+- **snake_case ↔ camelCase bridge**: The Python backend uses snake_case everywhere. The React frontend uses camelCase. The bridge happens in one place: `src/renderer/src/lib/render.ts` (`buildRenderBody()`). When adding a new setting, update all three: `StudioSettings` interface → `render.ts` config object → `VideoRenderConfig` Pydantic model.
+- **StudioSettings**: Single flat interface in `StudioPanel.tsx` holding all subtitle style settings. `STUDIO_DEFAULTS` defines initial values. Passed down as props, never fragmented.
+- **Settings undo**: `useSettingsUndo` hook in App.tsx wraps `setSettings` — every UI change is pushed to a ref-based undo stack (50-entry cap, 500ms debounce). Cmd+Z/Cmd+Shift+Z when focus is outside text editors.
 - **Segments vs Groups**: `Segment[]` is the source transcription data. Groups are derived display chunks (N words per group) used for preview and render. Groups can be manually edited (merge/split/reorder), tracked by `groupsEdited` flag.
 - **Backend port**: Preferred port 53421. `python-manager.js` finds a free port and the renderer gets it via IPC `backend:port`.
 - **Custom fonts**: Stored in app data via Electron IPC. The font path is passed to both Canvas (via `@font-face` injection) and the backend (`custom_font_path` field).
+- **Toasts**: `useToast` context hook provides `toast(message, type)` for success/error/info notifications. Wrap errors in toast calls rather than silently catching.
+
+## Theming
+
+The app supports dark (default) and light themes via `:root.light` CSS class. All colors use CSS custom properties defined in `globals.css` (`--color-text`, `--color-bg`, `--color-surface`, etc.). When adding UI:
+- Never hardcode colors like `text-white` or `bg-black` — use `var(--color-text)`, `var(--color-bg)`, etc.
+- Tailwind v4 can misparse `text-[var(--color-text)]` (ambiguous color vs font-size) — use inline `style={{ color: 'var(--color-text)' }}` when Tailwind gets confused
+- Design system font variables: `--cf-font-ui` (Inter), `--cf-font-display` (Instrument Serif), `--cf-font-mono` (JetBrains Mono)
+- Brand orange: `#D4952A`

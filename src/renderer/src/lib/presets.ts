@@ -133,8 +133,6 @@ export function studioToVanilla(s: StudioSettings): VanillaPreset {
     animation:      s.animationType,
     animDur:        String(s.animDuration),
     wordTransition: s.wordStyle,
-    resolution:     `${s.resolution[0]}x${s.resolution[1]}`,
-    fps:            String(s.fps),
     format:         s.format,
     renderMode:     s.renderMode,
     bitrate:        s.bitrate,
