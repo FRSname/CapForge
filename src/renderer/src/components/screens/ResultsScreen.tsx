@@ -55,6 +55,9 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
   // True once the user edits segments (text, timing, etc.) — ensures the
   // re-derived groups are still sent to the backend for rendering.
   const [segmentsEdited, setSegmentsEdited] = useState(false)
+  // Transient: when set, SubtitleEditor scrolls/focuses that segment's text
+  // field (used right after a manual "+ Add subtitle" so the user can type).
+  const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null)
 
   const playerRef = useRef<AudioPlayerHandle>(null)
 
@@ -127,6 +130,8 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
       if (!p) return
 
       switch (e.key) {
+        case ' ':
+        case 'Spacebar':    e.preventDefault(); p.playPause(); break
         case 'j': case 'J': e.preventDefault(); p.seekRelative(-2); break
         case 'k': case 'K': e.preventDefault(); p.playPause(); break
         case 'l': case 'L': e.preventDefault(); p.seekRelative(2); break
@@ -188,6 +193,27 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
   }, [])
 
   const handleSeekDone = useCallback(() => setSeekTarget(null), [])
+
+  // Insert a new manual segment at the current playback position. Used when
+  // Whisper missed a sentence — the user adds it back by hand.
+  const handleAddSegment = useCallback(() => {
+    const start = Math.max(0, currentTime)
+    const dur = playerRef.current?.getDuration() ?? 0
+    const tentativeEnd = start + 2.0
+    const end = dur > 0 ? Math.min(tentativeEnd, dur) : tentativeEnd
+    const newSeg: Segment = {
+      id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      start,
+      end,
+      text: '',
+      words: [],
+    }
+    pushUndo()
+    setSegments(prev => [...prev, newSeg].sort((a, b) => a.start - b.start))
+    setSegmentsEdited(true)
+    setView('text')
+    setFocusSegmentId(newSeg.id)
+  }, [currentTime, pushUndo])
 
   // Timeline edge-drag: adjust a group's start or end time.
   const handleSegmentEdge = useCallback((segId: string, edge: 'start' | 'end', newTime: number) => {
@@ -256,6 +282,9 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
           onChange={(next: Segment[]) => { setSegments(next); setSegmentsEdited(true) }}
           onBeforeEdit={pushUndo}
           defaults={wordStyleDefaults}
+          onAddSegment={handleAddSegment}
+          focusSegmentId={focusSegmentId}
+          onFocusConsumed={() => setFocusSegmentId(null)}
         />
       ) : (
         <GroupEditor
