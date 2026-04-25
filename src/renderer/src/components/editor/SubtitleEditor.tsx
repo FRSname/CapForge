@@ -8,7 +8,7 @@
  * - In edit mode: timing inputs appear for each segment
  */
 
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Segment, Word, WordOverrides } from '../../types/app'
 import { WordStylePopup, type WordStyleDefaults } from './WordStylePopup'
 
@@ -21,6 +21,12 @@ interface SubtitleEditorProps {
   onBeforeEdit?: () => void
   /** Global style defaults — popup uses these to compute "hasOverride". */
   defaults: WordStyleDefaults
+  /** Insert a new manual segment at the current playback position. */
+  onAddSegment?: () => void
+  /** When set, scroll the segment with this id into view and focus its text. */
+  focusSegmentId?: string | null
+  /** Called once focus has been applied so the parent can clear the request. */
+  onFocusConsumed?: () => void
 }
 
 interface PopupState {
@@ -35,11 +41,25 @@ interface WordTimingEdit {
   wordIdx: number
 }
 
-export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBeforeEdit, defaults }: SubtitleEditorProps) {
+export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBeforeEdit, defaults, onAddSegment, focusSegmentId, onFocusConsumed }: SubtitleEditorProps) {
   const [editMode,  setEditMode]  = useState(false)
   const [popup,     setPopup]     = useState<PopupState | null>(null)
   const [hasEdits,  setHasEdits]  = useState(false)
   const [wordTimingEdit, setWordTimingEdit] = useState<WordTimingEdit | null>(null)
+
+  // When the parent asks us to focus a freshly-added segment, ensure edit mode
+  // is on so the contentEditable is rendered and typeable.
+  useEffect(() => {
+    if (focusSegmentId) setEditMode(true)
+  }, [focusSegmentId])
+
+  // Toolbar handler — turns on edit mode so the user can type immediately,
+  // then asks the parent to insert a new segment at the current playback time.
+  const handleAddClick = useCallback(() => {
+    if (!onAddSegment) return
+    setEditMode(true)
+    onAddSegment()
+  }, [onAddSegment])
 
   // Active segment index (for highlight)
   const activeSegIdx = useMemo(() => {
@@ -118,9 +138,12 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
       if (i < seg.words.length) {
         return { ...seg.words[i], word }
       }
-      // Extra words — reuse last word's timing
+      // Extra words — reuse last word's timing, or fall back to the segment's
+      // own bounds when the segment had no per-word timing yet (e.g. a manual
+      // sentence the user just inserted).
       const last = seg.words[seg.words.length - 1]
-      return { ...last, word }
+      if (last) return { ...last, word }
+      return { word, start: seg.start, end: seg.end }
     })
     const next = segments.map((s, si) =>
       si !== segIdx ? s : { ...s, text: newText, words: newWords }
@@ -162,6 +185,15 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
         {hasEdits && editMode && (
           <span className="text-xs text-[var(--color-warning)]">Click outside a field or press Done to save</span>
         )}
+        {onAddSegment && (
+          <button
+            className="ml-auto text-xs px-2.5 py-1 rounded transition-colors border border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-white/[0.04] hover:text-[var(--color-text)]"
+            onClick={handleAddClick}
+            title="Insert a new subtitle at the current playback time"
+          >
+            + Add subtitle
+          </button>
+        )}
       </div>
 
       {/* Segment list */}
@@ -181,6 +213,8 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
             wordTimingEdit={wordTimingEdit}
             onWordTimingEditToggle={setWordTimingEdit}
             onWordTimingChange={handleWordTimingChange}
+            shouldFocus={focusSegmentId === seg.id}
+            onFocusConsumed={onFocusConsumed}
           />
         ))}
       </div>
@@ -216,11 +250,29 @@ interface SegmentRowProps {
   wordTimingEdit: WordTimingEdit | null
   onWordTimingEditToggle: (edit: WordTimingEdit | null) => void
   onWordTimingChange: (si: number, wi: number, field: 'start' | 'end', value: string) => void
+  /** When true, scroll into view and focus this row's contentEditable on mount. */
+  shouldFocus?: boolean
+  onFocusConsumed?: () => void
 }
 
-function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWordContextMenu, onTimingChange, onTextEdit, wordTimingEdit, onWordTimingEditToggle, onWordTimingChange }: SegmentRowProps) {
+function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWordContextMenu, onTimingChange, onTextEdit, wordTimingEdit, onWordTimingEditToggle, onWordTimingChange, shouldFocus, onFocusConsumed }: SegmentRowProps) {
+  const rowRef = useRef<HTMLDivElement>(null)
+  const textRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!shouldFocus) return
+    // Wait one frame so contentEditable has rendered (edit mode just turned on).
+    const id = requestAnimationFrame(() => {
+      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      textRef.current?.focus()
+      onFocusConsumed?.()
+    })
+    return () => cancelAnimationFrame(id)
+  }, [shouldFocus, onFocusConsumed])
+
   return (
     <div
+      ref={rowRef}
       className={[
         'rounded-lg border transition-colors p-2.5 text-sm',
         isActive
@@ -250,7 +302,8 @@ function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWo
           <div className="flex-1 min-w-0 flex flex-col gap-1.5">
             {/* Editable text */}
             <div
-              className="text-sm leading-relaxed px-1 py-0.5 rounded border border-transparent focus:border-[var(--color-accent)] focus:outline-none bg-[var(--color-surface)]"
+              ref={textRef}
+              className="text-sm leading-relaxed px-1 py-0.5 rounded border border-transparent focus:border-[var(--color-accent)] focus:outline-none bg-[var(--color-surface)] min-h-[1.5em]"
               contentEditable
               suppressContentEditableWarning
               spellCheck

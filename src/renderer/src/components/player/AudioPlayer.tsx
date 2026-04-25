@@ -21,6 +21,7 @@ export interface AudioPlayerHandle {
   seekRelative: (dt: number) => void
   seekToTime: (t: number) => void
   playPause: () => void
+  getDuration: () => number
 }
 
 interface AudioPlayerProps {
@@ -80,6 +81,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     },
     seekToTime: (t: number) => wsSeekTo(t),
     playPause,
+    getDuration: () => duration,
   }), [currentTime, duration, wsSeekTo, playPause])
 
   // Respond to external seekTo prop (driven by SubtitleEditor word click)

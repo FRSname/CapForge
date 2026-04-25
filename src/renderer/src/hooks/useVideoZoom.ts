@@ -8,7 +8,7 @@
  * - current zoom level for the label
  */
 
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 const VZ_MIN = 1
 const VZ_MAX = 6
@@ -57,16 +57,25 @@ export function useVideoZoom() {
   }, [clampPan])
 
   // ── Ctrl+Wheel zoom ──────────────────────────────────────────
-  const onWheel = useCallback((e: React.WheelEvent) => {
-    if (!e.ctrlKey) return
-    e.preventDefault()
-    e.stopPropagation()
-    const rect = wrapRef.current?.getBoundingClientRect()
-    if (!rect) return
-    const cx = e.clientX - rect.left
-    const cy = e.clientY - rect.top
-    const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
-    zoomAt(cx, cy, factor)
+  // React registers onWheel as passive by default, which silently prevents
+  // e.preventDefault() from stopping the page scroll. We attach directly to
+  // the DOM element with { passive: false } so preventDefault works.
+  useEffect(() => {
+    const el = wrapRef.current
+    if (!el) return
+    function handleWheel(e: WheelEvent) {
+      if (!e.ctrlKey) return
+      e.preventDefault()
+      e.stopPropagation()
+      const rect = wrapRef.current?.getBoundingClientRect()
+      if (!rect) return
+      const cx = e.clientX - rect.left
+      const cy = e.clientY - rect.top
+      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+      zoomAt(cx, cy, factor)
+    }
+    el.addEventListener('wheel', handleWheel, { passive: false })
+    return () => el.removeEventListener('wheel', handleWheel)
   }, [zoomAt])
 
   // ── Drag to pan ──────────────────────────────────────────────
@@ -135,6 +144,6 @@ export function useVideoZoom() {
     zoomIn,
     zoomOut,
     zoomReset,
-    handlers: { onWheel, onMouseDown, onMouseMove, onMouseUp, onDoubleClick },
+    handlers: { onMouseDown, onMouseMove, onMouseUp, onDoubleClick },
   }
 }
