@@ -109,50 +109,42 @@ export function splitGroup(groups: Segment[], index: number, n: number): Segment
 }
 
 /**
- * Move a word from one group to an adjacent one (direction: -1 left, +1 right).
- * If `wordIndex` is the first word and direction is -1, it moves to the end of
- * the previous group; if it's the last and direction is +1, it moves to the
- * start of the next group. No-op if there is no neighbouring group.
+ * Move a word from one group to another. `destGroupIndex` may be any other
+ * group, not just an adjacent one. When moving down, the word is prepended to
+ * the destination; when moving up, it is appended. If the source group becomes
+ * empty as a result, it is dropped from the array entirely.
  */
 export function moveWord(
-  groups:     Segment[],
-  groupIndex: number,
-  wordIndex:  number,
-  direction:  -1 | 1,
+  groups:         Segment[],
+  groupIndex:     number,
+  wordIndex:      number,
+  destGroupIndex: number,
 ): Segment[] {
+  if (groupIndex === destGroupIndex) return groups
   const src = groups[groupIndex]
-  const dst = groups[groupIndex + direction]
+  const dst = groups[destGroupIndex]
   if (!src || !dst) return groups
   const word = src.words[wordIndex]
   if (!word) return groups
 
+  const movingDown = destGroupIndex > groupIndex
+  const newDstWords = movingDown ? [word, ...dst.words] : [...dst.words, word]
   const newSrcWords = src.words.filter((_, i) => i !== wordIndex)
-  // Moving a word out may leave the source empty — drop that group entirely.
+
+  // Source becomes empty — drop it and write the merged dst at its old slot.
   if (newSrcWords.length === 0) {
-    const merged: Segment = {
-      ...dst,
-      words: direction === 1 ? [word, ...dst.words] : [...dst.words, word],
-    }
-    const withBounds = finalizeBounds(merged)
+    const merged = finalizeBounds({ ...dst, words: newDstWords })
     const next = [...groups]
-    next.splice(groupIndex, 2, direction === 1 ? withBounds : withBounds)
-    // When direction is -1 the source is at groupIndex, dst is at groupIndex-1.
-    // Splice replaces both with just the merged dst.
-    if (direction === -1) {
-      next.splice(groupIndex - 1, 2, withBounds)
-    }
+    next[destGroupIndex] = merged
+    next.splice(groupIndex, 1)
     return next
   }
 
-  const newDst: Segment = {
-    ...dst,
-    words: direction === 1 ? [word, ...dst.words] : [...dst.words, word],
-  }
-  const newSrc: Segment = { ...src, words: newSrcWords }
-
+  const newSrc = finalizeBounds({ ...src, words: newSrcWords })
+  const newDst = finalizeBounds({ ...dst, words: newDstWords })
   const next = [...groups]
-  next[groupIndex] = finalizeBounds(newSrc)
-  next[groupIndex + direction] = finalizeBounds(newDst)
+  next[groupIndex] = newSrc
+  next[destGroupIndex] = newDst
   return next
 }
 

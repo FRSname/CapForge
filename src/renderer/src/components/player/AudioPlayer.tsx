@@ -93,7 +93,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   }, [seekTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Timeline ────────────────────────────────────────────────────
-  const { draw: timelineDraw, onMouseDown, onMouseMove, onMouseUp, onWheel, setZoom: setTlZoom } = useTimeline({
+  const { draw: timelineDraw, onMouseDown, onMouseMove, onMouseUp, setZoom: setTlZoom } = useTimeline({
     canvasRef,
     segments,
     duration,
@@ -228,7 +228,6 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
-          onWheel={onWheel}
         />
       </div>
 

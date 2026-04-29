@@ -88,14 +88,14 @@ const FPS_PRESETS = [24, 25, 30, 48, 50, 60]
 const DEFAULTS: StudioSettings = {
   fontName:      '',
   fontPath:      '',
-  fontSize:      70,
+  fontSize:      150,
   fontWeight:    100,
   tracking:      0,
   textColor:     '#FFFFFF',
   outlineColor:  '#000000',
   bgColor:       '#D4952A',
   activeColor:   '#F5C842',
-  outlineWidth:  2,
+  outlineWidth:  0,
   posX:          50,
   posY:          82,
   marginH:       8,
@@ -116,11 +116,11 @@ const DEFAULTS: StudioSettings = {
   animDuration:  12,
   wordStyle:     'highlight',
   highlightRadius:   16,
-  highlightPadX:     6,
-  highlightPadY:     6,
+  highlightPadX:     17,
+  highlightPadY:     17,
   highlightOpacity:  0.85,
   highlightAnim:     'jump',
-  highlightTextColor: '',
+  highlightTextColor: '#FFFFFF',
   underlineThickness: 4,
   underlineColor:    '',
   underlineOffsetY:  2,
@@ -220,7 +220,7 @@ export function StudioPanel({
             if (onChange) onChange(next); else setInternalS(next)
           }} />
           <div className="divider" />
-          <StudioRow label="Size"    value={s.fontSize}      min={50}  max={180} step={1}    unit="px"  def={DEFAULTS.fontSize}      onChange={v => set('fontSize', v)} />
+          <StudioRow label="Size"    value={s.fontSize}      min={50}  max={220} step={1}    unit="px"  def={DEFAULTS.fontSize}      onChange={v => set('fontSize', v)} />
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Bold</span>
             <label className="flex items-center gap-1.5 text-xs text-[var(--color-text-2)] cursor-pointer">
