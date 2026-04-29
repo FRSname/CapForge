@@ -16,10 +16,10 @@
     "build:react": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.web.json",
     "backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 53421",
-    "dist": "electron-builder",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac",
-    "dist:dir": "electron-builder --dir",
+    "dist": "npm run build:react && electron-builder",
+    "dist:win": "npm run build:react && electron-builder --win",
+    "dist:mac": "npm run build:react && electron-builder --mac",
+    "dist:dir": "npm run build:react && electron-builder --dir",
     "release:mac": "bash scripts/release-mac.sh"
   },
   "devDependencies": {
