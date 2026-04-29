@@ -227,7 +227,6 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
   const wordStyleDefaults = useMemo<WordStyleDefaults>(() => ({
     textColor:   settings.textColor,
     activeColor: settings.activeColor,
-    bold:        settings.fontWeight >= 600,
     fontName:    settings.fontName,
     wordTransition:     settings.wordStyle as WordStyleDefaults['wordTransition'],
     highlightRadius:    settings.highlightRadius,
@@ -239,7 +238,7 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
     bounceStrength:     settings.bounceStrength,
     scaleFactor:        settings.scaleFactor,
   }), [
-    settings.textColor, settings.activeColor, settings.fontWeight, settings.fontName,
+    settings.textColor, settings.activeColor, settings.fontName,
     settings.wordStyle, settings.highlightRadius, settings.highlightPadX, settings.highlightPadY,
     settings.highlightOpacity, settings.underlineThickness, settings.underlineColor,
     settings.bounceStrength, settings.scaleFactor,

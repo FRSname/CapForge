@@ -7,9 +7,9 @@
  *   1. Text color
  *   2. Active color (active_word_color)
  *   3. Size scale  (font_size_scale, 50–200%)
- *   4. Bold
- *   5. Font family (font_family + custom_font_path)
- *   6. Animation  (word_transition)
+ *   4. Font family (font_family + custom_font_path) — pick a Bold variant here
+ *      if you want bold for a single word
+ *   5. Animation  (word_transition)
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -21,7 +21,6 @@ import { loadAllFonts, registerFontFromBuffer, type FontInfo } from '../../lib/f
 export interface WordStyleDefaults {
   textColor:   string
   activeColor: string
-  bold:        boolean
   /** The global font name, if any — used only to render "— Global —" label context. */
   fontName?:   string
   /** Global word transition — used as the effective transition when override is "— Global —". */
@@ -76,7 +75,6 @@ export function WordStylePopup({
   const [textColor,    setTextColor]    = useState(overrides.text_color        ?? defaults.textColor)
   const [activeColor,  setActiveColor]  = useState(overrides.active_word_color ?? defaults.activeColor)
   const [scale,        setScale]        = useState(overrides.font_size_scale   ?? 1)
-  const [bold,         setBold]         = useState(overrides.bold              ?? defaults.bold)
   const [fontFamily,   setFontFamily]   = useState(overrides.font_family       ?? '')
   const [fontPath,     setFontPath]     = useState(overrides.custom_font_path  ?? '')
   const [transition,   setTransition]   = useState<WordTransition | ''>(overrides.word_transition ?? '')
@@ -155,7 +153,7 @@ export function WordStylePopup({
     onApply(buildOverrides())
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    textColor, activeColor, scale, bold, fontFamily, fontPath, transition,
+    textColor, activeColor, scale, fontFamily, fontPath, transition,
     posOffX, posOffY,
     hlRadius, hlPadX, hlPadY, hlOpacity,
     ulThick, ulColor, bStrength, sFactor,
@@ -168,7 +166,6 @@ export function WordStylePopup({
     if (textColor   !== defaults.textColor)   next.text_color        = textColor
     if (activeColor !== defaults.activeColor) next.active_word_color = activeColor
     if (scale       !== 1)                    next.font_size_scale   = scale
-    if (bold        !== defaults.bold)        next.bold              = bold
     if (fontFamily) {
       next.font_family = fontFamily
       if (fontPath) next.custom_font_path = fontPath
@@ -259,17 +256,6 @@ export function WordStylePopup({
             if (!isNaN(v)) setScale(v / 100)
           }}
           className="w-12 shrink-0 bg-[var(--color-surface-2)] border border-[var(--color-border)] rounded px-1 py-0.5 text-xs tabular-nums"
-        />
-      </div>
-
-      {/* Bold */}
-      <div className="flex items-center gap-2">
-        <label className="w-20 shrink-0 text-[var(--color-text-2)]">Bold</label>
-        <input
-          type="checkbox"
-          checked={bold}
-          onChange={e => setBold(e.target.checked)}
-          className="accent-[var(--color-accent)]"
         />
       </div>
 

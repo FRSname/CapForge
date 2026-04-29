@@ -221,13 +221,6 @@ export function StudioPanel({
           }} />
           <div className="divider" />
           <StudioRow label="Size"    value={s.fontSize}      min={50}  max={220} step={1}    unit="px"  def={DEFAULTS.fontSize}      onChange={v => set('fontSize', v)} />
-          <div className="flex items-center gap-1.5 min-w-0">
-            <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Bold</span>
-            <label className="flex items-center gap-1.5 text-xs text-[var(--color-text-2)] cursor-pointer">
-              <input type="checkbox" checked={s.fontWeight >= 700} onChange={e => set('fontWeight', e.target.checked ? 700 : 100)} className="accent-[var(--color-accent)]" />
-              {s.fontWeight >= 700 ? 'On' : 'Off'}
-            </label>
-          </div>
           <StudioRow label="Tracking" value={s.tracking}     min={-5}  max={20}  step={0.5}  unit="px"  def={DEFAULTS.tracking}     onChange={v => set('tracking', v)} />
         </StudioCard>
 

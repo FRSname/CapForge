@@ -79,7 +79,10 @@ export function useSubtitleOverlay({
     } = settings
 
     const bgOpacity  = bgOpacityPct / 100
-    const fontWeight = fwNum >= 700 ? 'bold' : 'normal'
+    // Bold is no longer a toggle — the user picks the font face directly
+    // (e.g. "Inter Bold"). Browser would synthesize fake-bold otherwise, which
+    // wouldn't match the Pillow render that just loads the file as-is.
+    const fontWeight = 'normal'
     const animDur    = animDurFrames / 100
     // Use marginH as-is so the preview matches the backend (which doesn't apply
     // a 12px floor when the user sets 0).

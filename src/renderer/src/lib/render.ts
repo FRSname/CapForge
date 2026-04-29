@@ -66,10 +66,10 @@ export function buildRenderBody(
     font_family:        settings.fontName,
     custom_font_path:   settings.fontPath || null,
     font_size:          settings.fontSize,
-    // Match the preview's threshold (useSubtitleOverlay.ts) so the render
-    // doesn't go bold at semi-bold weights when the preview shows them as
-    // regular. Keep both at 700 — i.e. only "bold" or heavier triggers PIL bold.
-    bold:               settings.fontWeight >= 700,
+    // Bold is no longer a separate toggle — the user picks the font variant
+    // (e.g. "Inter Bold") directly. The renderer always loads the chosen
+    // font file as-is so what you select is what you get.
+    bold:               false,
     tracking:           settings.tracking ?? 0,
     word_spacing:       0,
 
