@@ -1,7 +1,7 @@
 {
   "name": "capforge",
   "productName": "CapForge",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "CapForge — Auto subtitle generator with word-by-word alignment",
   "main": "electron/main.js",
   "author": {
