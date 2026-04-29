@@ -60,10 +60,9 @@ export function GroupEditor({ groups, currentTime, onSeek, onChange, onBeforeEdi
 
   const handleDrop = useCallback((destIdx: number) => {
     if (!drag) return
-    const direction = destIdx > drag.groupIdx ? 1 : -1
     if (destIdx === drag.groupIdx) return
     onBeforeEdit?.()
-    onChange(moveWord(groups, drag.groupIdx, drag.wordIdx, direction))
+    onChange(moveWord(groups, drag.groupIdx, drag.wordIdx, destIdx))
     setDrag(null)
     setHoverIdx(null)
   }, [drag, groups, onChange, onBeforeEdit])

@@ -295,30 +295,40 @@ export function useTimeline({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onSeek, duration])
 
-  const onWheel = useCallback((e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault()
-    const st = stateRef.current
-    if (e.ctrlKey || e.metaKey) {
-      // Zoom
-      const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
-      const rect = canvasRef.current?.getBoundingClientRect()
-      const ratio = rect ? (e.clientX - rect.left) / rect.width : 0.5
-      const anchorT = st.scrollT + (duration / st.zoom) * ratio
-      const newZoom = Math.max(1, Math.min(200, st.zoom * factor))
-      st.zoom = newZoom
-      st.scrollT = anchorT - (duration / newZoom) * ratio
-    } else {
-      // Pan
-      const step = (duration / st.zoom) * 0.1
-      st.scrollT = Math.max(0, Math.min(st.scrollT + (e.deltaY > 0 ? step : -step), duration))
+  // Wheel handling must use a native listener with { passive: false } so that
+  // preventDefault() actually stops the page from scrolling/zooming. React's
+  // onWheel JSX prop is registered as passive in modern Chrome and would log
+  // "Unable to preventDefault inside passive event listener invocation".
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const handler = (e: WheelEvent) => {
+      e.preventDefault()
+      const st = stateRef.current
+      if (e.ctrlKey || e.metaKey) {
+        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
+        const rect = canvas.getBoundingClientRect()
+        const ratio = (e.clientX - rect.left) / rect.width
+        const anchorT = st.scrollT + (duration / st.zoom) * ratio
+        const newZoom = Math.max(1, Math.min(200, st.zoom * factor))
+        st.zoom = newZoom
+        st.scrollT = anchorT - (duration / newZoom) * ratio
+      } else {
+        const step = (duration / st.zoom) * 0.1
+        st.scrollT = Math.max(0, Math.min(st.scrollT + (e.deltaY > 0 ? step : -step), duration))
+      }
+      // Redraw immediately — mutating refs alone won't trigger a re-render.
+      draw(lastTimeRef.current)
     }
-  }, [canvasRef, duration])
+    canvas.addEventListener('wheel', handler, { passive: false })
+    return () => canvas.removeEventListener('wheel', handler)
+  }, [canvasRef, duration, draw])
 
   const setZoom = useCallback((zoom: number) => {
     stateRef.current.zoom = Math.max(1, zoom)
   }, [])
 
-  return { draw, onMouseDown, onMouseMove, onMouseUp, onWheel, setZoom }
+  return { draw, onMouseDown, onMouseMove, onMouseUp, setZoom }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
