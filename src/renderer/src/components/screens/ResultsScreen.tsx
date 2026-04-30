@@ -69,19 +69,26 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
   )
 
   const prevWpg = useRef(settings.wordsPerGroup)
+  const prevSegCount = useRef(segments.length)
   useEffect(() => {
     // Skip when undo/redo is restoring state — groups are already set from the snapshot.
     if (isRestoringRef.current) {
       isRestoringRef.current = false
+      prevWpg.current = settings.wordsPerGroup
+      prevSegCount.current = segments.length
       return
     }
 
     const wpgChanged = settings.wordsPerGroup !== prevWpg.current
     prevWpg.current = settings.wordsPerGroup
+    const segCountChanged = segments.length !== prevSegCount.current
+    prevSegCount.current = segments.length
 
-    if (groupsEdited && !wpgChanged) {
-      // Groups were manually edited and wpg unchanged — preserve group
-      // boundaries but sync updated word data from the new segments.
+    if (groupsEdited && !wpgChanged && !segCountChanged) {
+      // Groups were manually edited, wpg unchanged, and no segments added/removed —
+      // preserve group boundaries but sync updated word data from the new segments.
+      // The word-index sync is only safe when the total word pool is stable; adding
+      // or removing a segment shifts the pool and misaligns the wi counter.
       const allWords = segments.flatMap(s => s.words)
       let wi = 0
       setGroups(prev => prev.map(g => {
@@ -98,8 +105,7 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
         }
       }))
     } else {
-      // Rebuild from scratch — either no manual edits, or user changed wpg
-      // which should override manual grouping.
+      // Rebuild from scratch — no manual edits, wpg changed, or segment count changed.
       setGroups(buildStudioGroups(segments, settings.wordsPerGroup))
       if (wpgChanged) setGroupsEdited(false)
     }
