@@ -60,6 +60,11 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     resolution,
   })
 
+  // Stable ref so the WaveSurfer onTimeUpdate callback always calls the latest
+  // timelineDraw without capturing a stale closure (timelineDraw closes over
+  // `duration` which is 0 before WaveSurfer fires 'ready', causing early return).
+  const timelineDrawRef = useRef<((t: number) => void) | undefined>(undefined)
+
   // ── WaveSurfer ──────────────────────────────────────────────────
   const { playing, currentTime, duration, ready, playPause, seekTo: wsSeekTo } = useWaveSurfer({
     containerRef: waveformRef as React.RefObject<HTMLElement>,
@@ -67,9 +72,9 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     audioUrl: isVideo ? undefined : audioUrl,
     onTimeUpdate: useCallback((t: number) => {
       onTimeUpdate?.(t)
-      timelineDraw(t)
+      timelineDrawRef.current?.(t)
       overlayDraw(t)
-    }, [overlayDraw]),  // eslint-disable-line react-hooks/exhaustive-deps
+    }, [overlayDraw]),
     onSeek: useCallback(() => onSeek?.(), [onSeek]),
   })
 
@@ -101,6 +106,8 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onSeek: wsSeekTo,
     onSegmentEdge,
   })
+  // Keep the ref current every render so the WaveSurfer callback is never stale.
+  timelineDrawRef.current = timelineDraw
 
   // Initial draw when ready
   useEffect(() => {

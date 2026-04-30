@@ -263,10 +263,10 @@ function SegmentRow({ seg, segIdx, isActive, editMode, currentTime, onSeek, onWo
 
   // Auto-scroll to keep active segment visible during playback / scrubbing.
   useEffect(() => {
-    if (isActive && !editMode) {
+    if (isActive) {
       rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
-  }, [isActive, editMode])
+  }, [isActive])
 
   // Which word is currently playing within this segment.
   const activeWordIdx = useMemo(() => {
