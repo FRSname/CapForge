@@ -97,6 +97,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     canvasRef,
     segments,
     duration,
+    isPlaying: playing,
     onSeek: wsSeekTo,
     onSegmentEdge,
   })
@@ -156,7 +157,6 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
               (vz.wrapRef as React.MutableRefObject<HTMLDivElement | null>).current = el
             }}
             className="relative w-full mx-auto overflow-hidden"
-            style={{ background: 'var(--color-bg)' }}
             style={{
               // When zoomed, drop the aspect-ratio constraint so the wrapper
               // can use the full available main-area width — otherwise the

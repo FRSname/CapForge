@@ -21,7 +21,7 @@ python -m uvicorn backend.main:app --host 127.0.0.1 --port 53421
 npm start                  # Production mode (requires build:react first)
 npm run dev                # Dev mode with --dev flag
 
-# Package
+# Package (each script runs build:react automatically first)
 npm run dist:mac           # DMG
 npm run dist:win           # NSIS installer
 ```
@@ -61,7 +61,7 @@ No test suite exists yet. The project has no linter or formatter configured.
 
 The Canvas preview (`useSubtitleOverlay.ts`) and the Python renderer (`video_render.py`) must produce visually identical output. Key equivalences:
 - Canvas `measureText().width` ↔ PIL `font.getlength()` (NOT `textbbox` — that strips side bearings)
-- Canvas font string `"bold 64px Arial"` ↔ PIL `ImageFont.truetype(path, size)` + bold threshold at weight >= 700
+- **No bold synthesis**: Pillow cannot fake-bold a regular TTF. The Bold toggle was removed — users pick a font variant directly (e.g. `Inter-Bold.ttf`). Both Canvas and backend always render with `font-weight: normal` / the font file as-is.
 - Both use the same formulas for row gap, background box sizing, word positioning, and animation curves
 - Shared magic numbers live in `lib/renderConstants.ts` — the backend receives them via the render config, so they stay synced automatically
 - When changing any rendering formula (word positioning, background box sizing, animation curves, word-wrap), both renderers must be updated in lockstep
@@ -77,7 +77,8 @@ Three tsconfig files: `tsconfig.json` (root references), `tsconfig.node.json` (m
 - **Settings undo**: `useSettingsUndo` hook in App.tsx wraps `setSettings` — every UI change is pushed to a ref-based undo stack (50-entry cap, 500ms debounce). Cmd+Z/Cmd+Shift+Z when focus is outside text editors.
 - **Segments vs Groups**: `Segment[]` is the source transcription data. Groups are derived display chunks (N words per group) used for preview and render. Groups can be manually edited (merge/split/reorder), tracked by `groupsEdited` flag.
 - **Backend port**: Preferred port 53421. `python-manager.js` finds a free port and the renderer gets it via IPC `backend:port`.
-- **Custom fonts**: Stored in app data via Electron IPC. The font path is passed to both Canvas (via `@font-face` injection) and the backend (`custom_font_path` field).
+- **Custom fonts**: Stored in app data via Electron IPC. The font path is passed to both Canvas (via `@font-face` injection) and the backend (`custom_font_path` field). Bold is achieved by selecting a bold font variant — there is no synthetic bold.
+- **Canvas wheel events**: React's `onWheel` is passive and cannot call `preventDefault()`. For zoom/pan on canvas elements, use a native `addEventListener('wheel', handler, { passive: false })` inside a `useEffect` that cleans up on unmount. Always call `draw()` after mutating state refs — React re-render doesn't repaint a canvas.
 - **Toasts**: `useToast` context hook provides `toast(message, type)` for success/error/info notifications. Wrap errors in toast calls rather than silently catching.
 
 ## Theming

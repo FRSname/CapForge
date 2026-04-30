@@ -7,7 +7,7 @@
  * rows, a merge button joins neighbouring groups.
  */
 
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Segment, WordOverrides } from '../../types/app'
 import { mergeGroups, splitGroup, moveWord } from '../../lib/groups'
 import { WordStylePopup, type WordStyleDefaults } from './WordStylePopup'
@@ -99,6 +99,23 @@ export function GroupEditor({ groups, currentTime, onSeek, onChange, onBeforeEdi
   // ── Active-group highlight (matches vanilla highlightActiveGroup) ─
   const activeIdx = groups.findIndex(g => g.start <= currentTime && currentTime < g.end)
 
+  // Row refs for auto-scroll.
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([])
+
+  // Auto-scroll to keep active group visible during playback / scrubbing.
+  useEffect(() => {
+    if (activeIdx >= 0) {
+      rowRefs.current[activeIdx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [activeIdx])
+
+  // Which word within the active group is currently playing.
+  const activeWordIdx = useMemo(() => {
+    if (activeIdx < 0) return -1
+    const g = groups[activeIdx]
+    return g.words.findIndex(w => currentTime >= w.start && currentTime < w.end)
+  }, [activeIdx, groups, currentTime])
+
   if (groups.length === 0) {
     return (
       <div className="p-6 text-center text-xs text-[var(--color-text-3)]">
@@ -126,6 +143,7 @@ export function GroupEditor({ groups, currentTime, onSeek, onChange, onBeforeEdi
 
           {/* Row */}
           <div
+            ref={el => { rowRefs.current[gi] = el }}
             className={`flex items-start gap-2 p-2 rounded border transition-colors ${
               activeIdx === gi
                 ? 'border-[var(--color-accent)] bg-[var(--color-surface-3)]/50'
@@ -168,6 +186,8 @@ export function GroupEditor({ groups, currentTime, onSeek, onChange, onBeforeEdi
                     className={`inline-block px-1.5 py-0.5 rounded text-xs cursor-grab select-none transition-colors ${
                       drag?.groupIdx === gi && drag?.wordIdx === wi
                         ? 'opacity-40 bg-[var(--color-surface-3)]'
+                        : gi === activeIdx && wi === activeWordIdx
+                        ? 'bg-[var(--color-accent)]/25 text-[var(--color-accent)] font-medium'
                         : 'bg-[var(--color-surface-3)] hover:bg-[var(--color-accent)]/20'
                     } ${w.overrides ? 'ring-1 ring-[var(--color-accent)]/40' : ''}`}
                     draggable

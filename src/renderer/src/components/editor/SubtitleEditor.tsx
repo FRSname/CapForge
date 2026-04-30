@@ -205,6 +205,7 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
             segIdx={si}
             isActive={si === activeSegIdx}
             editMode={editMode}
+            currentTime={currentTime}
             onSeek={onSeek}
             onWordClick={handleWordClick}
             onWordContextMenu={handleWordContextMenu}
@@ -242,6 +243,7 @@ interface SegmentRowProps {
   segIdx:    number
   isActive:  boolean
   editMode:  boolean
+  currentTime: number
   onSeek:    (time: number) => void
   onWordClick: (word: Word) => void
   onWordContextMenu: (e: React.MouseEvent, si: number, wi: number) => void
@@ -255,9 +257,22 @@ interface SegmentRowProps {
   onFocusConsumed?: () => void
 }
 
-function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWordContextMenu, onTimingChange, onTextEdit, wordTimingEdit, onWordTimingEditToggle, onWordTimingChange, shouldFocus, onFocusConsumed }: SegmentRowProps) {
+function SegmentRow({ seg, segIdx, isActive, editMode, currentTime, onSeek, onWordClick, onWordContextMenu, onTimingChange, onTextEdit, wordTimingEdit, onWordTimingEditToggle, onWordTimingChange, shouldFocus, onFocusConsumed }: SegmentRowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll to keep active segment visible during playback / scrubbing.
+  useEffect(() => {
+    if (isActive && !editMode) {
+      rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [isActive, editMode])
+
+  // Which word is currently playing within this segment.
+  const activeWordIdx = useMemo(() => {
+    if (!isActive) return -1
+    return seg.words.findIndex(w => currentTime >= w.start && currentTime < w.end)
+  }, [isActive, seg.words, currentTime])
 
   useEffect(() => {
     if (!shouldFocus) return
@@ -355,7 +370,9 @@ function SegmentRow({ seg, segIdx, isActive, editMode, onSeek, onWordClick, onWo
                       key={wi}
                       className={[
                         'cursor-pointer rounded px-0.5 transition-colors',
-                        ov ? 'text-[var(--color-accent)] underline decoration-dotted' : '',
+                        wi === activeWordIdx
+                          ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)] font-medium'
+                          : ov ? 'text-[var(--color-accent)] underline decoration-dotted' : '',
                         'hover:bg-white/[0.06]',
                       ].join(' ')}
                       style={ov?.text_color ? { color: ov.text_color } : undefined}

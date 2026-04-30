@@ -30,6 +30,8 @@ interface UseTimelineOptions {
   duration: number
   /** Accent color for the background color of subtitle blocks (hex string). */
   blockColor?: string
+  /** When true, the timeline auto-pans to keep the playhead visible. */
+  isPlaying?: boolean
   /** Called when user clicks to seek to a time. */
   onSeek?: (time: number) => void
   /** Called when a segment's start or end time is edited via edge-drag. */
@@ -46,6 +48,7 @@ export function useTimeline({
   segments,
   duration,
   blockColor,
+  isPlaying = false,
   onSeek,
   onSegmentEdge,
 }: UseTimelineOptions) {
@@ -54,6 +57,10 @@ export function useTimeline({
   const stateRef = useRef<TimelineState>({ zoom: 1, scrollT: 0 })
   // Cached current time so the theme observer can redraw without prop plumbing.
   const lastTimeRef = useRef<number>(0)
+  // Track isPlaying via ref so draw() always reads the current value without
+  // needing isPlaying in the useCallback dependency array.
+  const isPlayingRef = useRef(false)
+  isPlayingRef.current = isPlaying
 
   // ── Draw ──────────────────────────────────────────────────────────
 
@@ -93,7 +100,18 @@ export function useTimeline({
 
     const { zoom, scrollT: rawScrollT } = stateRef.current
     const visibleDur = duration / zoom
-    const scrollT = Math.max(0, Math.min(rawScrollT, Math.max(0, duration - visibleDur)))
+
+    // ── Playhead follow (must run before drawing so the whole frame is consistent)
+    // When playing, pan so the playhead sits at ~20% from the left.
+    // Triggers when playhead goes past 85% of the visible window or off-screen.
+    if (isPlayingRef.current) {
+      const raw = Math.max(0, Math.min(rawScrollT, Math.max(0, duration - visibleDur)))
+      if (currentTime < raw || currentTime > raw + visibleDur * 0.85) {
+        stateRef.current.scrollT = Math.max(0, currentTime - visibleDur * 0.2)
+      }
+    }
+
+    const scrollT = Math.max(0, Math.min(stateRef.current.scrollT, Math.max(0, duration - visibleDur)))
     stateRef.current.scrollT = scrollT
 
     const pps  = cssW / visibleDur
