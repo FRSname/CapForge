@@ -35,9 +35,11 @@ interface AudioPlayerProps {
   seekTo?: number | null
   /** Called when user drags a subtitle block edge in the timeline. */
   onSegmentEdge?: (segId: string, edge: 'start' | 'end', newTime: number) => void
+  /** Called once when the drag begins (before any movement). */
+  onSegmentEdgeDragStart?: (segId: string, edge: 'start' | 'end') => void
 }
 
-export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer({ audioPath, segments, settings, resolution = [1920, 1080], onTimeUpdate, onSeek, seekTo, onSegmentEdge }, ref) {
+export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer({ audioPath, segments, settings, resolution = [1920, 1080], onTimeUpdate, onSeek, seekTo, onSegmentEdge, onSegmentEdgeDragStart }, ref) {
   const isVideo = VIDEO_EXTS.test(audioPath)
   const audioUrl = api.audioUrl(audioPath)
 
@@ -105,6 +107,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     isPlaying: playing,
     onSeek: wsSeekTo,
     onSegmentEdge,
+    onSegmentEdgeDragStart,
   })
   // Keep the ref current every render so the WaveSurfer callback is never stale.
   timelineDrawRef.current = timelineDraw

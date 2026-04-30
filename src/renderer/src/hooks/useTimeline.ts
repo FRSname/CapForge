@@ -36,6 +36,8 @@ interface UseTimelineOptions {
   onSeek?: (time: number) => void
   /** Called when a segment's start or end time is edited via edge-drag. */
   onSegmentEdge?: (segId: string, edge: 'start' | 'end', newTime: number) => void
+  /** Called once when the user first grabs a segment edge (before any movement). */
+  onSegmentEdgeDragStart?: (segId: string, edge: 'start' | 'end') => void
 }
 
 interface TimelineState {
@@ -51,6 +53,7 @@ export function useTimeline({
   isPlaying = false,
   onSeek,
   onSegmentEdge,
+  onSegmentEdgeDragStart,
 }: UseTimelineOptions) {
   // Zoom + scroll are mutable refs — we don't need React re-renders when they change,
   // the draw function reads them directly.
@@ -265,10 +268,11 @@ export function useTimeline({
         startClientX: e.clientX,
         origVal:     hit.edge === 'start' ? seg.start : seg.end,
       }
+      onSegmentEdgeDragStart?.(hit.segId, hit.edge)
       e.preventDefault()
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segments, duration])
+  }, [segments, duration, onSegmentEdgeDragStart])
 
   const onMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!dragRef.current) return

@@ -61,11 +61,21 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
 
   const playerRef = useRef<AudioPlayerHandle>(null)
 
-  // ── Undo/redo for segment edits ────────────────────────────────
-  const { pushUndo, undo, redo } = useUndoRedo(segments, setSegments)
+  // ── Undo/redo for segment + group edits ───────────────────────
+  const { pushUndo, undo, redo, canUndo, canRedo, isRestoringRef } = useUndoRedo(
+    segments, setSegments,
+    groups, setGroups,
+    groupsEdited, setGroupsEdited,
+  )
 
   const prevWpg = useRef(settings.wordsPerGroup)
   useEffect(() => {
+    // Skip when undo/redo is restoring state — groups are already set from the snapshot.
+    if (isRestoringRef.current) {
+      isRestoringRef.current = false
+      return
+    }
+
     const wpgChanged = settings.wordsPerGroup !== prevWpg.current
     prevWpg.current = settings.wordsPerGroup
 
@@ -223,6 +233,11 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
     setGroupsEdited(true)
   }, [])
 
+  // Called once at the start of each drag — snapshot state before any movement.
+  const handleSegmentEdgeDragStart = useCallback(() => {
+    pushUndo()
+  }, [pushUndo])
+
   // Defaults the WordStylePopup uses to compute "hasOverride" for each field.
   const wordStyleDefaults = useMemo<WordStyleDefaults>(() => ({
     textColor:   settings.textColor,
@@ -256,6 +271,7 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
         onSeek={handleSeekDone}
         seekTo={seekTarget}
         onSegmentEdge={handleSegmentEdge}
+        onSegmentEdgeDragStart={handleSegmentEdgeDragStart}
       />
 
       {/* View tabs */}
@@ -266,7 +282,29 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
         <TabButton active={view === 'groups'} onClick={() => setView('groups')}>
           Groups
         </TabButton>
-        <span className="ml-auto text-[10px] text-[var(--color-text-3)]">
+        <div className="flex items-center gap-0.5 ml-auto mr-1">
+          <button
+            onClick={undo}
+            disabled={!canUndo}
+            title="Undo (⌘Z)"
+            className="p-1 rounded transition-colors text-[var(--color-text-3)] hover:text-[var(--color-text)] disabled:opacity-25 disabled:cursor-not-allowed"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M3 7v5h5"/><path d="M3 12a9 9 0 1 0 2.7-6.36L3 7"/>
+            </svg>
+          </button>
+          <button
+            onClick={redo}
+            disabled={!canRedo}
+            title="Redo (⌘⇧Z)"
+            className="p-1 rounded transition-colors text-[var(--color-text-3)] hover:text-[var(--color-text)] disabled:opacity-25 disabled:cursor-not-allowed"
+          >
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 7v5h-5"/><path d="M21 12a9 9 0 1 1-2.7-6.36L21 7"/>
+            </svg>
+          </button>
+        </div>
+        <span className="text-[10px] text-[var(--color-text-3)]">
           {view === 'text'
             ? `${segments.length} segment${segments.length === 1 ? '' : 's'}`
             : `${groups.length} group${groups.length === 1 ? '' : 's'}`}

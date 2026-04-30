@@ -128,6 +128,13 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
     setHasEdits(true)
   }
 
+  // ── Delete segment ────────────────────────────────────────────
+  function handleDeleteSegment(segIdx: number) {
+    onBeforeEdit?.()
+    onChange(segments.filter((_, i) => i !== segIdx))
+    setHasEdits(true)
+  }
+
   // ── Inline text editing (edit mode) ──────────────────────────
   function handleTextEdit(segIdx: number, newText: string) {
     onBeforeEdit?.()
@@ -214,6 +221,7 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
             wordTimingEdit={wordTimingEdit}
             onWordTimingEditToggle={setWordTimingEdit}
             onWordTimingChange={handleWordTimingChange}
+            onDelete={handleDeleteSegment}
             shouldFocus={focusSegmentId === seg.id}
             onFocusConsumed={onFocusConsumed}
           />
@@ -252,12 +260,13 @@ interface SegmentRowProps {
   wordTimingEdit: WordTimingEdit | null
   onWordTimingEditToggle: (edit: WordTimingEdit | null) => void
   onWordTimingChange: (si: number, wi: number, field: 'start' | 'end', value: string) => void
+  onDelete: (si: number) => void
   /** When true, scroll into view and focus this row's contentEditable on mount. */
   shouldFocus?: boolean
   onFocusConsumed?: () => void
 }
 
-function SegmentRow({ seg, segIdx, isActive, editMode, currentTime, onSeek, onWordClick, onWordContextMenu, onTimingChange, onTextEdit, wordTimingEdit, onWordTimingEditToggle, onWordTimingChange, shouldFocus, onFocusConsumed }: SegmentRowProps) {
+function SegmentRow({ seg, segIdx, isActive, editMode, currentTime, onSeek, onWordClick, onWordContextMenu, onTimingChange, onTextEdit, wordTimingEdit, onWordTimingEditToggle, onWordTimingChange, onDelete, shouldFocus, onFocusConsumed }: SegmentRowProps) {
   const rowRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
 
@@ -403,6 +412,13 @@ function SegmentRow({ seg, segIdx, isActive, editMode, currentTime, onSeek, onWo
             value={seg.end}
             onChange={v => onTimingChange(segIdx, 'end', v)}
           />
+          <button
+            className="ml-auto text-xs px-2 py-0.5 rounded border border-[var(--color-danger)]/40 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 transition-colors"
+            onClick={() => onDelete(segIdx)}
+            title="Delete this subtitle"
+          >
+            Delete
+          </button>
         </div>
       )}
     </div>
