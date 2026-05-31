@@ -18,6 +18,7 @@ export interface WaveSurferControls {
   playPause: () => void
   seekTo: (time: number) => void
   destroy: () => void
+  wsRef: React.RefObject<WaveSurfer | null>
 }
 
 interface UseWaveSurferOptions {
@@ -116,5 +117,5 @@ export function useWaveSurfer({
     wsRef.current = null
   }, [])
 
-  return { playing, currentTime, duration, ready, playPause, seekTo, destroy }
+  return { playing, currentTime, duration, ready, playPause, seekTo, destroy, wsRef }
 }

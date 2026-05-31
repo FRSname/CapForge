@@ -38,6 +38,9 @@ interface UseTimelineOptions {
   onSegmentEdge?: (segId: string, edge: 'start' | 'end', newTime: number) => void
   /** Called once when the user first grabs a segment edge (before any movement). */
   onSegmentEdgeDragStart?: (segId: string, edge: 'start' | 'end') => void
+  /** Called when zoom or scroll changes so the caller can sync other views. */
+  onZoomChange?: (zoom: number, scrollT: number) => void
+  onScrollChange?: (scrollT: number, zoom: number) => void
 }
 
 interface TimelineState {
@@ -54,6 +57,8 @@ export function useTimeline({
   onSeek,
   onSegmentEdge,
   onSegmentEdgeDragStart,
+  onZoomChange,
+  onScrollChange,
 }: UseTimelineOptions) {
   // Zoom + scroll are mutable refs — we don't need React re-renders when they change,
   // the draw function reads them directly.
@@ -335,20 +340,25 @@ export function useTimeline({
         const newZoom = Math.max(1, Math.min(200, st.zoom * factor))
         st.zoom = newZoom
         st.scrollT = anchorT - (duration / newZoom) * ratio
+        onZoomChange?.(st.zoom, st.scrollT)
       } else {
         const step = (duration / st.zoom) * 0.1
         st.scrollT = Math.max(0, Math.min(st.scrollT + (e.deltaY > 0 ? step : -step), duration))
+        onScrollChange?.(st.scrollT, st.zoom)
       }
       // Redraw immediately — mutating refs alone won't trigger a re-render.
       draw(lastTimeRef.current)
     }
     canvas.addEventListener('wheel', handler, { passive: false })
     return () => canvas.removeEventListener('wheel', handler)
-  }, [canvasRef, duration, draw])
+  }, [canvasRef, duration, draw, onZoomChange, onScrollChange])
 
   const setZoom = useCallback((zoom: number) => {
-    stateRef.current.zoom = Math.max(1, zoom)
-  }, [])
+    const clamped = Math.max(1, zoom)
+    stateRef.current.zoom = clamped
+    onZoomChange?.(clamped, stateRef.current.scrollT)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onZoomChange])
 
   return { draw, onMouseDown, onMouseMove, onMouseUp, setZoom }
 }

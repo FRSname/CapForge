@@ -68,7 +68,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   const timelineDrawRef = useRef<((t: number) => void) | undefined>(undefined)
 
   // ── WaveSurfer ──────────────────────────────────────────────────
-  const { playing, currentTime, duration, ready, playPause, seekTo: wsSeekTo } = useWaveSurfer({
+  const { playing, currentTime, duration, ready, playPause, seekTo: wsSeekTo, wsRef } = useWaveSurfer({
     containerRef: waveformRef as React.RefObject<HTMLElement>,
     videoEl:  isVideo ? videoRef.current : undefined,
     audioUrl: isVideo ? undefined : audioUrl,
@@ -99,6 +99,19 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     }
   }, [seekTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ── Waveform sync ───────────────────────────────────────────────
+  // Syncs WaveSurfer zoom and scroll to match the timeline canvas state.
+  // pxPerSec = canvasWidth * zoom / duration keeps both views aligned on the same time axis.
+  const syncWaveformRef = useRef<(zoom: number, scrollT: number) => void>(() => {})
+  syncWaveformRef.current = (zoom: number, scrollT: number) => {
+    const canvas = canvasRef.current
+    const ws = wsRef.current
+    if (!canvas || !ws || !duration) return
+    const pxPerSec = (canvas.clientWidth * zoom) / duration
+    ws.zoom(pxPerSec)
+    ws.setScroll(scrollT * pxPerSec)
+  }
+
   // ── Timeline ────────────────────────────────────────────────────
   const { draw: timelineDraw, onMouseDown, onMouseMove, onMouseUp, setZoom: setTlZoom } = useTimeline({
     canvasRef,
@@ -108,13 +121,19 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onSeek: wsSeekTo,
     onSegmentEdge,
     onSegmentEdgeDragStart,
+    onZoomChange:  (z, s) => syncWaveformRef.current(z, s),
+    onScrollChange: (s, z) => syncWaveformRef.current(z, s),
   })
   // Keep the ref current every render so the WaveSurfer callback is never stale.
   timelineDrawRef.current = timelineDraw
 
-  // Initial draw when ready
+  // Initial draw when ready; also reset waveform zoom to fit-to-width
   useEffect(() => {
-    if (ready) { timelineDraw(0); overlayDraw(0) }
+    if (ready) {
+      timelineDraw(0)
+      overlayDraw(0)
+      syncWaveformRef.current(1, 0)
+    }
   }, [ready, segments, overlayDraw, timelineDraw])
 
   // Re-draw when segments, duration, settings, or draw functions change
@@ -130,7 +149,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   function handleZoomIn() {
     const next = Math.min(zoom * 1.5, 200)
     setZoomState(next)
-    setTlZoom(next)
+    setTlZoom(next)  // setTlZoom now calls onZoomChange which triggers syncWaveform
     timelineDraw(currentTime)
   }
   function handleZoomOut() {
