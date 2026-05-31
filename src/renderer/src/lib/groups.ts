@@ -148,6 +148,21 @@ export function moveWord(
   return next
 }
 
+/**
+ * Move the group at `fromIndex` to appear before the group currently at
+ * `toIndex`. Use `toIndex === groups.length` to append at the end.
+ * No-op when the operation would leave the order unchanged.
+ */
+export function reorderGroup(groups: Segment[], fromIndex: number, toIndex: number): Segment[] {
+  if (fromIndex < 0 || fromIndex >= groups.length) return groups
+  if (toIndex < 0 || toIndex > groups.length) return groups
+  // Moving to the position immediately after fromIndex is a no-op.
+  if (fromIndex === toIndex || toIndex === fromIndex + 1) return groups
+  const filtered = groups.filter((_, i) => i !== fromIndex)
+  const insertAt = toIndex > fromIndex ? toIndex - 1 : toIndex
+  return [...filtered.slice(0, insertAt), groups[fromIndex], ...filtered.slice(insertAt)]
+}
+
 function finalizeBounds(g: Segment): Segment {
   if (g.words.length === 0) return g
   return {

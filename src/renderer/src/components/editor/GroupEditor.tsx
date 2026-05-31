@@ -1,32 +1,37 @@
 /**
- * Group editor — per-group list with merge/split/drag-to-reorder controls.
- * Ports renderGroupEditor() from app.js:2497-2616.
+ * Group editor — per-group list with merge/split/drag controls.
  *
- * Each row shows: #index, time range (click-to-seek), draggable word chips
- * with ✂ split handles between them, and a ✂ Split-in-half action. Between
- * rows, a merge button joins neighbouring groups.
+ * Keyboard shortcuts (when editor is focused):
+ *   ArrowUp / ArrowDown  — move keyboard focus between groups
+ *   M                    — merge focused group with the one below
+ *   Enter                — split focused group in half
+ *   Escape               — clear keyboard focus
+ *
+ * Drag interactions:
+ *   Word chip drag       — move a single word to another group
+ *   #N label drag        — reorder the entire group
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Segment, WordOverrides } from '../../types/app'
-import { mergeGroups, splitGroup, moveWord } from '../../lib/groups'
+import { mergeGroups, splitGroup, moveWord, reorderGroup } from '../../lib/groups'
 import { WordStylePopup, type WordStyleDefaults } from './WordStylePopup'
+import { useToast } from '../../hooks/useToast'
 
 interface GroupEditorProps {
-  groups:      Segment[]
-  currentTime: number
-  onSeek:      (t: number) => void
-  onChange:    (groups: Segment[]) => void
+  groups:        Segment[]
+  currentTime:   number
+  onSeek:        (t: number) => void
+  onChange:      (groups: Segment[]) => void
   /** Called before an edit to snapshot state for undo. */
   onBeforeEdit?: () => void
   /** Global style defaults — popup uses these to compute "hasOverride". */
-  defaults:    WordStyleDefaults
+  defaults:      WordStyleDefaults
 }
 
-interface DragSource {
-  groupIdx: number
-  wordIdx:  number
-}
+type DragSource =
+  | { type: 'word';  groupIdx: number; wordIdx: number }
+  | { type: 'group'; groupIdx: number }
 
 interface PopupState {
   groupIdx:   number
@@ -35,9 +40,16 @@ interface PopupState {
 }
 
 export function GroupEditor({ groups, currentTime, onSeek, onChange, onBeforeEdit, defaults }: GroupEditorProps) {
-  const [drag, setDrag]         = useState<DragSource | null>(null)
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null)
-  const [popup, setPopup]       = useState<PopupState | null>(null)
+  const { toast } = useToast()
+
+  const [drag, setDrag]             = useState<DragSource | null>(null)
+  const [hoverIdx, setHoverIdx]     = useState<number | null>(null)
+  const [popup, setPopup]           = useState<PopupState | null>(null)
+  const [focusedIdx, setFocusedIdx] = useState<number | null>(null)
+
+  // Speaker inline-edit state
+  const [editingSpeakerIdx, setEditingSpeakerIdx] = useState<number | null>(null)
+  const [speakerDraft, setSpeakerDraft]           = useState('')
 
   // ── Actions ──────────────────────────────────────────────────
   const handleMerge = useCallback((i: number) => {
@@ -53,26 +65,53 @@ export function GroupEditor({ groups, currentTime, onSeek, onChange, onBeforeEdi
   const handleSplitHalf = useCallback((gi: number) => {
     const g = groups[gi]
     if (!g) return
+    if (g.words.length <= 1) {
+      toast('Need at least 2 words to split', 'error')
+      return
+    }
     onBeforeEdit?.()
     const mid = Math.ceil(g.words.length / 2)
     onChange(splitGroup(groups, gi, mid))
-  }, [groups, onChange, onBeforeEdit])
+  }, [groups, onChange, onBeforeEdit, toast])
 
   const handleDrop = useCallback((destIdx: number) => {
     if (!drag) return
+    setDrag(null)
+    setHoverIdx(null)
+
+    if (drag.type === 'group') {
+      const from = drag.groupIdx
+      if (destIdx !== from && destIdx !== from + 1) {
+        onBeforeEdit?.()
+        onChange(reorderGroup(groups, from, destIdx))
+      }
+      return
+    }
+
     if (destIdx === drag.groupIdx) return
     onBeforeEdit?.()
     onChange(moveWord(groups, drag.groupIdx, drag.wordIdx, destIdx))
-    setDrag(null)
-    setHoverIdx(null)
   }, [drag, groups, onChange, onBeforeEdit])
+
+  // ── Speaker editing ──────────────────────────────────────────
+  const startSpeakerEdit = useCallback((gi: number) => {
+    setEditingSpeakerIdx(gi)
+    setSpeakerDraft(groups[gi]?.speaker ?? '')
+  }, [groups])
+
+  const commitSpeakerEdit = useCallback((gi: number) => {
+    const trimmed = speakerDraft.trim() || undefined
+    onBeforeEdit?.()
+    onChange(groups.map((g, i) => i !== gi ? g : { ...g, speaker: trimmed }))
+    setEditingSpeakerIdx(null)
+  }, [groups, speakerDraft, onChange, onBeforeEdit])
 
   // ── Word-style overrides ──────────────────────────────────────
   const handleWordContextMenu = useCallback((e: React.MouseEvent, gi: number, wi: number) => {
     e.preventDefault()
     setPopup({
-      groupIdx: gi,
-      wordIdx:  wi,
+      groupIdx:   gi,
+      wordIdx:    wi,
       anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect(),
     })
   }, [])
@@ -96,25 +135,55 @@ export function GroupEditor({ groups, currentTime, onSeek, onChange, onBeforeEdi
 
   const activePopupWord = popup ? groups[popup.groupIdx]?.words[popup.wordIdx] : null
 
-  // ── Active-group highlight (matches vanilla highlightActiveGroup) ─
+  // ── Active-group highlight ─────────────────────────────────────
   const activeIdx = groups.findIndex(g => g.start <= currentTime && currentTime < g.end)
+  const rowRefs   = useRef<(HTMLDivElement | null)[]>([])
 
-  // Row refs for auto-scroll.
-  const rowRefs = useRef<(HTMLDivElement | null)[]>([])
-
-  // Auto-scroll to keep active group visible during playback / scrubbing.
+  // Scroll active group into view during playback.
   useEffect(() => {
-    if (activeIdx >= 0) {
-      rowRefs.current[activeIdx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-    }
+    if (activeIdx >= 0) rowRefs.current[activeIdx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
   }, [activeIdx])
 
-  // Which word within the active group is currently playing.
+  // Scroll keyboard-focused group into view.
+  useEffect(() => {
+    if (focusedIdx !== null) rowRefs.current[focusedIdx]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [focusedIdx])
+
   const activeWordIdx = useMemo(() => {
     if (activeIdx < 0) return -1
-    const g = groups[activeIdx]
-    return g.words.findIndex(w => currentTime >= w.start && currentTime < w.end)
+    return groups[activeIdx].words.findIndex(w => currentTime >= w.start && currentTime < w.end)
   }, [activeIdx, groups, currentTime])
+
+  // ── Keyboard navigation ────────────────────────────────────────
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    switch (e.key) {
+      case 'ArrowUp':
+        e.preventDefault(); e.stopPropagation()
+        setFocusedIdx(i => i === null ? groups.length - 1 : Math.max(0, i - 1))
+        break
+      case 'ArrowDown':
+        e.preventDefault(); e.stopPropagation()
+        setFocusedIdx(i => i === null ? 0 : Math.min(groups.length - 1, i + 1))
+        break
+      case 'm':
+      case 'M':
+        if (focusedIdx !== null && focusedIdx < groups.length - 1) {
+          e.preventDefault(); e.stopPropagation()
+          handleMerge(focusedIdx)
+        }
+        break
+      case 'Enter':
+        if (focusedIdx !== null) {
+          e.preventDefault(); e.stopPropagation()
+          handleSplitHalf(focusedIdx)
+        }
+        break
+      case 'Escape':
+        e.preventDefault(); e.stopPropagation()
+        setFocusedIdx(null)
+        break
+    }
+  }, [focusedIdx, groups.length, handleMerge, handleSplitHalf])
 
   if (groups.length === 0) {
     return (
@@ -125,99 +194,164 @@ export function GroupEditor({ groups, currentTime, onSeek, onChange, onBeforeEdi
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-1.5">
-      {groups.map((group, gi) => (
-        <div key={group.id}>
-          {/* Merge-with-above button — appears between rows */}
-          {gi > 0 && (
-            <div className="flex justify-center mb-1">
-              <button
-                className="text-[10px] px-2 py-0.5 rounded text-[var(--color-text-3)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] transition-colors"
-                onClick={() => handleMerge(gi - 1)}
-                title="Merge with group above"
-              >
-                ⬆ merge ⬇
-              </button>
-            </div>
-          )}
+    <div
+      className="flex-1 overflow-y-auto p-3 flex flex-col gap-1.5 outline-none"
+      tabIndex={0}
+      onKeyDown={handleKeyDown}
+    >
+      {groups.map((group, gi) => {
+        const isGroupDragTarget = drag?.type === 'group' && hoverIdx === gi
+          && gi !== drag.groupIdx && gi !== drag.groupIdx + 1
+        const isWordDragTarget  = drag?.type === 'word' && hoverIdx === gi
 
-          {/* Row */}
-          <div
-            ref={el => { rowRefs.current[gi] = el }}
-            className={`flex items-start gap-2 p-2 rounded border transition-colors ${
-              activeIdx === gi
-                ? 'border-[var(--color-accent)] bg-[var(--color-surface-3)]/50'
-                : 'border-[var(--color-border)] bg-[var(--color-surface-2)]'
-            } ${hoverIdx === gi ? 'ring-2 ring-[var(--color-accent)]' : ''}`}
-            onDragOver={e => {
-              if (drag) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setHoverIdx(gi) }
-            }}
-            onDragLeave={() => { if (hoverIdx === gi) setHoverIdx(null) }}
-            onDrop={e => { e.preventDefault(); handleDrop(gi) }}
-          >
-            {/* Index */}
-            <span className="text-[10px] shrink-0 w-6 text-[var(--color-text-3)] tabular-nums pt-0.5">
-              #{gi + 1}
-            </span>
-
-            {/* Time (click = seek) */}
-            <button
-              className="text-[10px] shrink-0 tabular-nums text-[var(--color-text-2)] hover:text-[var(--color-accent)] transition-colors pt-0.5 font-mono"
-              onClick={() => onSeek(group.start)}
-              title="Seek to group start"
-            >
-              {formatTime(group.start)}→{formatTime(group.end)}
-            </button>
-
-            {/* Words */}
-            <div className="flex flex-wrap items-center gap-1 flex-1 min-w-0">
-              {group.words.map((w, wi) => (
-                <span key={`${group.id}-${wi}`} className="inline-flex items-center">
-                  {wi > 0 && (
-                    <button
-                      className="text-[10px] px-1 text-[var(--color-text-3)] hover:text-[var(--color-accent)] opacity-40 hover:opacity-100"
-                      onClick={() => handleSplit(gi, wi)}
-                      title="Split group here"
-                    >
-                      ✂
-                    </button>
-                  )}
-                  <span
-                    className={`inline-block px-1.5 py-0.5 rounded text-xs cursor-grab select-none transition-colors ${
-                      drag?.groupIdx === gi && drag?.wordIdx === wi
-                        ? 'opacity-40 bg-[var(--color-surface-3)]'
-                        : gi === activeIdx && wi === activeWordIdx
-                        ? 'bg-[var(--color-accent)]/25 text-[var(--color-accent)] font-medium'
-                        : 'bg-[var(--color-surface-3)] hover:bg-[var(--color-accent)]/20'
-                    } ${w.overrides ? 'ring-1 ring-[var(--color-accent)]/40' : ''}`}
-                    draggable
-                    onDragStart={() => setDrag({ groupIdx: gi, wordIdx: wi })}
-                    onDragEnd={() => { setDrag(null); setHoverIdx(null) }}
-                    onContextMenu={e => handleWordContextMenu(e, gi, wi)}
-                    title="Right-click to style this word"
-                    style={w.overrides?.text_color ? { color: w.overrides.text_color } : undefined}
-                  >
-                    {w.word}
-                  </span>
-                </span>
-              ))}
-            </div>
-
-            {/* Actions */}
-            <div className="flex items-center shrink-0">
-              {group.words.length > 1 && (
+        return (
+          <div key={group.id}>
+            {/* Merge-with-above button — appears between rows */}
+            {gi > 0 && (
+              <div className="flex justify-center mb-1">
                 <button
                   className="text-[10px] px-2 py-0.5 rounded text-[var(--color-text-3)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] transition-colors"
-                  onClick={() => handleSplitHalf(gi)}
-                  title="Split in half"
+                  onClick={() => handleMerge(gi - 1)}
+                  title="Merge with group above (M)"
+                >
+                  merge
+                </button>
+              </div>
+            )}
+
+            {/* Row */}
+            <div
+              ref={el => { rowRefs.current[gi] = el }}
+              className={[
+                'flex items-start gap-2 p-2 rounded border transition-colors',
+                isGroupDragTarget
+                  ? 'border-t-2 border-[var(--color-accent)] bg-[var(--color-surface-2)]'
+                  : activeIdx === gi
+                  ? 'border-[var(--color-accent)] bg-[var(--color-surface-3)]/50'
+                  : focusedIdx === gi
+                  ? 'border-[var(--color-accent)]/60 bg-[var(--color-surface-2)]'
+                  : 'border-[var(--color-border)] bg-[var(--color-surface-2)]',
+                isWordDragTarget ? 'ring-2 ring-[var(--color-accent)]' : '',
+              ].join(' ')}
+              onClick={() => setFocusedIdx(gi)}
+              onDragOver={e => {
+                if (drag) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setHoverIdx(gi) }
+              }}
+              onDragLeave={() => { if (hoverIdx === gi) setHoverIdx(null) }}
+              onDrop={e => { e.preventDefault(); handleDrop(gi) }}
+            >
+              {/* Index — drag handle for full-group reorder */}
+              <span
+                className={`text-[10px] shrink-0 w-6 tabular-nums pt-0.5 transition-opacity ${
+                  drag?.type === 'group' && drag.groupIdx === gi
+                    ? 'text-[var(--color-text-3)] opacity-40'
+                    : 'text-[var(--color-text-3)] cursor-grab'
+                }`}
+                draggable
+                onDragStart={e => { e.stopPropagation(); setDrag({ type: 'group', groupIdx: gi }) }}
+                onDragEnd={() => { setDrag(null); setHoverIdx(null) }}
+                title="Drag to reorder group"
+              >
+                #{gi + 1}
+              </span>
+
+              {/* Time (click = seek) */}
+              <button
+                className="text-[10px] shrink-0 tabular-nums text-[var(--color-text-2)] hover:text-[var(--color-accent)] transition-colors pt-0.5 font-mono"
+                onClick={e => { e.stopPropagation(); onSeek(group.start) }}
+                title="Seek to group start"
+              >
+                {formatTime(group.start)}→{formatTime(group.end)}
+              </button>
+
+              {/* Speaker badge — shown when set; or as +spk prompt when row is focused */}
+              {editingSpeakerIdx === gi ? (
+                <input
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-surface-3)] text-[var(--color-text)] border border-[var(--color-accent)] outline-none w-20 shrink-0"
+                  value={speakerDraft}
+                  autoFocus
+                  placeholder="Speaker…"
+                  onChange={e => setSpeakerDraft(e.target.value)}
+                  onBlur={() => commitSpeakerEdit(gi)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter')  { e.preventDefault(); commitSpeakerEdit(gi) }
+                    if (e.key === 'Escape') { e.preventDefault(); setEditingSpeakerIdx(null) }
+                  }}
+                  onClick={e => e.stopPropagation()}
+                />
+              ) : group.speaker ? (
+                <span
+                  className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--color-surface-3)] text-[var(--color-text-2)] shrink-0 cursor-pointer hover:text-[var(--color-text)] transition-colors"
+                  onClick={e => { e.stopPropagation(); startSpeakerEdit(gi) }}
+                  title="Click to edit speaker"
+                >
+                  {group.speaker}
+                </span>
+              ) : focusedIdx === gi ? (
+                <button
+                  className="text-[10px] px-1 py-0.5 text-[var(--color-text-3)] hover:text-[var(--color-text-2)] transition-colors shrink-0"
+                  onClick={e => { e.stopPropagation(); startSpeakerEdit(gi) }}
+                  title="Add speaker label"
+                >
+                  +spk
+                </button>
+              ) : null}
+
+              {/* Words */}
+              <div className="flex flex-wrap items-center gap-1 flex-1 min-w-0">
+                {group.words.map((w, wi) => (
+                  <span key={`${group.id}-${wi}`} className="inline-flex items-center">
+                    {wi > 0 && (
+                      <button
+                        className="text-[10px] px-1 text-[var(--color-text-3)] hover:text-[var(--color-accent)] opacity-40 hover:opacity-100"
+                        onClick={e => { e.stopPropagation(); handleSplit(gi, wi) }}
+                        title="Split group here"
+                      >
+                        ✂
+                      </button>
+                    )}
+                    <span
+                      className={[
+                        'inline-block px-1.5 py-0.5 rounded text-xs cursor-grab select-none transition-colors',
+                        drag?.type === 'word' && drag.groupIdx === gi && drag.wordIdx === wi
+                          ? 'opacity-40 bg-[var(--color-surface-3)]'
+                          : gi === activeIdx && wi === activeWordIdx
+                          ? 'bg-[var(--color-accent)]/25 text-[var(--color-accent)] font-medium'
+                          : 'bg-[var(--color-surface-3)] hover:bg-[var(--color-accent)]/20',
+                        w.overrides ? 'ring-1 ring-[var(--color-accent)]/40' : '',
+                      ].join(' ')}
+                      draggable
+                      onDragStart={e => { e.stopPropagation(); setDrag({ type: 'word', groupIdx: gi, wordIdx: wi }) }}
+                      onDragEnd={() => { setDrag(null); setHoverIdx(null) }}
+                      onContextMenu={e => { e.stopPropagation(); handleWordContextMenu(e, gi, wi) }}
+                      title="Right-click to style this word"
+                      style={w.overrides?.text_color ? { color: w.overrides.text_color } : undefined}
+                    >
+                      {w.word}
+                    </span>
+                  </span>
+                ))}
+              </div>
+
+              {/* Split-in-half — always visible, disabled when only 1 word */}
+              <div className="flex items-center shrink-0">
+                <button
+                  className={`text-[10px] px-2 py-0.5 rounded transition-colors ${
+                    group.words.length <= 1
+                      ? 'text-[var(--color-text-3)] opacity-40 cursor-not-allowed'
+                      : 'text-[var(--color-text-3)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)]'
+                  }`}
+                  disabled={group.words.length <= 1}
+                  onClick={e => { e.stopPropagation(); handleSplitHalf(gi) }}
+                  title={group.words.length <= 1 ? 'Need 2+ words to split' : 'Split in half (Enter)'}
                 >
                   ✂ Split
                 </button>
-              )}
+              </div>
             </div>
           </div>
-        </div>
-      ))}
+        )
+      })}
 
       {popup && activePopupWord && (
         <WordStylePopup
