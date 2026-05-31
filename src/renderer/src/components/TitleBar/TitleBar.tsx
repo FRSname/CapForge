@@ -8,9 +8,13 @@ interface TitleBarProps {
   onOpen:           () => void
   onSettingsToggle: () => void
   onExport?:        () => void
+  onUndo?:          () => void
+  onRedo?:          () => void
+  canUndo?:         boolean
+  canRedo?:         boolean
 }
 
-export function TitleBar({ screen, onNew, onSave, onOpen, onSettingsToggle, onExport }: TitleBarProps) {
+export function TitleBar({ screen, onNew, onSave, onOpen, onSettingsToggle, onExport, onUndo, onRedo, canUndo, canRedo }: TitleBarProps) {
   const showResults = screen === 'results'
 
   return (
@@ -46,6 +50,27 @@ export function TitleBar({ screen, onNew, onSave, onOpen, onSettingsToggle, onEx
 
         {showResults && (
           <>
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              title="Undo (⌘Z)"
+              className="icon-btn app-no-drag disabled:opacity-25 disabled:cursor-not-allowed"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M19 12H5"/><path d="M12 5l-7 7 7 7"/>
+              </svg>
+            </button>
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              title="Redo (⌘⇧Z)"
+              className="icon-btn app-no-drag disabled:opacity-25 disabled:cursor-not-allowed"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M5 12h14"/><path d="M12 5l7 7-7 7"/>
+              </svg>
+            </button>
+            <div className="w-px h-3.5 bg-[var(--color-border)] mx-0.5" />
             <button
               className="titlebar-btn"
               title="Save Project (Ctrl+S)"

@@ -27,6 +27,10 @@ export function App() {
   const projectIORef   = useRef<ProjectIOHandle | null>(null)
   const pendingRestore = useRef<ProjectFile | null>(null)
 
+  const [subtitleUndo, setSubtitleUndo] = useState<{
+    undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean
+  } | null>(null)
+
   // Settings undo — wraps setSettings so every UI change is undoable.
   const settingsUndo = useSettingsUndo(settings, setSettings)
   const handleSettingsChange = useCallback((next: StudioSettings) => {
@@ -158,6 +162,10 @@ export function App() {
         onSave={handleSave}
         onOpen={handleOpen}
         onSettingsToggle={() => setSettingsOpen(o => !o)}
+        onUndo={subtitleUndo?.undo}
+        onRedo={subtitleUndo?.redo}
+        canUndo={subtitleUndo?.canUndo ?? false}
+        canRedo={subtitleUndo?.canRedo ?? false}
       />
 
       <main className="flex-1 flex min-h-0 overflow-hidden">
@@ -186,6 +194,7 @@ export function App() {
             settings={settings}
             onGroupsUpdate={handleGroupsUpdate}
             projectIORef={projectIORef}
+            onUndoRedoChange={setSubtitleUndo}
           />
         )}
 

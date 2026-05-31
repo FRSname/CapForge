@@ -31,11 +31,13 @@ interface ResultsScreenProps {
   onGroupsUpdate: (groups: Segment[], edited: boolean) => void
   /** Ref that App.tsx uses to gather/restore project state for save/open. */
   projectIORef?: React.MutableRefObject<ProjectIOHandle | null>
+  /** Fires whenever undo/redo availability changes so App can surface buttons in TitleBar. */
+  onUndoRedoChange?: (state: { undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean }) => void
 }
 
 type EditorView = 'text' | 'groups'
 
-export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }: ResultsScreenProps) {
+export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, onUndoRedoChange }: ResultsScreenProps) {
   // Segments are mutable (user can edit timing + word overrides)
   const [segments, setSegments] = useState<Segment[]>(result.segments)
   const [currentTime, setCurrentTime] = useState(0)
@@ -58,6 +60,7 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
   // Transient: when set, SubtitleEditor scrolls/focuses that segment's text
   // field (used right after a manual "+ Add subtitle" so the user can type).
   const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null)
+  const [editorWidth, setEditorWidth] = useState(420)
 
   const playerRef = useRef<AudioPlayerHandle>(null)
 
@@ -67,6 +70,10 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
     groups, setGroups,
     groupsEdited, setGroupsEdited,
   )
+
+  useEffect(() => {
+    onUndoRedoChange?.({ undo, redo, canUndo, canRedo })
+  }, [canUndo, canRedo, undo, redo, onUndoRedoChange])
 
   const prevWpg = useRef(settings.wordsPerGroup)
   const prevSegCount = useRef(segments.length)
@@ -244,6 +251,21 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
     pushUndo()
   }, [pushUndo])
 
+  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = editorWidth
+    const onMouseMove = (ev: MouseEvent) => {
+      setEditorWidth(Math.max(180, Math.min(600, startWidth + ev.clientX - startX)))
+    }
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+    }
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }, [editorWidth])
+
   // Defaults the WordStylePopup uses to compute "hasOverride" for each field.
   const wordStyleDefaults = useMemo<WordStyleDefaults>(() => ({
     textColor:   settings.textColor,
@@ -266,79 +288,69 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef }
   ])
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-      <AudioPlayer
-        ref={playerRef}
-        audioPath={result.audioPath}
-        segments={groups}
-        settings={settings}
-        resolution={settings.resolution}
-        onTimeUpdate={handleTimeUpdate}
-        onSeek={handleSeekDone}
-        seekTo={seekTarget}
-        onSegmentEdge={handleSegmentEdge}
-        onSegmentEdgeDragStart={handleSegmentEdgeDragStart}
-      />
-
-      {/* View tabs */}
-      <div className="flex items-center gap-1 px-3 pt-2 border-b border-[var(--color-border)] shrink-0">
-        <TabButton active={view === 'text'} onClick={() => setView('text')}>
-          Text
-        </TabButton>
-        <TabButton active={view === 'groups'} onClick={() => setView('groups')}>
-          Groups
-        </TabButton>
-        <div className="flex items-center gap-0.5 ml-auto mr-1">
-          <button
-            onClick={undo}
-            disabled={!canUndo}
-            title="Undo (⌘Z)"
-            className="p-1 rounded transition-colors text-[var(--color-text-3)] hover:text-[var(--color-text)] disabled:opacity-25 disabled:cursor-not-allowed"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 7v5h5"/><path d="M3 12a9 9 0 1 0 2.7-6.36L3 7"/>
-            </svg>
-          </button>
-          <button
-            onClick={redo}
-            disabled={!canRedo}
-            title="Redo (⌘⇧Z)"
-            className="p-1 rounded transition-colors text-[var(--color-text-3)] hover:text-[var(--color-text)] disabled:opacity-25 disabled:cursor-not-allowed"
-          >
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M21 7v5h-5"/><path d="M21 12a9 9 0 1 1-2.7-6.36L21 7"/>
-            </svg>
-          </button>
+    <div className="flex-1 flex flex-row overflow-hidden min-w-0">
+      {/* Left panel: tabs + editor */}
+      <div className="flex flex-col shrink-0 overflow-hidden" style={{ width: editorWidth }}>
+        {/* View tabs */}
+        <div className="flex items-center gap-1 px-3 pt-2 border-b border-[var(--color-border)] shrink-0">
+          <TabButton active={view === 'text'} onClick={() => setView('text')}>
+            Text
+          </TabButton>
+          <TabButton active={view === 'groups'} onClick={() => setView('groups')}>
+            Groups
+          </TabButton>
+          <span className="text-[10px] text-[var(--color-text-3)] ml-auto">
+            {view === 'text'
+              ? `${segments.length} segment${segments.length === 1 ? '' : 's'}`
+              : `${groups.length} group${groups.length === 1 ? '' : 's'}`}
+          </span>
         </div>
-        <span className="text-[10px] text-[var(--color-text-3)]">
-          {view === 'text'
-            ? `${segments.length} segment${segments.length === 1 ? '' : 's'}`
-            : `${groups.length} group${groups.length === 1 ? '' : 's'}`}
-        </span>
+
+        {view === 'text' ? (
+          <SubtitleEditor
+            segments={segments}
+            currentTime={currentTime}
+            onSeek={handleSeek}
+            onChange={(next: Segment[]) => { setSegments(next); setSegmentsEdited(true) }}
+            onBeforeEdit={pushUndo}
+            defaults={wordStyleDefaults}
+            onAddSegment={handleAddSegment}
+            focusSegmentId={focusSegmentId}
+            onFocusConsumed={() => setFocusSegmentId(null)}
+          />
+        ) : (
+          <GroupEditor
+            groups={groups}
+            currentTime={currentTime}
+            onSeek={handleSeek}
+            onChange={handleGroupsChange}
+            onBeforeEdit={pushUndo}
+            defaults={wordStyleDefaults}
+          />
+        )}
       </div>
 
-      {view === 'text' ? (
-        <SubtitleEditor
-          segments={segments}
-          currentTime={currentTime}
-          onSeek={handleSeek}
-          onChange={(next: Segment[]) => { setSegments(next); setSegmentsEdited(true) }}
-          onBeforeEdit={pushUndo}
-          defaults={wordStyleDefaults}
-          onAddSegment={handleAddSegment}
-          focusSegmentId={focusSegmentId}
-          onFocusConsumed={() => setFocusSegmentId(null)}
+      {/* Resize handle */}
+      <div
+        className="w-1 shrink-0 cursor-col-resize bg-[var(--color-border)] hover:bg-[var(--color-accent)] transition-colors"
+        onMouseDown={handleResizeMouseDown}
+      />
+
+      {/* Right area: player */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <AudioPlayer
+          ref={playerRef}
+          audioPath={result.audioPath}
+          segments={groups}
+          settings={settings}
+          resolution={settings.resolution}
+          onTimeUpdate={handleTimeUpdate}
+          onSeek={handleSeekDone}
+          seekTo={seekTarget}
+          onSegmentEdge={handleSegmentEdge}
+          onSegmentEdgeDragStart={handleSegmentEdgeDragStart}
         />
-      ) : (
-        <GroupEditor
-          groups={groups}
-          currentTime={currentTime}
-          onSeek={handleSeek}
-          onChange={handleGroupsChange}
-          onBeforeEdit={pushUndo}
-          defaults={wordStyleDefaults}
-        />
-      )}
+      </div>
     </div>
   )
 }
