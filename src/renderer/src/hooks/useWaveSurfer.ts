@@ -29,6 +29,8 @@ interface UseWaveSurferOptions {
   audioUrl?: string
   onTimeUpdate?: (time: number) => void
   onSeek?: (time: number) => void
+  /** Called when the waveform is scrolled; receives the visible start time in seconds. */
+  onScroll?: (visibleStartTime: number) => void
 }
 
 export function useWaveSurfer({
@@ -37,6 +39,7 @@ export function useWaveSurfer({
   audioUrl,
   onTimeUpdate,
   onSeek,
+  onScroll,
 }: UseWaveSurferOptions): WaveSurferControls {
   const wsRef = useRef<WaveSurfer | null>(null)
   const [playing, setPlaying]         = useState(false)
@@ -47,8 +50,10 @@ export function useWaveSurfer({
   // Stable callback refs — prevents WaveSurfer event listeners from becoming stale
   const onTimeUpdateRef = useRef(onTimeUpdate)
   const onSeekRef       = useRef(onSeek)
+  const onScrollRef     = useRef(onScroll)
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate }, [onTimeUpdate])
   useEffect(() => { onSeekRef.current = onSeek },             [onSeek])
+  useEffect(() => { onScrollRef.current = onScroll },         [onScroll])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -93,6 +98,10 @@ export function useWaveSurfer({
     ws.on('seeking', (t: number) => {
       setCurrentTime(t)
       onSeekRef.current?.(t)
+    })
+
+    ws.on('scroll', (visibleStartTime: number) => {
+      onScrollRef.current?.(visibleStartTime)
     })
 
     return () => {

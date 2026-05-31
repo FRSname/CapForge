@@ -360,7 +360,11 @@ export function useTimeline({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onZoomChange])
 
-  return { draw, onMouseDown, onMouseMove, onMouseUp, setZoom }
+  const setScroll = useCallback((scrollT: number) => {
+    stateRef.current.scrollT = Math.max(0, scrollT)
+  }, [])
+
+  return { draw, onMouseDown, onMouseMove, onMouseUp, setZoom, setScroll }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────

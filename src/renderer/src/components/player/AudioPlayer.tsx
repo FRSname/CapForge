@@ -65,7 +65,10 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   // Stable ref so the WaveSurfer onTimeUpdate callback always calls the latest
   // timelineDraw without capturing a stale closure (timelineDraw closes over
   // `duration` which is 0 before WaveSurfer fires 'ready', causing early return).
-  const timelineDrawRef = useRef<((t: number) => void) | undefined>(undefined)
+  const timelineDrawRef  = useRef<((t: number) => void) | undefined>(undefined)
+  const currentTimeRef   = useRef(0)
+  // Stable ref for the waveform→timeline scroll sync callback (setTlScroll not yet defined here).
+  const tlScrollSyncRef = useRef<((visibleStartTime: number) => void) | null>(null)
 
   // ── WaveSurfer ──────────────────────────────────────────────────
   const { playing, currentTime, duration, ready, playPause, seekTo: wsSeekTo, wsRef } = useWaveSurfer({
@@ -73,11 +76,15 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     videoEl:  isVideo ? videoRef.current : undefined,
     audioUrl: isVideo ? undefined : audioUrl,
     onTimeUpdate: useCallback((t: number) => {
+      currentTimeRef.current = t
       onTimeUpdate?.(t)
       timelineDrawRef.current?.(t)
       overlayDraw(t)
     }, [overlayDraw]),
     onSeek: useCallback(() => onSeek?.(), [onSeek]),
+    onScroll: useCallback((visibleStartTime: number) => {
+      tlScrollSyncRef.current?.(visibleStartTime)
+    }, []),
   })
 
   // ── Imperative handle for keyboard shortcuts ─────────────────
@@ -113,7 +120,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   }
 
   // ── Timeline ────────────────────────────────────────────────────
-  const { draw: timelineDraw, onMouseDown, onMouseMove, onMouseUp, setZoom: setTlZoom } = useTimeline({
+  const { draw: timelineDraw, onMouseDown, onMouseMove, onMouseUp, setZoom: setTlZoom, setScroll: setTlScroll } = useTimeline({
     canvasRef,
     segments,
     duration,
@@ -124,8 +131,12 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onZoomChange:  (z, s) => syncWaveformRef.current(z, s),
     onScrollChange: (s, z) => syncWaveformRef.current(z, s),
   })
-  // Keep the ref current every render so the WaveSurfer callback is never stale.
+  // Keep refs current every render so WaveSurfer callbacks are never stale.
   timelineDrawRef.current = timelineDraw
+  tlScrollSyncRef.current = (visibleStartTime: number) => {
+    setTlScroll(visibleStartTime)
+    timelineDraw(currentTimeRef.current)
+  }
 
   // Initial draw when ready
   useEffect(() => {
