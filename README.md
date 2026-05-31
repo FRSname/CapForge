@@ -10,10 +10,10 @@ A standalone desktop app built with **Electron + React + TypeScript** on top of 
 
 | Platform | Installer |
 |----------|-----------|
-| **Windows** | [CapForge-Setup-1.3.0.exe](https://github.com/FRSname/CapForge/releases/download/v1.3.0/CapForge-Setup-1.3.0.exe) |
-| **macOS** | [CapForge-1.3.0.dmg](https://github.com/FRSname/CapForge/releases/download/v1.3.0/CapForge-1.3.0.dmg) |
+| **Windows** | [CapForge-Setup-1.4.0.exe](https://github.com/FRSname/CapForge/releases/download/v1.4.0/CapForge-Setup-1.4.0.exe) |
+| **macOS** | [CapForge-1.4.0.dmg](https://github.com/FRSname/CapForge/releases/download/v1.4.0/CapForge-1.4.0.dmg) |
 
-See [all releases](https://github.com/FRSname/CapForge/releases) for older versions and changelogs.
+See the [changelog](CHANGELOG.md) for what's new in each version, or [all releases](https://github.com/FRSname/CapForge/releases) for older builds.
 
 The installer is ~155 MB. On first launch a setup wizard downloads the embedded Python runtime and the Whisper model (`large-v3-turbo`, ~1.6 GB) into `%APPDATA%\CapForge\`.
 
@@ -25,8 +25,10 @@ The installer is ~155 MB. On first launch a setup wizard downloads the embedded 
 - **Speaker diarization** *(optional)* — identifies who said what (via pyannote-audio). Requires a free [Hugging Face access token](https://huggingface.co/settings/tokens) and one-time gating acceptance for [pyannote/speaker-diarization-3.1](https://huggingface.co/pyannote/speaker-diarization-3.1) and [pyannote/segmentation-3.0](https://huggingface.co/pyannote/segmentation-3.0).
 - **99 languages** with auto-detection
 - **GPU auto-detection** — recommends the optimal model size and precision based on your VRAM
-- **Inline subtitle editing** — Text view (per-sentence) and Groups view (drag, merge, split, reorder words)
-- **Per-word style overrides** — custom color, weight, font, or active-color per word
+- **Inline subtitle editing** — Text view (click-to-edit, search, split/merge, keyboard nav) and Groups view (drag, merge, split, reorder words, inline speaker editing)
+- **Per-word style overrides** — set color, size, font, animation, or position per word (right-click a word in Groups view)
+- **Timeline retiming** — drag caption blocks on the canvas timeline with edge snapping, an adaptive ruler, and hover tooltips; waveform and timeline zoom/scroll stay in sync
+- **Autosave & crash recovery** — the live session is autosaved to app data; if the app closes or crashes unexpectedly, it offers to restore your work on next launch
 - **Video / audio preview** — synced waveform, video playback, canvas timeline, live caption overlay
 - **Multiple animations** — Fade, Slide, Pop entrance + Highlight, Underline, Bounce, Scale, Karaoke, Reveal word styles
 - **Custom Render** — full control over resolution, fps, format, mode, bitrate
@@ -136,7 +138,7 @@ npm run dist:dir        # unpacked build (debug)
 5. **Edit** — Text view for line-by-line editing, Groups view for merge/split/drag/per-word style overrides
 6. **Style** — Custom Settings sidebar: typography, colors, layout, animations
 7. **Render or export** — Quick MP4 / MOV, Custom Render with full control, or SRT / VTT / JSON
-8. **Save project** — `Ctrl+S` writes a `.capforge` file with everything to resume later
+8. **Save project** — `Ctrl+S` writes a `.capforge` file with everything to resume later. Your work is also autosaved continuously and offered for recovery after an unexpected close
 
 ---
 
@@ -144,8 +146,13 @@ npm run dist:dir        # unpacked build (debug)
 
 | Shortcut | Action |
 |----------|--------|
-| **Space** | Play / Pause |
+| **Space** / **K** | Play / Pause |
+| **J** / **L** | Scrub back / forward |
+| **← / →** | Step one frame |
+| **, / .** | Previous / next caption |
 | **Tab** / **Shift+Tab** | Next / previous segment |
+| **M** (Groups view) | Merge focused group with the next |
+| **Enter** (Groups view) | Split focused group in half |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo edits |
 | **Ctrl+S** | Save project |
 | **Ctrl+O** | Open project |
