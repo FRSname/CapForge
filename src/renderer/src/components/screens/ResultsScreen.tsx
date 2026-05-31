@@ -107,10 +107,10 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
           const updated = allWords.slice(wi, wi + count)
           wi += count
           if (updated.length === 0) return g
+          // Preserve g.start / g.end — manual timeline drags live there and
+          // must not be overwritten by word-level timestamps from segments.
           return {
             ...g,
-            start: updated[0].start,
-            end:   updated[updated.length - 1].end,
             text:  updated.map(w => w.word).join(' '),
             words: updated,
           }
