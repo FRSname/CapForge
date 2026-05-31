@@ -7,6 +7,43 @@ import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { Toggle } from './ui/Toggle'
 
+const SHORTCUTS: { label: string; items: { keys: string; action: string }[] }[] = [
+  {
+    label: 'Global',
+    items: [
+      { keys: '⌘S', action: 'Save project' },
+      { keys: '⌘O', action: 'Open project' },
+      { keys: '⌘Z / ⌘⇧Z', action: 'Undo / Redo' },
+    ],
+  },
+  {
+    label: 'Playback',
+    items: [
+      { keys: 'Space / K', action: 'Play · Pause' },
+      { keys: 'J / L', action: 'Seek ±2 s' },
+      { keys: '← / →', action: 'Frame step' },
+      { keys: ', / .', action: 'Prev · Next group' },
+    ],
+  },
+  {
+    label: 'Groups',
+    items: [
+      { keys: '↑ / ↓', action: 'Navigate' },
+      { keys: 'M', action: 'Merge below' },
+      { keys: 'Enter', action: 'Split in half' },
+      { keys: 'Esc', action: 'Deselect' },
+    ],
+  },
+  {
+    label: 'Timeline',
+    items: [
+      { keys: '+ / −', action: 'Zoom in · out' },
+      { keys: '0', action: 'Reset zoom' },
+      { keys: '[ / ]', action: 'Prev · Next segment' },
+    ],
+  },
+]
+
 interface SettingsPanelProps {
   open: boolean
   onClose: () => void
@@ -175,6 +212,31 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               <button className="btn-ghost flex-1 text-xs justify-center" onClick={() => window.subforge.openLogsFolder()}>Open folder</button>
               <button className="btn-ghost flex-1 text-xs justify-center" onClick={() => window.subforge.openLogFile()}>Open log</button>
             </div>
+          </div>
+
+          {/* Keyboard Shortcuts */}
+          <div className="flex flex-col gap-3">
+            <label className="label-xs">Keyboard Shortcuts</label>
+            {SHORTCUTS.map((group) => (
+              <div key={group.label} className="flex flex-col gap-0.5">
+                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-text-3)' }}>
+                  {group.label}
+                </p>
+                {group.items.map((item) => (
+                  <div key={item.action} className="flex justify-between items-center py-0.5">
+                    <span className="text-[11px]" style={{ color: 'var(--color-text-2)' }}>
+                      {item.action}
+                    </span>
+                    <kbd
+                      className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                      style={{ background: 'var(--color-surface-2)', color: 'var(--color-text)' }}
+                    >
+                      {item.keys}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            ))}
           </div>
         </div>
       </aside>
