@@ -297,14 +297,27 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onW
   }, [isActive, seg.words, currentTime])
 
   // Focus the contentEditable when entering edit mode.
+  // textContent is set imperatively here rather than via dangerouslySetInnerHTML so
+  // that React cannot stomp the user's in-progress edits on every re-render (e.g.
+  // every currentTime tick while audio is playing).  seg is intentionally absent
+  // from deps: we initialise once on entry, never on subsequent renders.
   useEffect(() => {
     if (!isEditing) return
     const id = requestAnimationFrame(() => {
       rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-      textRef.current?.focus()
+      const el = textRef.current
+      if (!el) return
+      el.textContent = seg.words.map(w => w.word).join(' ') || seg.text
+      el.focus()
+      const range = document.createRange()
+      const sel = window.getSelection()
+      range.selectNodeContents(el)
+      range.collapse(false)
+      sel?.removeAllRanges()
+      sel?.addRange(range)
     })
     return () => cancelAnimationFrame(id)
-  }, [isEditing])
+  }, [isEditing]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Exit edit mode when focus leaves the card entirely.
   // React's onBlur bubbles (unlike native blur), so this fires on any child blur.
@@ -379,7 +392,6 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onW
                   rowRef.current?.querySelector<HTMLInputElement>('input')?.focus()
                 }
               }}
-              dangerouslySetInnerHTML={{ __html: seg.words.map(w => w.word).join(' ') || seg.text }}
             />
             {seg.words.length > 0 && (
               <div className="flex flex-wrap gap-1">
