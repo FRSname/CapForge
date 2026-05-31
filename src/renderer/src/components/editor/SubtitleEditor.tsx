@@ -3,14 +3,14 @@
  *
  * - Click a word → seek to its start time
  * - Click a timestamp → seek to segment start
- * - Right-click a word → open WordStylePopup for per-word style overrides
  * - Click the pencil icon (hover) on any row → per-segment edit mode
  * - Click outside the card or press Escape → commit and exit
+ *
+ * Per-word style overrides are authored only in the Groups editor, not here.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Segment, Word, WordOverrides } from '../../types/app'
-import { WordStylePopup, type WordStyleDefaults } from './WordStylePopup'
+import type { Segment, Word } from '../../types/app'
 
 interface SubtitleEditorProps {
   segments: Segment[]
@@ -19,8 +19,6 @@ interface SubtitleEditorProps {
   onChange: (segments: Segment[]) => void
   /** Called before an edit to snapshot state for undo. */
   onBeforeEdit?: () => void
-  /** Global style defaults — popup uses these to compute "hasOverride". */
-  defaults: WordStyleDefaults
   /** Insert a new manual segment at the current playback position. */
   onAddSegment?: () => void
   /** When set, scroll the segment with this id into view and focus its text. */
@@ -29,20 +27,13 @@ interface SubtitleEditorProps {
   onFocusConsumed?: () => void
 }
 
-interface PopupState {
-  segIdx:   number
-  wordIdx:  number
-  anchorRect: DOMRect
-}
-
 interface WordTimingEdit {
   segIdx:  number
   wordIdx: number
 }
 
-export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBeforeEdit, defaults, onAddSegment, focusSegmentId, onFocusConsumed }: SubtitleEditorProps) {
+export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBeforeEdit, onAddSegment, focusSegmentId, onFocusConsumed }: SubtitleEditorProps) {
   const [editingSegId, setEditingSegId] = useState<string | null>(null)
-  const [popup,        setPopup]        = useState<PopupState | null>(null)
   const [wordTimingEdit, setWordTimingEdit] = useState<WordTimingEdit | null>(null)
   const [searchQuery, setSearchQuery]   = useState('')
 
@@ -75,21 +66,6 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
     }
     return -1
   }, [segments, currentTime])
-
-  function handleWordContextMenu(e: React.MouseEvent, segIdx: number, wordIdx: number) {
-    e.preventDefault()
-    setPopup({ segIdx, wordIdx, anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect() })
-  }
-
-  function applyWordOverride(segIdx: number, wordIdx: number, overrides: WordOverrides) {
-    onBeforeEdit?.()
-    onChange(segments.map((s, si) =>
-      si !== segIdx ? s : {
-        ...s,
-        words: s.words.map((w, wi) => wi !== wordIdx ? w : { ...w, overrides }),
-      }
-    ))
-  }
 
   function handleTimingChange(segIdx: number, field: 'start' | 'end', value: string) {
     const parsed = parseTimePrecise(value)
@@ -175,8 +151,6 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
     onChange(segments.map((s, si) => si !== segIdx ? s : { ...s, text: newText, words: newWords }))
   }
 
-  const activePopupWord = popup ? segments[popup.segIdx]?.words[popup.wordIdx] : null
-
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       {/* Toolbar */}
@@ -219,7 +193,6 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
             isEditing={seg.id === editingSegId}
             currentTime={currentTime}
             onSeek={onSeek}
-            onWordContextMenu={handleWordContextMenu}
             onTimingChange={handleTimingChange}
             onTextEdit={handleTextEdit}
             wordTimingEdit={wordTimingEdit}
@@ -239,18 +212,6 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
         })}
       </div>
 
-      {/* Word style popup */}
-      {popup && activePopupWord && (
-        <WordStylePopup
-          word={activePopupWord.word}
-          overrides={activePopupWord.overrides ?? {}}
-          anchorRect={popup.anchorRect}
-          defaults={defaults}
-          onApply={ov => applyWordOverride(popup.segIdx, popup.wordIdx, ov)}
-          onReset={() => applyWordOverride(popup.segIdx, popup.wordIdx, {})}
-          onClose={() => setPopup(null)}
-        />
-      )}
     </div>
   )
 }
@@ -264,7 +225,6 @@ interface SegmentRowProps {
   isEditing: boolean
   currentTime: number
   onSeek:    (time: number) => void
-  onWordContextMenu: (e: React.MouseEvent, si: number, wi: number) => void
   onTimingChange: (si: number, field: 'start' | 'end', value: string) => void
   onTextEdit: (si: number, newText: string) => void
   wordTimingEdit: WordTimingEdit | null
@@ -281,7 +241,7 @@ interface SegmentRowProps {
   isLast: boolean
 }
 
-function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onWordContextMenu, onTimingChange, onTextEdit, wordTimingEdit, onWordTimingEditToggle, onWordTimingChange, onDelete, onStartEdit, onStopEdit, onFocusNext, onFocusPrev, onSplit, onMerge, isFirst, isLast }: SegmentRowProps) {
+function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onTimingChange, onTextEdit, wordTimingEdit, onWordTimingEditToggle, onWordTimingChange, onDelete, onStartEdit, onStopEdit, onFocusNext, onFocusPrev, onSplit, onMerge, isFirst, isLast }: SegmentRowProps) {
   const rowRef  = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
 
@@ -427,27 +387,22 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onW
         ) : (
           <div className="flex flex-wrap gap-x-0.5 gap-y-0.5 leading-relaxed flex-1 min-w-0">
             {seg.words.length > 0
-              ? seg.words.map((w, wi) => {
-                  const ov = w.overrides
-                  return (
-                    <span
-                      key={wi}
-                      className={[
-                        'cursor-pointer rounded px-0.5 transition-colors',
-                        wi === activeWordIdx
-                          ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)] font-medium'
-                          : ov ? 'text-[var(--color-accent)] underline decoration-dotted' : '',
-                        'hover:bg-white/[0.06]',
-                      ].join(' ')}
-                      style={ov?.text_color ? { color: ov.text_color } : undefined}
-                      onClick={() => onSeek(w.start)}
-                      onContextMenu={e => onWordContextMenu(e, segIdx, wi)}
-                      title={`${formatTimePrecise(w.start)} → ${formatTimePrecise(w.end)}`}
-                    >
-                      {w.word}
-                    </span>
-                  )
-                })
+              ? seg.words.map((w, wi) => (
+                  <span
+                    key={wi}
+                    className={[
+                      'cursor-pointer rounded px-0.5 transition-colors',
+                      wi === activeWordIdx
+                        ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)] font-medium'
+                        : '',
+                      'hover:bg-white/[0.06]',
+                    ].join(' ')}
+                    onClick={() => onSeek(w.start)}
+                    title={`${formatTimePrecise(w.start)} → ${formatTimePrecise(w.end)}`}
+                  >
+                    {w.word}
+                  </span>
+                ))
               : <span className="text-[var(--color-text-muted)]">{seg.text}</span>
             }
           </div>

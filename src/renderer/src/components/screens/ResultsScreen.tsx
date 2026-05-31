@@ -104,9 +104,17 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
         let wi = 0
         return prev.map(g => {
           const count = g.words.length
-          const updated = allWords.slice(wi, wi + count)
+          const slice = allWords.slice(wi, wi + count)
           wi += count
-          if (updated.length === 0) return g
+          if (slice.length === 0) return g
+          // Per-word style overrides are authored only in the Groups editor and
+          // live solely on the group word (never on the source segment word), so
+          // carry them forward by index — the sync refreshes word text/timing
+          // while the user's styling persists.
+          const updated = slice.map((w, j) => {
+            const prevOv = g.words[j]?.overrides
+            return prevOv ? { ...w, overrides: prevOv } : w
+          })
           // Preserve g.start / g.end — manual timeline drags live there and
           // must not be overwritten by word-level timestamps from segments.
           return {
@@ -116,8 +124,32 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
           }
         })
       })
+    } else if (groupsEdited && !wpgChanged && segCountChanged) {
+      // Segment count changed (add/delete/split) while user had manual edits.
+      // Rebuild structure from scratch but restore manually-dragged start/end for
+      // any group whose ID survived the change. Group IDs are ${seg.id}:${offset},
+      // so segments that weren't touched keep stable IDs and their timing is preserved.
+      setGroups(prev => {
+        const oldById = new Map(prev.map(g => [g.id, g]))
+        return buildStudioGroups(segments, settings.wordsPerGroup).map(g => {
+          const saved = oldById.get(g.id)
+          if (!saved) return g
+          // Restore manual timing AND per-word overrides for any group whose ID
+          // survived the segment change. buildStudioGroups re-chunks untouched
+          // segments identically, so word index j maps to the same word.
+          return {
+            ...g,
+            start: saved.start,
+            end:   saved.end,
+            words: g.words.map((w, j) => {
+              const ov = saved.words[j]?.overrides
+              return ov ? { ...w, overrides: ov } : w
+            }),
+          }
+        })
+      })
     } else {
-      // Rebuild from scratch — no manual edits, wpg changed, or segment count changed.
+      // Rebuild from scratch — no manual edits or wpg changed.
       setGroups(buildStudioGroups(segments, settings.wordsPerGroup))
       if (wpgChanged) setGroupsEdited(false)
     }
@@ -326,7 +358,6 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
             onSeek={handleSeek}
             onChange={(next: Segment[]) => { setSegments(next); setSegmentsEdited(true) }}
             onBeforeEdit={pushUndo}
-            defaults={wordStyleDefaults}
             onAddSegment={handleAddSegment}
             focusSegmentId={focusSegmentId}
             onFocusConsumed={() => setFocusSegmentId(null)}
