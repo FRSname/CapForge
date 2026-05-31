@@ -12,9 +12,11 @@ interface TitleBarProps {
   onRedo?:          () => void
   canUndo?:         boolean
   canRedo?:         boolean
+  /** Muted "Saved HH:MM" indicator driven by the autosave hook. */
+  autosavedLabel?:  string
 }
 
-export function TitleBar({ screen, onNew, onSave, onOpen, onSettingsToggle, onExport, onUndo, onRedo, canUndo, canRedo }: TitleBarProps) {
+export function TitleBar({ screen, onNew, onSave, onOpen, onSettingsToggle, onExport, onUndo, onRedo, canUndo, canRedo, autosavedLabel }: TitleBarProps) {
   const showResults = screen === 'results'
 
   return (
@@ -70,6 +72,14 @@ export function TitleBar({ screen, onNew, onSave, onOpen, onSettingsToggle, onEx
                 <path d="M5 12h14"/><path d="M12 5l7 7-7 7"/>
               </svg>
             </button>
+            {autosavedLabel && (
+              <span
+                className="text-[10px] text-[var(--color-text-3)] tabular-nums mr-1 select-none"
+                title="Autosaved for crash recovery"
+              >
+                {autosavedLabel}
+              </span>
+            )}
             <div className="w-px h-3.5 bg-[var(--color-border)] mx-0.5" />
             <button
               className="titlebar-btn"

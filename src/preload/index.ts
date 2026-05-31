@@ -33,6 +33,9 @@ export interface SubforgeApi {
   openProject: () => Promise<unknown | null>
   getState: <T>(key: string, fallback: T) => Promise<T>
   setState: (key: string, value: unknown) => Promise<void>
+  autosaveWrite: (data: unknown) => Promise<void>
+  autosaveRead: () => Promise<unknown | null>
+  autosaveClear: () => Promise<void>
   openLogsFolder: () => Promise<void>
   openLogFile: () => Promise<void>
   showInFolder: (filePath: string) => Promise<void>
@@ -62,6 +65,9 @@ contextBridge.exposeInMainWorld('subforge', {
   openProject: () => ipcRenderer.invoke('project:open'),
   getState: <T>(key: string, fallback: T) => ipcRenderer.invoke('state:get', key, fallback),
   setState: (key: string, value: unknown) => ipcRenderer.invoke('state:set', key, value),
+  autosaveWrite: (data: unknown) => ipcRenderer.invoke('autosave:write', data),
+  autosaveRead: () => ipcRenderer.invoke('autosave:read'),
+  autosaveClear: () => ipcRenderer.invoke('autosave:clear'),
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),
   showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),

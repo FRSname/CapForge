@@ -60,6 +60,15 @@ contextBridge.exposeInMainWorld("subforge", {
   /** Write a persisted UI preference. */
   setState: (key, value) => ipcRenderer.invoke("state:set", key, value),
 
+  /** Crash-recovery autosave: write the current session snapshot. */
+  autosaveWrite: (data) => ipcRenderer.invoke("autosave:write", data),
+
+  /** Read the latest autosave snapshot, or null when there is none. */
+  autosaveRead: () => ipcRenderer.invoke("autosave:read"),
+
+  /** Clear all autosave data (on explicit Save / New). */
+  autosaveClear: () => ipcRenderer.invoke("autosave:clear"),
+
   /** Open the folder containing backend logs in the OS file manager. */
   openLogsFolder: () => ipcRenderer.invoke("logs:openFolder"),
 

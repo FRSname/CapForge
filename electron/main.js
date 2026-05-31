@@ -9,6 +9,7 @@ const fs = require("fs");
 const { PythonBackend } = require("./python-manager");
 const { ensureRuntime, isRuntimeReady, detectAccelerator } = require("./runtime-setup");
 const appState = require("./app-state");
+const autosave = require("./autosave");
 const { checkForUpdates } = require("./update-check");
 
 let mainWindow = null;
@@ -345,6 +346,12 @@ app.whenReady().then(async () => {
   // last-used preset name and any small bits of UI state.
   ipcMain.handle("state:get", (_e, key, fallback) => appState.get(key, fallback));
   ipcMain.handle("state:set", (_e, key, value) => { appState.set(key, value); return true; });
+
+  // IPC: crash-recovery autosave — renderer writes the current session snapshot
+  // on a debounce; reads it back on launch to offer recovery.
+  ipcMain.handle("autosave:write", (_e, data) => { autosave.write(data); return true; });
+  ipcMain.handle("autosave:read", () => autosave.read());
+  ipcMain.handle("autosave:clear", () => { autosave.clear(); return true; });
 
   // IPC: open logs — used by the Help menu and by error toasts with a
   // "View logs" action in the renderer.

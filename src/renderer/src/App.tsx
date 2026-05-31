@@ -11,6 +11,7 @@ import { StudioPanel, STUDIO_DEFAULTS, snapFps } from './components/studio/Studi
 import type { StudioSettings } from './components/studio/StudioPanel'
 import { ToastProvider } from './hooks/useToast'
 import { useSettingsUndo } from './hooks/useSettingsUndo'
+import { useAutosave } from './hooks/useAutosave'
 
 export function App() {
   const [screen,          setScreen]          = useState<Screen>('file')
@@ -26,6 +27,10 @@ export function App() {
 
   const projectIORef   = useRef<ProjectIOHandle | null>(null)
   const pendingRestore = useRef<ProjectFile | null>(null)
+
+  // Crash recovery — an autosave snapshot left on disk by a session that didn't
+  // end via an explicit Save or New (i.e. a crash or accidental close).
+  const [recoverySnapshot, setRecoverySnapshot] = useState<(ProjectFile & { savedAt?: number }) | null>(null)
 
   const [subtitleUndo, setSubtitleUndo] = useState<{
     undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean
@@ -58,6 +63,7 @@ export function App() {
     setGroups([])
     setGroupsEdited(false)
     setSourceVideoInfo(null)
+    window.subforge.autosaveClear()
   }
 
   // ── Groups published from ResultsScreen ─────────────────────────
@@ -93,15 +99,14 @@ export function App() {
   const handleSave = useCallback(async () => {
     const handle = projectIORef.current
     if (!handle) return
-    await window.subforge.saveProject(handle.gather())
+    const savedPath = await window.subforge.saveProject(handle.gather())
+    // Explicit save is now the source of truth — drop the autosave snapshot so
+    // it isn't offered as "unsaved" next launch. Later edits re-arm it.
+    if (savedPath) await window.subforge.autosaveClear()
   }, [])
 
-  // ── Project open ────────────────────────────────────────────────
-  const handleOpen = useCallback(async () => {
-    const raw = await window.subforge.openProject()
-    if (!raw) return
-    const file = raw as ProjectFile
-
+  // ── Project restore (shared by Open and crash-recovery) ─────────
+  const restoreFromProjectFile = useCallback(async (file: ProjectFile) => {
     // Push transcription to backend so render/export work.
     if (file.transcriptionResult) {
       const tr = file.transcriptionResult
@@ -121,6 +126,34 @@ export function App() {
     pendingRestore.current = file
   }, [])
 
+  // ── Project open ────────────────────────────────────────────────
+  const handleOpen = useCallback(async () => {
+    const raw = await window.subforge.openProject()
+    if (!raw) return
+    await restoreFromProjectFile(raw as ProjectFile)
+  }, [restoreFromProjectFile])
+
+  // ── Crash recovery ──────────────────────────────────────────────
+  // On launch, read any leftover autosave snapshot and offer to restore it.
+  useEffect(() => {
+    let cancelled = false
+    window.subforge.autosaveRead()
+      .then(snap => { if (!cancelled && snap) setRecoverySnapshot(snap as ProjectFile & { savedAt?: number }) })
+      .catch(() => { /* ignore — recovery is best-effort */ })
+    return () => { cancelled = true }
+  }, [])
+
+  const handleRecover = useCallback(async () => {
+    if (!recoverySnapshot) return
+    await restoreFromProjectFile(recoverySnapshot)
+    setRecoverySnapshot(null)
+  }, [recoverySnapshot, restoreFromProjectFile])
+
+  const handleDiscardRecovery = useCallback(async () => {
+    await window.subforge.autosaveClear()
+    setRecoverySnapshot(null)
+  }, [])
+
   // Flush any pending restore once ResultsScreen mounts its handle.
   useEffect(() => {
     if (pendingRestore.current && projectIORef.current) {
@@ -128,6 +161,13 @@ export function App() {
       pendingRestore.current = null
     }
   })
+
+  // ── Autosave (crash recovery) ───────────────────────────────────
+  // Snapshot the live session ~2s after any edit; cleared on Save / New.
+  const lastSavedAt = useAutosave(
+    () => (screen === 'results' ? projectIORef.current?.gather() ?? null : null),
+    [screen, groups, groupsEdited, settings],
+  )
 
   // ── Global keyboard shortcuts ───────────────────────────────────
   useEffect(() => {
@@ -166,7 +206,24 @@ export function App() {
         onRedo={subtitleUndo?.redo}
         canUndo={subtitleUndo?.canUndo ?? false}
         canRedo={subtitleUndo?.canRedo ?? false}
+        autosavedLabel={lastSavedAt
+          ? `Saved ${new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+          : undefined}
       />
+
+      {recoverySnapshot && (
+        <div
+          className="app-no-drag flex items-center gap-3 px-4 py-2 text-xs border-b border-[var(--color-border)]"
+          style={{ background: 'var(--color-surface-2)' }}
+        >
+          <span className="text-[var(--color-text-2)]">
+            Unsaved session recovered
+            {recoverySnapshot.savedAt ? ` from ${new Date(recoverySnapshot.savedAt).toLocaleString()}` : ''}.
+          </span>
+          <button className="titlebar-btn" onClick={handleRecover}>Restore</button>
+          <button className="titlebar-btn text-[var(--color-text-3)]" onClick={handleDiscardRecovery}>Discard</button>
+        </div>
+      )}
 
       <main className="flex-1 flex min-h-0 overflow-hidden">
         {/* ── Main content (left column) ────────────────────────── */}
