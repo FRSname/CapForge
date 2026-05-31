@@ -97,20 +97,25 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
       // The word-index sync is only safe when the total word pool is stable; adding
       // or removing a segment shifts the pool and misaligns the wi counter.
       const allWords = segments.flatMap(s => s.words)
-      let wi = 0
-      setGroups(prev => prev.map(g => {
-        const count = g.words.length
-        const updated = allWords.slice(wi, wi + count)
-        wi += count
-        if (updated.length === 0) return g
-        return {
-          ...g,
-          start: updated[0].start,
-          end:   updated[updated.length - 1].end,
-          text:  updated.map(w => w.word).join(' '),
-          words: updated,
-        }
-      }))
+      // wi must live inside the updater so React Strict Mode's double-invocation
+      // of the updater function starts fresh each time rather than indexing past
+      // the end of allWords on the second call (which would return prev unchanged).
+      setGroups(prev => {
+        let wi = 0
+        return prev.map(g => {
+          const count = g.words.length
+          const updated = allWords.slice(wi, wi + count)
+          wi += count
+          if (updated.length === 0) return g
+          return {
+            ...g,
+            start: updated[0].start,
+            end:   updated[updated.length - 1].end,
+            text:  updated.map(w => w.word).join(' '),
+            words: updated,
+          }
+        })
+      })
     } else {
       // Rebuild from scratch — no manual edits, wpg changed, or segment count changed.
       setGroups(buildStudioGroups(segments, settings.wordsPerGroup))
