@@ -127,14 +127,15 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   // Keep the ref current every render so the WaveSurfer callback is never stale.
   timelineDrawRef.current = timelineDraw
 
-  // Initial draw when ready; also reset waveform zoom to fit-to-width
+  // Initial draw when ready
   useEffect(() => {
-    if (ready) {
-      timelineDraw(0)
-      overlayDraw(0)
-      syncWaveformRef.current(1, 0)
-    }
+    if (ready) { timelineDraw(0); overlayDraw(0) }
   }, [ready, segments, overlayDraw, timelineDraw])
+
+  // Reset waveform zoom once when media first becomes ready (separate from segment changes)
+  useEffect(() => {
+    if (ready) syncWaveformRef.current(1, 0)
+  }, [ready]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-draw when segments, duration, settings, or draw functions change
   useEffect(() => {
