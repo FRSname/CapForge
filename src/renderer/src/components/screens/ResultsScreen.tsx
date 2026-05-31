@@ -238,11 +238,19 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
     setFocusSegmentId(newSeg.id)
   }, [currentTime, pushUndo])
 
-  // Timeline edge-drag: adjust a group's start or end time.
-  const handleSegmentEdge = useCallback((segId: string, edge: 'start' | 'end', newTime: number) => {
-    setGroups(prev => prev.map(g =>
-      g.id !== segId ? g : { ...g, [edge]: newTime }
-    ))
+  // Timeline edge-drag: adjust a group's start/end time or move the whole block.
+  const handleSegmentEdge = useCallback((
+    segId: string,
+    edge: 'start' | 'end' | 'body',
+    newVal: number | { start: number; end: number },
+  ) => {
+    setGroups(prev => prev.map(g => {
+      if (g.id !== segId) return g
+      if (edge === 'body' && typeof newVal === 'object') {
+        return { ...g, start: newVal.start, end: newVal.end }
+      }
+      return typeof newVal === 'number' ? { ...g, [edge]: newVal } : g
+    }))
     setGroupsEdited(true)
   }, [])
 

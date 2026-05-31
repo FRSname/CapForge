@@ -7,6 +7,7 @@
  */
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import type { SegmentBodyMove } from '../../hooks/useTimeline'
 import { api } from '../../lib/api'
 import { useWaveSurfer } from '../../hooks/useWaveSurfer'
 import { useTimeline, TIMELINE_HEIGHT } from '../../hooks/useTimeline'
@@ -33,10 +34,10 @@ interface AudioPlayerProps {
   onSeek?: () => void
   /** When set, AudioPlayer immediately seeks to this time then calls onSeek(). */
   seekTo?: number | null
-  /** Called when user drags a subtitle block edge in the timeline. */
-  onSegmentEdge?: (segId: string, edge: 'start' | 'end', newTime: number) => void
+  /** Called when user drags a subtitle block edge or body in the timeline. */
+  onSegmentEdge?: (segId: string, edge: 'start' | 'end' | 'body', newVal: number | SegmentBodyMove) => void
   /** Called once when the drag begins (before any movement). */
-  onSegmentEdgeDragStart?: (segId: string, edge: 'start' | 'end') => void
+  onSegmentEdgeDragStart?: (segId: string, edge: 'start' | 'end' | 'body') => void
 }
 
 export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer({ audioPath, segments, settings, resolution = [1920, 1080], onTimeUpdate, onSeek, seekTo, onSegmentEdge, onSegmentEdgeDragStart }, ref) {
@@ -52,6 +53,14 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
 
   const [zoom, setZoomState] = useState(1)
   const zoomLabel = `${Math.round(zoom * 100)}%`
+
+  // Phase 2: Hover tooltip state
+  const [hoverState, setHoverState] = useState<{
+    segId: string | null
+    time: number
+    x: number
+    y: number
+  } | null>(null)
 
   // ── Subtitle overlay ────────────────────────────────────────────
   const { draw: overlayDraw } = useSubtitleOverlay({
@@ -120,7 +129,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   }
 
   // ── Timeline ────────────────────────────────────────────────────
-  const { draw: timelineDraw, onMouseDown, onMouseMove, onMouseUp, setZoom: setTlZoom, setScroll: setTlScroll } = useTimeline({
+  const { draw: timelineDraw, onMouseDown, onMouseMove, onMouseUp, onMouseLeave: onCanvasLeave, setZoom: setTlZoom, setScroll: setTlScroll } = useTimeline({
     canvasRef,
     segments,
     duration,
@@ -128,6 +137,9 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onSeek: wsSeekTo,
     onSegmentEdge,
     onSegmentEdgeDragStart,
+    onHover: useCallback((segId, time, x, y) => {
+      setHoverState(segId !== null || time > 0 ? { segId, time, x, y } : null)
+    }, []),
     onZoomChange:  (z, s) => syncWaveformRef.current(z, s),
     onScrollChange: (s, z) => syncWaveformRef.current(z, s),
   })
@@ -175,6 +187,35 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     setTlZoom(1)
     timelineDraw(currentTime)
   }
+
+  // Phase 5: Keyboard shortcuts for zoom and segment navigation.
+  // Guards against firing inside text inputs/textareas.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (document.activeElement as HTMLElement)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (document.activeElement as HTMLElement)?.isContentEditable) return
+
+      if (e.key === '=' || e.key === '+') { e.preventDefault(); handleZoomIn() }
+      else if (e.key === '-') { e.preventDefault(); handleZoomOut() }
+      else if (e.key === '0') { e.preventDefault(); handleZoomReset() }
+      else if (e.key === ',') { e.preventDefault(); wsSeekTo(Math.max(0, currentTime - 0.1)) }
+      else if (e.key === '.') { e.preventDefault(); wsSeekTo(Math.min(duration, currentTime + 0.1)) }
+      else if (e.key === '[') {
+        // Jump to start of containing or previous segment
+        e.preventDefault()
+        const prev = [...segments].reverse().find(s => s.start < currentTime - 0.05)
+        wsSeekTo(prev ? prev.start : 0)
+      } else if (e.key === ']') {
+        // Jump to start of next segment
+        e.preventDefault()
+        const next = segments.find(s => s.start > currentTime + 0.05)
+        if (next) wsSeekTo(next.start)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentTime, duration, segments, zoom])
 
   return (
     <div className="flex flex-col border-b border-[var(--color-border)] bg-[var(--color-surface)] select-none">
@@ -261,7 +302,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
       </div>
 
       {/* ── Canvas timeline ─────────────────────────────────────── */}
-      <div className="w-full" style={{ height: TIMELINE_HEIGHT }}>
+      <div className="w-full relative" style={{ height: TIMELINE_HEIGHT }}>
         <canvas
           ref={canvasRef}
           className="block w-full cursor-pointer"
@@ -269,7 +310,26 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
+          onMouseLeave={() => { onCanvasLeave(); setHoverState(null) }}
         />
+        {/* Phase 2: Hover tooltip */}
+        {hoverState && (
+          <div
+            className="pointer-events-none fixed z-50 rounded px-2 py-1 text-xs max-w-xs truncate shadow-lg"
+            style={{
+              left: hoverState.x + 12,
+              top:  hoverState.y - 36,
+              background: 'var(--color-bg)',
+              color: 'var(--color-text)',
+              border: '1px solid var(--color-border-2)',
+            }}
+          >
+            {hoverState.segId
+              ? (segments.find(s => s.id === hoverState.segId)?.text ?? '')
+              : formatTime(hoverState.time)
+            }
+          </div>
+        )}
       </div>
 
       {/* ── Waveform ────────────────────────────────────────────── */}

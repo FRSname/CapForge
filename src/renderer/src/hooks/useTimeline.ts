@@ -13,6 +13,7 @@ const RULER_H  = 20
 const TRACK_H  = 32
 const TOTAL_H  = RULER_H + TRACK_H
 const EDGE_HIT = 6   // px tolerance for edge-drag detection
+const SNAP_THRESHOLD_PX = 8  // px within which a value snaps to a target
 
 export const TIMELINE_HEIGHT = TOTAL_H
 
@@ -22,6 +23,9 @@ function cssVar(name: string, fallback: string): string {
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
   return v || fallback
 }
+
+/** Payload for body-drag: both endpoints move together. */
+export type SegmentBodyMove = { start: number; end: number }
 
 interface UseTimelineOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>
@@ -34,10 +38,18 @@ interface UseTimelineOptions {
   isPlaying?: boolean
   /** Called when user clicks to seek to a time. */
   onSeek?: (time: number) => void
-  /** Called when a segment's start or end time is edited via edge-drag. */
-  onSegmentEdge?: (segId: string, edge: 'start' | 'end', newTime: number) => void
-  /** Called once when the user first grabs a segment edge (before any movement). */
-  onSegmentEdgeDragStart?: (segId: string, edge: 'start' | 'end') => void
+  /** Called when a segment's start/end time is edited (edge drag) or both are
+   *  moved together (body drag). */
+  onSegmentEdge?: (
+    segId: string,
+    edge: 'start' | 'end' | 'body',
+    newVal: number | SegmentBodyMove,
+  ) => void
+  /** Called once when the user first grabs a segment (before any movement). */
+  onSegmentEdgeDragStart?: (segId: string, edge: 'start' | 'end' | 'body') => void
+  /** Called while the cursor moves with no active drag: segId is the segment
+   *  under the cursor (null if none), time is seconds at cursor position. */
+  onHover?: (segId: string | null, time: number, clientX: number, clientY: number) => void
   /** Called when zoom or scroll changes so the caller can sync other views. */
   onZoomChange?: (zoom: number, scrollT: number) => void
   onScrollChange?: (scrollT: number, zoom: number) => void
@@ -57,6 +69,7 @@ export function useTimeline({
   onSeek,
   onSegmentEdge,
   onSegmentEdgeDragStart,
+  onHover,
   onZoomChange,
   onScrollChange,
 }: UseTimelineOptions) {
@@ -69,6 +82,8 @@ export function useTimeline({
   // needing isPlaying in the useCallback dependency array.
   const isPlayingRef = useRef(false)
   isPlayingRef.current = isPlaying
+  // Active snap target in seconds while a drag is in progress (null = no snap).
+  const snapTargetRef = useRef<number | null>(null)
 
   // ── Draw ──────────────────────────────────────────────────────────
 
@@ -133,13 +148,32 @@ export function useTimeline({
     ctx.fillStyle = trackBg
     ctx.fillRect(0, RULER_H, cssW, TRACK_H)
 
-    // ── Ruler ticks + labels ─────────────────────────────────────
-    const step = niceStep(visibleDur, cssW)
+    // ── Phase 4: Adaptive ruler — minor ticks + labeled major ticks ─
+    const majorStep = niceStep(visibleDur, cssW)
+    const minorStep = majorStep / 5
     ctx.font = '10px -apple-system, "Segoe UI", sans-serif'
     ctx.textBaseline = 'middle'
 
-    const firstTick = Math.floor(t0 / step) * step
-    for (let t = firstTick; t <= t1 + 0.001; t += step) {
+    // Minor ticks (no label, short, dimmed)
+    const firstMinor = Math.floor(t0 / minorStep) * minorStep
+    ctx.strokeStyle = tickLine
+    ctx.lineWidth = 1
+    ctx.globalAlpha = 0.5
+    for (let t = firstMinor; t <= t1 + minorStep * 0.001; t += minorStep) {
+      const isMajor = Math.abs(Math.round(t / majorStep) * majorStep - t) < majorStep * 0.001
+      if (isMajor) continue
+      const x = Math.round(tToX(t))
+      if (x < 0 || x > cssW) continue
+      ctx.beginPath()
+      ctx.moveTo(x + 0.5, RULER_H - 5)
+      ctx.lineTo(x + 0.5, RULER_H)
+      ctx.stroke()
+    }
+    ctx.globalAlpha = 1
+
+    // Major ticks with labels
+    const firstMajor = Math.floor(t0 / majorStep) * majorStep
+    for (let t = firstMajor; t <= t1 + 0.001; t += majorStep) {
       const x = Math.round(tToX(t))
       ctx.strokeStyle = tickLine
       ctx.lineWidth = 1
@@ -150,7 +184,7 @@ export function useTimeline({
 
       const mins = Math.floor(t / 60)
       const secs = Math.floor(t % 60)
-      const sub  = step < 1 ? (t % 1).toFixed(step < 0.1 ? 2 : 1).slice(1) : ''
+      const sub  = majorStep < 1 ? (t % 1).toFixed(majorStep < 0.1 ? 2 : 1).slice(1) : ''
       const label = mins > 0
         ? `${mins}:${String(secs).padStart(2, '0')}${sub}`
         : `${secs}${sub}s`
@@ -158,7 +192,7 @@ export function useTimeline({
       ctx.fillText(label, x + 3, RULER_H / 2)
     }
 
-    // ── Subtitle blocks ───────────────────────────────────────────
+    // ── Phase 6: Subtitle blocks with active-segment highlight ────
     const PAD = 3
     for (const seg of segments) {
       if (seg.end < t0 || seg.start > t1) continue
@@ -168,20 +202,34 @@ export function useTimeline({
       const y = RULER_H + PAD
       const h = TRACK_H - PAD * 2
       const r = Math.min(4, h / 2)
+      const isActive = currentTime >= seg.start && currentTime < seg.end
+
+      const roundRect = () => {
+        ctx.beginPath()
+        ctx.moveTo(x + r, y)
+        ctx.lineTo(x + w - r, y)
+        ctx.quadraticCurveTo(x + w, y, x + w, y + r)
+        ctx.lineTo(x + w, y + h - r)
+        ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
+        ctx.lineTo(x + r, y + h)
+        ctx.quadraticCurveTo(x, y + h, x, y + h - r)
+        ctx.lineTo(x, y + r)
+        ctx.quadraticCurveTo(x, y, x + r, y)
+        ctx.closePath()
+      }
 
       ctx.fillStyle = blockBg
-      ctx.beginPath()
-      ctx.moveTo(x + r, y)
-      ctx.lineTo(x + w - r, y)
-      ctx.quadraticCurveTo(x + w, y, x + w, y + r)
-      ctx.lineTo(x + w, y + h - r)
-      ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h)
-      ctx.lineTo(x + r, y + h)
-      ctx.quadraticCurveTo(x, y + h, x, y + h - r)
-      ctx.lineTo(x, y + r)
-      ctx.quadraticCurveTo(x, y, x + r, y)
-      ctx.closePath()
+      ctx.globalAlpha = isActive ? 1.0 : 0.75
+      roundRect()
       ctx.fill()
+      ctx.globalAlpha = 1
+
+      if (isActive) {
+        ctx.strokeStyle = accent
+        ctx.lineWidth = 2
+        roundRect()
+        ctx.stroke()
+      }
 
       if (w > 18) {
         ctx.save()
@@ -215,6 +263,22 @@ export function useTimeline({
       ctx.closePath()
       ctx.fill()
     }
+
+    // ── Phase 3: Snap indicator (dashed vertical line during drag) ─
+    const snapT = snapTargetRef.current
+    if (snapT !== null && snapT >= t0 && snapT <= t1) {
+      const sx = Math.round(tToX(snapT))
+      ctx.strokeStyle = accent
+      ctx.lineWidth = 1
+      ctx.globalAlpha = 0.6
+      ctx.setLineDash([3, 3])
+      ctx.beginPath()
+      ctx.moveTo(sx + 0.5, 0)
+      ctx.lineTo(sx + 0.5, cssH)
+      ctx.stroke()
+      ctx.setLineDash([])
+      ctx.globalAlpha = 1
+    }
   }, [canvasRef, segments, duration, blockColor])
 
   // Redraw when the theme class on <html> flips so colors switch live.
@@ -227,11 +291,13 @@ export function useTimeline({
 
   // ── Interactions ──────────────────────────────────────────────────
 
+  // Phase 1: dragRef now tracks body drags in addition to edge drags.
   const dragRef = useRef<{
-    segId: string | null
-    edge: 'start' | 'end' | null
+    segId: string
+    edge: 'start' | 'end' | 'body'
     startClientX: number
-    origVal: number
+    origStart: number
+    origEnd: number
   } | null>(null)
 
   function timeAtX(clientX: number): number {
@@ -244,7 +310,8 @@ export function useTimeline({
     return scrollT + ratio * visibleDur
   }
 
-  function findEdge(clientX: number): { segId: string; edge: 'start' | 'end' | null } | null {
+  // Phase 1: returns 'body' (instead of null) when cursor is over a segment's center.
+  function findEdge(clientX: number): { segId: string; edge: 'start' | 'end' | 'body' } | null {
     const canvas = canvasRef.current
     if (!canvas || !duration) return null
     const rect = canvas.getBoundingClientRect()
@@ -258,20 +325,21 @@ export function useTimeline({
       if (Math.abs(clientX - startPx) <= EDGE_HIT) return { segId: seg.id, edge: 'start' }
       if (Math.abs(clientX - endPx)   <= EDGE_HIT) return { segId: seg.id, edge: 'end' }
       const t = timeAtX(clientX)
-      if (t >= seg.start && t <= seg.end) return { segId: seg.id, edge: null }
+      if (t >= seg.start && t <= seg.end) return { segId: seg.id, edge: 'body' }
     }
     return null
   }
 
   const onMouseDown = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
     const hit = findEdge(e.clientX)
-    if (hit?.edge) {
+    if (hit) {
       const seg = segments.find(s => s.id === hit.segId)!
       dragRef.current = {
-        segId:       hit.segId,
-        edge:        hit.edge,
+        segId:        hit.segId,
+        edge:         hit.edge,
         startClientX: e.clientX,
-        origVal:     hit.edge === 'start' ? seg.start : seg.end,
+        origStart:    seg.start,
+        origEnd:      seg.end,
       }
       onSegmentEdgeDragStart?.(hit.segId, hit.edge)
       e.preventDefault()
@@ -280,47 +348,105 @@ export function useTimeline({
   }, [segments, duration, onSegmentEdgeDragStart])
 
   const onMouseMove = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dragRef.current) return
     const canvas = canvasRef.current
-    if (!canvas || !duration) return
 
-    const { zoom, scrollT } = stateRef.current
+    // Phase 2: Hover feedback when not dragging — cursor shape + onHover callback.
+    if (!dragRef.current) {
+      const hit = findEdge(e.clientX)
+      if (canvas) {
+        canvas.style.cursor =
+          hit?.edge === 'start' || hit?.edge === 'end' ? 'ew-resize'
+          : hit?.edge === 'body' ? 'grab'
+          : 'pointer'
+      }
+      onHover?.(hit?.segId ?? null, timeAtX(e.clientX), e.clientX, e.clientY)
+      return
+    }
+
+    if (!canvas || !duration) return
+    canvas.style.cursor = dragRef.current.edge === 'body' ? 'grabbing' : 'ew-resize'
+
+    const { zoom } = stateRef.current
     const rect = canvas.getBoundingClientRect()
     const pps = rect.width / (duration / zoom)
     const dt  = (e.clientX - dragRef.current.startClientX) / pps
-    let newVal = Math.max(0, Math.min(duration, dragRef.current.origVal + dt))
 
-    // Prevent overlap with adjacent segments
     const segIdx = segments.findIndex(s => s.id === dragRef.current!.segId)
-    if (segIdx >= 0) {
-      const seg = segments[segIdx]
-      const MIN_GAP = 0.01 // minimum 10ms gap between groups
-      if (dragRef.current.edge === 'start') {
-        // Can't move start past the segment's own end
+    if (segIdx < 0) return
+    const seg = segments[segIdx]
+    const MIN_GAP = 0.01
+
+    // Phase 3: Collect snap targets — adjacent segment boundaries + playhead.
+    const snapThresholdT = SNAP_THRESHOLD_PX / pps
+    const snapTargets: number[] = [lastTimeRef.current]
+    for (let i = 0; i < segments.length; i++) {
+      if (i !== segIdx) { snapTargets.push(segments[i].start, segments[i].end) }
+    }
+
+    function snapNearest(t: number): number {
+      let best: number | null = null
+      let bestDist = snapThresholdT
+      for (const target of snapTargets) {
+        const dist = Math.abs(t - target)
+        if (dist < bestDist) { bestDist = dist; best = target }
+      }
+      snapTargetRef.current = best
+      return best !== null ? best : t
+    }
+
+    if (dragRef.current.edge === 'body') {
+      const segDur = dragRef.current.origEnd - dragRef.current.origStart
+      let newStart = dragRef.current.origStart + dt
+      newStart = Math.max(0, Math.min(newStart, duration - segDur))
+      if (segIdx > 0) newStart = Math.max(newStart, segments[segIdx - 1].end + MIN_GAP)
+      if (segIdx < segments.length - 1) {
+        newStart = Math.min(newStart, segments[segIdx + 1].start - segDur - MIN_GAP)
+      }
+      newStart = snapNearest(newStart)
+      newStart = Math.max(0, Math.min(newStart, duration - segDur))
+      onSegmentEdge?.(dragRef.current.segId, 'body', { start: newStart, end: newStart + segDur })
+    } else {
+      const isStart = dragRef.current.edge === 'start'
+      const origVal = isStart ? dragRef.current.origStart : dragRef.current.origEnd
+      let newVal = Math.max(0, Math.min(duration, origVal + dt))
+
+      if (isStart) {
         newVal = Math.min(newVal, seg.end - MIN_GAP)
-        // Can't overlap previous segment
         if (segIdx > 0) newVal = Math.max(newVal, segments[segIdx - 1].end + MIN_GAP)
       } else {
-        // Can't move end before the segment's own start
         newVal = Math.max(newVal, seg.start + MIN_GAP)
-        // Can't overlap next segment
-        if (segIdx < segments.length - 1) newVal = Math.min(newVal, segments[segIdx + 1].start - MIN_GAP)
+        if (segIdx < segments.length - 1) {
+          newVal = Math.min(newVal, segments[segIdx + 1].start - MIN_GAP)
+        }
       }
+      newVal = snapNearest(newVal)
+      onSegmentEdge?.(dragRef.current.segId, dragRef.current.edge, newVal)
     }
 
-    onSegmentEdge?.(dragRef.current.segId!, dragRef.current.edge!, newVal)
+    draw(lastTimeRef.current)
     e.preventDefault()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [segments, duration, onSegmentEdge])
+  }, [segments, duration, onSegmentEdge, onHover, draw])
 
   const onMouseUp = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!dragRef.current) {
-      // Simple click → seek
+    const wasDragging = !!dragRef.current
+    dragRef.current = null
+    snapTargetRef.current = null
+    const canvas = canvasRef.current
+    if (canvas) canvas.style.cursor = 'pointer'
+    if (!wasDragging) {
       onSeek?.(timeAtX(e.clientX))
     }
-    dragRef.current = null
+    draw(lastTimeRef.current)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [onSeek, duration])
+  }, [onSeek, duration, draw])
+
+  const onMouseLeave = useCallback(() => {
+    const canvas = canvasRef.current
+    if (canvas) canvas.style.cursor = 'pointer'
+    onHover?.(null, 0, 0, 0)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onHover])
 
   // Wheel handling must use a native listener with { passive: false } so that
   // preventDefault() actually stops the page from scrolling/zooming. React's
@@ -364,7 +490,7 @@ export function useTimeline({
     stateRef.current.scrollT = Math.max(0, scrollT)
   }, [])
 
-  return { draw, onMouseDown, onMouseMove, onMouseUp, setZoom, setScroll }
+  return { draw, onMouseDown, onMouseMove, onMouseUp, onMouseLeave, setZoom, setScroll }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
