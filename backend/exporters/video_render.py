@@ -790,10 +790,12 @@ def _render_frame(
         e = inv
         c = center_x * (1 - inv)
         f = center_y * (1 - inv)
+        # BICUBIC: Image.transform() only supports NEAREST/BILINEAR/BICUBIC —
+        # LANCZOS raises ValueError (crashed every pop-animation render).
         scaled = tmp.transform(
             (config.resolution_w, config.resolution_h),
             Image.AFFINE, (a, 0, c, 0, e, f),
-            resample=Image.LANCZOS,
+            resample=Image.BICUBIC,
         )
         img.paste(scaled, (0, 0), scaled)
         return img
