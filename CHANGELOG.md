@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### New Features
+
+**Safe-zone preview guides**
+A new "Safe zones" control in the Layout card overlays TikTok, Reels, or Shorts UI margins on the video preview — dimmed bands plus a dashed caption-safe boundary — so you can see whether captions collide with platform chrome before rendering. Guides are preview-only and never appear in the rendered video. Resolution preset chips (9:16, 4:5, 16:9) were added to the custom render panel.
+
+**ASS export with karaoke word timing**
+A new .ASS export carries per-word `{\k}` karaoke timing and a default style into Premiere, Resolve, or ffmpeg/libass pipelines — word-level highlight timing without rendering a video.
+
+### Performance
+
+**2.4–5.5× faster subtitle rendering**
+The video renderer now caches frames whose content is fully determined by a discrete state (active group + per-word highlight state) and only re-renders inside animation windows. On a 60 s 1080×1920 clip at 30 fps, frame generation dropped from 11.5 s to 4.8 s with fade animation and from 11.1 s to 2.0 s without group animation, with byte-identical output verified per frame.
+
+### Bug Fixes
+
+**Pop animation crashed every render**
+Renders with the "pop" animation failed because Pillow's `Image.transform()` rejects the LANCZOS resampling filter. The pop branch now uses BICUBIC (the highest quality `transform()` supports).
+
+### Internal
+
+**Test & CI foundation**
+The project now has 44 frontend unit tests (groups, presets, render-config bridge), 51 backend tests including golden-frame parity tests for the renderer and a byte-exact frame-dedup equivalence suite, ESLint, and a GitHub Actions workflow running typecheck, tests, and lint on every push.
+
 ## v1.4.0
 
 ### New Features
