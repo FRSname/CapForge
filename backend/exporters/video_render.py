@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import subprocess
+from collections import OrderedDict
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -276,6 +277,11 @@ def _build_groups(result: TranscriptionResult, words_per_group: int) -> list[dic
 # Frame renderer
 # ---------------------------------------------------------------------------
 
+# Crossfade word-transition duration in seconds. Shared between the drawing
+# code (_draw_word_list) and the frame-dedup key (_frame_state_key) so the
+# cacheable/uncacheable windows always match the actual fade windows.
+_CROSSFADE_DUR = 0.06
+
 
 def _draw_rounded_rect(
     draw: ImageDraw.ImageDraw,
@@ -360,7 +366,7 @@ def _draw_word_list(
     active_color_base = _hex_to_rgba(config.active_word_color, anim_alpha)
     stroke_rgba = _hex_to_rgba(config.stroke_color, anim_alpha) if outline_sw > 0 else None
 
-    CROSSFADE_DUR      = 0.06
+    CROSSFADE_DUR      = _CROSSFADE_DUR
     bounce_strength    = getattr(config, "bounce_strength",       0.18)
     scale_factor       = getattr(config, "scale_factor",          1.25)
     highlight_radius   = getattr(config, "highlight_radius",      16)
@@ -863,6 +869,253 @@ def _render_frame(
 
 
 # ---------------------------------------------------------------------------
+# Frame dedup cache (Phase 3)
+#
+# Between animation windows and word-highlight changes, consecutive frames are
+# pixel-identical. _frame_state_key() maps (group, t) to a discrete state key;
+# frames sharing a key reuse the already-rendered bytes instead of re-running
+# the whole Pillow pipeline. Frames inside continuously-animating windows get
+# key=None and are always rendered directly (never cached).
+# ---------------------------------------------------------------------------
+
+# Max cached frames. Raw RGBA frames are W*H*4 bytes (~8 MB at 1080x1920), so
+# 32 entries cap memory at ~256 MB worst case. In practice only a handful of
+# keys are live at once because playback is sequential — old groups' entries
+# simply age out of the LRU.
+_FRAME_CACHE_MAX_ENTRIES = 32
+
+
+def _frame_state_key(
+    group_index: int,
+    group: dict,
+    t: float,
+    config: VideoRenderConfig,
+) -> Optional[tuple]:
+    """Return a hashable key that fully determines _render_frame()'s output.
+
+    Returns None when the frame falls inside a continuously-animating window
+    (group entry/exit animation, bounce/karaoke active word, crossfade ramp,
+    sliding highlight) — such frames must be rendered directly and never cached.
+
+    The group is identified by its index in the groups list (group dicts are
+    not hashable and could in principle repeat the same text). All config
+    fields are constant for the duration of one render, so they are not part
+    of the key.
+
+    This function must stay in lockstep with the time-dependencies of
+    _render_frame()/_draw_word_list(): if a new use of `current_time` is added
+    there, it must be reflected here (the equivalence test in
+    backend/tests/test_render_dedup.py catches divergence).
+    """
+    # --- group entry/exit animation window (fade / slide / pop) ---
+    animation = getattr(config, "animation", "none")
+    anim_dur = getattr(config, "animation_duration", 0.12)
+    if animation in ("fade", "slide", "pop") and anim_dur > 0:
+        age = t - group["start"]
+        remaining = group["end"] - t
+        # entry_t/exit_t saturate at exactly anim_dur (ease-out clamps), so
+        # frames at age >= anim_dur AND remaining >= anim_dur are steady.
+        if age < anim_dur or remaining < anim_dur:
+            return None
+
+    base_transition = getattr(config, "word_transition", "instant")
+    highlight_anim = getattr(config, "highlight_animation", "jump")
+
+    # --- per-word discrete state: Future / Active / Past ---
+    # This captures everything the steady-state draw reads from t:
+    # is_active (instant/highlight/underline/scale colour + pill position),
+    # is_past (karaoke), "already started" (reveal), crossfade plateau value.
+    states: list[str] = []
+    first_active = -1
+    for i, w in enumerate(group["words"]):
+        ov = w.get("overrides") or {}
+        w_trans = ov.get("word_transition") or base_transition
+        is_active = w["start"] <= t < w["end"]
+        if is_active:
+            if first_active < 0:
+                first_active = i
+            # These transitions interpolate continuously for the whole time
+            # the word is active (sin bounce / karaoke fill wipe).
+            if w_trans in ("bounce", "karaoke"):
+                return None
+        if w_trans == "crossfade":
+            # fade_in ramps over [start, start+DUR) — at exactly t==start the
+            # word is "active" but fade_in is still 0 (text colour), which
+            # differs from the plateau (fade_in==1), so it must stay uncached.
+            # fade_out ramps over (end-DUR, end); at t==end the word is already
+            # in the past state with the same colour as any later past frame.
+            if w["start"] <= t < w["start"] + _CROSSFADE_DUR:
+                return None
+            if w["end"] - _CROSSFADE_DUR < t < w["end"]:
+                return None
+        states.append("A" if is_active else ("P" if t >= w["end"] else "F"))
+
+    # --- sliding highlight pill: eases during the first 40% of the word ---
+    # (t_ease = 1-(1-clamp(raw_t*2.5))^2 saturates exactly at raw_t >= 0.4).
+    # Conservative: _draw_word_list computes active_idx per wrapped row, so a
+    # row-initial active word would not actually slide — we still mark it
+    # uncacheable, which only costs a direct render, never a wrong frame.
+    if first_active > 0:
+        aw = group["words"][first_active]
+        ov = aw.get("overrides") or {}
+        eff_trans = ov.get("word_transition") or base_transition
+        if eff_trans == "highlight" and highlight_anim == "slide":
+            word_dur = max(aw["end"] - aw["start"], 0.001)
+            if (t - aw["start"]) / word_dur * 2.5 < 1.0:
+                return None
+
+    return (group_index, tuple(states))
+
+
+class _FrameSource:
+    """Produces overlay frame bytes with frame-dedup caching.
+
+    Owns the frame→group mapping, the blank-frame fast path, and an LRU cache
+    of steady-state frames keyed by _frame_state_key(). Used by both
+    _render_overlay (batched, via a ThreadPool) and _render_baked (sequential),
+    and driven directly by the equivalence test so the exact production
+    key+cache logic is what gets verified.
+
+    Thread-safety: the cache is only read/written from the caller's thread;
+    worker threads only execute the pure render function.
+    """
+
+    def __init__(
+        self,
+        config: VideoRenderConfig,
+        font: ImageFont.FreeTypeFont,
+        groups: list[dict],
+        total_frames: int,
+    ) -> None:
+        self.config = config
+        self.font = font
+        self.groups = groups
+        # Pre-render the blank frame — reused for every frame with no active
+        # group (gaps between subtitle groups).
+        self.blank_bytes = _render_frame(config, font, None, 0.0).tobytes()
+        self._cache: OrderedDict[tuple, bytes] = OrderedDict()
+        # Stats (exposed for tests / benchmarks)
+        self.hits = 0
+        self.misses = 0
+        self.uncached_renders = 0
+        self.blank_frames = 0
+
+        # Pre-build frame→group-index lookup so workers don't need to search.
+        self.frame_group_indices: list[Optional[int]] = []
+        gi = 0
+        for fn in range(total_frames):
+            t = fn / config.fps
+            while gi < len(groups) and groups[gi]["end"] < t:
+                gi += 1
+            if gi < len(groups) and groups[gi]["start"] <= t:
+                self.frame_group_indices.append(gi)
+            else:
+                self.frame_group_indices.append(None)
+
+    # -- low-level helpers ---------------------------------------------------
+
+    def frame_key(self, fn: int) -> Optional[tuple]:
+        gi = self.frame_group_indices[fn]
+        if gi is None:
+            return None
+        return _frame_state_key(gi, self.groups[gi], fn / self.config.fps, self.config)
+
+    def render_frame_bytes(self, fn: int) -> bytes:
+        """Render frame `fn` from scratch (pure; safe to run in a worker)."""
+        gi = self.frame_group_indices[fn]
+        if gi is None:
+            return self.blank_bytes
+        t = fn / self.config.fps
+        return _render_frame(self.config, self.font, self.groups[gi], t).tobytes()
+
+    def _cache_get(self, key: tuple) -> Optional[bytes]:
+        data = self._cache.get(key)
+        if data is not None:
+            self._cache.move_to_end(key)
+        return data
+
+    def _cache_store(self, key: tuple, data: bytes) -> None:
+        self._cache[key] = data
+        self._cache.move_to_end(key)
+        while len(self._cache) > _FRAME_CACHE_MAX_ENTRIES:
+            self._cache.popitem(last=False)
+
+    # -- overlay path (batched, ThreadPool) -----------------------------------
+
+    def render_batch(self, pool, frame_range) -> dict[int, bytes]:
+        """Render a batch of frames, deduplicating identical ones.
+
+        Cache lookups happen before submitting to the pool; frames within the
+        batch that share a not-yet-rendered key piggyback on a single future.
+        Returns {frame_number: rgba_bytes} for every frame in `frame_range` —
+        the caller writes them to ffmpeg stdin strictly in order.
+        """
+        results: dict[int, bytes] = {}
+        submitted: dict[tuple, object] = {}  # key -> Future
+        waiters: list[tuple[int, Optional[tuple], object]] = []  # (fn, store_key, fut)
+
+        for fn in frame_range:
+            if self.frame_group_indices[fn] is None:
+                self.blank_frames += 1
+                results[fn] = self.blank_bytes
+                continue
+            key = self.frame_key(fn)
+            if key is None:
+                # Continuously-animating frame — render directly, never cache.
+                self.uncached_renders += 1
+                waiters.append((fn, None, pool.submit(self.render_frame_bytes, fn)))
+                continue
+            cached = self._cache_get(key)
+            if cached is not None:
+                self.hits += 1
+                results[fn] = cached
+                continue
+            in_flight = submitted.get(key)
+            if in_flight is not None:
+                # Same state already rendering in this batch — share the result.
+                self.hits += 1
+                waiters.append((fn, None, in_flight))
+                continue
+            self.misses += 1
+            fut = pool.submit(self.render_frame_bytes, fn)
+            submitted[key] = fut
+            waiters.append((fn, key, fut))
+
+        for fn, store_key, fut in waiters:
+            _check_cancel()
+            data = fut.result()
+            results[fn] = data
+            if store_key is not None:
+                self._cache_store(store_key, data)
+        return results
+
+    # -- baked path (sequential) ----------------------------------------------
+
+    def overlay_image(self, fn: int) -> Optional[Image.Image]:
+        """Return the overlay frame as an RGBA image, or None for blank frames."""
+        gi = self.frame_group_indices[fn]
+        if gi is None:
+            self.blank_frames += 1
+            return None
+        key = self.frame_key(fn)
+        if key is None:
+            self.uncached_renders += 1
+            t = fn / self.config.fps
+            return _render_frame(self.config, self.font, self.groups[gi], t)
+        data = self._cache_get(key)
+        if data is not None:
+            self.hits += 1
+        else:
+            self.misses += 1
+            data = self.render_frame_bytes(fn)
+            self._cache_store(key, data)
+        # frombytes is a plain buffer copy — far cheaper than re-rendering.
+        return Image.frombytes(
+            "RGBA", (self.config.resolution_w, self.config.resolution_h), data
+        )
+
+
+# ---------------------------------------------------------------------------
 # Video encoder
 # ---------------------------------------------------------------------------
 
@@ -1028,19 +1281,11 @@ def _render_overlay(
     report("Rendering frames…", 5)
 
     import os
-    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from concurrent.futures import ThreadPoolExecutor
 
-    # Pre-build a frame→group lookup list so worker threads don't need to search
-    frame_groups: list[Optional[dict]] = []
-    gi = 0
-    for fn in range(total_frames):
-        t = fn / config.fps
-        while gi < len(groups) and groups[gi]["end"] < t:
-            gi += 1
-        if gi < len(groups) and groups[gi]["start"] <= t:
-            frame_groups.append(groups[gi])
-        else:
-            frame_groups.append(None)
+    # Frame source: owns the frame→group lookup, blank-frame fast path and the
+    # frame-dedup LRU cache (see _FrameSource / _frame_state_key above).
+    source = _FrameSource(config, font, groups, total_frames)
 
     # Number of parallel workers: use half the CPU cores (Pillow is CPU-bound
     # but also does GIL-releasing work via libjpeg/zlib; 4 workers typically
@@ -1049,31 +1294,13 @@ def _render_overlay(
     BATCH = n_workers * 4  # frames per batch submitted to the pool
     report_interval = max(1, total_frames // 50)
 
-    # Pre-render the blank frame — reused for every frame with no active group.
-    # This avoids re-rendering a transparent RGBA image thousands of times
-    # during gaps between subtitle groups.
-    blank_bytes = _render_frame(config, font, None, 0.0).tobytes()
-
-    def _render_one(fn: int) -> tuple[int, bytes]:
-        if frame_groups[fn] is None:
-            return fn, blank_bytes
-        t = fn / config.fps
-        img = _render_frame(config, font, frame_groups[fn], t)
-        return fn, img.tobytes()
-
     try:
         with ThreadPoolExecutor(max_workers=n_workers) as pool:
             frame_num = 0
             while frame_num < total_frames:
                 _check_cancel()
                 batch_end = min(frame_num + BATCH, total_frames)
-                futures = {pool.submit(_render_one, fn): fn for fn in range(frame_num, batch_end)}
-                # Collect results in order
-                results: dict[int, bytes] = {}
-                for fut in as_completed(futures):
-                    _check_cancel()
-                    fn, raw = fut.result()
-                    results[fn] = raw
+                results = source.render_batch(pool, range(frame_num, batch_end))
                 for fn in range(frame_num, batch_end):
                     proc.stdin.write(results[fn])
                     if fn % report_interval == 0:
@@ -1082,6 +1309,10 @@ def _render_overlay(
                 frame_num = batch_end
 
         proc.stdin.close()
+        logger.info(
+            "Frame dedup stats: %d cache hits, %d misses, %d uncached (animating), %d blank",
+            source.hits, source.misses, source.uncached_renders, source.blank_frames,
+        )
         report("Encoding video (finalizing)…", 96, JobStatus.ENCODING)
         proc.wait(timeout=1800)
         stderr_thread.join(timeout=5)
@@ -1232,8 +1463,11 @@ def _render_baked(
     report("Compositing subtitles onto video…", 5)
 
     frame_size = out_w * out_h * 3  # rgb24
-    group_idx = 0
     report_interval = max(1, total_frames // 50)
+
+    # Frame source with dedup cache — identical overlay frames (between word
+    # highlight changes / outside animation windows) are rendered once.
+    source = _FrameSource(config, font, groups, total_frames)
 
     try:
         for frame_num in range(total_frames):
@@ -1243,22 +1477,12 @@ def _render_baked(
                 # Source video ended before expected duration
                 break
 
-            t = frame_num / fps
-
-            # Find active subtitle group
-            while group_idx < len(groups) and groups[group_idx]["end"] < t:
-                group_idx += 1
-
-            active_group = None
-            if group_idx < len(groups) and groups[group_idx]["start"] <= t:
-                active_group = groups[group_idx]
-
             # Build source frame as PIL image
             src_frame = Image.frombytes("RGB", (out_w, out_h), raw)
 
-            if active_group is not None:
-                # Render subtitle overlay (RGBA) at target resolution
-                sub_frame = _render_frame(config, font, active_group, t)
+            # Subtitle overlay (RGBA, cached) — None during gaps
+            sub_frame = source.overlay_image(frame_num)
+            if sub_frame is not None:
                 # Composite: paste subtitle on source using alpha
                 src_frame.paste(sub_frame, (0, 0), sub_frame)
 
@@ -1274,6 +1498,10 @@ def _render_baked(
 
         decode_proc.stdout.close()
         encode_proc.stdin.close()
+        logger.info(
+            "Frame dedup stats: %d cache hits, %d misses, %d uncached (animating), %d blank",
+            source.hits, source.misses, source.uncached_renders, source.blank_frames,
+        )
         report("Encoding video (finalizing)…", 96, JobStatus.ENCODING)
         decode_proc.wait(timeout=60)
         encode_proc.wait(timeout=1800)
