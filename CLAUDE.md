@@ -65,6 +65,7 @@ The Canvas preview (`useSubtitleOverlay.ts`) and the Python renderer (`video_ren
 - Both use the same formulas for row gap, background box sizing, word positioning, and animation curves
 - Shared magic numbers live in `lib/renderConstants.ts` — the backend receives them via the render config, so they stay synced automatically
 - When changing any rendering formula (word positioning, background box sizing, animation curves, word-wrap), both renderers must be updated in lockstep
+- **Golden-frame tests**: `backend/tests/test_render_golden.py` pins `_render_frame()` pixel output against PNGs in `backend/tests/golden/` (tolerance-based diff). Regenerate after an intentional formula change with `.venv-dev/bin/python -m backend.tests.gen_golden`, then review the PNGs visually before committing — they define what "correct" looks like.
 
 ### TypeScript Config
 

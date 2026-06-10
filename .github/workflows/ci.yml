@@ -39,9 +39,11 @@ jobs:
           python-version: '3.12'
 
       - name: Install test dependencies
-        # Exporter tests only need pydantic — whisperx/torch from
+        # Exporter tests only need pydantic + pillow — whisperx/torch from
         # backend/requirements.txt are not required (and far too heavy for CI).
-        run: pip install pytest pydantic
+        # Pillow is pinned so golden-frame rasterization matches the goldens
+        # generated locally (.venv-dev also has 12.2.0).
+        run: pip install pytest pydantic pillow==12.2.0
 
       - name: Run pytest
         run: python -m pytest
