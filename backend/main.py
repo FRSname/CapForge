@@ -16,6 +16,7 @@ from fastapi.responses import FileResponse
 from backend.engine.errors import explain
 from backend.engine.hardware import detect_hardware
 from backend.engine.transcriber import Transcriber, TranscriptionCancelled
+from backend.exporters.ass_export import export_ass
 from backend.exporters.json_export import export_json
 from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
@@ -385,6 +386,7 @@ EXPORTERS = {
     ExportFormat.SRT_STANDARD: (export_srt_standard, ".srt"),
     ExportFormat.JSON: (export_json, ".json"),
     ExportFormat.VTT: (export_vtt, ".vtt"),
+    ExportFormat.ASS: (export_ass, ".ass"),
     ExportFormat.SUBFORGE: (export_subforge, ".capforge"),
 }
 

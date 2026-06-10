@@ -48,6 +48,7 @@ class ExportFormat(str, Enum):
     SRT_STANDARD = "srt_standard"
     JSON = "json"
     VTT = "vtt"
+    ASS = "ass"
     SUBFORGE = "subforge"
 
 
