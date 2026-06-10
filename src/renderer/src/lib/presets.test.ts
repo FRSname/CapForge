@@ -12,33 +12,34 @@ describe('studioToVanilla → vanillaToStudio round-trip', () => {
   test('preserves all style fields the vanilla schema can represent', () => {
     const settings: StudioSettings = {
       ...STUDIO_DEFAULTS,
-      fontName:      'Inter',
-      fontPath:      '/fonts/Inter-Bold.ttf',
-      fontSize:      96,
-      fontWeight:    700,
-      textColor:     '#112233',
-      outlineColor:  '#445566',
-      outlineWidth:  3,
-      bgColor:       '#778899',
-      activeColor:   '#AABBCC',
-      bgOpacity:     42,
-      bgRadius:      7,
-      bgWidthExtra:  5,
+      fontName: 'Inter',
+      fontPath: '/fonts/Inter-Bold.ttf',
+      fontSize: 96,
+      fontWeight: 700,
+      textColor: '#112233',
+      outlineColor: '#445566',
+      outlineWidth: 3,
+      bgColor: '#778899',
+      activeColor: '#AABBCC',
+      bgOpacity: 42,
+      bgRadius: 7,
+      bgWidthExtra: 5,
       bgHeightExtra: -4,
-      textOffsetX:   2,
-      textOffsetY:   -3,
-      textAlignH:    'left',
-      textAlignV:    'top',
+      textOffsetX: 2,
+      textOffsetY: -3,
+      textAlignH: 'left',
+      textAlignV: 'top',
       wordsPerGroup: 5,
-      lines:         2,
-      posX:          25,
-      posY:          75,
+      lines: 2,
+      posX: 25,
+      posY: 75,
       animationType: 'pop',
-      animDuration:  20,
-      wordStyle:     'bounce',
-      format:        'mp4',
-      renderMode:    'baked',
-      bitrate:       '15M',
+      animDuration: 20,
+      wordStyle: 'bounce',
+      format: 'mp4',
+      renderMode: 'baked',
+      bitrate: '15M',
+      safeZone: 'tiktok',
     }
 
     const restored = applyPreset(STUDIO_DEFAULTS, studioToVanilla(settings))
@@ -70,6 +71,12 @@ describe('studioToVanilla → vanillaToStudio round-trip', () => {
     expect(restored.format).toBe('mp4')
     expect(restored.renderMode).toBe('baked')
     expect(restored.bitrate).toBe('15M')
+    expect(restored.safeZone).toBe('tiktok')
+  })
+
+  test('invalid safeZone values are dropped rather than passed through', () => {
+    expect(vanillaToStudio({ safeZone: 'myspace' }).safeZone).toBeUndefined()
+    expect(vanillaToStudio({ safeZone: 'reels' }).safeZone).toBe('reels')
   })
 
   test('bold flag maps fontWeight 700 ↔ true, sub-700 ↔ false', () => {
@@ -95,7 +102,7 @@ describe('vanillaToStudio', () => {
     const patch = vanillaToStudio({
       textAlignH: 'diagonal',
       textAlignV: 'sideways',
-      format:     'avi',
+      format: 'avi',
       renderMode: 'holographic',
       resolution: 'huge',
     } as VanillaPreset)

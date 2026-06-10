@@ -13,6 +13,7 @@ import { useWaveSurfer } from '../../hooks/useWaveSurfer'
 import { useTimeline, TIMELINE_HEIGHT } from '../../hooks/useTimeline'
 import { useSubtitleOverlay } from '../../hooks/useSubtitleOverlay'
 import { useVideoZoom } from '../../hooks/useVideoZoom'
+import { SafeZoneOverlay } from './SafeZoneOverlay'
 import type { Segment } from '../../types/app'
 import type { StudioSettings } from '../studio/StudioPanel'
 
@@ -35,20 +36,37 @@ interface AudioPlayerProps {
   /** When set, AudioPlayer immediately seeks to this time then calls onSeek(). */
   seekTo?: number | null
   /** Called when user drags a subtitle block edge or body in the timeline. */
-  onSegmentEdge?: (segId: string, edge: 'start' | 'end' | 'body', newVal: number | SegmentBodyMove) => void
+  onSegmentEdge?: (
+    segId: string,
+    edge: 'start' | 'end' | 'body',
+    newVal: number | SegmentBodyMove
+  ) => void
   /** Called once when the drag begins (before any movement). */
   onSegmentEdgeDragStart?: (segId: string, edge: 'start' | 'end' | 'body') => void
 }
 
-export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer({ audioPath, segments, settings, resolution = [1920, 1080], onTimeUpdate, onSeek, seekTo, onSegmentEdge, onSegmentEdgeDragStart }, ref) {
+export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer(
+  {
+    audioPath,
+    segments,
+    settings,
+    resolution = [1920, 1080],
+    onTimeUpdate,
+    onSeek,
+    seekTo,
+    onSegmentEdge,
+    onSegmentEdgeDragStart,
+  },
+  ref
+) {
   const isVideo = VIDEO_EXTS.test(audioPath)
   const audioUrl = api.audioUrl(audioPath)
 
   // DOM refs
-  const videoRef      = useRef<HTMLVideoElement>(null)
-  const waveformRef   = useRef<HTMLDivElement>(null)
-  const canvasRef     = useRef<HTMLCanvasElement>(null)
-  const overlayRef    = useRef<HTMLCanvasElement>(null)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  const waveformRef = useRef<HTMLDivElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+  const overlayRef = useRef<HTMLCanvasElement>(null)
   const previewAreaRef = useRef<HTMLDivElement>(null)
 
   const [zoom, setZoomState] = useState(1)
@@ -74,22 +92,33 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   // Stable ref so the WaveSurfer onTimeUpdate callback always calls the latest
   // timelineDraw without capturing a stale closure (timelineDraw closes over
   // `duration` which is 0 before WaveSurfer fires 'ready', causing early return).
-  const timelineDrawRef  = useRef<((t: number) => void) | undefined>(undefined)
-  const currentTimeRef   = useRef(0)
+  const timelineDrawRef = useRef<((t: number) => void) | undefined>(undefined)
+  const currentTimeRef = useRef(0)
   // Stable ref for the waveform→timeline scroll sync callback (setTlScroll not yet defined here).
   const tlScrollSyncRef = useRef<((visibleStartTime: number) => void) | null>(null)
 
   // ── WaveSurfer ──────────────────────────────────────────────────
-  const { playing, currentTime, duration, ready, playPause, seekTo: wsSeekTo, wsRef } = useWaveSurfer({
+  const {
+    playing,
+    currentTime,
+    duration,
+    ready,
+    playPause,
+    seekTo: wsSeekTo,
+    wsRef,
+  } = useWaveSurfer({
     containerRef: waveformRef as React.RefObject<HTMLElement>,
-    videoEl:  isVideo ? videoRef.current : undefined,
+    videoEl: isVideo ? videoRef.current : undefined,
     audioUrl: isVideo ? undefined : audioUrl,
-    onTimeUpdate: useCallback((t: number) => {
-      currentTimeRef.current = t
-      onTimeUpdate?.(t)
-      timelineDrawRef.current?.(t)
-      overlayDraw(t)
-    }, [overlayDraw]),
+    onTimeUpdate: useCallback(
+      (t: number) => {
+        currentTimeRef.current = t
+        onTimeUpdate?.(t)
+        timelineDrawRef.current?.(t)
+        overlayDraw(t)
+      },
+      [overlayDraw]
+    ),
     onSeek: useCallback(() => onSeek?.(), [onSeek]),
     onScroll: useCallback((visibleStartTime: number) => {
       tlScrollSyncRef.current?.(visibleStartTime)
@@ -97,15 +126,19 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   })
 
   // ── Imperative handle for keyboard shortcuts ─────────────────
-  useImperativeHandle(ref, () => ({
-    seekRelative: (dt: number) => {
-      const t = Math.max(0, Math.min(currentTime + dt, duration || Infinity))
-      wsSeekTo(t)
-    },
-    seekToTime: (t: number) => wsSeekTo(t),
-    playPause,
-    getDuration: () => duration,
-  }), [currentTime, duration, wsSeekTo, playPause])
+  useImperativeHandle(
+    ref,
+    () => ({
+      seekRelative: (dt: number) => {
+        const t = Math.max(0, Math.min(currentTime + dt, duration || Infinity))
+        wsSeekTo(t)
+      },
+      seekToTime: (t: number) => wsSeekTo(t),
+      playPause,
+      getDuration: () => duration,
+    }),
+    [currentTime, duration, wsSeekTo, playPause]
+  )
 
   // Respond to external seekTo prop (driven by SubtitleEditor word click)
   useEffect(() => {
@@ -129,7 +162,15 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   }
 
   // ── Timeline ────────────────────────────────────────────────────
-  const { draw: timelineDraw, onMouseDown, onMouseMove, onMouseUp, onMouseLeave: onCanvasLeave, setZoom: setTlZoom, setScroll: setTlScroll } = useTimeline({
+  const {
+    draw: timelineDraw,
+    onMouseDown,
+    onMouseMove,
+    onMouseUp,
+    onMouseLeave: onCanvasLeave,
+    setZoom: setTlZoom,
+    setScroll: setTlScroll,
+  } = useTimeline({
     canvasRef,
     segments,
     duration,
@@ -140,7 +181,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onHover: useCallback((segId, time, x, y) => {
       setHoverState(segId !== null || time > 0 ? { segId, time, x, y } : null)
     }, []),
-    onZoomChange:  (z, s) => syncWaveformRef.current(z, s),
+    onZoomChange: (z, s) => syncWaveformRef.current(z, s),
     onScrollChange: (s, z) => syncWaveformRef.current(z, s),
   })
   // Keep refs current every render so WaveSurfer callbacks are never stale.
@@ -152,7 +193,10 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
 
   // Initial draw when ready
   useEffect(() => {
-    if (ready) { timelineDraw(0); overlayDraw(0) }
+    if (ready) {
+      timelineDraw(0)
+      overlayDraw(0)
+    }
   }, [ready, segments, overlayDraw, timelineDraw])
 
   // Reset waveform zoom once when media first becomes ready (separate from segment changes)
@@ -173,7 +217,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   function handleZoomIn() {
     const next = Math.min(zoom * 1.5, 200)
     setZoomState(next)
-    setTlZoom(next)  // setTlZoom now calls onZoomChange which triggers syncWaveform
+    setTlZoom(next) // setTlZoom now calls onZoomChange which triggers syncWaveform
     timelineDraw(currentTime)
   }
   function handleZoomOut() {
@@ -193,50 +237,80 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (document.activeElement as HTMLElement)?.tagName
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || (document.activeElement as HTMLElement)?.isContentEditable) return
+      if (
+        tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        (document.activeElement as HTMLElement)?.isContentEditable
+      )
+        return
 
-      if (e.key === '=' || e.key === '+') { e.preventDefault(); handleZoomIn() }
-      else if (e.key === '-') { e.preventDefault(); handleZoomOut() }
-      else if (e.key === '0') { e.preventDefault(); handleZoomReset() }
-      else if (e.key === ',') { e.preventDefault(); wsSeekTo(Math.max(0, currentTime - 0.1)) }
-      else if (e.key === '.') { e.preventDefault(); wsSeekTo(Math.min(duration, currentTime + 0.1)) }
-      else if (e.key === '[') {
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault()
+        handleZoomIn()
+      } else if (e.key === '-') {
+        e.preventDefault()
+        handleZoomOut()
+      } else if (e.key === '0') {
+        e.preventDefault()
+        handleZoomReset()
+      } else if (e.key === ',') {
+        e.preventDefault()
+        wsSeekTo(Math.max(0, currentTime - 0.1))
+      } else if (e.key === '.') {
+        e.preventDefault()
+        wsSeekTo(Math.min(duration, currentTime + 0.1))
+      } else if (e.key === '[') {
         // Jump to start of containing or previous segment
         e.preventDefault()
-        const prev = [...segments].reverse().find(s => s.start < currentTime - 0.05)
+        const prev = [...segments].reverse().find((s) => s.start < currentTime - 0.05)
         wsSeekTo(prev ? prev.start : 0)
       } else if (e.key === ']') {
         // Jump to start of next segment
         e.preventDefault()
-        const next = segments.find(s => s.start > currentTime + 0.05)
+        const next = segments.find((s) => s.start > currentTime + 0.05)
         if (next) wsSeekTo(next.start)
       }
     }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime, duration, segments, zoom])
 
   return (
     <div className="flex flex-col border-b border-[var(--color-border)] bg-[var(--color-surface)] select-none">
-
       {/* ── Video / audio preview area ──────────────────────────── */}
       <div className="relative flex-1 min-h-0">
         {/* Video zoom toolbar */}
-        <div className="absolute top-1 right-1 z-10 flex items-center gap-1 rounded px-1.5 py-0.5" style={{ background: 'var(--color-surface)' }}>
-          <span className="text-[10px] mr-1 hidden sm:block" style={{ color: 'var(--color-text-3)' }}>Ctrl+Wheel: zoom · Dbl-click: toggle</span>
-          <button className="tl-btn" onClick={vz.zoomOut}>−</button>
-          <span className="text-[10px] w-10 text-center" style={{ color: 'var(--color-text-2)' }}>{Math.round(vz.zoom * 100)}%</span>
-          <button className="tl-btn" onClick={vz.zoomIn}>+</button>
-          <button className="tl-btn" onClick={vz.zoomReset}>Reset</button>
+        <div
+          className="absolute top-1 right-1 z-10 flex items-center gap-1 rounded px-1.5 py-0.5"
+          style={{ background: 'var(--color-surface)' }}
+        >
+          <span
+            className="text-[10px] mr-1 hidden sm:block"
+            style={{ color: 'var(--color-text-3)' }}
+          >
+            Ctrl+Wheel: zoom · Dbl-click: toggle
+          </span>
+          <button className="tl-btn" onClick={vz.zoomOut}>
+            −
+          </button>
+          <span className="text-[10px] w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
+            {Math.round(vz.zoom * 100)}%
+          </span>
+          <button className="tl-btn" onClick={vz.zoomIn}>
+            +
+          </button>
+          <button className="tl-btn" onClick={vz.zoomReset}>
+            Reset
+          </button>
         </div>
 
         {isVideo ? (
           <div
             ref={(el) => {
               // Assign to both refs — previewAreaRef for overlay, wrapRef for zoom
-              (previewAreaRef as React.MutableRefObject<HTMLDivElement | null>).current = el;
-              (vz.wrapRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+              ;(previewAreaRef as React.MutableRefObject<HTMLDivElement | null>).current = el
+              ;(vz.wrapRef as React.MutableRefObject<HTMLDivElement | null>).current = el
             }}
             className="relative w-full mx-auto overflow-hidden"
             style={{
@@ -249,7 +323,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
                 : {
                     aspectRatio: `${resolution[0]} / ${resolution[1]}`,
                     maxHeight: '55vh',
-                    maxWidth:  `calc(55vh * ${resolution[0] / resolution[1]})`,
+                    maxWidth: `calc(55vh * ${resolution[0] / resolution[1]})`,
                   }),
               cursor: vz.isZoomed ? 'grab' : 'default',
             }}
@@ -259,15 +333,11 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
               className="relative w-full h-full"
               style={{ transform: vz.transform, transformOrigin: '0 0', transition: 'none' }}
             >
-              <video
-                ref={videoRef}
-                src={audioUrl}
-                className="w-full h-full object-contain"
-              />
-              <canvas
-                ref={overlayRef}
-                className="absolute inset-0 pointer-events-none"
-              />
+              <video ref={videoRef} src={audioUrl} className="w-full h-full object-contain" />
+              <canvas ref={overlayRef} className="absolute inset-0 pointer-events-none" />
+              {/* Preview-only platform safe-zone guides — separate layer, never
+                  drawn by useSubtitleOverlay (parity harness unaffected). */}
+              <SafeZoneOverlay platform={settings.safeZone ?? 'off'} />
             </div>
           </div>
         ) : (
@@ -279,26 +349,33 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
               // at the correct aspect ratio against a neutral backdrop.
               aspectRatio: `${resolution[0]} / ${resolution[1]}`,
               maxHeight: '40vh',
-              maxWidth:  `calc(40vh * ${resolution[0] / resolution[1]})`,
+              maxWidth: `calc(40vh * ${resolution[0] / resolution[1]})`,
             }}
           >
             <span className="text-xs text-white/20">Audio only</span>
             {/* Subtitle overlay canvas for audio-only mode */}
-            <canvas
-              ref={overlayRef}
-              className="absolute inset-0 pointer-events-none"
-            />
+            <canvas ref={overlayRef} className="absolute inset-0 pointer-events-none" />
           </div>
         )}
       </div>
 
       {/* ── Timeline zoom toolbar ───────────────────────────────── */}
       <div className="flex items-center gap-1 px-2 py-1 border-t border-[var(--color-border)]">
-        <span className="text-[10px] flex-1" style={{ color: 'var(--color-text-3)' }}>Ctrl+Wheel: zoom · Wheel: pan</span>
-        <button className="tl-btn" title="Zoom out" onClick={handleZoomOut}>−</button>
-        <span className="text-[10px] w-10 text-center" style={{ color: 'var(--color-text-2)' }}>{zoomLabel}</span>
-        <button className="tl-btn" title="Zoom in"  onClick={handleZoomIn}>+</button>
-        <button className="tl-btn" title="Fit"      onClick={handleZoomReset}>Fit</button>
+        <span className="text-[10px] flex-1" style={{ color: 'var(--color-text-3)' }}>
+          Ctrl+Wheel: zoom · Wheel: pan
+        </span>
+        <button className="tl-btn" title="Zoom out" onClick={handleZoomOut}>
+          −
+        </button>
+        <span className="text-[10px] w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
+          {zoomLabel}
+        </span>
+        <button className="tl-btn" title="Zoom in" onClick={handleZoomIn}>
+          +
+        </button>
+        <button className="tl-btn" title="Fit" onClick={handleZoomReset}>
+          Fit
+        </button>
       </div>
 
       {/* ── Canvas timeline ─────────────────────────────────────── */}
@@ -310,7 +387,10 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
-          onMouseLeave={() => { onCanvasLeave(); setHoverState(null) }}
+          onMouseLeave={() => {
+            onCanvasLeave()
+            setHoverState(null)
+          }}
         />
         {/* Phase 2: Hover tooltip */}
         {hoverState && (
@@ -318,16 +398,15 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
             className="pointer-events-none fixed z-50 rounded px-2 py-1 text-xs max-w-xs truncate shadow-lg"
             style={{
               left: hoverState.x + 12,
-              top:  hoverState.y - 36,
+              top: hoverState.y - 36,
               background: 'var(--color-bg)',
               color: 'var(--color-text)',
               border: '1px solid var(--color-border-2)',
             }}
           >
             {hoverState.segId
-              ? (segments.find(s => s.id === hoverState.segId)?.text ?? '')
-              : formatTime(hoverState.time)
-            }
+              ? (segments.find((s) => s.id === hoverState.segId)?.text ?? '')
+              : formatTime(hoverState.time)}
           </div>
         )}
       </div>
