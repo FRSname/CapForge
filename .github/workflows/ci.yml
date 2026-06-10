@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  frontend:
+    name: Typecheck, test, lint (renderer)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests (vitest)
+        run: npm run test
+
+      - name: Lint
+        run: npm run lint
+
+  backend:
+    name: Backend tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        # Exporter tests only need pydantic — whisperx/torch from
+        # backend/requirements.txt are not required (and far too heavy for CI).
+        run: pip install pytest pydantic
+
+      - name: Run pytest
+        run: python -m pytest

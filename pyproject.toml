@@ -1,0 +1,4 @@
+[tool.pytest.ini_options]
+# Exporter tests import `backend.*` — run pytest from the repo root.
+pythonpath = ["."]
+testpaths = ["backend/tests"]

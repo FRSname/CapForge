@@ -7,6 +7,7 @@ dist/
 build/
 *.egg
 .venv/
+.venv-dev/
 venv/
 whisperx/
 

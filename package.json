@@ -15,6 +15,8 @@
     "dev:react": "electron-vite dev",
     "build:react": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.web.json",
+    "test": "vitest run",
+    "lint": "eslint src",
     "backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 53421",
     "dist": "npm run build:react && electron-builder",
     "dist:win": "npm run build:react && electron-builder --win",
@@ -24,6 +26,7 @@
   },
   "devDependencies": {
     "@electron/notarize": "^3.1.1",
+    "@eslint/js": "^10.0.1",
     "@tailwindcss/vite": "^4.2.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -32,11 +35,17 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.1.8",
     "electron-vite": "^5.0.0",
+    "eslint": "^10.4.1",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "prettier": "^3.8.4",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tailwindcss": "^4.2.2",
     "typescript": "^6.0.2",
-    "vite": "^7.0.0"
+    "typescript-eslint": "^8.61.0",
+    "vite": "^7.0.0",
+    "vitest": "^4.1.8"
   },
   "dependencies": {
     "lottie-web": "^5.13.0",
