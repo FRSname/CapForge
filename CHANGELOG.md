@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## CapForge v1.5.0
 
 ### New Features
 

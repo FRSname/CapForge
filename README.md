@@ -10,8 +10,8 @@ A standalone desktop app built with **Electron + React + TypeScript** on top of 
 
 | Platform | Installer |
 |----------|-----------|
-| **Windows** | [CapForge-Setup-1.4.0.exe](https://github.com/FRSname/CapForge/releases/download/v1.4.0/CapForge-Setup-1.4.0.exe) |
-| **macOS** | [CapForge-1.4.0.dmg](https://github.com/FRSname/CapForge/releases/download/v1.4.0/CapForge-1.4.0.dmg) |
+| **Windows** | [CapForge-Setup-1.4.0.exe](https://github.com/FRSname/CapForge/releases/download/v1.5.0/CapForge-Setup-1.5.0.exe) |
+| **macOS** | [CapForge-1.4.0.dmg](https://github.com/FRSname/CapForge/releases/download/v1.5.0/CapForge-1.5.0.dmg) |
 
 See the [changelog](CHANGELOG.md) for what's new in each version, or [all releases](https://github.com/FRSname/CapForge/releases) for older builds.
 
