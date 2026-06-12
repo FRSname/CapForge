@@ -381,7 +381,7 @@ export function WordStylePopup({
 function SubSettings({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5 pt-1.5 border-t border-[var(--color-border)]">
-      <div className="text-[10px] uppercase tracking-wide text-[var(--color-text-3)]">
+      <div className="text-2xs uppercase tracking-wide text-[var(--color-text-3)]">
         {title}
       </div>
       {children}

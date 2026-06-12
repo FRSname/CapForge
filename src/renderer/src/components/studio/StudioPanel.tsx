@@ -483,7 +483,7 @@ export function StudioPanel({
           />
 
           <div className="divider" />
-          <span className="text-[10px] text-[var(--color-text-3)] uppercase tracking-wider">
+          <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
             Text in BG box
           </span>
 
@@ -578,7 +578,7 @@ export function StudioPanel({
           {s.wordStyle === 'highlight' && (
             <>
               <div className="divider" />
-              <span className="text-[10px] text-[var(--color-text-3)] uppercase tracking-wider">
+              <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
                 Highlight Options
               </span>
               <ColorSwatch
@@ -641,7 +641,7 @@ export function StudioPanel({
           {s.wordStyle === 'underline' && (
             <>
               <div className="divider" />
-              <span className="text-[10px] text-[var(--color-text-3)] uppercase tracking-wider">
+              <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
                 Underline Options
               </span>
               <StudioRow
@@ -682,7 +682,7 @@ export function StudioPanel({
           {s.wordStyle === 'bounce' && (
             <>
               <div className="divider" />
-              <span className="text-[10px] text-[var(--color-text-3)] uppercase tracking-wider">
+              <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
                 Bounce Options
               </span>
               <StudioRow
@@ -700,7 +700,7 @@ export function StudioPanel({
           {s.wordStyle === 'scale' && (
             <>
               <div className="divider" />
-              <span className="text-[10px] text-[var(--color-text-3)] uppercase tracking-wider">
+              <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
                 Scale Options
               </span>
               <StudioRow

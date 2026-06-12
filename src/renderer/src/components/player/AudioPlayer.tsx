@@ -286,7 +286,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
           style={{ background: 'var(--color-surface)' }}
         >
           <span
-            className="text-[10px] mr-1 hidden sm:block"
+            className="text-2xs mr-1 hidden sm:block"
             style={{ color: 'var(--color-text-3)' }}
           >
             Ctrl+Wheel: zoom · Dbl-click: toggle
@@ -294,7 +294,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
           <button className="tl-btn" onClick={vz.zoomOut}>
             −
           </button>
-          <span className="text-[10px] w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
+          <span className="text-2xs w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
             {Math.round(vz.zoom * 100)}%
           </span>
           <button className="tl-btn" onClick={vz.zoomIn}>
@@ -363,13 +363,13 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
 
       {/* ── Timeline zoom toolbar ───────────────────────────────── */}
       <div className="flex items-center gap-1 px-2 py-1 border-t border-[var(--color-border)]">
-        <span className="text-[10px] flex-1" style={{ color: 'var(--color-text-3)' }}>
+        <span className="text-2xs flex-1" style={{ color: 'var(--color-text-3)' }}>
           Ctrl+Wheel: zoom · Wheel: pan
         </span>
         <button className="tl-btn" title="Zoom out" onClick={handleZoomOut}>
           −
         </button>
-        <span className="text-[10px] w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
+        <span className="text-2xs w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
           {zoomLabel}
         </span>
         <button className="tl-btn" title="Zoom in" onClick={handleZoomIn}>

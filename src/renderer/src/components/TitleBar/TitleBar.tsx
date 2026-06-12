@@ -52,8 +52,12 @@ export function TitleBar({
           draggable={false}
         />
         <span
-          className="text-[13px] text-[var(--color-text)]"
-          style={{ fontWeight: 800, letterSpacing: '-0.035em' }}
+          className="text-base text-[var(--color-text)]"
+          style={{
+            fontFamily: 'var(--cf-font-display)',
+            fontStyle: 'italic',
+            letterSpacing: '0.01em',
+          }}
         >
           Cap<span style={{ color: 'var(--color-brand)' }}>Forge</span>
         </span>
@@ -121,7 +125,7 @@ export function TitleBar({
             </IconButton>
             {autosavedLabel && (
               <span
-                className="text-[10px] text-[var(--color-text-3)] tabular-nums mr-1 select-none"
+                className="text-2xs text-[var(--color-text-3)] tabular-nums mr-1 select-none"
                 title="Autosaved for crash recovery"
               >
                 {autosavedLabel}

@@ -109,7 +109,7 @@ export function CustomRenderPanel({
                     resolutionIsSource: false,
                   })
                 }
-                className={`flex-1 min-w-0 truncate text-[10px] py-1 px-1 rounded-md border transition-colors ${
+                className={`flex-1 min-w-0 truncate text-2xs py-1 px-1 rounded-md border transition-colors ${
                   active
                     ? 'bg-[var(--color-accent)] text-white border-transparent'
                     : 'bg-[var(--color-surface-2)] text-[var(--color-text-2)] border-[var(--color-border)] hover:bg-[var(--color-surface-3)]'
@@ -183,7 +183,7 @@ export function CustomRenderPanel({
       >
         Render with current settings
       </Button>
-      <p className="text-[10px] text-[var(--color-text-3)] text-center">
+      <p className="text-2xs text-[var(--color-text-3)] text-center">
         {s.resolution[0]}×{s.resolution[1]} · {s.fps}fps · {s.format.toUpperCase()} · {s.renderMode}
       </p>
     </StudioCard>

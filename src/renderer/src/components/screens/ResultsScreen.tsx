@@ -344,7 +344,7 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
           <TabButton active={view === 'groups'} onClick={() => setView('groups')}>
             Groups
           </TabButton>
-          <span className="text-[10px] text-[var(--color-text-3)] ml-auto">
+          <span className="text-2xs text-[var(--color-text-3)] ml-auto">
             {view === 'text'
               ? `${segments.length} segment${segments.length === 1 ? '' : 's'}`
               : `${groups.length} group${groups.length === 1 ? '' : 's'}`}

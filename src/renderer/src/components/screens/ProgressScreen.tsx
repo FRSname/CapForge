@@ -115,7 +115,7 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
                   )}
                 </div>
                 <span
-                  className={`text-[10px] font-medium tracking-wide text-center ${isActive ? 'text-[var(--color-text-2)]' : 'text-[var(--color-text-3)]'}`}
+                  className={`text-2xs font-medium tracking-wide text-center ${isActive ? 'text-[var(--color-text-2)]' : 'text-[var(--color-text-3)]'}`}
                 >
                   {step.label}
                 </span>
@@ -126,7 +126,14 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
 
         {/* Message */}
         <div className="text-center">
-          <p className="font-medium text-sm mb-1.5 text-[var(--color-text)]">
+          <p
+            className="text-lg mb-1.5"
+            style={{
+              fontFamily: 'var(--cf-font-display)',
+              fontStyle: 'italic',
+              color: 'var(--color-text)',
+            }}
+          >
             {progress?.message ?? 'Starting\u2026'}
           </p>
           {progress?.sub_message && (

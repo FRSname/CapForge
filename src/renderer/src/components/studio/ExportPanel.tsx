@@ -65,7 +65,7 @@ export function ExportPanel({
     <StudioCard title="Export / Render" defaultOpen>
       {/* Output folder picker */}
       <div className="flex items-center gap-1.5 mb-2">
-        <span className="text-[10px] text-[var(--color-text-3)] shrink-0">Output:</span>
+        <span className="text-2xs text-[var(--color-text-3)] shrink-0">Output:</span>
         <span
           className="flex-1 min-w-0 text-[11px] text-[var(--color-text-2)] truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
           title={outputDir || `Same as source (${effectiveOutputDir})`}
@@ -215,7 +215,7 @@ function QuickRenderBtn({
     >
       <span>{icon}</span>
       <span className="text-xs font-semibold text-[var(--color-text)]">{title}</span>
-      <span className="text-[10px] text-[var(--color-text-3)]">{sub}</span>
+      <span className="text-2xs text-[var(--color-text-3)]">{sub}</span>
     </button>
   )
 }

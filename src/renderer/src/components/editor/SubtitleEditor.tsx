@@ -164,7 +164,7 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
             className="w-full text-xs px-2.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:outline-none focus:border-[var(--color-accent)] text-[var(--color-text)] placeholder:text-[var(--color-text-subtle)]"
           />
           {lowerQuery && (
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[var(--color-text-subtle)] tabular-nums pointer-events-none">
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-2xs text-[var(--color-text-subtle)] tabular-nums pointer-events-none">
               {matchCount}/{segments.length}
             </span>
           )}
@@ -310,7 +310,7 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
       onKeyDown={handleKeyDown}
     >
       {seg.speaker && (
-        <span className="text-[10px] text-[var(--color-accent)] font-semibold mr-1.5">
+        <span className="text-2xs text-[var(--color-accent)] font-semibold mr-1.5">
           [{seg.speaker}]
         </span>
       )}
@@ -362,7 +362,7 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
                       <button
                         type="button"
                         className={[
-                          'text-[10px] px-1.5 py-0.5 rounded transition-colors tabular-nums',
+                          'text-2xs px-1.5 py-0.5 rounded transition-colors tabular-nums',
                           isEditingThis
                             ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)] border border-[var(--color-accent)]/40'
                             : 'bg-[var(--color-surface)] text-[var(--color-text-muted)] border border-[var(--color-border)] hover:border-[var(--color-accent)]/40',
@@ -479,7 +479,7 @@ function TimingField({ label, value, onChange }: {
 
   return (
     <div className="flex items-center gap-1.5">
-      <label className="text-[10px] text-[var(--color-text-subtle)] uppercase tracking-wider">{label}</label>
+      <label className="text-2xs text-[var(--color-text-subtle)] uppercase tracking-wider">{label}</label>
       <input
         type="text"
         value={raw}

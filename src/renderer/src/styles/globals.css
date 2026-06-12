@@ -1,6 +1,38 @@
 @import "tailwindcss";
 
 /* ╔══════════════════════════════════════════════════════╗
+   ║  Self-hosted UI fonts (latin subset, offline-safe)   ║
+   ╚══════════════════════════════════════════════════════╝
+   Inter + JetBrains Mono are variable fonts: a single woff2
+   covers the 400–700 weight range. Latin-only subsets — the
+   app UI is English. Subtitle render fonts live elsewhere
+   (lib/fonts.ts pipeline) and are NOT affected by these. */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../assets/fonts/inter-var.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../assets/fonts/instrument-serif-italic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../assets/fonts/jetbrains-mono-var.woff2') format('woff2');
+}
+
+/* ╔══════════════════════════════════════════════════════╗
    ║  CapForge Design System — Pro Dark Studio           ║
    ╚══════════════════════════════════════════════════════╝ */
 
@@ -45,6 +77,13 @@
 
   /* ── Layout ────────────────────────────────────────── */
   --titlebar-h:       38px;
+
+  /* ── Type scale ────────────────────────────────────── */
+  /* Extends Tailwind's default scale downward for dense desktop UI.
+     Deliberately NO line-height pair: text-2xs sets font-size only
+     (inherits body line-height), matching old text-[10px] behavior.
+     Standard text-xs (12px) / text-sm (14px) are left untouched. */
+  --text-2xs:         10px;
 
   /* ── Radii ─────────────────────────────────────────── */
   --radius-xs:        3px;

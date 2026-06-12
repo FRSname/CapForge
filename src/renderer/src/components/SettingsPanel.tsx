@@ -233,7 +233,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             {SHORTCUTS.map((group) => (
               <div key={group.label} className="flex flex-col gap-0.5">
                 <p
-                  className="text-[10px] uppercase tracking-wider mb-1"
+                  className="text-2xs uppercase tracking-wider mb-1"
                   style={{ color: 'var(--color-text-3)' }}
                 >
                   {group.label}
@@ -244,7 +244,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                       {item.action}
                     </span>
                     <kbd
-                      className="text-[10px] px-1.5 py-0.5 rounded font-mono"
+                      className="text-2xs px-1.5 py-0.5 rounded font-mono"
                       style={{ background: 'var(--color-surface-2)', color: 'var(--color-text)' }}
                     >
                       {item.keys}

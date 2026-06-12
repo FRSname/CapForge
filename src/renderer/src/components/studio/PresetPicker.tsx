@@ -140,10 +140,10 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
                   onChange={e => setSaveName(e.target.value)}
                   onKeyDown={e => { if (e.key === 'Enter') handleSaveConfirm(); if (e.key === 'Escape') setSaving(false) }}
                   placeholder="Preset name"
-                  className="w-24 text-[10px] px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:border-[var(--color-accent)] outline-none"
+                  className="w-24 text-2xs px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:border-[var(--color-accent)] outline-none"
                 />
                 <button
-                  className="btn-ghost text-[10px] py-0.5 px-1"
+                  className="btn-ghost text-2xs py-0.5 px-1"
                   onClick={handleSaveConfirm}
                   disabled={busy || !saveName.trim()}
                 >
@@ -152,7 +152,7 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
               </div>
             ) : (
               <button
-                className="btn-ghost text-[10px] py-0.5 px-1.5"
+                className="btn-ghost text-2xs py-0.5 px-1.5"
                 onClick={handleSaveClick}
                 disabled={busy}
                 title="Save current settings as a new preset"
