@@ -64,8 +64,9 @@ export function TitleBar({
           draggable={false}
         />
         <span
-          className="text-base text-[var(--color-text)]"
+          className="text-base"
           style={{
+            color: 'var(--color-text)',
             fontFamily: 'var(--cf-font-display)',
             fontStyle: 'italic',
             letterSpacing: '0.01em',
