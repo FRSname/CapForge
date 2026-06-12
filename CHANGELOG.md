@@ -4,6 +4,32 @@
 
 ### New Features
 
+**Settings search & section reset**
+The studio sidebar has a search box that filters the 40+ style settings by name or keyword, opening just the matching rows. Each settings card shows a brand-orange "n changed" badge when any of its values differ from defaults, with a one-click section reset that registers as a single undo step.
+
+**Keyboard-shortcut overlay**
+Pressing `?` opens an overlay listing every shortcut (playback, editing, groups, timeline) — the same source of truth that renders the reference list in Settings. The Text/Groups tabs gained Cmd/Ctrl+1/2 shortcuts and proper tab semantics with arrow-key switching.
+
+**Sticky render actions**
+The "Render Video" and "Subtitles Only" buttons moved to a pinned footer below the settings scroll, so the primary action is always reachable; render status now displays next to the buttons that triggered it.
+
+**macOS window chrome**
+On Mac the native title bar is hidden (`hiddenInset`) and the traffic lights sit inside the app's own 38px title bar, giving a single seamless chrome. Windows/Linux keep the native frame.
+
+### Design & UX
+
+**Design-system hardening**
+Brand orange (#D4952A) is now a proper token (`--color-brand`) and every hardcoded UI-chrome color flows through the theme system, so light/dark stay consistent. A z-index scale replaced ad-hoc values across overlays. Shared Button/IconButton/SegmentedControl/Select primitives replaced duplicated inline markup.
+
+**Self-hosted fonts**
+Inter and JetBrains Mono ship as variable woff2 files and Instrument Serif as a static italic (~95 KB total) — UI typography no longer depends on the Google Fonts CDN and works fully offline. The Instrument Serif brand voice now appears in the title-bar wordmark, progress headline, and empty states.
+
+**Motion system**
+Screens fade-rise in on mount, settings cards animate open/closed, presets and word-style popovers scale in, toasts animate out, and buttons have designed hover/press states — all compositor-friendly (transform/opacity) and fully disabled under "Reduce motion".
+
+**Accessibility**
+Global focus-visible rings, `prefers-reduced-motion` support, focus-trapped modals with Escape-to-close, aria-live announcements for toasts and render progress, keyboard-reachable word chips in the active segment, and Escape no longer able to accidentally cancel an in-flight render.
+
 **Safe-zone preview guides**
 A new "Safe zones" control in the Layout card overlays TikTok, Reels, or Shorts UI margins on the video preview — dimmed bands plus a dashed caption-safe boundary — so you can see whether captions collide with platform chrome before rendering. Guides are preview-only and never appear in the rendered video. Resolution preset chips (9:16, 4:5, 16:9) were added to the custom render panel.
 
