@@ -3,6 +3,16 @@ import appIcon from '../../assets/icon.png'
 import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
 
+/**
+ * True on macOS, where the BrowserWindow uses `titleBarStyle: 'hiddenInset'`
+ * and the native traffic lights overlay the left edge of this bar.
+ * (No preload API exposes the platform; the navigator check is sufficient.)
+ */
+const IS_MAC = navigator.platform.startsWith('Mac')
+
+/** Left padding clearing the macOS traffic lights (x:12 + three buttons + gap). */
+const MAC_TRAFFIC_LIGHT_CLEARANCE = '76px'
+
 interface TitleBarProps {
   screen: Screen
   onNew: () => void
@@ -39,6 +49,8 @@ export function TitleBar({
       style={{
         height: 'var(--titlebar-h)',
         background: 'linear-gradient(180deg, rgba(255,255,255,0.03) 0%, transparent 100%)',
+        // Clear the native traffic lights on macOS (hiddenInset window chrome).
+        paddingLeft: IS_MAC ? MAC_TRAFFIC_LIGHT_CLEARANCE : undefined,
       }}
     >
       {/* Left: logo */}

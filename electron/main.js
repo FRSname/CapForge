@@ -57,6 +57,16 @@ function createWindow() {
     backgroundColor: "#0b0b0e",
     show: false,
   };
+  // macOS only: hide the native title bar so the custom 38px TitleBar acts as
+  // the window chrome; traffic lights are repositioned to center in it
+  // (12 + 11 centers the ~16px buttons in the 38px bar). Double-click-to-zoom
+  // on the drag region is handled natively by macOS with hiddenInset.
+  // Windows/Linux keep the fully native frame — no `frame: false` anywhere,
+  // since we don't ship custom min/max/close controls.
+  if (process.platform === "darwin") {
+    opts.titleBarStyle = "hiddenInset";
+    opts.trafficLightPosition = { x: 12, y: 11 };
+  }
   // Only restore coordinates if they're on a currently-connected display,
   // otherwise the window can end up invisible on a detached second monitor.
   if (typeof saved.x === "number" && typeof saved.y === "number") {
