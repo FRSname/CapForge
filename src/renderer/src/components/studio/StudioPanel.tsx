@@ -5,9 +5,11 @@
 
 import { useState } from 'react'
 import { StudioCard } from './StudioCard'
-import { StudioRow } from './StudioRow'
+import { StudioRow } from '../ui/StudioRow'
 import { ColorSwatch } from '../ui/ColorSwatch'
 import { FontPicker } from '../ui/FontPicker'
+import { SegmentedControl } from '../ui/SegmentedControl'
+import { Select } from '../ui/Select'
 import { ExportPanel } from './ExportPanel'
 import { CustomRenderPanel } from './CustomRenderPanel'
 import { PresetPicker } from './PresetPicker'
@@ -97,6 +99,20 @@ const SAFE_ZONE_OPTIONS: Array<{ value: StudioSettings['safeZone']; label: strin
   { value: 'tiktok', label: 'TikTok' },
   { value: 'reels', label: 'Reels' },
   { value: 'shorts', label: 'Shorts' },
+]
+
+// Labels are pre-capitalized — the original markup rendered lowercase values
+// through CSS `capitalize`, which produces identical glyphs.
+const ALIGN_H_OPTIONS: Array<{ value: StudioSettings['textAlignH']; label: string }> = [
+  { value: 'left', label: 'Left' },
+  { value: 'center', label: 'Center' },
+  { value: 'right', label: 'Right' },
+]
+
+const ALIGN_V_OPTIONS: Array<{ value: StudioSettings['textAlignV']; label: string }> = [
+  { value: 'top', label: 'Top' },
+  { value: 'middle', label: 'Middle' },
+  { value: 'bottom', label: 'Bottom' },
 ]
 
 const DEFAULTS: StudioSettings = {
@@ -399,22 +415,13 @@ export function StudioPanel({
           {/* Preview-only platform guides — never rendered to video (see safeZone field doc). */}
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Safe zones</span>
-            <div className="flex flex-1 min-w-0 rounded-md overflow-hidden border border-[var(--color-border)]">
-              {SAFE_ZONE_OPTIONS.map(({ value, label }) => (
-                <button
-                  key={value}
-                  type="button"
-                  onClick={() => set('safeZone', value)}
-                  className={`flex-1 text-[11px] py-1 transition-colors ${
-                    s.safeZone === value
-                      ? 'bg-[var(--color-accent)] text-white'
-                      : 'bg-[var(--color-surface-2)] text-[var(--color-text-2)] hover:bg-[var(--color-surface-3)]'
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              ariaLabel="Safe zones"
+              className="flex-1 min-w-0"
+              options={SAFE_ZONE_OPTIONS}
+              value={s.safeZone}
+              onChange={(v) => set('safeZone', v)}
+            />
           </div>
         </StudioCard>
 
@@ -482,42 +489,24 @@ export function StudioPanel({
 
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Align H</span>
-            <div className="flex flex-1 min-w-0 rounded-md overflow-hidden border border-[var(--color-border)]">
-              {(['left', 'center', 'right'] as const).map((a) => (
-                <button
-                  key={a}
-                  type="button"
-                  onClick={() => set('textAlignH', a)}
-                  className={`flex-1 text-[11px] py-1 capitalize transition-colors ${
-                    s.textAlignH === a
-                      ? 'bg-[var(--color-accent)] text-white'
-                      : 'bg-[var(--color-surface-2)] text-[var(--color-text-2)] hover:bg-[var(--color-surface-3)]'
-                  }`}
-                >
-                  {a}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              ariaLabel="Align horizontal"
+              className="flex-1 min-w-0"
+              options={ALIGN_H_OPTIONS}
+              value={s.textAlignH}
+              onChange={(v) => set('textAlignH', v)}
+            />
           </div>
 
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Align V</span>
-            <div className="flex flex-1 min-w-0 rounded-md overflow-hidden border border-[var(--color-border)]">
-              {(['top', 'middle', 'bottom'] as const).map((a) => (
-                <button
-                  key={a}
-                  type="button"
-                  onClick={() => set('textAlignV', a)}
-                  className={`flex-1 text-[11px] py-1 capitalize transition-colors ${
-                    s.textAlignV === a
-                      ? 'bg-[var(--color-accent)] text-white'
-                      : 'bg-[var(--color-surface-2)] text-[var(--color-text-2)] hover:bg-[var(--color-surface-3)]'
-                  }`}
-                >
-                  {a}
-                </button>
-              ))}
-            </div>
+            <SegmentedControl
+              ariaLabel="Align vertical"
+              className="flex-1 min-w-0"
+              options={ALIGN_V_OPTIONS}
+              value={s.textAlignV}
+              onChange={(v) => set('textAlignV', v)}
+            />
           </div>
 
           <StudioRow
@@ -544,8 +533,8 @@ export function StudioPanel({
         <StudioCard title="Animation" defaultOpen={false}>
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Entry/Exit</span>
-            <select
-              className="field-input flex-1 min-w-0 text-xs"
+            <Select
+              className="flex-1 min-w-0 text-xs"
               value={s.animationType}
               onChange={(e) => set('animationType', e.target.value)}
             >
@@ -553,7 +542,7 @@ export function StudioPanel({
               <option value="fade">Fade</option>
               <option value="slide">Slide Up</option>
               <option value="pop">Pop</option>
-            </select>
+            </Select>
           </div>
           {s.animationType !== 'none' && (
             <StudioRow
@@ -569,8 +558,8 @@ export function StudioPanel({
           <div className="divider" />
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Word style</span>
-            <select
-              className="field-input flex-1 min-w-0 text-xs"
+            <Select
+              className="flex-1 min-w-0 text-xs"
               value={s.wordStyle}
               onChange={(e) => set('wordStyle', e.target.value)}
             >
@@ -582,7 +571,7 @@ export function StudioPanel({
               <option value="scale">Scale Up</option>
               <option value="karaoke">Karaoke Fill</option>
               <option value="reveal">Reveal</option>
-            </select>
+            </Select>
           </div>
 
           {/* ── Per-effect options ─────────────────────────────── */}
@@ -637,14 +626,14 @@ export function StudioPanel({
                 <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">
                   Movement
                 </span>
-                <select
-                  className="field-input flex-1 min-w-0 text-xs"
+                <Select
+                  className="flex-1 min-w-0 text-xs"
                   value={s.highlightAnim}
                   onChange={(e) => set('highlightAnim', e.target.value)}
                 >
                   <option value="jump">Jump</option>
                   <option value="slide">Slide</option>
-                </select>
+                </Select>
               </div>
             </>
           )}

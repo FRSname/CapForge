@@ -9,42 +9,53 @@ import { ResultsScreen } from './components/screens/ResultsScreen'
 import { SettingsPanel } from './components/SettingsPanel'
 import { StudioPanel, STUDIO_DEFAULTS, snapFps } from './components/studio/StudioPanel'
 import type { StudioSettings } from './components/studio/StudioPanel'
+import { Button } from './components/ui/Button'
 import { ToastProvider } from './hooks/useToast'
 import { useSettingsUndo } from './hooks/useSettingsUndo'
 import { useAutosave } from './hooks/useAutosave'
 
 export function App() {
-  const [screen,          setScreen]          = useState<Screen>('file')
-  const [filePath,        setFilePath]        = useState<string | null>(null)
-  const [result,          setResult]          = useState<TranscriptionResult | null>(null)
-  const [settings,        setSettings]        = useState<StudioSettings>({ ...STUDIO_DEFAULTS })
-  const [settingsOpen,    setSettingsOpen]    = useState(false)
+  const [screen, setScreen] = useState<Screen>('file')
+  const [filePath, setFilePath] = useState<string | null>(null)
+  const [result, setResult] = useState<TranscriptionResult | null>(null)
+  const [settings, setSettings] = useState<StudioSettings>({ ...STUDIO_DEFAULTS })
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   // Published from ResultsScreen — forwarded to StudioPanel for render/export.
-  const [groups,          setGroups]          = useState<Segment[]>([])
-  const [groupsEdited,    setGroupsEdited]    = useState(false)
+  const [groups, setGroups] = useState<Segment[]>([])
+  const [groupsEdited, setGroupsEdited] = useState(false)
   const [sourceVideoInfo, setSourceVideoInfo] = useState<VideoInfo | null>(null)
 
-  const projectIORef   = useRef<ProjectIOHandle | null>(null)
+  const projectIORef = useRef<ProjectIOHandle | null>(null)
   const pendingRestore = useRef<ProjectFile | null>(null)
 
   // Crash recovery — an autosave snapshot left on disk by a session that didn't
   // end via an explicit Save or New (i.e. a crash or accidental close).
-  const [recoverySnapshot, setRecoverySnapshot] = useState<(ProjectFile & { savedAt?: number }) | null>(null)
+  const [recoverySnapshot, setRecoverySnapshot] = useState<
+    (ProjectFile & { savedAt?: number }) | null
+  >(null)
 
   const [subtitleUndo, setSubtitleUndo] = useState<{
-    undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean
+    undo: () => void
+    redo: () => void
+    canUndo: boolean
+    canRedo: boolean
   } | null>(null)
 
   // Settings undo — wraps setSettings so every UI change is undoable.
   const settingsUndo = useSettingsUndo(settings, setSettings)
-  const handleSettingsChange = useCallback((next: StudioSettings) => {
-    settingsUndo.push(settings)
-    setSettings(next)
-  }, [settings, settingsUndo])
+  const handleSettingsChange = useCallback(
+    (next: StudioSettings) => {
+      settingsUndo.push(settings)
+      setSettings(next)
+    },
+    [settings, settingsUndo]
+  )
 
   // ── File handling ───────────────────────────────────────────────
-  function handleFileSelected(path: string) { setFilePath(path || null) }
+  function handleFileSelected(path: string) {
+    setFilePath(path || null)
+  }
 
   function handleStart() {
     if (filePath) setScreen('progress')
@@ -77,11 +88,12 @@ export function App() {
   useEffect(() => {
     if (!result?.audioPath) return
     let cancelled = false
-    api.getVideoInfo(result.audioPath)
-      .then(info => {
+    api
+      .getVideoInfo(result.audioPath)
+      .then((info) => {
         if (cancelled) return
         setSourceVideoInfo(info)
-        setSettings(prev => {
+        setSettings((prev) => {
           const next = { ...prev }
           if (info.width && info.height) {
             next.resolution = [info.width, info.height]
@@ -91,8 +103,12 @@ export function App() {
           return next
         })
       })
-      .catch(() => { /* ignore — likely audio-only */ })
-    return () => { cancelled = true }
+      .catch(() => {
+        /* ignore — likely audio-only */
+      })
+    return () => {
+      cancelled = true
+    }
   }, [result?.audioPath])
 
   // ── Project save ────────────────────────────────────────────────
@@ -110,12 +126,14 @@ export function App() {
     // Push transcription to backend so render/export work.
     if (file.transcriptionResult) {
       const tr = file.transcriptionResult
-      await api.updateResult({
-        segments:   tr.segments as never,
-        language:   tr.language,
-        duration:   tr.duration,
-        audio_path: tr.audioPath,
-      }).catch(() => {})
+      await api
+        .updateResult({
+          segments: tr.segments as never,
+          language: tr.language,
+          duration: tr.duration,
+          audio_path: tr.audioPath,
+        })
+        .catch(() => {})
     }
 
     setFilePath(file.selectedFilePath)
@@ -137,10 +155,17 @@ export function App() {
   // On launch, read any leftover autosave snapshot and offer to restore it.
   useEffect(() => {
     let cancelled = false
-    window.subforge.autosaveRead()
-      .then(snap => { if (!cancelled && snap) setRecoverySnapshot(snap as ProjectFile & { savedAt?: number }) })
-      .catch(() => { /* ignore — recovery is best-effort */ })
-    return () => { cancelled = true }
+    window.subforge
+      .autosaveRead()
+      .then((snap) => {
+        if (!cancelled && snap) setRecoverySnapshot(snap as ProjectFile & { savedAt?: number })
+      })
+      .catch(() => {
+        /* ignore — recovery is best-effort */
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const handleRecover = useCallback(async () => {
@@ -165,8 +190,8 @@ export function App() {
   // ── Autosave (crash recovery) ───────────────────────────────────
   // Snapshot the live session ~2s after any edit; cleared on Save / New.
   const lastSavedAt = useAutosave(
-    () => (screen === 'results' ? projectIORef.current?.gather() ?? null : null),
-    [screen, groups, groupsEdited, settings],
+    () => (screen === 'results' ? (projectIORef.current?.gather() ?? null) : null),
+    [screen, groups, groupsEdited, settings]
   )
 
   // ── Global keyboard shortcuts ───────────────────────────────────
@@ -174,7 +199,8 @@ export function App() {
     function onKeyDown(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey
       const tag = (e.target as HTMLElement).tagName
-      const editable = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
+      const editable =
+        tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
       if (editable && !mod) return
 
       if (mod && e.key === 's') {
@@ -195,82 +221,92 @@ export function App() {
 
   return (
     <ToastProvider>
-    <div className="flex flex-col h-full" style={{ background: 'var(--color-bg)' }}>
-      <TitleBar
-        screen={screen}
-        onNew={handleNew}
-        onSave={handleSave}
-        onOpen={handleOpen}
-        onSettingsToggle={() => setSettingsOpen(o => !o)}
-        onUndo={subtitleUndo?.undo}
-        onRedo={subtitleUndo?.redo}
-        canUndo={subtitleUndo?.canUndo ?? false}
-        canRedo={subtitleUndo?.canRedo ?? false}
-        autosavedLabel={lastSavedAt
-          ? `Saved ${new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-          : undefined}
-      />
-
-      {recoverySnapshot && (
-        <div
-          className="app-no-drag flex items-center gap-3 px-4 py-2 text-xs border-b border-[var(--color-border)]"
-          style={{ background: 'var(--color-surface-2)' }}
-        >
-          <span className="text-[var(--color-text-2)]">
-            Unsaved session recovered
-            {recoverySnapshot.savedAt ? ` from ${new Date(recoverySnapshot.savedAt).toLocaleString()}` : ''}.
-          </span>
-          <button className="titlebar-btn" onClick={handleRecover}>Restore</button>
-          <button className="titlebar-btn text-[var(--color-text-3)]" onClick={handleDiscardRecovery}>Discard</button>
-        </div>
-      )}
-
-      <main className="flex-1 flex min-h-0 overflow-hidden">
-        {/* ── Main content (left column) ────────────────────────── */}
-        {screen === 'file' && (
-          <div className="flex-1 flex flex-col items-center justify-center overflow-hidden min-w-0">
-            <DropZoneScreen
-              filePath={filePath}
-              onFileSelected={handleFileSelected}
-              onStart={handleStart}
-            />
-          </div>
-        )}
-        {screen === 'progress' && (
-          <div className="flex-1 flex flex-col items-center justify-center overflow-hidden min-w-0">
-            <ProgressScreen
-              filePath={filePath!}
-              onDone={handleTranscribeDone}
-              onCancel={handleNew}
-            />
-          </div>
-        )}
-        {screen === 'results' && result && (
-          <ResultsScreen
-            result={result}
-            settings={settings}
-            onGroupsUpdate={handleGroupsUpdate}
-            projectIORef={projectIORef}
-            onUndoRedoChange={setSubtitleUndo}
-          />
-        )}
-
-        {/* ── Studio sidebar (always visible) ──────────────────── */}
-        <StudioPanel
-          settings={settings}
-          onChange={handleSettingsChange}
-          groups={groups}
-          groupsEdited={groupsEdited}
-          audioPath={result?.audioPath ?? filePath ?? ''}
-          sourceVideoInfo={sourceVideoInfo}
+      <div className="flex flex-col h-full" style={{ background: 'var(--color-bg)' }}>
+        <TitleBar
+          screen={screen}
+          onNew={handleNew}
+          onSave={handleSave}
+          onOpen={handleOpen}
+          onSettingsToggle={() => setSettingsOpen((o) => !o)}
+          onUndo={subtitleUndo?.undo}
+          onRedo={subtitleUndo?.redo}
+          canUndo={subtitleUndo?.canUndo ?? false}
+          canRedo={subtitleUndo?.canRedo ?? false}
+          autosavedLabel={
+            lastSavedAt
+              ? `Saved ${new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+              : undefined
+          }
         />
-      </main>
 
-      <SettingsPanel
-        open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-      />
-    </div>
+        {recoverySnapshot && (
+          <div
+            className="app-no-drag flex items-center gap-3 px-4 py-2 text-xs border-b border-[var(--color-border)]"
+            style={{ background: 'var(--color-surface-2)' }}
+          >
+            <span className="text-[var(--color-text-2)]">
+              Unsaved session recovered
+              {recoverySnapshot.savedAt
+                ? ` from ${new Date(recoverySnapshot.savedAt).toLocaleString()}`
+                : ''}
+              .
+            </span>
+            <Button variant="titlebar" onClick={handleRecover}>
+              Restore
+            </Button>
+            <Button
+              variant="titlebar"
+              className="text-[var(--color-text-3)]"
+              onClick={handleDiscardRecovery}
+            >
+              Discard
+            </Button>
+          </div>
+        )}
+
+        <main className="flex-1 flex min-h-0 overflow-hidden">
+          {/* ── Main content (left column) ────────────────────────── */}
+          {screen === 'file' && (
+            <div className="flex-1 flex flex-col items-center justify-center overflow-hidden min-w-0">
+              <DropZoneScreen
+                filePath={filePath}
+                onFileSelected={handleFileSelected}
+                onStart={handleStart}
+              />
+            </div>
+          )}
+          {screen === 'progress' && (
+            <div className="flex-1 flex flex-col items-center justify-center overflow-hidden min-w-0">
+              <ProgressScreen
+                filePath={filePath!}
+                onDone={handleTranscribeDone}
+                onCancel={handleNew}
+              />
+            </div>
+          )}
+          {screen === 'results' && result && (
+            <ResultsScreen
+              result={result}
+              settings={settings}
+              onGroupsUpdate={handleGroupsUpdate}
+              projectIORef={projectIORef}
+              onUndoRedoChange={setSubtitleUndo}
+            />
+          )}
+
+          {/* ── Studio sidebar (always visible) ──────────────────── */}
+          <StudioPanel
+            settings={settings}
+            onChange={handleSettingsChange}
+            groups={groups}
+            groupsEdited={groupsEdited}
+            audioPath={result?.audioPath ?? filePath ?? ''}
+            sourceVideoInfo={sourceVideoInfo}
+          />
+        </main>
+
+        <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+      </div>
     </ToastProvider>
   )
 }

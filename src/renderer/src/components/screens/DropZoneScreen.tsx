@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react'
+import { Button } from '../ui/Button'
+import { IconButton } from '../ui/IconButton'
 
 const ACCEPTED_EXTS = ['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'mp4', 'mkv', 'webm', 'mov']
 
@@ -117,8 +119,8 @@ export function DropZoneScreen({ filePath, onFileSelected, onStart }: DropZoneSc
               <path d="M3.75 1.5a.25.25 0 0 0-.25.25v11.5c0 .138.112.25.25.25h8.5a.25.25 0 0 0 .25-.25V6H9.75A1.75 1.75 0 0 1 8 4.25V1.5Zm5.75 0v2.75c0 .138.112.25.25.25h2.75l-3-3ZM2 1.75C2 .784 2.784 0 3.75 0h5.586c.464 0 .909.184 1.237.513l2.914 2.914c.329.328.513.773.513 1.237v9.586A1.75 1.75 0 0 1 12.25 16h-8.5A1.75 1.75 0 0 1 2 14.25Z" />
             </svg>
             <span className="flex-1 truncate text-sm text-[var(--color-text)]">{fileName}</span>
-            <button
-              className="icon-btn w-6 h-6 text-xs"
+            <IconButton
+              className="w-6 h-6 text-xs"
               onClick={(e) => {
                 e.stopPropagation()
                 onFileSelected('')
@@ -127,16 +129,20 @@ export function DropZoneScreen({ filePath, onFileSelected, onStart }: DropZoneSc
               aria-label="Remove file"
             >
               ✕
-            </button>
+            </IconButton>
           </div>
 
           {/* Start button */}
-          <button className="btn-primary w-full justify-center text-sm py-3" onClick={onStart}>
+          <Button
+            variant="primary"
+            className="w-full justify-center text-sm py-3"
+            onClick={onStart}
+          >
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm4.879-2.773 4.264 2.559a.25.25 0 0 1 0 .428l-4.264 2.559A.25.25 0 0 1 6 10.559V5.442a.25.25 0 0 1 .379-.215Z" />
             </svg>
             Start Transcription
-          </button>
+          </Button>
         </div>
       )}
     </div>

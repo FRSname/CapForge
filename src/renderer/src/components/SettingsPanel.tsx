@@ -6,6 +6,9 @@
 import { useEffect, useState } from 'react'
 import { api } from '../lib/api'
 import { Toggle } from './ui/Toggle'
+import { Button } from './ui/Button'
+import { IconButton } from './ui/IconButton'
+import { Select } from './ui/Select'
 
 const SHORTCUTS: { label: string; items: { keys: string; action: string }[] }[] = [
   {
@@ -133,11 +136,11 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 shrink-0 border-b border-[var(--color-border)]">
           <span className="font-semibold text-sm">Settings</span>
-          <button className="icon-btn" onClick={onClose} aria-label="Close settings">
+          <IconButton onClick={onClose} aria-label="Close settings">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
               <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
             </svg>
-          </button>
+          </IconButton>
         </div>
 
         {/* Body */}
@@ -162,18 +165,14 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           {/* Language */}
           <div className="flex flex-col gap-2">
             <label className="label-xs">Language</label>
-            <select
-              className="field-input"
-              value={language}
-              onChange={(e) => handleLanguageChange(e.target.value)}
-            >
+            <Select value={language} onChange={(e) => handleLanguageChange(e.target.value)}>
               <option value="">Auto-detect</option>
               {(Array.isArray(languages) ? languages : []).map((l) => (
                 <option key={l} value={l}>
                   {l}
                 </option>
               ))}
-            </select>
+            </Select>
           </div>
 
           {/* Diarization */}
@@ -211,18 +210,20 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           <div className="flex flex-col gap-2">
             <label className="label-xs">Logs</label>
             <div className="flex gap-2">
-              <button
-                className="btn-ghost flex-1 text-xs justify-center"
+              <Button
+                variant="ghost"
+                className="flex-1 text-xs justify-center"
                 onClick={() => window.subforge.openLogsFolder()}
               >
                 Open folder
-              </button>
-              <button
-                className="btn-ghost flex-1 text-xs justify-center"
+              </Button>
+              <Button
+                variant="ghost"
+                className="flex-1 text-xs justify-center"
                 onClick={() => window.subforge.openLogFile()}
               >
                 Open log
-              </button>
+              </Button>
             </div>
           </div>
 

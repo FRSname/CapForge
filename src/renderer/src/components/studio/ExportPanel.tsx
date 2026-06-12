@@ -10,6 +10,7 @@
  */
 
 import { StudioCard } from './StudioCard'
+import { Button } from '../ui/Button'
 import { api } from '../../lib/api'
 import { dirname } from '../../lib/render'
 import type { VideoInfo } from '../../lib/api'
@@ -71,8 +72,9 @@ export function ExportPanel({
         >
           {outputDir ? outputDir.split(/[\\/]/).pop() || outputDir : 'Same as source'}
         </span>
-        <button
-          className="btn-ghost text-[11px] py-1 px-2 shrink-0"
+        <Button
+          variant="ghost"
+          className="text-[11px] py-1 px-2 shrink-0"
           onClick={async () => {
             const dir = await window.subforge.pickOutputDir()
             if (dir) onOutputDir(dir)
@@ -80,16 +82,17 @@ export function ExportPanel({
           disabled={busy}
         >
           Browse
-        </button>
+        </Button>
         {outputDir && (
-          <button
-            className="btn-ghost text-[11px] py-1 px-2 shrink-0"
+          <Button
+            variant="ghost"
+            className="text-[11px] py-1 px-2 shrink-0"
             onClick={() => onOutputDir('')}
             disabled={busy}
             title="Reset to Same as source"
           >
             ✕
-          </button>
+          </Button>
         )}
       </div>
 
@@ -117,8 +120,9 @@ export function ExportPanel({
 
       {/* SRT / VTT export row */}
       <div className="flex gap-1.5 mt-1">
-        <button
-          className="btn-ghost flex-1 text-[11px] py-1 justify-center"
+        <Button
+          variant="ghost"
+          className="flex-1 text-[11px] py-1 justify-center"
           onClick={() =>
             api
               .exportResult(buildExportParams(['srt_word'], effectiveOutputDir))
@@ -129,9 +133,10 @@ export function ExportPanel({
           title="Word-aligned SRT (per-word timing)"
         >
           .SRT (Word)
-        </button>
-        <button
-          className="btn-ghost flex-1 text-[11px] py-1 justify-center"
+        </Button>
+        <Button
+          variant="ghost"
+          className="flex-1 text-[11px] py-1 justify-center"
           onClick={() =>
             api
               .exportResult(buildExportParams(['srt_standard'], effectiveOutputDir))
@@ -142,9 +147,10 @@ export function ExportPanel({
           title="Classic SRT (sentence timing)"
         >
           .SRT
-        </button>
-        <button
-          className="btn-ghost flex-1 text-[11px] py-1 justify-center"
+        </Button>
+        <Button
+          variant="ghost"
+          className="flex-1 text-[11px] py-1 justify-center"
           onClick={() =>
             api
               .exportResult(buildExportParams(['vtt'], effectiveOutputDir))
@@ -154,9 +160,10 @@ export function ExportPanel({
           disabled={busy}
         >
           .VTT
-        </button>
-        <button
-          className="btn-ghost flex-1 text-[11px] py-1 justify-center"
+        </Button>
+        <Button
+          variant="ghost"
+          className="flex-1 text-[11px] py-1 justify-center"
           onClick={() =>
             api
               .exportResult(buildExportParams(['ass'], effectiveOutputDir))
@@ -167,7 +174,7 @@ export function ExportPanel({
           title="ASS (karaoke) — per-word highlight timing for Premiere/Resolve/ffmpeg"
         >
           .ASS
-        </button>
+        </Button>
       </div>
     </StudioCard>
   )
