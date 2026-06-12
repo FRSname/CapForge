@@ -46,6 +46,12 @@ The video renderer now caches frames whose content is fully determined by a disc
 **Pop animation crashed every render**
 Renders with the "pop" animation failed because Pillow's `Image.transform()` rejects the LANCZOS resampling filter. The pop branch now uses BICUBIC (the highest quality `transform()` supports).
 
+**Title-bar wordmark unreadable**
+The "Cap" half of the CapForge title-bar wordmark rendered with an inverted color (white in light mode, black in dark mode) because a Tailwind v4 arbitrary value was misparsed as a font size instead of a text color. The color now flows through an inline style and follows the theme.
+
+**Status toasts unreadable in light mode**
+Success and error toasts showed dark text on a dark background in light mode: the toast surface colors referenced theme tokens that were never defined, so they always fell back to the dark-mode values. Proper light/dark toast surface tokens were added and the status icons now use theme-aware colors.
+
 ### Internal
 
 **Test & CI foundation**
