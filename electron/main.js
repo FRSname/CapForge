@@ -54,7 +54,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    backgroundColor: "#0d1117",
+    backgroundColor: "#0b0b0e",
     show: false,
   };
   // Only restore coordinates if they're on a currently-connected display,
@@ -241,7 +241,7 @@ function createSetupWindow() {
     minimizable: false,
     maximizable: false,
     title: "CapForge — Setup",
-    backgroundColor: "#0d1117",
+    backgroundColor: "#0b0b0e",
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: true,

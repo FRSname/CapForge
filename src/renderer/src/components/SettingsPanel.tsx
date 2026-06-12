@@ -57,13 +57,17 @@ interface SystemInfo {
 
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [languages, setLanguages] = useState<string[]>([])
-  const [language,  setLanguage]  = useState('')
-  const [diarize,   setDiarize]   = useState(false)
-  const [hfToken,   setHfToken]   = useState('')
-  const [sysInfo,   setSysInfo]   = useState<SystemInfo | null>(null)
-  const [lightMode, setLightMode] = useState(
-    () => localStorage.getItem('capforge-theme') === 'light',
-  )
+  const [language, setLanguage] = useState('')
+  const [diarize, setDiarize] = useState(false)
+  const [hfToken, setHfToken] = useState('')
+  const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null)
+  const [lightMode, setLightMode] = useState(() => {
+    const stored = localStorage.getItem('capforge-theme')
+    if (stored === 'light') return true
+    if (stored === 'dark') return false
+    // First launch: follow the OS preference
+    return window.matchMedia('(prefers-color-scheme: light)').matches
+  })
 
   // Apply theme class on mount and whenever lightMode changes
   useEffect(() => {
@@ -88,7 +92,9 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         setLanguage(savedLang as string)
         setDiarize(savedDiarize as boolean)
         setHfToken(savedToken as string)
-      } catch { /* backend may not be up yet */ }
+      } catch {
+        /* backend may not be up yet */
+      }
     }
     void init()
   }, [])
@@ -112,36 +118,30 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     <>
       {/* Backdrop */}
       {open && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]"
-          onClick={onClose}
-        />
+        <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
       )}
 
       {/* Panel */}
       <aside
         className="fixed right-0 top-0 bottom-0 z-50 w-72 flex flex-col border-l shadow-2xl transition-transform bg-[var(--color-base)] border-[var(--color-border-2)]"
         style={{
-          transform:     open ? 'translateX(0)' : 'translateX(100%)',
+          transform: open ? 'translateX(0)' : 'translateX(100%)',
           transitionDuration: '220ms',
           transitionTimingFunction: 'var(--ease-out-expo)',
         }}
       >
         {/* Header */}
-        <div
-          className="flex items-center justify-between px-4 py-3 shrink-0 border-b border-[var(--color-border)]"
-        >
+        <div className="flex items-center justify-between px-4 py-3 shrink-0 border-b border-[var(--color-border)]">
           <span className="font-semibold text-sm">Settings</span>
           <button className="icon-btn" onClick={onClose} aria-label="Close settings">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"/>
+              <path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.749.749 0 0 1 1.275.326.749.749 0 0 1-.215.734L9.06 8l3.22 3.22a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215L8 9.06l-3.22 3.22a.751.751 0 0 1-1.042-.018.751.751 0 0 1-.018-1.042L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z" />
             </svg>
           </button>
         </div>
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-5">
-
           {/* Hardware info */}
           {sysInfo && (
             <div className="rounded-lg p-3 text-xs flex flex-col gap-1 bg-[var(--color-surface)] border border-[var(--color-border)]">
@@ -149,7 +149,9 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               {sysInfo.gpu_name ? (
                 <>
                   <span className="text-[var(--color-accent-2)]">{sysInfo.gpu_name}</span>
-                  {sysInfo.vram_gb && <span className="text-[var(--color-text-3)]">{sysInfo.vram_gb} GB VRAM</span>}
+                  {sysInfo.vram_gb && (
+                    <span className="text-[var(--color-text-3)]">{sysInfo.vram_gb} GB VRAM</span>
+                  )}
                 </>
               ) : (
                 <span className="text-[var(--color-text-2)]">CPU mode</span>
@@ -163,28 +165,28 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             <select
               className="field-input"
               value={language}
-              onChange={e => handleLanguageChange(e.target.value)}
+              onChange={(e) => handleLanguageChange(e.target.value)}
             >
               <option value="">Auto-detect</option>
-              {(Array.isArray(languages) ? languages : []).map(l => <option key={l} value={l}>{l}</option>)}
+              {(Array.isArray(languages) ? languages : []).map((l) => (
+                <option key={l} value={l}>
+                  {l}
+                </option>
+              ))}
             </select>
           </div>
 
           {/* Diarization */}
           <div className="flex flex-col gap-2">
             <label className="label-xs">Speaker Diarization</label>
-            <Toggle
-              checked={diarize}
-              onChange={handleDiarizeChange}
-              label="Identify speakers"
-            />
+            <Toggle checked={diarize} onChange={handleDiarizeChange} label="Identify speakers" />
             {diarize && (
               <div className="flex flex-col gap-1.5 mt-1">
                 <label className="label-xs">HuggingFace Token</label>
                 <input
                   type="password"
                   value={hfToken}
-                  onChange={e => handleTokenChange(e.target.value)}
+                  onChange={(e) => handleTokenChange(e.target.value)}
                   placeholder="hf_…"
                   className="field-input text-xs font-mono"
                 />
@@ -209,8 +211,18 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           <div className="flex flex-col gap-2">
             <label className="label-xs">Logs</label>
             <div className="flex gap-2">
-              <button className="btn-ghost flex-1 text-xs justify-center" onClick={() => window.subforge.openLogsFolder()}>Open folder</button>
-              <button className="btn-ghost flex-1 text-xs justify-center" onClick={() => window.subforge.openLogFile()}>Open log</button>
+              <button
+                className="btn-ghost flex-1 text-xs justify-center"
+                onClick={() => window.subforge.openLogsFolder()}
+              >
+                Open folder
+              </button>
+              <button
+                className="btn-ghost flex-1 text-xs justify-center"
+                onClick={() => window.subforge.openLogFile()}
+              >
+                Open log
+              </button>
             </div>
           </div>
 
@@ -219,7 +231,10 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             <label className="label-xs">Keyboard Shortcuts</label>
             {SHORTCUTS.map((group) => (
               <div key={group.label} className="flex flex-col gap-0.5">
-                <p className="text-[10px] uppercase tracking-wider mb-1" style={{ color: 'var(--color-text-3)' }}>
+                <p
+                  className="text-[10px] uppercase tracking-wider mb-1"
+                  style={{ color: 'var(--color-text-3)' }}
+                >
                   {group.label}
                 </p>
                 {group.items.map((item) => (

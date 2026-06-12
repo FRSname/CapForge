@@ -343,7 +343,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
         ) : (
           <div
             ref={previewAreaRef}
-            className="relative w-full mx-auto overflow-hidden bg-[#0d1117] flex items-center justify-center"
+            className="relative w-full mx-auto overflow-hidden bg-[var(--color-bg)] flex items-center justify-center"
             style={{
               // Audio-only: use the configured resolution so captions still preview
               // at the correct aspect ratio against a neutral backdrop.
@@ -352,7 +352,9 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
               maxWidth: `calc(40vh * ${resolution[0] / resolution[1]})`,
             }}
           >
-            <span className="text-xs text-white/20">Audio only</span>
+            <span className="text-xs opacity-60" style={{ color: 'var(--color-text-3)' }}>
+              Audio only
+            </span>
             {/* Subtitle overlay canvas for audio-only mode */}
             <canvas ref={overlayRef} className="absolute inset-0 pointer-events-none" />
           </div>

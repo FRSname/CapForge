@@ -217,18 +217,21 @@ function VideoIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
       {/* Clapperboard body */}
-      <rect x="2" y="8" width="20" height="13" rx="2.5" fill="#F59E0B" />
+      <rect x="2" y="8" width="20" height="13" rx="2.5" fill="var(--color-brand)" />
       {/* Clapperboard clapper */}
-      <path d="M2 8h20V6.5A2.5 2.5 0 0 0 19.5 4H4.5A2.5 2.5 0 0 0 2 6.5V8Z" fill="#D97706" />
+      <path
+        d="M2 8h20V6.5A2.5 2.5 0 0 0 19.5 4H4.5A2.5 2.5 0 0 0 2 6.5V8Z"
+        fill="color-mix(in srgb, var(--color-brand) 80%, black)"
+      />
       {/* Clapper stripes */}
       <path
         d="M5.5 4 8 8M10 4l2.5 4M14.5 4 17 8"
-        stroke="#FDE68A"
+        stroke="color-mix(in srgb, var(--color-brand) 35%, white)"
         strokeWidth="1"
         strokeLinecap="round"
       />
       {/* Play triangle */}
-      <path d="M10 12.5l5 2.5-5 2.5v-5Z" fill="#FEF3C7" />
+      <path d="M10 12.5l5 2.5-5 2.5v-5Z" fill="color-mix(in srgb, var(--color-brand) 18%, white)" />
     </svg>
   )
 }
@@ -237,7 +240,15 @@ function OverlayIcon() {
   return (
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
       {/* Film frame */}
-      <rect x="2" y="3" width="20" height="18" rx="2.5" stroke="#F59E0B" strokeWidth="1.5" />
+      <rect
+        x="2"
+        y="3"
+        width="20"
+        height="18"
+        rx="2.5"
+        stroke="var(--color-brand)"
+        strokeWidth="1.5"
+      />
       {/* Dashed centre (transparent feel) */}
       <rect
         x="4"
@@ -245,20 +256,20 @@ function OverlayIcon() {
         width="16"
         height="8"
         rx="1"
-        stroke="#F59E0B"
+        stroke="var(--color-brand)"
         strokeWidth="0.8"
         strokeDasharray="2 2"
         opacity="0.5"
       />
       {/* Subtitle bar */}
-      <rect x="4" y="15" width="16" height="4" rx="1.5" fill="#F59E0B" />
+      <rect x="4" y="15" width="16" height="4" rx="1.5" fill="var(--color-brand)" />
       {/* Text lines */}
       <line
         x1="6"
         y1="17"
         x2="14"
         y2="17"
-        stroke="#FEF3C7"
+        stroke="color-mix(in srgb, var(--color-brand) 18%, white)"
         strokeWidth="1.2"
         strokeLinecap="round"
       />

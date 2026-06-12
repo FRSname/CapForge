@@ -33,6 +33,10 @@
   --color-amber-2:    #e8a834;
   --color-amber-subtle: rgba(201 137 31 / 0.15);
 
+  /* ── Brand (CapForge orange — logo / progress / export) ── */
+  --color-brand:      #D4952A;
+  --color-brand-glow: rgba(212 149 42 / 0.3);
+
   /* ── Status ────────────────────────────────────────── */
   --color-success:    #3dba72;
   --color-warning:    #f0a832;
@@ -60,6 +64,12 @@
   --cf-font-ui:      'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --cf-font-display: 'Instrument Serif', Georgia, serif;
   --cf-font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Non-theme custom props (kept out of @theme — Tailwind v4 only
+   recognizes its own namespaces there; plain :root is the safe home). */
+:root {
+  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
 }
 
 /* ╔══════════════════════════════════════════════════════════╗
@@ -132,6 +142,22 @@ html, body, #root {
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255 255 255 / 0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255 255 255 / 0.18); }
+
+/* ── Accessibility foundations ──────────────────────────────── */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+/* Elements with a larger intrinsic radius keep their shape when focused */
+.rounded-2xl:focus-visible { border-radius: 1rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
 
 /* ── Typography helpers ─────────────────────────────────────── */
 .label-xs {
@@ -220,6 +246,12 @@ html, body, #root {
   box-shadow: 0 0 16px 2px var(--color-accent-glow);
 }
 .btn-primary:active { opacity: 0.9; }
+/* .btn-primary owns box-shadow (glow) which would otherwise mask the
+   global focus ring — restate it here with its own radius. */
+.btn-primary:focus-visible {
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-md);
+}
 
 /* Danger */
 .btn-danger {
