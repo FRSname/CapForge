@@ -13,12 +13,14 @@ interface ColorSwatchProps {
 
 export function ColorSwatch({ label, value: rawValue, onChange }: ColorSwatchProps) {
   const value = rawValue || '#000000'
-  const [open, setOpen]   = useState(false)
-  const [hex,  setHexRaw] = useState(value.toUpperCase())
+  const [open, setOpen] = useState(false)
+  const [hex, setHexRaw] = useState(value.toUpperCase())
   const popRef = useRef<HTMLDivElement>(null)
 
   // Sync external value
-  useEffect(() => { setHexRaw(value.toUpperCase()) }, [value])
+  useEffect(() => {
+    setHexRaw(value.toUpperCase())
+  }, [value])
 
   // Close on outside click
   useEffect(() => {
@@ -53,12 +55,12 @@ export function ColorSwatch({ label, value: rawValue, onChange }: ColorSwatchPro
           type="button"
           className="w-6 h-6 rounded border border-[var(--color-border-2)] cursor-pointer shrink-0 hover:ring-1 hover:ring-[var(--color-accent)] transition-all"
           style={{ background: value }}
-          onClick={() => setOpen(o => !o)}
+          onClick={() => setOpen((o) => !o)}
           title={value}
         />
 
         {open && (
-          <div className="absolute left-0 top-8 z-50 w-44 p-3 rounded-lg border border-[var(--color-border-2)] bg-[var(--color-surface-2)] shadow-2xl flex flex-col gap-2.5">
+          <div className="absolute left-0 top-8 z-[var(--z-dropdown)] w-44 p-3 rounded-lg border border-[var(--color-border-2)] bg-[var(--color-surface-2)] shadow-2xl flex flex-col gap-2.5">
             {/* Native color wheel */}
             <input
               type="color"

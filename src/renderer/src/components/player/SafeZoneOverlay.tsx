@@ -57,7 +57,7 @@ export function SafeZoneOverlay({ platform }: SafeZoneOverlayProps) {
 
       {/* Platform tag inside the safe region */}
       <span
-        className="absolute text-[10px] px-1.5 py-0.5 rounded"
+        className="absolute text-2xs px-1.5 py-0.5 rounded"
         style={{
           top:        `calc(${topPct} + 4px)`,
           left:       4,

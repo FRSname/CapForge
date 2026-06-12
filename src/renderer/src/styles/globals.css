@@ -1,6 +1,38 @@
 @import "tailwindcss";
 
 /* ╔══════════════════════════════════════════════════════╗
+   ║  Self-hosted UI fonts (latin subset, offline-safe)   ║
+   ╚══════════════════════════════════════════════════════╝
+   Inter + JetBrains Mono are variable fonts: a single woff2
+   covers the 400–700 weight range. Latin-only subsets — the
+   app UI is English. Subtitle render fonts live elsewhere
+   (lib/fonts.ts pipeline) and are NOT affected by these. */
+
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../assets/fonts/inter-var.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url('../assets/fonts/instrument-serif-italic.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('../assets/fonts/jetbrains-mono-var.woff2') format('woff2');
+}
+
+/* ╔══════════════════════════════════════════════════════╗
    ║  CapForge Design System — Pro Dark Studio           ║
    ╚══════════════════════════════════════════════════════╝ */
 
@@ -33,14 +65,31 @@
   --color-amber-2:    #e8a834;
   --color-amber-subtle: rgba(201 137 31 / 0.15);
 
+  /* ── Brand (CapForge orange — logo / progress / export) ── */
+  --color-brand:      #D4952A;
+  --color-brand-glow: rgba(212 149 42 / 0.3);
+
   /* ── Status ────────────────────────────────────────── */
   --color-success:    #3dba72;
   --color-warning:    #f0a832;
   --color-danger:     #e04b4b;
   --color-danger-subtle: rgba(224 75 75 / 0.1);
 
+  /* ── Toast surfaces (semantic, theme-aware) ────────── */
+  --color-success-bg:     #1c2e1c;
+  --color-success-border: #2a4a2a;
+  --color-error-bg:       #3b1c1c;
+  --color-error-border:   #5c2a2a;
+
   /* ── Layout ────────────────────────────────────────── */
   --titlebar-h:       38px;
+
+  /* ── Type scale ────────────────────────────────────── */
+  /* Extends Tailwind's default scale downward for dense desktop UI.
+     Deliberately NO line-height pair: text-2xs sets font-size only
+     (inherits body line-height), matching old text-[10px] behavior.
+     Standard text-xs (12px) / text-sm (14px) are left untouched. */
+  --text-2xs:         10px;
 
   /* ── Radii ─────────────────────────────────────────── */
   --radius-xs:        3px;
@@ -60,6 +109,25 @@
   --cf-font-ui:      'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --cf-font-display: 'Instrument Serif', Georgia, serif;
   --cf-font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Non-theme custom props (kept out of @theme — Tailwind v4 only
+   recognizes its own namespaces there; plain :root is the safe home). */
+:root {
+  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
+
+  /* ── Z-index scale — overlay layers only (in-flow layering like the
+        player's z-10 stays ad-hoc) ───────────────────────────────── */
+  --z-dropdown: 30;
+  --z-panel:    40;
+  --z-modal:    50;
+  --z-toast:    60;
+}
+
+/* While the settings search filters rows, intra-card dividers separate
+   nothing — hide them (StudioPanel toggles .is-searching on its scroll body). */
+.is-searching .divider {
+  display: none;
 }
 
 /* ╔══════════════════════════════════════════════════════════╗
@@ -94,6 +162,12 @@
   --color-warning:    #9a6700;
   --color-danger:     #d1242f;
   --color-danger-subtle: rgba(209 36 47 / 0.08);
+
+  /* Light tints so dark --color-text stays legible on status toasts. */
+  --color-success-bg:     #dafbe1;
+  --color-success-border: #aceebb;
+  --color-error-bg:       #ffebe9;
+  --color-error-border:   #ffcecb;
 }
 
 /* Light-mode scrollbar */
@@ -133,6 +207,22 @@ html, body, #root {
 ::-webkit-scrollbar-thumb { background: rgba(255 255 255 / 0.1); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(255 255 255 / 0.18); }
 
+/* ── Accessibility foundations ──────────────────────────────── */
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-sm);
+}
+/* Elements with a larger intrinsic radius keep their shape when focused */
+.rounded-2xl:focus-visible { border-radius: 1rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 /* ── Typography helpers ─────────────────────────────────────── */
 .label-xs {
   font-family: var(--cf-font-mono);
@@ -155,14 +245,17 @@ html, body, #root {
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: color var(--duration-fast), background var(--duration-fast);
+  transition: color var(--duration-fast), background var(--duration-fast), transform var(--duration-fast);
   flex-shrink: 0;
 }
 .icon-btn:hover:not(:disabled) {
   color: var(--color-text);
   background: rgba(255 255 255 / 0.06);
 }
-.icon-btn:active:not(:disabled) { background: rgba(255 255 255 / 0.1); }
+.icon-btn:active:not(:disabled) {
+  background: rgba(255 255 255 / 0.1);
+  transform: scale(0.97);
+}
 .icon-btn:disabled { opacity: 0.35; cursor: default; }
 
 .tl-btn {
@@ -212,14 +305,25 @@ html, body, #root {
   font-size: 13px;
   border: none;
   cursor: pointer;
-  transition: background var(--duration-fast), box-shadow var(--duration-fast);
+  transition: background var(--duration-fast), box-shadow var(--duration-fast), transform var(--duration-fast);
   box-shadow: 0 0 0 0 var(--color-accent-glow);
 }
 .btn-primary:hover {
   background: var(--color-accent-2);
-  box-shadow: 0 0 16px 2px var(--color-accent-glow);
+  box-shadow: 0 2px 20px 3px var(--color-accent-glow);
+  transform: translateY(-1px);
 }
-.btn-primary:active { opacity: 0.9; }
+/* `transform: scale()` alone (no translateY) gives the press-down feel. */
+.btn-primary:active {
+  opacity: 0.9;
+  transform: scale(0.97);
+}
+/* .btn-primary owns box-shadow (glow) which would otherwise mask the
+   global focus ring — restate it here with its own radius. */
+.btn-primary:focus-visible {
+  box-shadow: var(--focus-ring);
+  border-radius: var(--radius-md);
+}
 
 /* Danger */
 .btn-danger {
@@ -233,9 +337,10 @@ html, body, #root {
   background: transparent;
   font-size: 12px;
   cursor: pointer;
-  transition: background var(--duration-fast);
+  transition: background var(--duration-fast), transform var(--duration-fast);
 }
 .btn-danger:hover { background: var(--color-danger-subtle); }
+.btn-danger:active { transform: scale(0.97); }
 
 /* Ghost */
 .btn-ghost {
@@ -249,9 +354,10 @@ html, body, #root {
   background: transparent;
   font-size: 12px;
   cursor: pointer;
-  transition: color var(--duration-fast), background var(--duration-fast);
+  transition: color var(--duration-fast), background var(--duration-fast), transform var(--duration-fast);
 }
 .btn-ghost:hover { color: var(--color-text); background: rgba(255 255 255 / 0.05); }
+.btn-ghost:active { transform: scale(0.97); }
 
 /* ── Form controls ───────────────────────────────────────────── */
 .field-input {
@@ -327,4 +433,50 @@ input[type="range"] {
 }
 .animate-toast-in {
   animation: toast-in 200ms ease-out;
+}
+
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(16px); }
+}
+/* `forwards` keeps the toast invisible between animationend and React
+   removing it from state — otherwise it would flash back for a frame. */
+.animate-toast-out {
+  animation: toast-out 180ms var(--ease-out-expo) forwards;
+}
+
+/* ── Screen transition ────────────────────────────────────────── */
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.screen-in {
+  animation: screen-in 180ms var(--ease-out-expo);
+}
+
+/* ── Keyboard key chip ────────────────────────────────────────── */
+/* Used by the shortcut reference list (SettingsPanel) and the `?`
+   ShortcutOverlay — both render from lib/shortcuts.ts. */
+.kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: var(--cf-font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+}
+
+/* ── Popover entrance ─────────────────────────────────────────── */
+/* Default transform-origin is center (fine for popups that can flip
+   above their anchor); dropdowns add Tailwind's `origin-top`. */
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.pop-in {
+  animation: pop-in 120ms var(--ease-out-expo);
 }

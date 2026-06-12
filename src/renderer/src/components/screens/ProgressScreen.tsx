@@ -6,17 +6,17 @@ import chatAnimation from '../../assets/chat-loading.json'
 
 const STEPS = [
   { key: 'loading_model', label: 'Load Model' },
-  { key: 'transcribing',  label: 'Transcribe' },
-  { key: 'aligning',      label: 'Align' },
-  { key: 'diarizing',     label: 'Diarize' },
-  { key: 'exporting',     label: 'Export' },
+  { key: 'transcribing', label: 'Transcribe' },
+  { key: 'aligning', label: 'Align' },
+  { key: 'diarizing', label: 'Diarize' },
+  { key: 'exporting', label: 'Export' },
 ] as const
 
-type StepKey = typeof STEPS[number]['key']
+type StepKey = (typeof STEPS)[number]['key']
 
 interface ProgressScreenProps {
   filePath: string
-  onDone:   (result: TranscriptionResult) => void
+  onDone: (result: TranscriptionResult) => void
   onCancel: () => void
 }
 
@@ -42,32 +42,36 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
         hfToken: hfToken || undefined,
       })
     }
-    run().then(onDone).catch(err => {
-      if ((err as Error).message !== 'Cancelled') console.error('Transcription error:', err)
-    })
+    run()
+      .then(onDone)
+      .catch((err) => {
+        if ((err as Error).message !== 'Cancelled') console.error('Transcription error:', err)
+      })
     // No cleanup: we don't want StrictMode's unmount to cancel an in-flight job.
     // Real user-initiated cancel goes through handleCancel below.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filePath])
 
-  const stepKeys = STEPS.map(s => s.key)
-  const currentKey  = (progress?.step ?? 'loading_model') as StepKey
-  const currentIdx  = stepKeys.indexOf(currentKey)
-  const pct         = Math.round(progress?.pct ?? 0)
+  const stepKeys = STEPS.map((s) => s.key)
+  const currentKey = (progress?.step ?? 'loading_model') as StepKey
+  const currentIdx = stepKeys.indexOf(currentKey)
+  const pct = Math.round(progress?.pct ?? 0)
 
-  function handleCancel() { cancel(); onCancel() }
+  function handleCancel() {
+    cancel()
+    onCancel()
+  }
 
   return (
     <div className="flex flex-col items-center justify-center h-full gap-4 p-10">
       <div className="w-full max-w-[400px] flex flex-col items-center gap-5">
-
         {/* Lottie chat animation */}
         <LottieChat />
 
         {/* Pipeline pills */}
         <div className="flex items-center gap-2 w-full">
           {STEPS.map((step, i) => {
-            const isDone   = i < currentIdx
+            const isDone = i < currentIdx
             const isActive = i === currentIdx
             const isPending = i > currentIdx
 
@@ -77,24 +81,30 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
                 {i > 0 && (
                   <div
                     className="absolute"
-                    style={{/* connector handled by flex gap */}}
+                    style={
+                      {
+                        /* connector handled by flex gap */
+                      }
+                    }
                   />
                 )}
                 {/* Dot */}
                 <div
                   className={`relative flex items-center justify-center w-7 h-7 rounded-full border transition-all duration-300 ${
-                    isDone   ? 'bg-[var(--color-success)] border-[var(--color-success)]'
-                  : isActive ? 'bg-[#D4952A] border-[#D4952A]'
-                  :            'bg-[var(--color-surface-3)] border-[var(--color-border-2)]'
+                    isDone
+                      ? 'bg-[var(--color-success)] border-[var(--color-success)]'
+                      : isActive
+                        ? 'bg-[var(--color-brand)] border-[var(--color-brand)]'
+                        : 'bg-[var(--color-surface-3)] border-[var(--color-border-2)]'
                   }`}
                   style={{
-                    boxShadow:    isActive ? '0 0 12px 2px rgba(212,149,42,0.3)' : 'none',
-                    transform:    isActive ? 'scale(1.15)' : 'scale(1)',
+                    boxShadow: isActive ? '0 0 12px 2px var(--color-brand-glow)' : 'none',
+                    transform: isActive ? 'scale(1.15)' : 'scale(1)',
                   }}
                 >
                   {isDone ? (
                     <svg width="11" height="11" viewBox="0 0 16 16" fill="white">
-                      <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/>
+                      <path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.751.751 0 0 1 .018-1.042.751.751 0 0 1 1.042-.018L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z" />
                     </svg>
                   ) : isActive ? (
                     <div className="w-2 h-2 rounded-full bg-white animate-pulse" />
@@ -105,7 +115,7 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
                   )}
                 </div>
                 <span
-                  className={`text-[10px] font-medium tracking-wide text-center ${isActive ? 'text-[var(--color-text-2)]' : 'text-[var(--color-text-3)]'}`}
+                  className={`text-2xs font-medium tracking-wide text-center ${isActive ? 'text-[var(--color-text-2)]' : 'text-[var(--color-text-3)]'}`}
                 >
                   {step.label}
                 </span>
@@ -116,7 +126,15 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
 
         {/* Message */}
         <div className="text-center">
-          <p className="font-medium text-sm mb-1.5 text-[var(--color-text)]">
+          <p
+            aria-live="polite"
+            className="text-lg mb-1.5"
+            style={{
+              fontFamily: 'var(--cf-font-display)',
+              fontStyle: 'italic',
+              color: 'var(--color-text)',
+            }}
+          >
             {progress?.message ?? 'Starting\u2026'}
           </p>
           {progress?.sub_message && (
@@ -126,14 +144,13 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
 
         {/* Progress bar */}
         <div className="flex flex-col gap-2 w-full">
-          <div
-            className="w-full h-1.5 rounded-full overflow-hidden bg-[var(--color-surface-3)]"
-          >
+          <div className="w-full h-1.5 rounded-full overflow-hidden bg-[var(--color-surface-3)]">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{
                 width: `${pct}%`,
-                background: 'linear-gradient(90deg, #D4952A 0%, #E8C078 100%)',
+                background:
+                  'linear-gradient(90deg, var(--color-brand) 0%, color-mix(in srgb, var(--color-brand) 60%, white) 100%)',
               }}
             />
           </div>
@@ -144,7 +161,9 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
 
         {/* Cancel */}
         <div className="flex justify-center">
-          <button className="btn-danger" onClick={handleCancel}>Cancel</button>
+          <button className="btn-danger" onClick={handleCancel}>
+            Cancel
+          </button>
         </div>
       </div>
     </div>

@@ -15,7 +15,7 @@ import type { Segment, Word } from '../../types/app'
 interface SubtitleEditorProps {
   segments: Segment[]
   currentTime: number
-  onSeek:   (time: number) => void
+  onSeek: (time: number) => void
   onChange: (segments: Segment[]) => void
   /** Called before an edit to snapshot state for undo. */
   onBeforeEdit?: () => void
@@ -28,17 +28,28 @@ interface SubtitleEditorProps {
 }
 
 interface WordTimingEdit {
-  segIdx:  number
+  segIdx: number
   wordIdx: number
 }
 
-export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBeforeEdit, onAddSegment, focusSegmentId, onFocusConsumed }: SubtitleEditorProps) {
+export function SubtitleEditor({
+  segments,
+  currentTime,
+  onSeek,
+  onChange,
+  onBeforeEdit,
+  onAddSegment,
+  focusSegmentId,
+  onFocusConsumed,
+}: SubtitleEditorProps) {
   const [editingSegId, setEditingSegId] = useState<string | null>(null)
   const [wordTimingEdit, setWordTimingEdit] = useState<WordTimingEdit | null>(null)
-  const [searchQuery, setSearchQuery]   = useState('')
+  const [searchQuery, setSearchQuery] = useState('')
 
   const lowerQuery = searchQuery.toLowerCase().trim()
-  const matchCount = lowerQuery ? segments.filter(s => s.text.toLowerCase().includes(lowerQuery)).length : segments.length
+  const matchCount = lowerQuery
+    ? segments.filter((s) => s.text.toLowerCase().includes(lowerQuery)).length
+    : segments.length
 
   // When parent requests focus on a freshly-added segment, enter edit mode for it.
   useEffect(() => {
@@ -71,19 +82,28 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
     const parsed = parseTimePrecise(value)
     if (isNaN(parsed)) return
     onBeforeEdit?.()
-    onChange(segments.map((s, i) => i !== segIdx ? s : { ...s, [field]: parsed }))
+    onChange(segments.map((s, i) => (i !== segIdx ? s : { ...s, [field]: parsed })))
   }
 
-  function handleWordTimingChange(segIdx: number, wordIdx: number, field: 'start' | 'end', value: string) {
+  function handleWordTimingChange(
+    segIdx: number,
+    wordIdx: number,
+    field: 'start' | 'end',
+    value: string
+  ) {
     const parsed = parseTimePrecise(value)
     if (isNaN(parsed)) return
     onBeforeEdit?.()
-    onChange(segments.map((s, si) =>
-      si !== segIdx ? s : {
-        ...s,
-        words: s.words.map((w, wi) => wi !== wordIdx ? w : { ...w, [field]: parsed }),
-      }
-    ))
+    onChange(
+      segments.map((s, si) =>
+        si !== segIdx
+          ? s
+          : {
+              ...s,
+              words: s.words.map((w, wi) => (wi !== wordIdx ? w : { ...w, [field]: parsed })),
+            }
+      )
+    )
   }
 
   function handleDeleteSegment(segIdx: number) {
@@ -97,7 +117,7 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
     if (otherIdx < 0 || otherIdx >= segments.length) return
     onBeforeEdit?.()
     const a = direction === 'prev' ? segments[otherIdx] : segments[segIdx]
-    const b = direction === 'prev' ? segments[segIdx]  : segments[otherIdx]
+    const b = direction === 'prev' ? segments[segIdx] : segments[otherIdx]
     const merged: Segment = {
       ...a,
       end: b.end,
@@ -148,7 +168,9 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
       if (last) return { ...last, word }
       return { word, start: seg.start, end: seg.end }
     })
-    onChange(segments.map((s, si) => si !== segIdx ? s : { ...s, text: newText, words: newWords }))
+    onChange(
+      segments.map((s, si) => (si !== segIdx ? s : { ...s, text: newText, words: newWords }))
+    )
   }
 
   return (
@@ -160,11 +182,11 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
             type="text"
             placeholder="Search…"
             value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
+            onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full text-xs px-2.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:outline-none focus:border-[var(--color-accent)] text-[var(--color-text)] placeholder:text-[var(--color-text-subtle)]"
           />
           {lowerQuery && (
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-[var(--color-text-subtle)] tabular-nums pointer-events-none">
+            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-2xs text-[var(--color-text-subtle)] tabular-nums pointer-events-none">
               {matchCount}/{segments.length}
             </span>
           )}
@@ -185,33 +207,34 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
         {segments.map((seg, si) => {
           if (lowerQuery && !seg.text.toLowerCase().includes(lowerQuery)) return null
           return (
-          <SegmentRow
-            key={seg.id}
-            seg={seg}
-            segIdx={si}
-            isActive={si === activeSegIdx}
-            isEditing={seg.id === editingSegId}
-            currentTime={currentTime}
-            onSeek={onSeek}
-            onTimingChange={handleTimingChange}
-            onTextEdit={handleTextEdit}
-            wordTimingEdit={wordTimingEdit}
-            onWordTimingEditToggle={setWordTimingEdit}
-            onWordTimingChange={handleWordTimingChange}
-            onDelete={handleDeleteSegment}
-            onStartEdit={() => setEditingSegId(seg.id)}
-            onStopEdit={() => setEditingSegId(null)}
-            onFocusNext={si < segments.length - 1 ? () => setEditingSegId(segments[si + 1].id) : undefined}
-            onFocusPrev={si > 0 ? () => setEditingSegId(segments[si - 1].id) : undefined}
-            onSplit={handleSplitSegment}
-            onMerge={handleMergeSegment}
-            isFirst={si === 0}
-            isLast={si === segments.length - 1}
-          />
+            <SegmentRow
+              key={seg.id}
+              seg={seg}
+              segIdx={si}
+              isActive={si === activeSegIdx}
+              isEditing={seg.id === editingSegId}
+              currentTime={currentTime}
+              onSeek={onSeek}
+              onTimingChange={handleTimingChange}
+              onTextEdit={handleTextEdit}
+              wordTimingEdit={wordTimingEdit}
+              onWordTimingEditToggle={setWordTimingEdit}
+              onWordTimingChange={handleWordTimingChange}
+              onDelete={handleDeleteSegment}
+              onStartEdit={() => setEditingSegId(seg.id)}
+              onStopEdit={() => setEditingSegId(null)}
+              onFocusNext={
+                si < segments.length - 1 ? () => setEditingSegId(segments[si + 1].id) : undefined
+              }
+              onFocusPrev={si > 0 ? () => setEditingSegId(segments[si - 1].id) : undefined}
+              onSplit={handleSplitSegment}
+              onMerge={handleMergeSegment}
+              isFirst={si === 0}
+              isLast={si === segments.length - 1}
+            />
           )
         })}
       </div>
-
     </div>
   )
 }
@@ -219,12 +242,12 @@ export function SubtitleEditor({ segments, currentTime, onSeek, onChange, onBefo
 // ── SegmentRow ──────────────────────────────────────────────────
 
 interface SegmentRowProps {
-  seg:       Segment
-  segIdx:    number
-  isActive:  boolean
+  seg: Segment
+  segIdx: number
+  isActive: boolean
   isEditing: boolean
   currentTime: number
-  onSeek:    (time: number) => void
+  onSeek: (time: number) => void
   onTimingChange: (si: number, field: 'start' | 'end', value: string) => void
   onTextEdit: (si: number, newText: string) => void
   wordTimingEdit: WordTimingEdit | null
@@ -241,8 +264,29 @@ interface SegmentRowProps {
   isLast: boolean
 }
 
-function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onTimingChange, onTextEdit, wordTimingEdit, onWordTimingEditToggle, onWordTimingChange, onDelete, onStartEdit, onStopEdit, onFocusNext, onFocusPrev, onSplit, onMerge, isFirst, isLast }: SegmentRowProps) {
-  const rowRef  = useRef<HTMLDivElement>(null)
+function SegmentRow({
+  seg,
+  segIdx,
+  isActive,
+  isEditing,
+  currentTime,
+  onSeek,
+  onTimingChange,
+  onTextEdit,
+  wordTimingEdit,
+  onWordTimingEditToggle,
+  onWordTimingChange,
+  onDelete,
+  onStartEdit,
+  onStopEdit,
+  onFocusNext,
+  onFocusPrev,
+  onSplit,
+  onMerge,
+  isFirst,
+  isLast,
+}: SegmentRowProps) {
+  const rowRef = useRef<HTMLDivElement>(null)
   const textRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -253,7 +297,7 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
 
   const activeWordIdx = useMemo(() => {
     if (!isActive) return -1
-    return seg.words.findIndex(w => currentTime >= w.start && currentTime < w.end)
+    return seg.words.findIndex((w) => currentTime >= w.start && currentTime < w.end)
   }, [isActive, seg.words, currentTime])
 
   // Focus the contentEditable when entering edit mode.
@@ -267,7 +311,7 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
       rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
       const el = textRef.current
       if (!el) return
-      el.textContent = seg.words.map(w => w.word).join(' ') || seg.text
+      el.textContent = seg.words.map((w) => w.word).join(' ') || seg.text
       el.focus()
       const range = document.createRange()
       const sel = window.getSelection()
@@ -310,7 +354,7 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
       onKeyDown={handleKeyDown}
     >
       {seg.speaker && (
-        <span className="text-[10px] text-[var(--color-accent)] font-semibold mr-1.5">
+        <span className="text-2xs text-[var(--color-accent)] font-semibold mr-1.5">
           [{seg.speaker}]
         </span>
       )}
@@ -331,11 +375,11 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
               contentEditable
               suppressContentEditableWarning
               spellCheck
-              onBlur={e => {
+              onBlur={(e) => {
                 const text = (e.currentTarget.textContent ?? '').trim()
                 if (text !== seg.text) onTextEdit(segIdx, text)
               }}
-              onKeyDown={e => {
+              onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
                   e.preventDefault()
                   const sel = window.getSelection()
@@ -356,26 +400,37 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
             {seg.words.length > 0 && (
               <div className="flex flex-wrap gap-1">
                 {seg.words.map((w, wi) => {
-                  const isEditingThis = wordTimingEdit?.segIdx === segIdx && wordTimingEdit?.wordIdx === wi
+                  const isEditingThis =
+                    wordTimingEdit?.segIdx === segIdx && wordTimingEdit?.wordIdx === wi
                   return (
                     <div key={wi} className="flex flex-col items-center">
                       <button
                         type="button"
                         className={[
-                          'text-[10px] px-1.5 py-0.5 rounded transition-colors tabular-nums',
+                          'text-2xs px-1.5 py-0.5 rounded transition-colors tabular-nums',
                           isEditingThis
                             ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)] border border-[var(--color-accent)]/40'
                             : 'bg-[var(--color-surface)] text-[var(--color-text-muted)] border border-[var(--color-border)] hover:border-[var(--color-accent)]/40',
                         ].join(' ')}
-                        onClick={() => onWordTimingEditToggle(isEditingThis ? null : { segIdx, wordIdx: wi })}
+                        onClick={() =>
+                          onWordTimingEditToggle(isEditingThis ? null : { segIdx, wordIdx: wi })
+                        }
                         title="Edit word timing"
                       >
                         {w.word}
                       </button>
                       {isEditingThis && (
                         <div className="flex items-center gap-1 mt-1">
-                          <TimingField label="S" value={w.start} onChange={v => onWordTimingChange(segIdx, wi, 'start', v)} />
-                          <TimingField label="E" value={w.end}   onChange={v => onWordTimingChange(segIdx, wi, 'end', v)} />
+                          <TimingField
+                            label="S"
+                            value={w.start}
+                            onChange={(v) => onWordTimingChange(segIdx, wi, 'start', v)}
+                          />
+                          <TimingField
+                            label="E"
+                            value={w.end}
+                            onChange={(v) => onWordTimingChange(segIdx, wi, 'end', v)}
+                          />
                         </div>
                       )}
                     </div>
@@ -386,25 +441,43 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
           </div>
         ) : (
           <div className="flex flex-wrap gap-x-0.5 gap-y-0.5 leading-relaxed flex-1 min-w-0">
-            {seg.words.length > 0
-              ? seg.words.map((w, wi) => (
-                  <span
-                    key={wi}
-                    className={[
-                      'cursor-pointer rounded px-0.5 transition-colors',
-                      wi === activeWordIdx
-                        ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)] font-medium'
-                        : '',
-                      'hover:bg-white/[0.06]',
-                    ].join(' ')}
-                    onClick={() => onSeek(w.start)}
-                    title={`${formatTimePrecise(w.start)} → ${formatTimePrecise(w.end)}`}
-                  >
-                    {w.word}
-                  </span>
-                ))
-              : <span className="text-[var(--color-text-muted)]">{seg.text}</span>
-            }
+            {seg.words.length > 0 ? (
+              seg.words.map((w, wi) => (
+                <span
+                  key={wi}
+                  // Keyboard access on the ACTIVE segment's chips only —
+                  // tabbing through every word of every segment would bury
+                  // the rest of the UI in tab stops. Focus ring comes from
+                  // the global :focus-visible style.
+                  role={isActive ? 'button' : undefined}
+                  tabIndex={isActive ? 0 : undefined}
+                  onKeyDown={
+                    isActive
+                      ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            onSeek(w.start)
+                          }
+                        }
+                      : undefined
+                  }
+                  className={[
+                    'cursor-pointer rounded px-0.5 transition-colors',
+                    wi === activeWordIdx
+                      ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)] font-medium'
+                      : '',
+                    'hover:bg-white/[0.06]',
+                  ].join(' ')}
+                  onClick={() => onSeek(w.start)}
+                  title={`${formatTimePrecise(w.start)} → ${formatTimePrecise(w.end)}`}
+                >
+                  {w.word}
+                </span>
+              ))
+            ) : (
+              <span className="text-[var(--color-text-muted)]">{seg.text}</span>
+            )}
           </div>
         )}
 
@@ -416,7 +489,7 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
             title="Edit this subtitle"
           >
             <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-              <path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm.176 4.823L9.75 4.81l-6.286 6.287a.253.253 0 0 0-.064.108l-.558 1.953 1.953-.558a.253.253 0 0 0 .108-.064Zm1.238-3.763a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354Z"/>
+              <path d="M11.013 1.427a1.75 1.75 0 0 1 2.474 0l1.086 1.086a1.75 1.75 0 0 1 0 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 0 1-.927-.928l.929-3.25c.081-.286.235-.547.445-.758l8.61-8.61Zm.176 4.823L9.75 4.81l-6.286 6.287a.253.253 0 0 0-.064.108l-.558 1.953 1.953-.558a.253.253 0 0 0 .108-.064Zm1.238-3.763a.25.25 0 0 0-.354 0L10.811 3.75l1.439 1.44 1.263-1.263a.25.25 0 0 0 0-.354Z" />
             </svg>
           </button>
         )}
@@ -425,8 +498,16 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
       {/* Timing + actions (edit mode only) */}
       {isEditing && (
         <div className="flex items-center gap-3 mt-2 pt-2 border-t border-[var(--color-border)]">
-          <TimingField label="Start" value={seg.start} onChange={v => onTimingChange(segIdx, 'start', v)} />
-          <TimingField label="End"   value={seg.end}   onChange={v => onTimingChange(segIdx, 'end', v)} />
+          <TimingField
+            label="Start"
+            value={seg.start}
+            onChange={(v) => onTimingChange(segIdx, 'start', v)}
+          />
+          <TimingField
+            label="End"
+            value={seg.end}
+            onChange={(v) => onTimingChange(segIdx, 'end', v)}
+          />
           <div className="ml-auto flex items-center gap-1.5">
             {!isFirst && (
               <button
@@ -461,7 +542,11 @@ function SegmentRow({ seg, segIdx, isActive, isEditing, currentTime, onSeek, onT
 
 // ── TimingField ─────────────────────────────────────────────────
 
-function TimingField({ label, value, onChange }: {
+function TimingField({
+  label,
+  value,
+  onChange,
+}: {
   label: string
   value: number
   onChange: (v: string) => void
@@ -479,7 +564,9 @@ function TimingField({ label, value, onChange }: {
 
   return (
     <div className="flex items-center gap-1.5">
-      <label className="text-[10px] text-[var(--color-text-subtle)] uppercase tracking-wider">{label}</label>
+      <label className="text-2xs text-[var(--color-text-subtle)] uppercase tracking-wider">
+        {label}
+      </label>
       <input
         type="text"
         value={raw}
@@ -497,24 +584,27 @@ function TimingField({ label, value, onChange }: {
 // ── Time formatting ─────────────────────────────────────────────
 
 function formatTime(s: number): string {
-  const m   = Math.floor(s / 60)
+  const m = Math.floor(s / 60)
   const sec = String(Math.floor(s % 60)).padStart(2, '0')
   return `${m}:${sec}`
 }
 
 function formatTimePrecise(s: number): string {
-  const m   = Math.floor(s / 60)
+  const m = Math.floor(s / 60)
   const sec = (s % 60).toFixed(3).padStart(6, '0')
   return `${m}:${sec}`
 }
 
 function remapWordsFromText(seg: Segment, text: string): Word[] {
-  return text.split(/\s+/).filter(Boolean).map((word, i) => {
-    if (i < seg.words.length) return { ...seg.words[i], word }
-    const last = seg.words[seg.words.length - 1]
-    if (last) return { ...last, word }
-    return { word, start: seg.start, end: seg.end }
-  })
+  return text
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word, i) => {
+      if (i < seg.words.length) return { ...seg.words[i], word }
+      const last = seg.words[seg.words.length - 1]
+      if (last) return { ...last, word }
+      return { word, start: seg.start, end: seg.end }
+    })
 }
 
 function parseTimePrecise(str: string): number {

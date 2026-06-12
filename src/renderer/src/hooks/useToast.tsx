@@ -13,11 +13,13 @@ import type { ReactNode } from 'react'
 export type ToastType = 'success' | 'error' | 'info'
 
 export interface ToastItem {
-  id:      number
+  id: number
   message: string
-  type:    ToastType
+  type: ToastType
   /** Optional action button rendered inline. */
   action?: { label: string; onClick: () => void }
+  /** True while the exit animation plays; removed on animationend. */
+  leaving?: boolean
 }
 
 interface ToastContextValue {
@@ -38,73 +40,105 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<ToastItem[]>([])
   const nextId = useRef(0)
 
-  const toast = useCallback((message: string, type: ToastType = 'info', action?: ToastItem['action']) => {
-    const id = nextId.current++
-    setItems(prev => [...prev, { id, message, type, action }])
-    setTimeout(() => {
-      setItems(prev => prev.filter(t => t.id !== id))
-    }, DISMISS_MS)
+  /** Start the exit animation; the toast is removed for real on animationend. */
+  const dismiss = useCallback((id: number) => {
+    setItems((prev) => prev.map((t) => (t.id === id ? { ...t, leaving: true } : t)))
   }, [])
 
-  const dismiss = useCallback((id: number) => {
-    setItems(prev => prev.filter(t => t.id !== id))
+  /** Remove from state once the exit animation has finished. */
+  const remove = useCallback((id: number) => {
+    setItems((prev) => prev.filter((t) => t.id !== id))
   }, [])
+
+  const toast = useCallback(
+    (message: string, type: ToastType = 'info', action?: ToastItem['action']) => {
+      const id = nextId.current++
+      setItems((prev) => [...prev, { id, message, type, action }])
+      setTimeout(() => dismiss(id), DISMISS_MS)
+    },
+    [dismiss]
+  )
 
   return (
     <ToastContext.Provider value={{ toast }}>
       {children}
 
-      {/* Toast stack — fixed bottom-right */}
-      {items.length > 0 && (
-        <div className="fixed bottom-4 right-4 z-[9999] flex flex-col gap-2 pointer-events-none">
-          {items.map(t => (
-            <div
-              key={t.id}
-              className="pointer-events-auto flex items-center gap-2 px-3.5 py-2.5 rounded-lg shadow-lg border text-sm max-w-[360px] animate-toast-in"
+      {/* Toast stack — fixed bottom-right. Rendered unconditionally so the
+          live region exists before the first toast arrives — screen readers
+          only announce changes inside a region that was already in the tree. */}
+      <div
+        className="fixed bottom-4 right-4 z-[var(--z-toast)] flex flex-col gap-2 pointer-events-none"
+        role="status"
+        aria-live="polite"
+      >
+        {items.map((t) => (
+          <div
+            key={t.id}
+            className={`pointer-events-auto flex items-center gap-2 px-3.5 py-2.5 rounded-lg shadow-lg border text-sm max-w-[360px] ${
+              t.leaving ? 'animate-toast-out' : 'animate-toast-in'
+            }`}
+            onAnimationEnd={() => {
+              // Fires for both toast-in and toast-out; only the exit
+              // (leaving) animation should remove the toast. With
+              // prefers-reduced-motion the 0.01ms animation still
+              // fires animationend, so cleanup is guaranteed.
+              if (t.leaving) remove(t.id)
+            }}
+            style={{
+              background:
+                t.type === 'error'
+                  ? 'var(--color-error-bg)'
+                  : t.type === 'success'
+                    ? 'var(--color-success-bg)'
+                    : 'var(--color-surface-2)',
+              borderColor:
+                t.type === 'error'
+                  ? 'var(--color-error-border)'
+                  : t.type === 'success'
+                    ? 'var(--color-success-border)'
+                    : 'var(--color-border)',
+              color: 'var(--color-text)',
+            }}
+          >
+            {/* Icon */}
+            <span
+              className="shrink-0 text-xs"
               style={{
-                background: t.type === 'error'   ? 'var(--color-error-bg,   #3b1c1c)'
-                           : t.type === 'success' ? 'var(--color-success-bg, #1c2e1c)'
-                           :                        'var(--color-surface-2)',
-                borderColor: t.type === 'error'   ? 'var(--color-error-border,   #5c2a2a)'
-                           : t.type === 'success' ? 'var(--color-success-border, #2a4a2a)'
-                           :                        'var(--color-border)',
-                color: 'var(--color-text)',
+                color:
+                  t.type === 'error'
+                    ? 'var(--color-danger)'
+                    : t.type === 'success'
+                      ? 'var(--color-success)'
+                      : 'var(--color-accent)',
               }}
             >
-              {/* Icon */}
-              <span className="shrink-0 text-xs" style={{
-                color: t.type === 'error'   ? '#f87171'
-                     : t.type === 'success' ? '#4ade80'
-                     :                        'var(--color-accent)',
-              }}>
-                {t.type === 'error'   && <ErrorIcon />}
-                {t.type === 'success' && <CheckIcon />}
-                {t.type === 'info'    && <InfoIcon />}
-              </span>
+              {t.type === 'error' && <ErrorIcon />}
+              {t.type === 'success' && <CheckIcon />}
+              {t.type === 'info' && <InfoIcon />}
+            </span>
 
-              <span className="flex-1 min-w-0 text-xs leading-snug break-words">{t.message}</span>
+            <span className="flex-1 min-w-0 text-xs leading-snug break-words">{t.message}</span>
 
-              {t.action && (
-                <button
-                  className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded hover:bg-white/10 transition-colors"
-                  style={{ color: 'var(--color-accent)' }}
-                  onClick={t.action.onClick}
-                >
-                  {t.action.label}
-                </button>
-              )}
-
+            {t.action && (
               <button
-                className="shrink-0 text-xs opacity-40 hover:opacity-80 transition-opacity"
-                onClick={() => dismiss(t.id)}
-                aria-label="Dismiss"
+                className="shrink-0 text-[11px] font-medium px-2 py-0.5 rounded hover:bg-white/10 transition-colors"
+                style={{ color: 'var(--color-accent)' }}
+                onClick={t.action.onClick}
               >
-                &times;
+                {t.action.label}
               </button>
-            </div>
-          ))}
-        </div>
-      )}
+            )}
+
+            <button
+              className="shrink-0 text-xs opacity-40 hover:opacity-80 transition-opacity"
+              onClick={() => dismiss(t.id)}
+              aria-label="Dismiss"
+            >
+              &times;
+            </button>
+          </div>
+        ))}
+      </div>
     </ToastContext.Provider>
   )
 }

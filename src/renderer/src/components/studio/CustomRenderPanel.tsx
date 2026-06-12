@@ -5,6 +5,8 @@
  */
 
 import { StudioCard } from './StudioCard'
+import { Button } from '../ui/Button'
+import { Select } from '../ui/Select'
 import { dirname } from '../../lib/render'
 import type { StudioSettings } from './StudioPanel'
 import type { RenderController } from '../../hooks/useRender'
@@ -69,8 +71,8 @@ export function CustomRenderPanel({
     <StudioCard title="Custom Render" defaultOpen={false}>
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Resolution</span>
-        <select
-          className="field-input flex-1 min-w-0 text-xs"
+        <Select
+          className="flex-1 min-w-0 text-xs"
           value={`${s.resolution[0]}x${s.resolution[1]}`}
           onChange={(e) => {
             const [w, h] = e.target.value.split('x').map(Number) as [number, number]
@@ -88,7 +90,7 @@ export function CustomRenderPanel({
               {o.label}
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       {/* One-click platform aspect presets */}
       <div className="flex items-center gap-1.5 min-w-0">
@@ -107,7 +109,7 @@ export function CustomRenderPanel({
                     resolutionIsSource: false,
                   })
                 }
-                className={`flex-1 min-w-0 truncate text-[10px] py-1 px-1 rounded-md border transition-colors ${
+                className={`flex-1 min-w-0 truncate text-2xs py-1 px-1 rounded-md border transition-colors ${
                   active
                     ? 'bg-[var(--color-accent)] text-white border-transparent'
                     : 'bg-[var(--color-surface-2)] text-[var(--color-text-2)] border-[var(--color-border)] hover:bg-[var(--color-surface-3)]'
@@ -121,8 +123,8 @@ export function CustomRenderPanel({
       </div>
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">FPS</span>
-        <select
-          className="field-input flex-1 min-w-0 text-xs"
+        <Select
+          className="flex-1 min-w-0 text-xs"
           value={String(s.fps)}
           onChange={(e) => set('fps', Number(e.target.value))}
         >
@@ -131,37 +133,37 @@ export function CustomRenderPanel({
               {f} fps
             </option>
           ))}
-        </select>
+        </Select>
       </div>
       <div className="divider" />
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Format</span>
-        <select
-          className="field-input flex-1 min-w-0 text-xs"
+        <Select
+          className="flex-1 min-w-0 text-xs"
           value={s.format}
           onChange={(e) => set('format', e.target.value as StudioSettings['format'])}
         >
           <option value="webm">WebM (VP9 + Alpha)</option>
           <option value="mov">MOV (ProRes 4444)</option>
           <option value="mp4">MP4 (H.264)</option>
-        </select>
+        </Select>
       </div>
       <div className="flex items-center gap-1.5 min-w-0">
         <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Mode</span>
-        <select
-          className="field-input flex-1 min-w-0 text-xs"
+        <Select
+          className="flex-1 min-w-0 text-xs"
           value={s.renderMode}
           onChange={(e) => set('renderMode', e.target.value as StudioSettings['renderMode'])}
         >
           <option value="overlay">Transparent Overlay</option>
           <option value="baked">Baked into Video</option>
-        </select>
+        </Select>
       </div>
       {s.renderMode === 'baked' && (
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Bitrate</span>
-          <select
-            className="field-input flex-1 min-w-0 text-xs"
+          <Select
+            className="flex-1 min-w-0 text-xs"
             value={s.bitrate}
             onChange={(e) => set('bitrate', e.target.value)}
           >
@@ -169,18 +171,19 @@ export function CustomRenderPanel({
             <option value="15M">15 Mbps (High)</option>
             <option value="25M">25 Mbps (Very High)</option>
             <option value="40M">40 Mbps (Maximum)</option>
-          </select>
+          </Select>
         </div>
       )}
 
-      <button
-        className="btn-primary w-full justify-center mt-2"
+      <Button
+        variant="primary"
+        className="w-full justify-center mt-2"
         disabled={busy}
         onClick={() => startRender({}, effectiveOutputDir)}
       >
         Render with current settings
-      </button>
-      <p className="text-[10px] text-[var(--color-text-3)] text-center">
+      </Button>
+      <p className="text-2xs text-[var(--color-text-3)] text-center">
         {s.resolution[0]}×{s.resolution[1]} · {s.fps}fps · {s.format.toUpperCase()} · {s.renderMode}
       </p>
     </StudioCard>

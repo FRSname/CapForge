@@ -32,12 +32,23 @@ interface ResultsScreenProps {
   /** Ref that App.tsx uses to gather/restore project state for save/open. */
   projectIORef?: React.MutableRefObject<ProjectIOHandle | null>
   /** Fires whenever undo/redo availability changes so App can surface buttons in TitleBar. */
-  onUndoRedoChange?: (state: { undo: () => void; redo: () => void; canUndo: boolean; canRedo: boolean }) => void
+  onUndoRedoChange?: (state: {
+    undo: () => void
+    redo: () => void
+    canUndo: boolean
+    canRedo: boolean
+  }) => void
 }
 
 type EditorView = 'text' | 'groups'
 
-export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, onUndoRedoChange }: ResultsScreenProps) {
+export function ResultsScreen({
+  result,
+  settings,
+  onGroupsUpdate,
+  projectIORef,
+  onUndoRedoChange,
+}: ResultsScreenProps) {
   // Segments are mutable (user can edit timing + word overrides)
   const [segments, setSegments] = useState<Segment[]>(result.segments)
   const [currentTime, setCurrentTime] = useState(0)
@@ -47,8 +58,8 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
   // Display groups — held as state (not useMemo) so manual merge/split edits
   // from GroupEditor stick. The useEffect below re-derives them whenever the
   // source segments or wpg change, matching vanilla's behaviour.
-  const [groups, setGroups] = useState<Segment[]>(
-    () => buildStudioGroups(result.segments, settings.wordsPerGroup),
+  const [groups, setGroups] = useState<Segment[]>(() =>
+    buildStudioGroups(result.segments, settings.wordsPerGroup)
   )
   // True once the user manually merges/splits/reorders groups — flag is sent
   // to the backend so renderSubtitleVideo uses `custom_groups` instead of
@@ -66,9 +77,12 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
 
   // ── Undo/redo for segment + group edits ───────────────────────
   const { pushUndo, undo, redo, canUndo, canRedo, isRestoringRef } = useUndoRedo(
-    segments, setSegments,
-    groups, setGroups,
-    groupsEdited, setGroupsEdited,
+    segments,
+    setSegments,
+    groups,
+    setGroups,
+    groupsEdited,
+    setGroupsEdited
   )
 
   useEffect(() => {
@@ -96,13 +110,13 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
       // preserve group boundaries but sync updated word data from the new segments.
       // The word-index sync is only safe when the total word pool is stable; adding
       // or removing a segment shifts the pool and misaligns the wi counter.
-      const allWords = segments.flatMap(s => s.words)
+      const allWords = segments.flatMap((s) => s.words)
       // wi must live inside the updater so React Strict Mode's double-invocation
       // of the updater function starts fresh each time rather than indexing past
       // the end of allWords on the second call (which would return prev unchanged).
-      setGroups(prev => {
+      setGroups((prev) => {
         let wi = 0
-        return prev.map(g => {
+        return prev.map((g) => {
           const count = g.words.length
           const slice = allWords.slice(wi, wi + count)
           wi += count
@@ -119,7 +133,7 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
           // must not be overwritten by word-level timestamps from segments.
           return {
             ...g,
-            text:  updated.map(w => w.word).join(' '),
+            text: updated.map((w) => w.word).join(' '),
             words: updated,
           }
         })
@@ -129,9 +143,9 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
       // Rebuild structure from scratch but restore manually-dragged start/end for
       // any group whose ID survived the change. Group IDs are ${seg.id}:${offset},
       // so segments that weren't touched keep stable IDs and their timing is preserved.
-      setGroups(prev => {
-        const oldById = new Map(prev.map(g => [g.id, g]))
-        return buildStudioGroups(segments, settings.wordsPerGroup).map(g => {
+      setGroups((prev) => {
+        const oldById = new Map(prev.map((g) => [g.id, g]))
+        return buildStudioGroups(segments, settings.wordsPerGroup).map((g) => {
           const saved = oldById.get(g.id)
           if (!saved) return g
           // Restore manual timing AND per-word overrides for any group whose ID
@@ -140,7 +154,7 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
           return {
             ...g,
             start: saved.start,
-            end:   saved.end,
+            end: saved.end,
             words: g.words.map((w, j) => {
               const ov = saved.words[j]?.overrides
               return ov ? { ...w, overrides: ov } : w
@@ -153,12 +167,12 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
       setGroups(buildStudioGroups(segments, settings.wordsPerGroup))
       if (wpgChanged) setGroupsEdited(false)
     }
-  }, [segments, settings.wordsPerGroup])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [segments, settings.wordsPerGroup]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Publish groups + edited state to App for StudioPanel.
   useEffect(() => {
     onGroupsUpdate(groups, groupsEdited || segmentsEdited)
-  }, [groups, groupsEdited, segmentsEdited])  // eslint-disable-line react-hooks/exhaustive-deps
+  }, [groups, groupsEdited, segmentsEdited]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Wrapper that GroupEditor calls — flips the edited flag the first time the
   // user touches the groups.
@@ -172,8 +186,14 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
     function onKeyDown(e: KeyboardEvent) {
       const mod = e.metaKey || e.ctrlKey
       if (!mod) return
-      if (e.key === 'z' && !e.shiftKey) { e.preventDefault(); undo() }
-      if ((e.key === 'z' && e.shiftKey) || e.key === 'y') { e.preventDefault(); redo() }
+      if (e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        undo()
+      }
+      if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
+        e.preventDefault()
+        redo()
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -183,32 +203,65 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       const tag = (e.target as HTMLElement).tagName
-      const editable = tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
+      const editable =
+        tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
       if (editable) return
+
+      // ⌘1 / ⌘2 — switch editor view (registered in lib/shortcuts.ts).
+      const mod = e.metaKey || e.ctrlKey
+      if (mod && (e.key === '1' || e.key === '2')) {
+        e.preventDefault()
+        setView(e.key === '1' ? 'text' : 'groups')
+        return
+      }
 
       const p = playerRef.current
       if (!p) return
 
       switch (e.key) {
         case ' ':
-        case 'Spacebar':    e.preventDefault(); p.playPause(); break
-        case 'j': case 'J': e.preventDefault(); p.seekRelative(-2); break
-        case 'k': case 'K': e.preventDefault(); p.playPause(); break
-        case 'l': case 'L': e.preventDefault(); p.seekRelative(2); break
-        case 'ArrowLeft':   e.preventDefault(); p.seekRelative(-1 / 30); break
-        case 'ArrowRight':  e.preventDefault(); p.seekRelative(1 / 30); break
+        case 'Spacebar':
+          e.preventDefault()
+          p.playPause()
+          break
+        case 'j':
+        case 'J':
+          e.preventDefault()
+          p.seekRelative(-2)
+          break
+        case 'k':
+        case 'K':
+          e.preventDefault()
+          p.playPause()
+          break
+        case 'l':
+        case 'L':
+          e.preventDefault()
+          p.seekRelative(2)
+          break
+        case 'ArrowLeft':
+          e.preventDefault()
+          p.seekRelative(-1 / 30)
+          break
+        case 'ArrowRight':
+          e.preventDefault()
+          p.seekRelative(1 / 30)
+          break
         case ',': {
           e.preventDefault()
           let gi = -1
           for (let i = groups.length - 1; i >= 0; i--) {
-            if (groups[i].start < currentTime - 0.01) { gi = i; break }
+            if (groups[i].start < currentTime - 0.01) {
+              gi = i
+              break
+            }
           }
           if (gi >= 0) p.seekToTime(groups[gi].start)
           break
         }
         case '.': {
           e.preventDefault()
-          const gi = groups.findIndex(g => g.start > currentTime + 0.01)
+          const gi = groups.findIndex((g) => g.start > currentTime + 0.01)
           if (gi >= 0) p.seekToTime(groups[gi].start)
           break
         }
@@ -225,14 +278,14 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
       gather: () => {
         const anyEdited = groupsEdited || segmentsEdited
         return {
-          version:             PROJECT_VERSION,
-          suggestedName:       suggestProjectName(result.audioPath),
-          selectedFilePath:    result.audioPath,
-          outputDir:           'output',
+          version: PROJECT_VERSION,
+          suggestedName: suggestProjectName(result.audioPath),
+          selectedFilePath: result.audioPath,
+          outputDir: 'output',
           transcriptionResult: { ...result, segments },
-          studioSettings:      settings,
-          customGroupsEdited:  anyEdited,
-          studioGroups:        anyEdited ? groups : null,
+          studioSettings: settings,
+          customGroupsEdited: anyEdited,
+          studioGroups: anyEdited ? groups : null,
         }
       },
       restore: (file: ProjectFile) => {
@@ -242,8 +295,20 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
         }
       },
     }
-    return () => { projectIORef.current = null }
+    return () => {
+      projectIORef.current = null
+    }
   })
+
+  // Arrow-key tab switching — with exactly two tabs both directions toggle.
+  // Focus follows the selection (roving tabIndex pattern, cf. SegmentedControl).
+  const switchTab = useCallback(() => {
+    const next = view === 'text' ? 'groups' : 'text'
+    setView(next)
+    requestAnimationFrame(() => {
+      document.getElementById(`editor-tab-${next}`)?.focus()
+    })
+  }, [view])
 
   const handleTimeUpdate = useCallback((t: number) => setCurrentTime(t), [])
 
@@ -269,82 +334,115 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
       words: [],
     }
     pushUndo()
-    setSegments(prev => [...prev, newSeg].sort((a, b) => a.start - b.start))
+    setSegments((prev) => [...prev, newSeg].sort((a, b) => a.start - b.start))
     setSegmentsEdited(true)
     setView('text')
     setFocusSegmentId(newSeg.id)
   }, [currentTime, pushUndo])
 
   // Timeline edge-drag: adjust a group's start/end time or move the whole block.
-  const handleSegmentEdge = useCallback((
-    segId: string,
-    edge: 'start' | 'end' | 'body',
-    newVal: number | { start: number; end: number },
-  ) => {
-    setGroups(prev => prev.map(g => {
-      if (g.id !== segId) return g
-      if (edge === 'body' && typeof newVal === 'object') {
-        return { ...g, start: newVal.start, end: newVal.end }
-      }
-      return typeof newVal === 'number' ? { ...g, [edge]: newVal } : g
-    }))
-    setGroupsEdited(true)
-  }, [])
+  const handleSegmentEdge = useCallback(
+    (
+      segId: string,
+      edge: 'start' | 'end' | 'body',
+      newVal: number | { start: number; end: number }
+    ) => {
+      setGroups((prev) =>
+        prev.map((g) => {
+          if (g.id !== segId) return g
+          if (edge === 'body' && typeof newVal === 'object') {
+            return { ...g, start: newVal.start, end: newVal.end }
+          }
+          return typeof newVal === 'number' ? { ...g, [edge]: newVal } : g
+        })
+      )
+      setGroupsEdited(true)
+    },
+    []
+  )
 
   // Called once at the start of each drag — snapshot state before any movement.
   const handleSegmentEdgeDragStart = useCallback(() => {
     pushUndo()
   }, [pushUndo])
 
-  const handleResizeMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault()
-    const startX = e.clientX
-    const startWidth = editorWidth
-    const onMouseMove = (ev: MouseEvent) => {
-      setEditorWidth(Math.max(180, Math.min(600, startWidth + ev.clientX - startX)))
-    }
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseup', onMouseUp)
-    }
-    document.addEventListener('mousemove', onMouseMove)
-    document.addEventListener('mouseup', onMouseUp)
-  }, [editorWidth])
+  const handleResizeMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      e.preventDefault()
+      const startX = e.clientX
+      const startWidth = editorWidth
+      const onMouseMove = (ev: MouseEvent) => {
+        setEditorWidth(Math.max(180, Math.min(600, startWidth + ev.clientX - startX)))
+      }
+      const onMouseUp = () => {
+        document.removeEventListener('mousemove', onMouseMove)
+        document.removeEventListener('mouseup', onMouseUp)
+      }
+      document.addEventListener('mousemove', onMouseMove)
+      document.addEventListener('mouseup', onMouseUp)
+    },
+    [editorWidth]
+  )
 
   // Defaults the WordStylePopup uses to compute "hasOverride" for each field.
-  const wordStyleDefaults = useMemo<WordStyleDefaults>(() => ({
-    textColor:   settings.textColor,
-    activeColor: settings.activeColor,
-    fontName:    settings.fontName,
-    wordTransition:     settings.wordStyle as WordStyleDefaults['wordTransition'],
-    highlightRadius:    settings.highlightRadius,
-    highlightPadX:      settings.highlightPadX,
-    highlightPadY:      settings.highlightPadY,
-    highlightOpacity:   settings.highlightOpacity,
-    underlineThickness: settings.underlineThickness,
-    underlineColor:     settings.underlineColor,
-    bounceStrength:     settings.bounceStrength,
-    scaleFactor:        settings.scaleFactor,
-  }), [
-    settings.textColor, settings.activeColor, settings.fontName,
-    settings.wordStyle, settings.highlightRadius, settings.highlightPadX, settings.highlightPadY,
-    settings.highlightOpacity, settings.underlineThickness, settings.underlineColor,
-    settings.bounceStrength, settings.scaleFactor,
-  ])
+  const wordStyleDefaults = useMemo<WordStyleDefaults>(
+    () => ({
+      textColor: settings.textColor,
+      activeColor: settings.activeColor,
+      fontName: settings.fontName,
+      wordTransition: settings.wordStyle as WordStyleDefaults['wordTransition'],
+      highlightRadius: settings.highlightRadius,
+      highlightPadX: settings.highlightPadX,
+      highlightPadY: settings.highlightPadY,
+      highlightOpacity: settings.highlightOpacity,
+      underlineThickness: settings.underlineThickness,
+      underlineColor: settings.underlineColor,
+      bounceStrength: settings.bounceStrength,
+      scaleFactor: settings.scaleFactor,
+    }),
+    [
+      settings.textColor,
+      settings.activeColor,
+      settings.fontName,
+      settings.wordStyle,
+      settings.highlightRadius,
+      settings.highlightPadX,
+      settings.highlightPadY,
+      settings.highlightOpacity,
+      settings.underlineThickness,
+      settings.underlineColor,
+      settings.bounceStrength,
+      settings.scaleFactor,
+    ]
+  )
 
   return (
     <div className="flex-1 flex flex-row overflow-hidden min-w-0">
       {/* Left panel: tabs + editor */}
       <div className="flex flex-col shrink-0 overflow-hidden" style={{ width: editorWidth }}>
-        {/* View tabs */}
-        <div className="flex items-center gap-1 px-3 pt-2 border-b border-[var(--color-border)] shrink-0">
-          <TabButton active={view === 'text'} onClick={() => setView('text')}>
+        {/* View tabs — roving tabIndex + arrow keys (pattern from ui/SegmentedControl) */}
+        <div
+          role="tablist"
+          aria-label="Editor view"
+          className="flex items-center gap-1 px-3 pt-2 border-b border-[var(--color-border)] shrink-0"
+        >
+          <TabButton
+            id="editor-tab-text"
+            active={view === 'text'}
+            onClick={() => setView('text')}
+            onArrow={switchTab}
+          >
             Text
           </TabButton>
-          <TabButton active={view === 'groups'} onClick={() => setView('groups')}>
+          <TabButton
+            id="editor-tab-groups"
+            active={view === 'groups'}
+            onClick={() => setView('groups')}
+            onArrow={switchTab}
+          >
             Groups
           </TabButton>
-          <span className="text-[10px] text-[var(--color-text-3)] ml-auto">
+          <span className="text-2xs text-[var(--color-text-3)] ml-auto">
             {view === 'text'
               ? `${segments.length} segment${segments.length === 1 ? '' : 's'}`
               : `${groups.length} group${groups.length === 1 ? '' : 's'}`}
@@ -356,7 +454,10 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
             segments={segments}
             currentTime={currentTime}
             onSeek={handleSeek}
-            onChange={(next: Segment[]) => { setSegments(next); setSegmentsEdited(true) }}
+            onChange={(next: Segment[]) => {
+              setSegments(next)
+              setSegmentsEdited(true)
+            }}
             onBeforeEdit={pushUndo}
             onAddSegment={handleAddSegment}
             focusSegmentId={focusSegmentId}
@@ -402,14 +503,22 @@ export function ResultsScreen({ result, settings, onGroupsUpdate, projectIORef, 
 // ── TabButton ─────────────────────────────────────────────────────
 
 interface TabButtonProps {
-  active:   boolean
-  onClick:  () => void
+  id: string
+  active: boolean
+  onClick: () => void
+  /** ArrowLeft/ArrowRight pressed while the tab has focus. */
+  onArrow: () => void
   children: React.ReactNode
 }
 
-function TabButton({ active, onClick, children }: TabButtonProps) {
+function TabButton({ id, active, onClick, onArrow, children }: TabButtonProps) {
   return (
     <button
+      type="button"
+      id={id}
+      role="tab"
+      aria-selected={active}
+      tabIndex={active ? 0 : -1}
       className={[
         'text-xs px-3 py-1.5 rounded-t transition-colors border-b-2',
         active
@@ -417,6 +526,15 @@ function TabButton({ active, onClick, children }: TabButtonProps) {
           : 'border-transparent text-[var(--color-text-3)] hover:text-[var(--color-text)]',
       ].join(' ')}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+          e.preventDefault()
+          // Stop the event reaching the window-level playback handler,
+          // which maps ←/→ to frame stepping.
+          e.stopPropagation()
+          onArrow()
+        }
+      }}
     >
       {children}
     </button>

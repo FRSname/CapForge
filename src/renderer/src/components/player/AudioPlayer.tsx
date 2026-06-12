@@ -285,16 +285,13 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
           className="absolute top-1 right-1 z-10 flex items-center gap-1 rounded px-1.5 py-0.5"
           style={{ background: 'var(--color-surface)' }}
         >
-          <span
-            className="text-[10px] mr-1 hidden sm:block"
-            style={{ color: 'var(--color-text-3)' }}
-          >
+          <span className="text-2xs mr-1 hidden sm:block" style={{ color: 'var(--color-text-3)' }}>
             Ctrl+Wheel: zoom · Dbl-click: toggle
           </span>
           <button className="tl-btn" onClick={vz.zoomOut}>
             −
           </button>
-          <span className="text-[10px] w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
+          <span className="text-2xs w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
             {Math.round(vz.zoom * 100)}%
           </span>
           <button className="tl-btn" onClick={vz.zoomIn}>
@@ -343,7 +340,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
         ) : (
           <div
             ref={previewAreaRef}
-            className="relative w-full mx-auto overflow-hidden bg-[#0d1117] flex items-center justify-center"
+            className="relative w-full mx-auto overflow-hidden bg-[var(--color-bg)] flex items-center justify-center"
             style={{
               // Audio-only: use the configured resolution so captions still preview
               // at the correct aspect ratio against a neutral backdrop.
@@ -352,7 +349,9 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
               maxWidth: `calc(40vh * ${resolution[0] / resolution[1]})`,
             }}
           >
-            <span className="text-xs text-white/20">Audio only</span>
+            <span className="text-xs opacity-60" style={{ color: 'var(--color-text-3)' }}>
+              Audio only
+            </span>
             {/* Subtitle overlay canvas for audio-only mode */}
             <canvas ref={overlayRef} className="absolute inset-0 pointer-events-none" />
           </div>
@@ -361,13 +360,13 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
 
       {/* ── Timeline zoom toolbar ───────────────────────────────── */}
       <div className="flex items-center gap-1 px-2 py-1 border-t border-[var(--color-border)]">
-        <span className="text-[10px] flex-1" style={{ color: 'var(--color-text-3)' }}>
+        <span className="text-2xs flex-1" style={{ color: 'var(--color-text-3)' }}>
           Ctrl+Wheel: zoom · Wheel: pan
         </span>
         <button className="tl-btn" title="Zoom out" onClick={handleZoomOut}>
           −
         </button>
-        <span className="text-[10px] w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
+        <span className="text-2xs w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
           {zoomLabel}
         </span>
         <button className="tl-btn" title="Zoom in" onClick={handleZoomIn}>
@@ -395,7 +394,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
         {/* Phase 2: Hover tooltip */}
         {hoverState && (
           <div
-            className="pointer-events-none fixed z-50 rounded px-2 py-1 text-xs max-w-xs truncate shadow-lg"
+            className="pointer-events-none fixed z-[var(--z-dropdown)] rounded px-2 py-1 text-xs max-w-xs truncate shadow-lg"
             style={{
               left: hoverState.x + 12,
               top: hoverState.y - 36,
