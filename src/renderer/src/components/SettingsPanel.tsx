@@ -121,12 +121,15 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     <>
       {/* Backdrop */}
       {open && (
-        <div className="fixed inset-0 z-40 bg-black/40 backdrop-blur-[2px]" onClick={onClose} />
+        <div
+          className="fixed inset-0 z-[var(--z-panel)] bg-black/40 backdrop-blur-[2px]"
+          onClick={onClose}
+        />
       )}
 
       {/* Panel */}
       <aside
-        className="fixed right-0 top-0 bottom-0 z-50 w-72 flex flex-col border-l shadow-2xl transition-transform bg-[var(--color-base)] border-[var(--color-border-2)]"
+        className="fixed right-0 top-0 bottom-0 z-[var(--z-panel)] w-72 flex flex-col border-l shadow-2xl transition-transform bg-[var(--color-base)] border-[var(--color-border-2)]"
         style={{
           transform: open ? 'translateX(0)' : 'translateX(100%)',
           transitionDuration: '220ms',

@@ -143,7 +143,8 @@ export function WordStylePopup({
     if (top + POPUP_H > window.innerHeight - 10) top = anchorRect.top - POPUP_H - pad
     if (left < 10) left = 10
     if (top < 10) top = 10
-    return { position: 'fixed', top, left, zIndex: 1000 }
+    // Dropdown tier — panel/modal/toast overlays must stack above this popup.
+    return { position: 'fixed', top, left, zIndex: 'var(--z-dropdown)' }
   }, [anchorRect])
 
   // Close on outside click or Escape.

@@ -17,7 +17,7 @@ export function RenderProgressModal({ render }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-black/60 backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="Render in progress"
@@ -36,15 +36,16 @@ export function RenderProgressModal({ render }: Props) {
         </div>
 
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs tabular-nums text-[var(--color-text-2)]">{render.progress}%</span>
-          <span className="text-[11px] text-[var(--color-text-3)] truncate flex-1 text-right">{render.message}</span>
+          <span className="text-xs tabular-nums text-[var(--color-text-2)]">
+            {render.progress}%
+          </span>
+          <span className="text-[11px] text-[var(--color-text-3)] truncate flex-1 text-right">
+            {render.message}
+          </span>
         </div>
 
         <div className="flex justify-end pt-1">
-          <button
-            className="btn-danger text-xs py-1.5 px-4"
-            onClick={render.cancelRender}
-          >
+          <button className="btn-danger text-xs py-1.5 px-4" onClick={render.cancelRender}>
             Cancel
           </button>
         </div>

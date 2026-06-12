@@ -109,6 +109,19 @@
    recognizes its own namespaces there; plain :root is the safe home). */
 :root {
   --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
+
+  /* ── Z-index scale — overlay layers only (in-flow layering like the
+        player's z-10 stays ad-hoc) ───────────────────────────────── */
+  --z-dropdown: 30;
+  --z-panel:    40;
+  --z-modal:    50;
+  --z-toast:    60;
+}
+
+/* While the settings search filters rows, intra-card dividers separate
+   nothing — hide them (StudioPanel toggles .is-searching on its scroll body). */
+.is-searching .divider {
+  display: none;
 }
 
 /* ╔══════════════════════════════════════════════════════════╗

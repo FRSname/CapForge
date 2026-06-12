@@ -59,14 +59,21 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
     refresh()
   }, [refresh])
 
-  // ── Close on outside click ───────────────────────────────────────
+  // ── Close on outside click or Escape (pattern: WordStylePopup) ───
   useEffect(() => {
     if (!open) return
     function onDocClick(e: MouseEvent) {
       if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
     }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') setOpen(false)
+    }
     document.addEventListener('mousedown', onDocClick)
-    return () => document.removeEventListener('mousedown', onDocClick)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDocClick)
+      document.removeEventListener('keydown', onKey)
+    }
   }, [open])
 
   // ── Actions ──────────────────────────────────────────────────────
@@ -133,7 +140,7 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
 
       {open && (
         <div
-          className="pop-in origin-top absolute right-0 top-full mt-1 w-64 z-50 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] shadow-lg overflow-hidden"
+          className="pop-in origin-top absolute right-0 top-full mt-1 w-64 z-[var(--z-dropdown)] rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] shadow-lg overflow-hidden"
           // Keep picker from being clipped by the sidebar
           style={{ maxHeight: '70vh' }}
         >
@@ -150,7 +157,12 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
                   onChange={(e) => setSaveName(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') handleSaveConfirm()
-                    if (e.key === 'Escape') setSaving(false)
+                    if (e.key === 'Escape') {
+                      // Cancel the save UI only — keep the document-level
+                      // Escape listener from closing the whole dropdown.
+                      e.stopPropagation()
+                      setSaving(false)
+                    }
                   }}
                   placeholder="Preset name"
                   className="w-24 text-2xs px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:border-[var(--color-accent)] outline-none"
@@ -228,12 +240,15 @@ function PresetRow({ name, colors, onClick, onDelete }: PresetRowProps) {
       className="group flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-[var(--color-surface-3)] transition-colors"
       onClick={onClick}
     >
-      {/* Color chip preview */}
-      <div className="flex items-center shrink-0 rounded overflow-hidden border border-[var(--color-border)]">
-        <span className="w-3 h-4" style={{ background: colors.bg }} />
-        <span className="w-3 h-4" style={{ background: colors.text }} />
-        <span className="w-3 h-4" style={{ background: colors.active }} />
-      </div>
+      {/* Mini text preview — preset's bg/text/active colors rendering "Abc" */}
+      <span
+        className="flex items-center justify-center shrink-0 w-10 h-[22px] rounded border border-[var(--color-border)] font-bold leading-none select-none"
+        style={{ background: colors.bg, fontSize: 11 }}
+        aria-hidden="true"
+      >
+        <span style={{ color: colors.text }}>Ab</span>
+        <span style={{ color: colors.active }}>c</span>
+      </span>
       <span className="flex-1 min-w-0 truncate text-xs text-[var(--color-text)]">{name}</span>
       {onDelete && (
         <span

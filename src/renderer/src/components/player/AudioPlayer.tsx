@@ -285,10 +285,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
           className="absolute top-1 right-1 z-10 flex items-center gap-1 rounded px-1.5 py-0.5"
           style={{ background: 'var(--color-surface)' }}
         >
-          <span
-            className="text-2xs mr-1 hidden sm:block"
-            style={{ color: 'var(--color-text-3)' }}
-          >
+          <span className="text-2xs mr-1 hidden sm:block" style={{ color: 'var(--color-text-3)' }}>
             Ctrl+Wheel: zoom · Dbl-click: toggle
           </span>
           <button className="tl-btn" onClick={vz.zoomOut}>
@@ -397,7 +394,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
         {/* Phase 2: Hover tooltip */}
         {hoverState && (
           <div
-            className="pointer-events-none fixed z-50 rounded px-2 py-1 text-xs max-w-xs truncate shadow-lg"
+            className="pointer-events-none fixed z-[var(--z-dropdown)] rounded px-2 py-1 text-xs max-w-xs truncate shadow-lg"
             style={{
               left: hoverState.x + 12,
               top: hoverState.y - 36,
