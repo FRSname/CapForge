@@ -3,49 +3,14 @@
  * Ports the #settings-panel sidebar from index.html.
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../lib/api'
+import { SHORTCUT_SECTIONS } from '../lib/shortcuts'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 import { Toggle } from './ui/Toggle'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
 import { Select } from './ui/Select'
-
-const SHORTCUTS: { label: string; items: { keys: string; action: string }[] }[] = [
-  {
-    label: 'Global',
-    items: [
-      { keys: '⌘S', action: 'Save project' },
-      { keys: '⌘O', action: 'Open project' },
-      { keys: '⌘Z / ⌘⇧Z', action: 'Undo / Redo' },
-    ],
-  },
-  {
-    label: 'Playback',
-    items: [
-      { keys: 'Space / K', action: 'Play · Pause' },
-      { keys: 'J / L', action: 'Seek ±2 s' },
-      { keys: '← / →', action: 'Frame step' },
-      { keys: ', / .', action: 'Prev · Next group' },
-    ],
-  },
-  {
-    label: 'Groups',
-    items: [
-      { keys: '↑ / ↓', action: 'Navigate' },
-      { keys: 'M', action: 'Merge below' },
-      { keys: 'Enter', action: 'Split in half' },
-      { keys: 'Esc', action: 'Deselect' },
-    ],
-  },
-  {
-    label: 'Timeline',
-    items: [
-      { keys: '+ / −', action: 'Zoom in · out' },
-      { keys: '0', action: 'Reset zoom' },
-      { keys: '[ / ]', action: 'Prev · Next segment' },
-    ],
-  },
-]
 
 interface SettingsPanelProps {
   open: boolean
@@ -59,6 +24,23 @@ interface SystemInfo {
 }
 
 export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
+  const panelRef = useRef<HTMLElement>(null)
+  // Trap focus inside the slide-in panel while open; restores focus on close.
+  useFocusTrap(panelRef, open)
+
+  // Escape closes the panel.
+  useEffect(() => {
+    if (!open) return
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        onClose()
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [open, onClose])
+
   const [languages, setLanguages] = useState<string[]>([])
   const [language, setLanguage] = useState('')
   const [diarize, setDiarize] = useState(false)
@@ -129,6 +111,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
       {/* Panel */}
       <aside
+        ref={panelRef}
+        aria-label="Settings"
         className="fixed right-0 top-0 bottom-0 z-[var(--z-panel)] w-72 flex flex-col border-l shadow-2xl transition-transform bg-[var(--color-base)] border-[var(--color-border-2)]"
         style={{
           transform: open ? 'translateX(0)' : 'translateX(100%)',
@@ -230,28 +214,24 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             </div>
           </div>
 
-          {/* Keyboard Shortcuts */}
+          {/* Keyboard Shortcuts — rendered from the shared lib/shortcuts.ts
+              constant (also drives the `?` ShortcutOverlay). */}
           <div className="flex flex-col gap-3">
             <label className="label-xs">Keyboard Shortcuts</label>
-            {SHORTCUTS.map((group) => (
-              <div key={group.label} className="flex flex-col gap-0.5">
+            {SHORTCUT_SECTIONS.map((group) => (
+              <div key={group.title} className="flex flex-col gap-0.5">
                 <p
                   className="text-2xs uppercase tracking-wider mb-1"
                   style={{ color: 'var(--color-text-3)' }}
                 >
-                  {group.label}
+                  {group.title}
                 </p>
                 {group.items.map((item) => (
-                  <div key={item.action} className="flex justify-between items-center py-0.5">
+                  <div key={item.description} className="flex justify-between items-center py-0.5">
                     <span className="text-[11px]" style={{ color: 'var(--color-text-2)' }}>
-                      {item.action}
+                      {item.description}
                     </span>
-                    <kbd
-                      className="text-2xs px-1.5 py-0.5 rounded font-mono"
-                      style={{ background: 'var(--color-surface-2)', color: 'var(--color-text)' }}
-                    >
-                      {item.keys}
-                    </kbd>
+                    <kbd className="kbd">{item.keys.join(' / ')}</kbd>
                   </div>
                 ))}
               </div>

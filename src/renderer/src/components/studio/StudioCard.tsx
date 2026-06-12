@@ -43,6 +43,7 @@ export function StudioCard({
       <div className="relative">
         <button
           type="button"
+          aria-expanded={isOpen}
           className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors ${isOpen ? 'bg-white/[0.02]' : 'bg-transparent'}`}
           onClick={() => setOpen((o) => !o)}
         >

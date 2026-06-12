@@ -7,6 +7,7 @@ import { DropZoneScreen } from './components/screens/DropZoneScreen'
 import { ProgressScreen } from './components/screens/ProgressScreen'
 import { ResultsScreen } from './components/screens/ResultsScreen'
 import { SettingsPanel } from './components/SettingsPanel'
+import { ShortcutOverlay } from './components/ShortcutOverlay'
 import { StudioPanel, STUDIO_DEFAULTS, snapFps } from './components/studio/StudioPanel'
 import type { StudioSettings } from './components/studio/StudioPanel'
 import { Button } from './components/ui/Button'
@@ -20,6 +21,7 @@ export function App() {
   const [result, setResult] = useState<TranscriptionResult | null>(null)
   const [settings, setSettings] = useState<StudioSettings>({ ...STUDIO_DEFAULTS })
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
 
   // Published from ResultsScreen — forwarded to StudioPanel for render/export.
   const [groups, setGroups] = useState<Segment[]>([])
@@ -213,6 +215,11 @@ export function App() {
         e.preventDefault()
         if (e.shiftKey) settingsUndo.redo()
         else settingsUndo.undo()
+      } else if (e.key === '?' && !mod) {
+        // The editable guard above already swallowed `?` typed into inputs/
+        // textareas/contentEditables (editable && !mod returns early).
+        e.preventDefault()
+        setShortcutsOpen((o) => !o)
       }
     }
     window.addEventListener('keydown', onKeyDown)
@@ -308,6 +315,7 @@ export function App() {
         </main>
 
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
       </div>
     </ToastProvider>
   )

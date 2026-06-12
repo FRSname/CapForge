@@ -442,6 +442,22 @@ input[type="range"] {
   animation: screen-in 180ms var(--ease-out-expo);
 }
 
+/* ── Keyboard key chip ────────────────────────────────────────── */
+/* Used by the shortcut reference list (SettingsPanel) and the `?`
+   ShortcutOverlay — both render from lib/shortcuts.ts. */
+.kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: var(--cf-font-mono);
+  font-size: var(--text-2xs);
+  line-height: 1.4;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xs);
+  white-space: nowrap;
+}
+
 /* ── Popover entrance ─────────────────────────────────────────── */
 /* Default transform-origin is center (fine for popups that can flip
    above their anchor); dropdowns add Tailwind's `origin-top`. */
