@@ -127,6 +127,7 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
         {/* Message */}
         <div className="text-center">
           <p
+            aria-live="polite"
             className="text-lg mb-1.5"
             style={{
               fontFamily: 'var(--cf-font-display)',

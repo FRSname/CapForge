@@ -220,14 +220,17 @@ html, body, #root {
   background: transparent;
   border: none;
   cursor: pointer;
-  transition: color var(--duration-fast), background var(--duration-fast);
+  transition: color var(--duration-fast), background var(--duration-fast), transform var(--duration-fast);
   flex-shrink: 0;
 }
 .icon-btn:hover:not(:disabled) {
   color: var(--color-text);
   background: rgba(255 255 255 / 0.06);
 }
-.icon-btn:active:not(:disabled) { background: rgba(255 255 255 / 0.1); }
+.icon-btn:active:not(:disabled) {
+  background: rgba(255 255 255 / 0.1);
+  transform: scale(0.97);
+}
 .icon-btn:disabled { opacity: 0.35; cursor: default; }
 
 .tl-btn {
@@ -277,14 +280,19 @@ html, body, #root {
   font-size: 13px;
   border: none;
   cursor: pointer;
-  transition: background var(--duration-fast), box-shadow var(--duration-fast);
+  transition: background var(--duration-fast), box-shadow var(--duration-fast), transform var(--duration-fast);
   box-shadow: 0 0 0 0 var(--color-accent-glow);
 }
 .btn-primary:hover {
   background: var(--color-accent-2);
-  box-shadow: 0 0 16px 2px var(--color-accent-glow);
+  box-shadow: 0 2px 20px 3px var(--color-accent-glow);
+  transform: translateY(-1px);
 }
-.btn-primary:active { opacity: 0.9; }
+/* `transform: scale()` alone (no translateY) gives the press-down feel. */
+.btn-primary:active {
+  opacity: 0.9;
+  transform: scale(0.97);
+}
 /* .btn-primary owns box-shadow (glow) which would otherwise mask the
    global focus ring — restate it here with its own radius. */
 .btn-primary:focus-visible {
@@ -304,9 +312,10 @@ html, body, #root {
   background: transparent;
   font-size: 12px;
   cursor: pointer;
-  transition: background var(--duration-fast);
+  transition: background var(--duration-fast), transform var(--duration-fast);
 }
 .btn-danger:hover { background: var(--color-danger-subtle); }
+.btn-danger:active { transform: scale(0.97); }
 
 /* Ghost */
 .btn-ghost {
@@ -320,9 +329,10 @@ html, body, #root {
   background: transparent;
   font-size: 12px;
   cursor: pointer;
-  transition: color var(--duration-fast), background var(--duration-fast);
+  transition: color var(--duration-fast), background var(--duration-fast), transform var(--duration-fast);
 }
 .btn-ghost:hover { color: var(--color-text); background: rgba(255 255 255 / 0.05); }
+.btn-ghost:active { transform: scale(0.97); }
 
 /* ── Form controls ───────────────────────────────────────────── */
 .field-input {
@@ -398,4 +408,34 @@ input[type="range"] {
 }
 .animate-toast-in {
   animation: toast-in 200ms ease-out;
+}
+
+@keyframes toast-out {
+  from { opacity: 1; transform: translateX(0); }
+  to   { opacity: 0; transform: translateX(16px); }
+}
+/* `forwards` keeps the toast invisible between animationend and React
+   removing it from state — otherwise it would flash back for a frame. */
+.animate-toast-out {
+  animation: toast-out 180ms var(--ease-out-expo) forwards;
+}
+
+/* ── Screen transition ────────────────────────────────────────── */
+@keyframes screen-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.screen-in {
+  animation: screen-in 180ms var(--ease-out-expo);
+}
+
+/* ── Popover entrance ─────────────────────────────────────────── */
+/* Default transform-origin is center (fine for popups that can flip
+   above their anchor); dropdowns add Tailwind's `origin-top`. */
+@keyframes pop-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.pop-in {
+  animation: pop-in 120ms var(--ease-out-expo);
 }

@@ -22,18 +22,18 @@ interface PresetPickerProps {
 }
 
 interface UserPreset {
-  name:     string
+  name: string
   settings: VanillaPreset
 }
 
 export function PresetPicker({ settings, onChange }: PresetPickerProps) {
-  const [open, setOpen]               = useState(false)
+  const [open, setOpen] = useState(false)
   const [userPresets, setUserPresets] = useState<UserPreset[]>([])
-  const [busy, setBusy]               = useState(false)
-  const [saving, setSaving]           = useState(false)
-  const [saveName, setSaveName]       = useState('')
-  const rootRef                       = useRef<HTMLDivElement>(null)
-  const saveInputRef                  = useRef<HTMLInputElement>(null)
+  const [busy, setBusy] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveName, setSaveName] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  const saveInputRef = useRef<HTMLInputElement>(null)
 
   // ── Load user presets once on mount (and after save/delete) ─────
   const refresh = useCallback(async () => {
@@ -45,7 +45,9 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
         try {
           const s = await window.subforge.loadPreset(n)
           if (s) loaded.push({ name: n, settings: s as VanillaPreset })
-        } catch { /* skip broken entry */ }
+        } catch {
+          /* skip broken entry */
+        }
       }
       setUserPresets(loaded)
     } catch {
@@ -53,7 +55,9 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
     }
   }, [])
 
-  useEffect(() => { refresh() }, [refresh])
+  useEffect(() => {
+    refresh()
+  }, [refresh])
 
   // ── Close on outside click ───────────────────────────────────────
   useEffect(() => {
@@ -84,7 +88,10 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
 
   const handleSaveConfirm = async () => {
     const name = saveName.trim()
-    if (!name) { setSaving(false); return }
+    if (!name) {
+      setSaving(false)
+      return
+    }
     if (!window.subforge?.savePreset) {
       setSaving(false)
       return
@@ -93,8 +100,9 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
     try {
       await window.subforge.savePreset(name, studioToVanilla(settings) as Record<string, unknown>)
       await refresh()
-    } catch { /* ignore */ }
-    finally {
+    } catch {
+      /* ignore */
+    } finally {
       setBusy(false)
       setSaving(false)
     }
@@ -117,7 +125,7 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
     <div className="relative" ref={rootRef}>
       <button
         className="btn-ghost text-[11px] py-0.5 px-2"
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen((o) => !o)}
         title="Apply or save style presets"
       >
         Presets ▾
@@ -125,20 +133,25 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
 
       {open && (
         <div
-          className="absolute right-0 top-full mt-1 w-64 z-50 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] shadow-lg overflow-hidden"
+          className="pop-in origin-top absolute right-0 top-full mt-1 w-64 z-50 rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] shadow-lg overflow-hidden"
           // Keep picker from being clipped by the sidebar
           style={{ maxHeight: '70vh' }}
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)]">
-            <span className="text-[11px] font-medium text-[var(--color-text-2)]">Style presets</span>
+            <span className="text-[11px] font-medium text-[var(--color-text-2)]">
+              Style presets
+            </span>
             {saving ? (
               <div className="flex items-center gap-1">
                 <input
                   ref={saveInputRef}
                   type="text"
                   value={saveName}
-                  onChange={e => setSaveName(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter') handleSaveConfirm(); if (e.key === 'Escape') setSaving(false) }}
+                  onChange={(e) => setSaveName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleSaveConfirm()
+                    if (e.key === 'Escape') setSaving(false)
+                  }}
                   placeholder="Preset name"
                   className="w-24 text-2xs px-1.5 py-0.5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:border-[var(--color-accent)] outline-none"
                 />
@@ -167,7 +180,7 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
             <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-[var(--color-text-3)]">
               Built-in
             </div>
-            {BUILTIN_PRESETS.map(tpl => (
+            {BUILTIN_PRESETS.map((tpl) => (
               <PresetRow
                 key={`b-${tpl.name}`}
                 name={tpl.name}
@@ -182,13 +195,13 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
                 <div className="px-3 py-1 mt-1 text-[9px] uppercase tracking-wider text-[var(--color-text-3)]">
                   My presets
                 </div>
-                {userPresets.map(p => (
+                {userPresets.map((p) => (
                   <PresetRow
                     key={`u-${p.name}`}
                     name={p.name}
                     colors={extractColors(p.settings)}
                     onClick={() => applyUser(p)}
-                    onDelete={e => handleDelete(p, e)}
+                    onDelete={(e) => handleDelete(p, e)}
                   />
                 ))}
               </>
@@ -203,9 +216,9 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
 // ── Row ────────────────────────────────────────────────────────────
 
 interface PresetRowProps {
-  name:     string
-  colors:   { text: string; active: string; bg: string }
-  onClick:  () => void
+  name: string
+  colors: { text: string; active: string; bg: string }
+  onClick: () => void
   onDelete?: (e: React.MouseEvent) => void
 }
 
@@ -238,8 +251,8 @@ function PresetRow({ name, colors, onClick, onDelete }: PresetRowProps) {
 
 function extractColors(p: VanillaPreset): { text: string; active: string; bg: string } {
   return {
-    text:   p.textColor   ?? '#FFFFFF',
+    text: p.textColor ?? '#FFFFFF',
     active: p.activeColor ?? '#FFD700',
-    bg:     p.bgColor     ?? '#000000',
+    bg: p.bgColor ?? '#000000',
   }
 }

@@ -267,7 +267,7 @@ export function App() {
         <main className="flex-1 flex min-h-0 overflow-hidden">
           {/* ── Main content (left column) ────────────────────────── */}
           {screen === 'file' && (
-            <div className="flex-1 flex flex-col items-center justify-center overflow-hidden min-w-0">
+            <div className="screen-in flex-1 flex flex-col items-center justify-center overflow-hidden min-w-0">
               <DropZoneScreen
                 filePath={filePath}
                 onFileSelected={handleFileSelected}
@@ -276,7 +276,7 @@ export function App() {
             </div>
           )}
           {screen === 'progress' && (
-            <div className="flex-1 flex flex-col items-center justify-center overflow-hidden min-w-0">
+            <div className="screen-in flex-1 flex flex-col items-center justify-center overflow-hidden min-w-0">
               <ProgressScreen
                 filePath={filePath!}
                 onDone={handleTranscribeDone}
@@ -285,13 +285,15 @@ export function App() {
             </div>
           )}
           {screen === 'results' && result && (
-            <ResultsScreen
-              result={result}
-              settings={settings}
-              onGroupsUpdate={handleGroupsUpdate}
-              projectIORef={projectIORef}
-              onUndoRedoChange={setSubtitleUndo}
-            />
+            <div className="screen-in flex-1 flex min-h-0 min-w-0 overflow-hidden">
+              <ResultsScreen
+                result={result}
+                settings={settings}
+                onGroupsUpdate={handleGroupsUpdate}
+                projectIORef={projectIORef}
+                onUndoRedoChange={setSubtitleUndo}
+              />
+            </div>
           )}
 
           {/* ── Studio sidebar (always visible) ──────────────────── */}
