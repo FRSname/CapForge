@@ -87,15 +87,15 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             style={{
               background:
                 t.type === 'error'
-                  ? 'var(--color-error-bg,   #3b1c1c)'
+                  ? 'var(--color-error-bg)'
                   : t.type === 'success'
-                    ? 'var(--color-success-bg, #1c2e1c)'
+                    ? 'var(--color-success-bg)'
                     : 'var(--color-surface-2)',
               borderColor:
                 t.type === 'error'
-                  ? 'var(--color-error-border,   #5c2a2a)'
+                  ? 'var(--color-error-border)'
                   : t.type === 'success'
-                    ? 'var(--color-success-border, #2a4a2a)'
+                    ? 'var(--color-success-border)'
                     : 'var(--color-border)',
               color: 'var(--color-text)',
             }}
@@ -106,9 +106,9 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               style={{
                 color:
                   t.type === 'error'
-                    ? '#f87171'
+                    ? 'var(--color-danger)'
                     : t.type === 'success'
-                      ? '#4ade80'
+                      ? 'var(--color-success)'
                       : 'var(--color-accent)',
               }}
             >

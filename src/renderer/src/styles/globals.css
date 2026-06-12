@@ -75,6 +75,12 @@
   --color-danger:     #e04b4b;
   --color-danger-subtle: rgba(224 75 75 / 0.1);
 
+  /* ── Toast surfaces (semantic, theme-aware) ────────── */
+  --color-success-bg:     #1c2e1c;
+  --color-success-border: #2a4a2a;
+  --color-error-bg:       #3b1c1c;
+  --color-error-border:   #5c2a2a;
+
   /* ── Layout ────────────────────────────────────────── */
   --titlebar-h:       38px;
 
@@ -156,6 +162,12 @@
   --color-warning:    #9a6700;
   --color-danger:     #d1242f;
   --color-danger-subtle: rgba(209 36 47 / 0.08);
+
+  /* Light tints so dark --color-text stays legible on status toasts. */
+  --color-success-bg:     #dafbe1;
+  --color-success-border: #aceebb;
+  --color-error-bg:       #ffebe9;
+  --color-error-border:   #ffcecb;
 }
 
 /* Light-mode scrollbar */
