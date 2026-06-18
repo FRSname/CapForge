@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Screen, TranscriptionResult, Segment } from './types/app'
-import type { ProjectFile, ProjectIOHandle } from './lib/project'
+import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from './lib/project'
 import { api, type VideoInfo } from './lib/api'
+import { builtinPresetNames } from './lib/agentCommands'
+import { buildRenderBody } from './lib/render'
 import { TitleBar } from './components/TitleBar/TitleBar'
 import { DropZoneScreen } from './components/screens/DropZoneScreen'
 import { ProgressScreen } from './components/screens/ProgressScreen'
@@ -11,6 +13,7 @@ import { ShortcutOverlay } from './components/ShortcutOverlay'
 import { StudioPanel, STUDIO_DEFAULTS, snapFps } from './components/studio/StudioPanel'
 import type { StudioSettings } from './components/studio/StudioPanel'
 import { Button } from './components/ui/Button'
+import { AgentLiveSync } from './components/AgentLiveSync'
 import { ToastProvider } from './hooks/useToast'
 import { useSettingsUndo } from './hooks/useSettingsUndo'
 import { useAutosave } from './hooks/useAutosave'
@@ -84,6 +87,38 @@ export function App() {
     setGroups(g)
     setGroupsEdited(edited)
   }, [])
+
+  // ── Agent live-sync ─────────────────────────────────────────────
+  // Forward an agent transcript edit into the live editor via the ResultsScreen
+  // imperative handle. Memoized so AgentLiveSync's control connection is stable.
+  const handleApplyAgentResult = useCallback((r: TranscriptionResult) => {
+    projectIORef.current?.applyAgentResult(r)
+  }, [])
+
+  const handleApplyWordOverrides = useCallback((edits: WordOverrideEdit[]) => {
+    projectIORef.current?.applyWordOverrides(edits)
+  }, [])
+
+  // Mirror UI state to the backend so the agent can read what to change AND so
+  // /api/render-frame renders with the live style. `render` is the snake_case
+  // body (the casing bridge lives only in buildRenderBody). Debounced — settings
+  // churn during edits.
+  useEffect(() => {
+    if (screen !== 'results') return
+    const t = setTimeout(() => {
+      api
+        .putUiState({
+          settings,
+          groups,
+          presets: builtinPresetNames(),
+          render: buildRenderBody(settings, groups, groupsEdited),
+        })
+        .catch(() => {
+          /* best-effort mirror */
+        })
+    }, 300)
+    return () => clearTimeout(t)
+  }, [screen, settings, groups, groupsEdited])
 
   // ── Source video info probe ─────────────────────────────────────
   // Runs once per result.audioPath — auto-sets resolution + fps.
@@ -316,6 +351,13 @@ export function App() {
 
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+        <AgentLiveSync
+          active={screen === 'results'}
+          settings={settings}
+          applyResult={handleApplyAgentResult}
+          applySettings={handleSettingsChange}
+          applyWordOverrides={handleApplyWordOverrides}
+        />
       </div>
     </ToastProvider>
   )

@@ -3,6 +3,8 @@
  * Communicates with the Python FastAPI backend over REST + WebSocket.
  */
 
+import type { TranscriptionResult as AppTranscriptionResult } from '../types/app'
+
 export interface ApiError extends Error {
   title?: string
   hint?: string
@@ -55,6 +57,38 @@ export interface VideoInfo {
   fps: number | null
 }
 
+/**
+ * Map a backend result (snake_case, segments may lack ids) to the app shape.
+ * Backend segments carry no stable id, so we mint one per fetch.
+ */
+export function normalizeResult(raw: TranscriptionResult): AppTranscriptionResult {
+  return {
+    segments: raw.segments.map((s) => ({
+      id: s.id ?? crypto.randomUUID(),
+      start: s.start,
+      end: s.end,
+      text: s.text,
+      words: s.words,
+      speaker: s.speaker,
+    })),
+    language: raw.language,
+    duration: raw.duration,
+    audioPath: raw.audio_path,
+  }
+}
+
+/** A style/emphasis command relayed from the agent over the control channel. */
+export interface AgentCommand {
+  op: string
+  payload?: Record<string, unknown>
+}
+
+/** Handlers for agent-driven control-channel events. */
+export interface ControlHandlers {
+  onResultUpdated?: () => void
+  onCommand?: (cmd: AgentCommand) => void
+}
+
 class CapForgeAPI {
   private base: string
   private wsBase: string
@@ -62,6 +96,12 @@ class CapForgeAPI {
   private _onProgress: ((update: ProgressUpdate) => void) | null = null
   private _wsReconnectDelay = 1000
   private _wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
+  // Control channel — persistent listener for agent-driven events (transcript
+  // edits + style/emphasis commands) while on the results screen.
+  private controlWs: WebSocket | null = null
+  private _controlHandlers: ControlHandlers | null = null
+  private _controlReconnectDelay = 1000
+  private _controlReconnectTimer: ReturnType<typeof setTimeout> | null = null
 
   constructor(port = 53421) {
     this.base = `http://127.0.0.1:${port}`
@@ -115,9 +155,11 @@ class CapForgeAPI {
     return res.json() as Promise<T>
   }
 
-  getSystemInfo() { return this.get('/api/system-info') }
+  getSystemInfo() {
+    return this.get('/api/system-info')
+  }
   getLanguages(): Promise<string[]> {
-    return this.get<unknown>('/api/languages').then(r => {
+    return this.get<unknown>('/api/languages').then((r) => {
       // Backend returns { languages: { code: name, ... } }; also tolerate array or plain dict
       if (Array.isArray(r)) return r as string[]
       if (r && typeof r === 'object') {
@@ -129,10 +171,18 @@ class CapForgeAPI {
       return []
     })
   }
-  getModels()     { return this.get<string[]>('/api/models') }
-  getStatus()     { return this.get('/api/status') }
-  getResult()     { return this.get<TranscriptionResult>('/api/result') }
-  cancelJob()     { return this.post('/api/cancel', {}) }
+  getModels() {
+    return this.get<string[]>('/api/models')
+  }
+  getStatus() {
+    return this.get('/api/status')
+  }
+  getResult() {
+    return this.get<TranscriptionResult>('/api/result')
+  }
+  cancelJob() {
+    return this.post('/api/cancel', {})
+  }
 
   startTranscription(params: TranscribeParams) {
     return this.post('/api/transcribe', params)
@@ -140,6 +190,11 @@ class CapForgeAPI {
 
   updateResult(result: TranscriptionResult) {
     return this.put('/api/result', result)
+  }
+
+  /** Mirror the renderer's UI state (settings + groups) so the agent can read it. */
+  putUiState(state: unknown) {
+    return this.put('/api/ui-state', state)
   }
 
   exportResult(params: unknown) {
@@ -163,7 +218,10 @@ class CapForgeAPI {
   connectProgress(onProgress: (update: ProgressUpdate) => void) {
     this._onProgress = onProgress
     this._wsReconnectDelay = this._wsReconnectDelay ?? 1000
-    if (this._wsReconnectTimer) { clearTimeout(this._wsReconnectTimer); this._wsReconnectTimer = null }
+    if (this._wsReconnectTimer) {
+      clearTimeout(this._wsReconnectTimer)
+      this._wsReconnectTimer = null
+    }
     if (this.ws) {
       this.ws.onclose = null
       this.ws.close()
@@ -171,21 +229,28 @@ class CapForgeAPI {
 
     this.ws = new WebSocket(`${this.wsBase}/ws/progress`)
 
-    this.ws.onopen = () => { this._wsReconnectDelay = 1000 }
+    this.ws.onopen = () => {
+      this._wsReconnectDelay = 1000
+    }
 
     this.ws.onmessage = (event: MessageEvent) => {
       try {
         const raw = JSON.parse(event.data as string)
+        // Control events (e.g. { type: 'result_updated' }) ride the same socket
+        // but are not progress updates — ignore them here.
+        if (raw && raw.type) return
         // Backend sends { status, progress, message, detail } (Pydantic model).
         // Map to the ProgressUpdate shape the frontend expects.
         const data: ProgressUpdate = {
-          step:        raw.step    ?? raw.status ?? 'loading_model',
-          pct:         raw.pct     ?? raw.progress ?? 0,
-          message:     raw.message ?? '',
+          step: raw.step ?? raw.status ?? 'loading_model',
+          pct: raw.pct ?? raw.progress ?? 0,
+          message: raw.message ?? '',
           sub_message: raw.sub_message ?? raw.detail ?? undefined,
         }
         this._onProgress?.(data)
-      } catch { /* ignore malformed */ }
+      } catch {
+        /* ignore malformed */
+      }
     }
 
     this.ws.onclose = () => {
@@ -197,17 +262,88 @@ class CapForgeAPI {
       }, delay)
     }
 
-    this.ws.onerror = () => { /* triggers onclose → reconnect */ }
+    this.ws.onerror = () => {
+      /* triggers onclose → reconnect */
+    }
   }
 
   disconnectProgress() {
     this._onProgress = null
     this._wsReconnectDelay = 1000
-    if (this._wsReconnectTimer) { clearTimeout(this._wsReconnectTimer); this._wsReconnectTimer = null }
+    if (this._wsReconnectTimer) {
+      clearTimeout(this._wsReconnectTimer)
+      this._wsReconnectTimer = null
+    }
     if (this.ws) {
       this.ws.onclose = null
       this.ws.close()
       this.ws = null
+    }
+  }
+
+  // ── Control channel (agent-driven events) ──────────────────────────
+
+  /**
+   * Persistent listener for control events (transcript edits + style/emphasis
+   * commands). Used on the results screen. Separate socket from progress so the
+   * two lifecycles don't fight.
+   */
+  connectControl(handlers: ControlHandlers) {
+    this._controlHandlers = handlers
+    if (this._controlReconnectTimer) {
+      clearTimeout(this._controlReconnectTimer)
+      this._controlReconnectTimer = null
+    }
+    if (this.controlWs) {
+      this.controlWs.onclose = null
+      this.controlWs.close()
+    }
+
+    this.controlWs = new WebSocket(`${this.wsBase}/ws/progress`)
+
+    this.controlWs.onopen = () => {
+      this._controlReconnectDelay = 1000
+    }
+
+    this.controlWs.onmessage = (event: MessageEvent) => {
+      try {
+        const raw = JSON.parse(event.data as string)
+        if (!raw || !raw.type) return
+        if (raw.type === 'result_updated') this._controlHandlers?.onResultUpdated?.()
+        else if (raw.type === 'agent_command') {
+          this._controlHandlers?.onCommand?.({ op: raw.op, payload: raw.payload })
+        }
+      } catch {
+        /* ignore malformed */
+      }
+    }
+
+    this.controlWs.onclose = () => {
+      const handlers = this._controlHandlers
+      if (!handlers) return
+      const delay = this._controlReconnectDelay
+      this._controlReconnectDelay = Math.min(delay * 2, 30_000)
+      this._controlReconnectTimer = setTimeout(() => {
+        if (this._controlHandlers) this.connectControl(this._controlHandlers)
+      }, delay)
+    }
+
+    this.controlWs.onerror = () => {
+      /* triggers onclose → reconnect */
+    }
+  }
+
+  disconnectControl() {
+    this._controlHandlers = null
+    this._controlReconnectDelay = 1000
+    if (this._controlReconnectTimer) {
+      clearTimeout(this._controlReconnectTimer)
+      this._controlReconnectTimer = null
+    }
+    if (this.controlWs) {
+      this.controlWs.onclose = null
+      this.controlWs.close()
+      this.controlWs = null
     }
   }
 }

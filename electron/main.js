@@ -3,18 +3,18 @@
  * Spawns the Python FastAPI backend and opens the renderer window.
  */
 
-const { app, BrowserWindow, Menu, shell, ipcMain, dialog } = require("electron");
-const path = require("path");
-const fs = require("fs");
-const { PythonBackend } = require("./python-manager");
-const { ensureRuntime, isRuntimeReady, detectAccelerator } = require("./runtime-setup");
-const appState = require("./app-state");
-const autosave = require("./autosave");
-const { checkForUpdates } = require("./update-check");
+const { app, BrowserWindow, Menu, shell, ipcMain, dialog } = require('electron')
+const path = require('path')
+const fs = require('fs')
+const { PythonBackend } = require('./python-manager')
+const { ensureRuntime, isRuntimeReady, detectAccelerator } = require('./runtime-setup')
+const appState = require('./app-state')
+const autosave = require('./autosave')
+const { checkForUpdates } = require('./update-check')
 
-let mainWindow = null;
-let setupWindow = null;
-let pythonBackend = null;
+let mainWindow = null
+let setupWindow = null
+let pythonBackend = null
 
 // ---------------------------------------------------------------------------
 // Crash logs — write uncaught main-process exceptions to <logs>/crash.log
@@ -22,30 +22,32 @@ let pythonBackend = null;
 // ---------------------------------------------------------------------------
 function logCrash(label, err) {
   try {
-    const logDir = app.getPath("logs");
-    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
-    const line = `[${new Date().toISOString()}] ${label}: ${err && err.stack ? err.stack : String(err)}\n`;
-    fs.appendFileSync(path.join(logDir, "crash.log"), line, "utf-8");
-  } catch (_) { /* best-effort */ }
+    const logDir = app.getPath('logs')
+    if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true })
+    const line = `[${new Date().toISOString()}] ${label}: ${err && err.stack ? err.stack : String(err)}\n`
+    fs.appendFileSync(path.join(logDir, 'crash.log'), line, 'utf-8')
+  } catch (_) {
+    /* best-effort */
+  }
 }
-process.on("uncaughtException", (err) => {
-  logCrash("uncaughtException", err);
-  console.error("[CapForge] uncaughtException:", err);
-});
-process.on("unhandledRejection", (reason) => {
-  logCrash("unhandledRejection", reason);
-  console.error("[CapForge] unhandledRejection:", reason);
-});
+process.on('uncaughtException', (err) => {
+  logCrash('uncaughtException', err)
+  console.error('[CapForge] uncaughtException:', err)
+})
+process.on('unhandledRejection', (reason) => {
+  logCrash('unhandledRejection', reason)
+  console.error('[CapForge] unhandledRejection:', reason)
+})
 
 function createWindow() {
   // Restore last window position/size if we have one.
-  const saved = appState.get("window", {});
+  const saved = appState.get('window', {})
   const opts = {
     width: saved.width || 1500,
     height: saved.height || 1400,
     minWidth: 760,
     minHeight: 560,
-    title: "CapForge",
+    title: 'CapForge',
     icon: path.join(__dirname, '..', 'resources', 'icon.png'),
     webPreferences: {
       // preload.js sits next to main.js in both dev (electron/) and packaged
@@ -54,44 +56,48 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
     },
-    backgroundColor: "#0b0b0e",
+    backgroundColor: '#0b0b0e',
     show: false,
-  };
+  }
   // macOS only: hide the native title bar so the custom 38px TitleBar acts as
   // the window chrome; traffic lights are repositioned to center in it
   // (12 + 11 centers the ~16px buttons in the 38px bar). Double-click-to-zoom
   // on the drag region is handled natively by macOS with hiddenInset.
   // Windows/Linux keep the fully native frame — no `frame: false` anywhere,
   // since we don't ship custom min/max/close controls.
-  if (process.platform === "darwin") {
-    opts.titleBarStyle = "hiddenInset";
-    opts.trafficLightPosition = { x: 12, y: 11 };
+  if (process.platform === 'darwin') {
+    opts.titleBarStyle = 'hiddenInset'
+    opts.trafficLightPosition = { x: 12, y: 11 }
   }
   // Only restore coordinates if they're on a currently-connected display,
   // otherwise the window can end up invisible on a detached second monitor.
-  if (typeof saved.x === "number" && typeof saved.y === "number") {
-    const { screen } = require("electron");
-    const bounds = { x: saved.x, y: saved.y, width: opts.width, height: opts.height };
-    const displays = screen.getAllDisplays();
+  if (typeof saved.x === 'number' && typeof saved.y === 'number') {
+    const { screen } = require('electron')
+    const bounds = { x: saved.x, y: saved.y, width: opts.width, height: opts.height }
+    const displays = screen.getAllDisplays()
     const visible = displays.some((d) => {
-      const a = d.workArea;
-      return bounds.x < a.x + a.width && bounds.x + bounds.width > a.x
-          && bounds.y < a.y + a.height && bounds.y + bounds.height > a.y;
-    });
+      const a = d.workArea
+      return (
+        bounds.x < a.x + a.width &&
+        bounds.x + bounds.width > a.x &&
+        bounds.y < a.y + a.height &&
+        bounds.y + bounds.height > a.y
+      )
+    })
     if (visible) {
-      opts.x = saved.x;
-      opts.y = saved.y;
+      opts.x = saved.x
+      opts.y = saved.y
     }
   }
 
-  mainWindow = new BrowserWindow(opts);
+  mainWindow = new BrowserWindow(opts)
 
   // In dev mode, disable Chromium's HTTP cache so Vite module updates are always fresh
   if (process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.webContents.session.clearCache();
+    mainWindow.webContents.session.clearCache()
   }
 
-  if (saved.maximized) mainWindow.maximize();
+  if (saved.maximized) mainWindow.maximize()
 
   // electron-vite: use dev server in dev mode, built file in production
   if (process.env['ELECTRON_RENDERER_URL']) {
@@ -101,66 +107,68 @@ function createWindow() {
     // renderer/ folder — load from there in the packaged app too.
     mainWindow.loadFile(path.join(__dirname, '..', 'out', 'renderer', 'index.html'))
   }
-  Menu.setApplicationMenu(buildAppMenu());
+  Menu.setApplicationMenu(buildAppMenu())
 
-  mainWindow.once("ready-to-show", () => {
-    mainWindow.show();
-  });
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
+  })
 
   // Safety net: if ready-to-show never fires, show the window after 3s anyway
   setTimeout(() => {
     if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.isVisible()) {
-      console.warn("[CapForge] ready-to-show did not fire, forcing show()");
-      mainWindow.show();
+      console.warn('[CapForge] ready-to-show did not fire, forcing show()')
+      mainWindow.show()
     }
-  }, 3000);
+  }, 3000)
 
   // Log renderer crashes/unresponsive events that would otherwise be silent
-  mainWindow.webContents.on("render-process-gone", (_e, details) => {
-    console.error("[CapForge] render-process-gone:", details);
-  });
-  mainWindow.webContents.on("unresponsive", () => {
-    console.error("[CapForge] renderer unresponsive");
-  });
-  mainWindow.webContents.on("did-fail-load", (_e, code, desc, url) => {
-    console.error("[CapForge] did-fail-load:", code, desc, url);
-  });
-  mainWindow.webContents.on("preload-error", (_e, preloadPath, err) => {
-    console.error("[CapForge] preload-error:", preloadPath, err);
-  });
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[CapForge] render-process-gone:', details)
+  })
+  mainWindow.webContents.on('unresponsive', () => {
+    console.error('[CapForge] renderer unresponsive')
+  })
+  mainWindow.webContents.on('did-fail-load', (_e, code, desc, url) => {
+    console.error('[CapForge] did-fail-load:', code, desc, url)
+  })
+  mainWindow.webContents.on('preload-error', (_e, preloadPath, err) => {
+    console.error('[CapForge] preload-error:', preloadPath, err)
+  })
 
   // Open DevTools in dev mode (--dev flag OR electron-vite dev server)
-  if (process.argv.includes("--dev") || process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.webContents.openDevTools({ mode: "detach" });
+  if (process.argv.includes('--dev') || process.env['ELECTRON_RENDERER_URL']) {
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
   }
 
   // Persist window bounds whenever they change. Debounce via a timer so
   // we don't thrash the disk during an interactive drag.
-  let saveTimer = null;
+  let saveTimer = null
   const saveBounds = () => {
-    if (!mainWindow || mainWindow.isDestroyed()) return;
-    clearTimeout(saveTimer);
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
-      if (!mainWindow || mainWindow.isDestroyed()) return;
-      const maximized = mainWindow.isMaximized();
+      if (!mainWindow || mainWindow.isDestroyed()) return
+      const maximized = mainWindow.isMaximized()
       // Don't store the maximized geometry as the normal bounds — we want
       // to restore the un-maximized size if the user un-maximizes later.
-      const b = maximized ? (mainWindow.getNormalBounds?.() || mainWindow.getBounds()) : mainWindow.getBounds();
-      appState.set("window", { x: b.x, y: b.y, width: b.width, height: b.height, maximized });
-    }, 300);
-  };
-  mainWindow.on("resize", saveBounds);
-  mainWindow.on("move", saveBounds);
-  mainWindow.on("maximize", saveBounds);
-  mainWindow.on("unmaximize", saveBounds);
+      const b = maximized
+        ? mainWindow.getNormalBounds?.() || mainWindow.getBounds()
+        : mainWindow.getBounds()
+      appState.set('window', { x: b.x, y: b.y, width: b.width, height: b.height, maximized })
+    }, 300)
+  }
+  mainWindow.on('resize', saveBounds)
+  mainWindow.on('move', saveBounds)
+  mainWindow.on('maximize', saveBounds)
+  mainWindow.on('unmaximize', saveBounds)
 
-  mainWindow.on("closed", () => {
-    mainWindow = null;
-  });
+  mainWindow.on('closed', () => {
+    mainWindow = null
+  })
 
-  mainWindow.webContents.on("render-process-gone", (_e, details) => {
-    logCrash("renderer-gone", new Error(`reason=${details.reason} exitCode=${details.exitCode}`));
-  });
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    logCrash('renderer-gone', new Error(`reason=${details.reason} exitCode=${details.exitCode}`))
+  })
 }
 
 /**
@@ -168,10 +176,12 @@ function createWindow() {
  * Called from the app menu and from the renderer via IPC.
  */
 function openLogsFolder() {
-  const logDir = app.getPath("logs");
+  const logDir = app.getPath('logs')
   // Ensure it exists — Electron creates it lazily on first write.
-  try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
-  shell.openPath(logDir);
+  try {
+    fs.mkdirSync(logDir, { recursive: true })
+  } catch {}
+  shell.openPath(logDir)
 }
 
 /**
@@ -181,66 +191,64 @@ function openLogsFolder() {
  */
 function openLogFile() {
   if (pythonBackend && pythonBackend.logFilePath && fs.existsSync(pythonBackend.logFilePath)) {
-    shell.openPath(pythonBackend.logFilePath);
+    shell.openPath(pythonBackend.logFilePath)
   } else {
-    openLogsFolder();
+    openLogsFolder()
   }
 }
 
 function buildAppMenu() {
   const template = [
     {
-      label: "File",
+      label: 'File',
+      submenu: [{ role: 'quit', label: 'Exit' }],
+    },
+    {
+      label: 'View',
       submenu: [
-        { role: "quit", label: "Exit" },
+        { role: 'reload' },
+        { role: 'toggleDevTools', label: 'Developer Tools' },
+        { type: 'separator' },
+        { role: 'resetZoom' },
+        { role: 'zoomIn' },
+        { role: 'zoomOut' },
+        { type: 'separator' },
+        { role: 'togglefullscreen' },
       ],
     },
     {
-      label: "View",
-      submenu: [
-        { role: "reload" },
-        { role: "toggleDevTools", label: "Developer Tools" },
-        { type: "separator" },
-        { role: "resetZoom" },
-        { role: "zoomIn" },
-        { role: "zoomOut" },
-        { type: "separator" },
-        { role: "togglefullscreen" },
-      ],
-    },
-    {
-      label: "Help",
+      label: 'Help',
       submenu: [
         {
-          label: "Open Logs Folder",
+          label: 'Open Logs Folder',
           click: () => openLogsFolder(),
         },
         {
-          label: "Open Backend Log",
+          label: 'Open Backend Log',
           click: () => openLogFile(),
         },
-        { type: "separator" },
+        { type: 'separator' },
         {
-          label: "Check for Updates…",
+          label: 'Check for Updates…',
           click: () => checkForUpdates({ parentWindow: mainWindow, silent: false }),
         },
-        { type: "separator" },
+        { type: 'separator' },
         {
-          label: "About CapForge",
+          label: 'About CapForge',
           click: () => {
             dialog.showMessageBox(mainWindow, {
-              type: "info",
-              title: "About CapForge",
+              type: 'info',
+              title: 'About CapForge',
               message: `CapForge ${app.getVersion()}`,
-              detail: "Auto subtitle generator with word-by-word alignment.\n\n© 2026 FRScz",
-              buttons: ["OK"],
-            });
+              detail: 'Auto subtitle generator with word-by-word alignment.\n\n© 2026 FRScz',
+              buttons: ['OK'],
+            })
           },
         },
       ],
     },
-  ];
-  return Menu.buildFromTemplate(template);
+  ]
+  return Menu.buildFromTemplate(template)
 }
 
 function createSetupWindow() {
@@ -250,17 +258,17 @@ function createSetupWindow() {
     resizable: false,
     minimizable: false,
     maximizable: false,
-    title: "CapForge — Setup",
-    backgroundColor: "#0b0b0e",
+    title: 'CapForge — Setup',
+    backgroundColor: '#0b0b0e',
     autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
     },
-  });
-  setupWindow.removeMenu();
-  setupWindow.loadFile(path.join(__dirname, "setup-window.html"));
-  return setupWindow;
+  })
+  setupWindow.removeMenu()
+  setupWindow.loadFile(path.join(__dirname, 'setup-window.html'))
+  return setupWindow
 }
 
 /**
@@ -273,274 +281,312 @@ function createSetupWindow() {
  * Rejects (and quits) on install failure.
  */
 async function runFirstTimeSetup() {
-  if (isRuntimeReady()) return;
+  if (isRuntimeReady()) return
 
   // GPU detection IPC — the renderer asks for this before the user picks Install.
-  ipcMain.handle("setup:detect-accelerator", () => detectAccelerator());
+  ipcMain.handle('setup:detect-accelerator', () => detectAccelerator())
 
-  createSetupWindow();
+  createSetupWindow()
   await new Promise((resolve) => {
     if (setupWindow.webContents.isLoading()) {
-      setupWindow.webContents.once("did-finish-load", resolve);
+      setupWindow.webContents.once('did-finish-load', resolve)
     } else {
-      resolve();
+      resolve()
     }
-  });
+  })
 
   return new Promise((resolve, reject) => {
-    ipcMain.once("setup:begin", async () => {
+    ipcMain.once('setup:begin', async () => {
       try {
         await ensureRuntime({
           onProgress: (p) => {
             if (setupWindow && !setupWindow.isDestroyed()) {
-              setupWindow.webContents.send("setup:progress", p);
+              setupWindow.webContents.send('setup:progress', p)
             }
           },
-        });
+        })
         if (setupWindow && !setupWindow.isDestroyed()) {
-          setupWindow.webContents.send("setup:done");
+          setupWindow.webContents.send('setup:done')
         }
       } catch (err) {
         if (setupWindow && !setupWindow.isDestroyed()) {
-          setupWindow.webContents.send("setup:error", err.message);
+          setupWindow.webContents.send('setup:error', err.message)
         }
         dialog.showErrorBox(
-          "CapForge — Setup Failed",
+          'CapForge — Setup Failed',
           `First-run setup failed:\n\n${err.message}\n\n` +
-          `You can retry by launching CapForge again. If the problem persists, ` +
-          `check your internet connection and antivirus settings.`
-        );
-        app.quit();
-        reject(err);
-        return;
+            `You can retry by launching CapForge again. If the problem persists, ` +
+            `check your internet connection and antivirus settings.`
+        )
+        app.quit()
+        reject(err)
+        return
       }
-      ipcMain.once("setup:launch", () => {
+      ipcMain.once('setup:launch', () => {
         if (setupWindow && !setupWindow.isDestroyed()) {
-          setupWindow.close();
-          setupWindow = null;
+          setupWindow.close()
+          setupWindow = null
         }
-        resolve();
-      });
-    });
-  });
+        resolve()
+      })
+    })
+  })
 }
 
 app.whenReady().then(async () => {
   // First-run: install embedded Python + whisperx + torch before touching the backend.
   try {
-    await runFirstTimeSetup();
+    await runFirstTimeSetup()
   } catch {
-    return; // setup already showed an error dialog and quit
+    return // setup already showed an error dialog and quit
   }
 
   // Start the Python backend
-  pythonBackend = new PythonBackend();
+  pythonBackend = new PythonBackend()
   try {
-    await pythonBackend.start();
+    await pythonBackend.start()
   } catch (err) {
     dialog.showErrorBox(
-      "CapForge — Backend Error",
+      'CapForge — Backend Error',
       `Failed to start the Python backend:\n\n${err.message}`
-    );
+    )
   }
 
-  createWindow();
+  createWindow()
 
   // Silent update check ~5s after launch so it never competes with the
   // first paint. Any failure (offline, rate-limited, etc.) is swallowed.
   setTimeout(() => {
-    checkForUpdates({ parentWindow: mainWindow, silent: true }).catch(() => {});
-  }, 5000);
+    checkForUpdates({ parentWindow: mainWindow, silent: true }).catch(() => {})
+  }, 5000)
 
   // IPC: generic app-state get/set — renderer uses this to persist the
   // last-used preset name and any small bits of UI state.
-  ipcMain.handle("state:get", (_e, key, fallback) => appState.get(key, fallback));
-  ipcMain.handle("state:set", (_e, key, value) => { appState.set(key, value); return true; });
+  ipcMain.handle('state:get', (_e, key, fallback) => appState.get(key, fallback))
+  ipcMain.handle('state:set', (_e, key, value) => {
+    appState.set(key, value)
+    return true
+  })
 
   // IPC: crash-recovery autosave — renderer writes the current session snapshot
   // on a debounce; reads it back on launch to offer recovery.
-  ipcMain.handle("autosave:write", (_e, data) => { autosave.write(data); return true; });
-  ipcMain.handle("autosave:read", () => autosave.read());
-  ipcMain.handle("autosave:clear", () => { autosave.clear(); return true; });
+  ipcMain.handle('autosave:write', (_e, data) => {
+    autosave.write(data)
+    return true
+  })
+  ipcMain.handle('autosave:read', () => autosave.read())
+  ipcMain.handle('autosave:clear', () => {
+    autosave.clear()
+    return true
+  })
 
   // IPC: open logs — used by the Help menu and by error toasts with a
   // "View logs" action in the renderer.
-  ipcMain.handle("logs:openFolder", () => { openLogsFolder(); return true; });
-  ipcMain.handle("logs:openFile", () => { openLogFile(); return true; });
-  ipcMain.handle("shell:showInFolder", (_event, filePath) => { shell.showItemInFolder(filePath); });
+  ipcMain.handle('logs:openFolder', () => {
+    openLogsFolder()
+    return true
+  })
+  ipcMain.handle('logs:openFile', () => {
+    openLogFile()
+    return true
+  })
+  ipcMain.handle('shell:showInFolder', (_event, filePath) => {
+    shell.showItemInFolder(filePath)
+  })
+
+  // IPC: one-click "Connect to Claude" for the MCP control layer.
+  const claudeConnect = require('./claude-connect')
+  ipcMain.handle('claude:detect', () => claudeConnect.detectClients())
+  ipcMain.handle('claude:connectDesktop', () => claudeConnect.connectDesktop())
+  ipcMain.handle('claude:connectCode', () => claudeConnect.connectCode())
+  ipcMain.handle('claude:getManualConfig', () => claudeConnect.getManualConfig())
 
   // IPC: open file dialog — restore last-used directory as starting point,
   // and remember the chosen file so the renderer can reopen it next launch.
-  ipcMain.handle("dialog:openFile", async () => {
+  ipcMain.handle('dialog:openFile', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: "Select Audio File",
-      defaultPath: appState.get("lastInputPath") || undefined,
+      title: 'Select Audio File',
+      defaultPath: appState.get('lastInputPath') || undefined,
       filters: [
         {
-          name: "Audio / Video",
+          name: 'Audio / Video',
           extensions: [
-            "mp3", "wav", "m4a", "flac", "ogg", "wma",
-            "mp4", "mkv", "avi", "mov", "webm",
+            'mp3',
+            'wav',
+            'm4a',
+            'flac',
+            'ogg',
+            'wma',
+            'mp4',
+            'mkv',
+            'avi',
+            'mov',
+            'webm',
           ],
         },
-        { name: "All Files", extensions: ["*"] },
+        { name: 'All Files', extensions: ['*'] },
       ],
-      properties: ["openFile"],
-    });
-    if (result.canceled) return null;
-    const picked = result.filePaths[0];
-    appState.set("lastInputPath", picked);
-    return picked;
-  });
+      properties: ['openFile'],
+    })
+    if (result.canceled) return null
+    const picked = result.filePaths[0]
+    appState.set('lastInputPath', picked)
+    return picked
+  })
 
   // IPC: open directory dialog — same persistence pattern.
-  ipcMain.handle("dialog:openDir", async () => {
+  ipcMain.handle('dialog:openDir', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: "Select Output Directory",
-      defaultPath: appState.get("lastOutputDir") || undefined,
-      properties: ["openDirectory"],
-    });
-    if (result.canceled) return null;
-    const picked = result.filePaths[0];
-    appState.set("lastOutputDir", picked);
-    return picked;
-  });
+      title: 'Select Output Directory',
+      defaultPath: appState.get('lastOutputDir') || undefined,
+      properties: ['openDirectory'],
+    })
+    if (result.canceled) return null
+    const picked = result.filePaths[0]
+    appState.set('lastOutputDir', picked)
+    return picked
+  })
 
   // IPC: get backend port
-  ipcMain.handle("backend:port", () => {
-    return pythonBackend ? pythonBackend.port : 53421;
-  });
+  ipcMain.handle('backend:port', () => {
+    return pythonBackend ? pythonBackend.port : 53421
+  })
 
   // IPC: save a font file to persistent storage (receives binary data + filename)
-  const fontsDir = path.join(app.getPath("userData"), "fonts");
+  const fontsDir = path.join(app.getPath('userData'), 'fonts')
   const bundledFontsDir = app.isPackaged
-    ? path.join(process.resourcesPath, "Fonts")
-    : path.join(__dirname, "..", "Fonts");
-  ipcMain.handle("fonts:save", async (_event, fileName, dataBuffer) => {
-    if (!fileName || !dataBuffer) return null;
+    ? path.join(process.resourcesPath, 'Fonts')
+    : path.join(__dirname, '..', 'Fonts')
+  ipcMain.handle('fonts:save', async (_event, fileName, dataBuffer) => {
+    if (!fileName || !dataBuffer) return null
     // Sanitize filename — keep only the basename
-    const safeName = path.basename(fileName);
-    if (!safeName) return null;
-    if (!fs.existsSync(fontsDir)) fs.mkdirSync(fontsDir, { recursive: true });
-    const dest = path.join(fontsDir, safeName);
-    fs.writeFileSync(dest, Buffer.from(dataBuffer));
-    return dest;
-  });
+    const safeName = path.basename(fileName)
+    if (!safeName) return null
+    if (!fs.existsSync(fontsDir)) fs.mkdirSync(fontsDir, { recursive: true })
+    const dest = path.join(fontsDir, safeName)
+    fs.writeFileSync(dest, Buffer.from(dataBuffer))
+    return dest
+  })
 
   // IPC: list all saved fonts
-  const FONT_EXTS = [".ttf", ".otf", ".woff", ".woff2"];
-  ipcMain.handle("fonts:list", async () => {
-    if (!fs.existsSync(fontsDir)) return [];
-    return fs.readdirSync(fontsDir)
-      .filter(f => FONT_EXTS.includes(path.extname(f).toLowerCase()))
-      .map(f => ({ name: f.replace(/\.[^.]+$/, ""), path: path.join(fontsDir, f) }));
-  });
+  const FONT_EXTS = ['.ttf', '.otf', '.woff', '.woff2']
+  ipcMain.handle('fonts:list', async () => {
+    if (!fs.existsSync(fontsDir)) return []
+    return fs
+      .readdirSync(fontsDir)
+      .filter((f) => FONT_EXTS.includes(path.extname(f).toLowerCase()))
+      .map((f) => ({ name: f.replace(/\.[^.]+$/, ''), path: path.join(fontsDir, f) }))
+  })
 
   // IPC: list fonts shipped with the app (read-only bundle)
-  ipcMain.handle("fonts:listBundled", async () => {
-    if (!fs.existsSync(bundledFontsDir)) return [];
-    return fs.readdirSync(bundledFontsDir)
-      .filter(f => FONT_EXTS.includes(path.extname(f).toLowerCase()))
-      .map(f => ({ name: f.replace(/\.[^.]+$/, ""), path: path.join(bundledFontsDir, f) }));
-  });
+  ipcMain.handle('fonts:listBundled', async () => {
+    if (!fs.existsSync(bundledFontsDir)) return []
+    return fs
+      .readdirSync(bundledFontsDir)
+      .filter((f) => FONT_EXTS.includes(path.extname(f).toLowerCase()))
+      .map((f) => ({ name: f.replace(/\.[^.]+$/, ''), path: path.join(bundledFontsDir, f) }))
+  })
 
   // IPC: delete a saved font
-  ipcMain.handle("fonts:delete", async (_event, fontPath) => {
-    if (!fontPath || !fontPath.startsWith(fontsDir)) return false;
-    if (fs.existsSync(fontPath)) { fs.unlinkSync(fontPath); return true; }
-    return false;
-  });
+  ipcMain.handle('fonts:delete', async (_event, fontPath) => {
+    if (!fontPath || !fontPath.startsWith(fontsDir)) return false
+    if (fs.existsSync(fontPath)) {
+      fs.unlinkSync(fontPath)
+      return true
+    }
+    return false
+  })
 
   // IPC: read a font file as ArrayBuffer (user dir or bundled dir)
-  ipcMain.handle("fonts:read", async (_event, fontPath) => {
-    if (!fontPath || !fs.existsSync(fontPath)) return null;
-    const allowed = fontPath.startsWith(fontsDir) || fontPath.startsWith(bundledFontsDir);
-    if (!allowed) return null;
-    return fs.readFileSync(fontPath).buffer;
-  });
+  ipcMain.handle('fonts:read', async (_event, fontPath) => {
+    if (!fontPath || !fs.existsSync(fontPath)) return null
+    const allowed = fontPath.startsWith(fontsDir) || fontPath.startsWith(bundledFontsDir)
+    if (!allowed) return null
+    return fs.readFileSync(fontPath).buffer
+  })
 
   // IPC: Style presets (stored as JSON in userData)
-  const presetsFile = path.join(app.getPath("userData"), "presets.json");
+  const presetsFile = path.join(app.getPath('userData'), 'presets.json')
 
   function readPresets() {
-    if (!fs.existsSync(presetsFile)) return {};
-    try { return JSON.parse(fs.readFileSync(presetsFile, "utf-8")); } catch { return {}; }
+    if (!fs.existsSync(presetsFile)) return {}
+    try {
+      return JSON.parse(fs.readFileSync(presetsFile, 'utf-8'))
+    } catch {
+      return {}
+    }
   }
 
   function writePresets(data) {
-    fs.writeFileSync(presetsFile, JSON.stringify(data, null, 2), "utf-8");
+    fs.writeFileSync(presetsFile, JSON.stringify(data, null, 2), 'utf-8')
   }
 
-  ipcMain.handle("presets:list", async () => {
-    const data = readPresets();
-    return Object.keys(data);
-  });
+  ipcMain.handle('presets:list', async () => {
+    const data = readPresets()
+    return Object.keys(data)
+  })
 
-  ipcMain.handle("presets:load", async (_event, name) => {
-    const data = readPresets();
-    return data[name] || null;
-  });
+  ipcMain.handle('presets:load', async (_event, name) => {
+    const data = readPresets()
+    return data[name] || null
+  })
 
-  ipcMain.handle("presets:save", async (_event, name, settings) => {
-    const data = readPresets();
-    data[name] = settings;
-    writePresets(data);
-    return true;
-  });
+  ipcMain.handle('presets:save', async (_event, name, settings) => {
+    const data = readPresets()
+    data[name] = settings
+    writePresets(data)
+    return true
+  })
 
-  ipcMain.handle("presets:delete", async (_event, name) => {
-    const data = readPresets();
-    delete data[name];
-    writePresets(data);
-    return true;
-  });
+  ipcMain.handle('presets:delete', async (_event, name) => {
+    const data = readPresets()
+    delete data[name]
+    writePresets(data)
+    return true
+  })
 
   // IPC: Save project file (.capforge)
-  ipcMain.handle("project:save", async (_event, projectData) => {
-    const lastProject = appState.get("lastProjectPath");
+  ipcMain.handle('project:save', async (_event, projectData) => {
+    const lastProject = appState.get('lastProjectPath')
     const result = await dialog.showSaveDialog(mainWindow, {
-      title: "Save CapForge Project",
-      defaultPath: lastProject || projectData.suggestedName || "project.capforge",
-      filters: [
-        { name: "CapForge Project", extensions: ["capforge"] },
-      ],
-    });
-    if (result.canceled || !result.filePath) return null;
-    fs.writeFileSync(result.filePath, JSON.stringify(projectData, null, 2), "utf-8");
-    appState.set("lastProjectPath", result.filePath);
-    return result.filePath;
-  });
+      title: 'Save CapForge Project',
+      defaultPath: lastProject || projectData.suggestedName || 'project.capforge',
+      filters: [{ name: 'CapForge Project', extensions: ['capforge'] }],
+    })
+    if (result.canceled || !result.filePath) return null
+    fs.writeFileSync(result.filePath, JSON.stringify(projectData, null, 2), 'utf-8')
+    appState.set('lastProjectPath', result.filePath)
+    return result.filePath
+  })
 
   // IPC: Open project file (.capforge)
-  ipcMain.handle("project:open", async () => {
+  ipcMain.handle('project:open', async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
-      title: "Open CapForge Project",
-      defaultPath: appState.get("lastProjectPath") || undefined,
-      filters: [
-        { name: "CapForge Project", extensions: ["capforge"] },
-      ],
-      properties: ["openFile"],
-    });
-    if (result.canceled || !result.filePaths[0]) return null;
-    const filePath = result.filePaths[0];
-    const content = fs.readFileSync(filePath, "utf-8");
-    const data = JSON.parse(content);
-    data._filePath = filePath;
-    appState.set("lastProjectPath", filePath);
-    return data;
-  });
+      title: 'Open CapForge Project',
+      defaultPath: appState.get('lastProjectPath') || undefined,
+      filters: [{ name: 'CapForge Project', extensions: ['capforge'] }],
+      properties: ['openFile'],
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+    const filePath = result.filePaths[0]
+    const content = fs.readFileSync(filePath, 'utf-8')
+    const data = JSON.parse(content)
+    data._filePath = filePath
+    appState.set('lastProjectPath', filePath)
+    return data
+  })
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
-});
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
+})
 
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") app.quit();
-});
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})
 
-app.on("before-quit", () => {
+app.on('before-quit', () => {
   if (pythonBackend) {
-    pythonBackend.stop();
+    pythonBackend.stop()
   }
-});
+})

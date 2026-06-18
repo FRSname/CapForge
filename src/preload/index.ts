@@ -39,6 +39,38 @@ export interface SubforgeApi {
   openLogsFolder: () => Promise<void>
   openLogFile: () => Promise<void>
   showInFolder: (filePath: string) => Promise<void>
+  claude: ClaudeConnectApi
+}
+
+interface ClaudeDetect {
+  desktop: boolean
+  code: boolean
+  runtimeReady: boolean
+}
+
+interface ClaudeConnectResult {
+  ok: boolean
+  path?: string
+  reason?: 'runtime-not-ready' | 'not-installed' | 'write-failed'
+  detail?: string
+}
+
+interface ClaudeManualConfig {
+  command: string
+  args: string[]
+  env: Record<string, string>
+  cwd: string
+  desktopPath: string
+  codePath: string
+  desktopJson: string
+  codeCommand: string
+}
+
+interface ClaudeConnectApi {
+  detect: () => Promise<ClaudeDetect>
+  connectDesktop: () => Promise<ClaudeConnectResult>
+  connectCode: () => Promise<ClaudeConnectResult>
+  getManualConfig: () => Promise<ClaudeManualConfig>
 }
 
 declare global {
@@ -52,14 +84,16 @@ contextBridge.exposeInMainWorld('subforge', {
   pickAudioFile: () => ipcRenderer.invoke('dialog:openFile'),
   pickOutputDir: () => ipcRenderer.invoke('dialog:openDir'),
   getBackendPort: () => ipcRenderer.invoke('backend:port'),
-  saveFont: (fileName: string, data: ArrayBuffer) => ipcRenderer.invoke('fonts:save', fileName, data),
+  saveFont: (fileName: string, data: ArrayBuffer) =>
+    ipcRenderer.invoke('fonts:save', fileName, data),
   listFonts: () => ipcRenderer.invoke('fonts:list'),
   listBundledFonts: () => ipcRenderer.invoke('fonts:listBundled'),
   deleteFont: (fontPath: string) => ipcRenderer.invoke('fonts:delete', fontPath),
   readFont: (fontPath: string) => ipcRenderer.invoke('fonts:read', fontPath),
   listPresets: () => ipcRenderer.invoke('presets:list'),
   loadPreset: (name: string) => ipcRenderer.invoke('presets:load', name),
-  savePreset: (name: string, settings: PresetSettings) => ipcRenderer.invoke('presets:save', name, settings),
+  savePreset: (name: string, settings: PresetSettings) =>
+    ipcRenderer.invoke('presets:save', name, settings),
   deletePreset: (name: string) => ipcRenderer.invoke('presets:delete', name),
   saveProject: (projectData: unknown) => ipcRenderer.invoke('project:save', projectData),
   openProject: () => ipcRenderer.invoke('project:open'),
@@ -71,4 +105,10 @@ contextBridge.exposeInMainWorld('subforge', {
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),
   showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),
+  claude: {
+    detect: () => ipcRenderer.invoke('claude:detect'),
+    connectDesktop: () => ipcRenderer.invoke('claude:connectDesktop'),
+    connectCode: () => ipcRenderer.invoke('claude:connectCode'),
+    getManualConfig: () => ipcRenderer.invoke('claude:getManualConfig'),
+  },
 } satisfies SubforgeApi)

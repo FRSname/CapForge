@@ -3,20 +3,29 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.responses import FileResponse
 
+from backend.agent_bridge import (
+    remove_discovery,
+    resolve_port,
+    resolve_token,
+    token_matches,
+    write_discovery,
+)
 from backend.engine.errors import explain
 from backend.engine.hardware import detect_hardware
 from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.ass_export import export_ass
+from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
 from backend.exporters.json_export import export_json
 from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
@@ -31,6 +40,7 @@ from backend.models.schemas import (
     SystemInfo,
     TranscribeRequest,
     TranscriptionResult,
+    VideoRenderConfig,
     VideoRenderRequest,
 )
 
@@ -53,6 +63,18 @@ transcriber = Transcriber()
 current_result: Optional[TranscriptionResult] = None
 current_status = ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Ready")
 ws_clients: list[WebSocket] = []
+
+# Renderer-owned UI state (StudioSettings + groups), mirrored here so the agent
+# can read what to change. Style/groups live in the renderer, not the backend —
+# this is just a cache the renderer pushes to via PUT /api/ui-state.
+current_ui_state: Optional[dict] = None
+
+# Commands the agent may relay to the renderer over /ws/control.
+AGENT_COMMAND_OPS = {"set_settings", "apply_preset", "set_word_overrides"}
+
+# Per-session token gating the agent-only /api/agent/* endpoints. Minted once at
+# import; written to the discovery file on startup so a local MCP server can read it.
+AGENT_TOKEN = resolve_token()
 
 # Supported languages (ISO 639-1 codes supported by Whisper)
 WHISPER_LANGUAGES = {
@@ -99,6 +121,50 @@ async def broadcast_progress(update: ProgressUpdate) -> None:
             disconnected.append(ws)
     for ws in disconnected:
         ws_clients.remove(ws)
+
+
+async def broadcast_event(payload: dict) -> None:
+    """Broadcast a non-progress control event (e.g. ``result_updated``).
+
+    Progress messages are plain ``ProgressUpdate`` JSON with no ``type`` field;
+    control events carry a ``type`` discriminator so the renderer can route them
+    without disturbing the progress UI.
+    """
+    data = json.dumps(payload)
+    disconnected: list[WebSocket] = []
+    for ws in ws_clients:
+        try:
+            await ws.send_text(data)
+        except Exception:
+            disconnected.append(ws)
+    for ws in disconnected:
+        if ws in ws_clients:
+            ws_clients.remove(ws)
+
+
+# --- Agent control layer: discovery file + token auth ---
+
+@app.on_event("startup")
+async def _write_agent_discovery() -> None:
+    """Publish {port, token} so a local MCP server can find and authenticate."""
+    try:
+        path = write_discovery(resolve_port(), AGENT_TOKEN)
+        logger.info("Agent discovery file written: %s (port %s)", path, resolve_port())
+    except Exception:
+        logger.warning("Could not write agent discovery file", exc_info=True)
+
+
+@app.on_event("shutdown")
+async def _remove_agent_discovery() -> None:
+    remove_discovery()
+
+
+async def require_agent_token(
+    x_capforge_agent_token: Optional[str] = Header(None),
+) -> None:
+    """FastAPI dependency: reject requests without a valid agent token."""
+    if not token_matches(x_capforge_agent_token, AGENT_TOKEN):
+        raise HTTPException(status_code=401, detail="Invalid or missing agent token")
 
 
 def make_sync_progress_callback(loop: asyncio.AbstractEventLoop):
@@ -284,6 +350,107 @@ async def update_result(updated: TranscriptionResult):
     global current_result
     current_result = updated
     return {"status": "ok", "segments": len(updated.segments)}
+
+
+# --- Agent endpoints (token-guarded; drive the live UI) ---
+
+@app.get("/api/agent/result", dependencies=[Depends(require_agent_token)])
+async def agent_get_result():
+    """Agent read of the current transcript (same source as the UI)."""
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    return current_result
+
+
+@app.put("/api/agent/result", dependencies=[Depends(require_agent_token)])
+async def agent_put_result(updated: TranscriptionResult):
+    """Agent write of the transcript. Broadcasts ``result_updated`` so the open
+    renderer picks up the change live."""
+    global current_result
+    current_result = updated
+    await broadcast_event({"type": "result_updated", "source": "agent"})
+    return {"status": "ok", "segments": len(updated.segments)}
+
+
+# --- UI-state mirror (renderer → backend cache → agent) ---
+
+@app.put("/api/ui-state")
+async def put_ui_state(state: dict):
+    """Renderer mirrors its StudioSettings + groups here (no token — loopback UI)."""
+    global current_ui_state
+    current_ui_state = state
+    return {"status": "ok"}
+
+
+@app.get("/api/agent/ui-state", dependencies=[Depends(require_agent_token)])
+async def agent_get_ui_state():
+    """Agent read of the current renderer UI state (style + groups + presets)."""
+    if current_ui_state is None:
+        raise HTTPException(status_code=404, detail="No UI state available — open a transcription")
+    return current_ui_state
+
+
+@app.post("/api/agent/command", dependencies=[Depends(require_agent_token)])
+async def agent_command(cmd: dict):
+    """Relay a style/emphasis command to the renderer over /ws/control.
+
+    Fire-and-forget: the renderer applies it to its own state (the source of
+    truth for style); the agent can re-read /api/agent/ui-state to confirm.
+    """
+    op = cmd.get("op")
+    if op not in AGENT_COMMAND_OPS:
+        raise HTTPException(status_code=400, detail=f"Unknown command op: {op!r}")
+    await broadcast_event({"type": "agent_command", "op": op, "payload": cmd.get("payload", {})})
+    return {"status": "ok"}
+
+
+# --- Vision QA: single-frame render so the agent can SEE its output ---
+
+def _agent_frame_inputs() -> tuple[VideoRenderConfig, Optional[list]]:
+    """Resolve the (config, custom_groups) the renderer last mirrored."""
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    render = (current_ui_state or {}).get("render")
+    if not render or "config" not in render:
+        raise HTTPException(
+            status_code=409,
+            detail="No render config mirrored yet — open the results screen in CapForge",
+        )
+    config = VideoRenderConfig(**render["config"])
+    return config, render.get("custom_groups")
+
+
+@app.post("/api/render-frame", dependencies=[Depends(require_agent_token)])
+async def agent_render_frame(req: dict):
+    """Render the subtitle frame at time ``t`` as a PNG the agent can view.
+
+    Uses the live mirrored style. ``composite`` (default true) overlays the
+    captions on the actual video frame so the agent can judge text-over-face
+    and contrast; false returns the transparent overlay only.
+    """
+    config, custom_groups = _agent_frame_inputs()
+    t = float(req.get("t", 0.0))
+    composite = bool(req.get("composite", True))
+    source = current_result.audio_path if composite else None
+    loop = asyncio.get_running_loop()
+    png = await loop.run_in_executor(
+        None,
+        lambda: render_qa_frame_png(current_result, config, t, composite, custom_groups, source),
+    )
+    return Response(content=png, media_type="image/png")
+
+
+@app.post("/api/agent/check-layout", dependencies=[Depends(require_agent_token)])
+async def agent_check_layout(req: dict):
+    """Mechanical layout read at ``t``: caption bbox, frame-edge contact, and
+    advisory safe-zone violations (platform: tiktok/reels/shorts/off)."""
+    config, custom_groups = _agent_frame_inputs()
+    t = float(req.get("t", 0.0))
+    platform = str(req.get("platform", "off"))
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, lambda: analyze_layout(current_result, config, t, custom_groups, platform)
+    )
 
 
 @app.post("/api/export")
