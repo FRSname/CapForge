@@ -1,5 +1,26 @@
 # Changelog
 
+## CapForge v1.9.0
+
+### New Features
+
+**AI control layer (Model Context Protocol)**
+CapForge can now be driven by a local Claude agent. A bundled MCP server connects Claude Desktop or Claude Code to the running app, so you can ask the agent to clean up and restyle your captions and watch every change apply live in the editor and preview. Connect in one click from Settings → Claude AI integration — CapForge writes the client config and ships its own Python runtime, so there's no terminal setup.
+
+**Live transcript cleanup**
+The agent can fix transcription mistakes — misspellings, homophones (their/there), casing, brand-name consistency — and strip filler words (um, uh, er) while leaving every other word's timing intact so captions stay synced to the audio. Edits appear in the editor instantly; if you're mid-edit, the change is queued behind an "Apply" prompt instead of overwriting your work.
+
+**Keyword emphasis & live styling**
+Ask the agent to make important words bigger, recolor them, or give them a different animation (bounce, pop, highlight, scale). It can also change the global look — font, colors, position, animation — or apply a built-in preset by name. Everything updates the live preview and carries through to the final render.
+
+**Visual design review**
+The agent can render the subtitle frame at any timestamp — composited over the actual video — and look at the result to catch design problems like captions covering the speaker's face or poor contrast, then adjust and re-check. A layout check reports the caption's bounding box and flags platform safe-zone overlaps as guidance (you can still go over them intentionally).
+
+### Internal
+
+**MCP server + control bus**
+A new `mcp_server/` package exposes the agent tools over stdio and talks to the backend over loopback with a per-session token (persisted across restarts, with a self-healing client). Adds token-guarded `/api/agent/*` endpoints, a renderer↔backend control channel for relaying style/emphasis commands, and single-frame QA rendering. Covered by new unit and integration tests for the transcript transforms, settings-command logic, client connect flow, and frame rendering.
+
 ## CapForge v1.5.0
 
 ### New Features
