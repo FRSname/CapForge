@@ -177,7 +177,21 @@ agentCommands), control-bus integration (ui-state 404→mirror→read; command 4
 
 ---
 
-## Milestone C — Vision-based design QA (compositing first)
+## Milestone C — Vision-based design QA (compositing first) — ✅ IMPLEMENTED
+
+**Done (2026-06-18).** The agent can SEE its output and run the render→look→fix loop.
+- `backend/exporters/frame_qa.py`: `render_overlay` / `render_qa_frame_png` (reuse `_render_frame`,
+  `_get_font`, `_build_groups`; ffmpeg grab + alpha-composite over the source frame) and
+  `analyze_layout` (caption bbox, frame-edge contact, advisory safe zones ported from `safeZones.ts`).
+- Backend `POST /api/render-frame` (PNG via `Response`) + `POST /api/agent/check-layout`, both token-guarded;
+  they use the renderer-mirrored snake_case config so frames match the live look (App now mirrors
+  `render: buildRenderBody(...)` in the ui-state).
+- MCP tools `render_frame(t, composite)` → returns an `Image` the agent views; `check_layout(t, platform)`.
+- Verified: overlay PNG, composite over a real test video (opaque pixels behind captions), layout +
+  advisory safe-zone violation, token gate; 61 pytest / 108 vitest / 6 node all green.
+- **Live composite-in-app needs manual verification** (real media + Claude). Not committed yet.
+
+## Milestone C (original detail) — Vision-based design QA (compositing first)
 
 > Decision 2: lead with real visual judgment; safe zones advisory only.
 

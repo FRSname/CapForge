@@ -43,17 +43,27 @@ class CapForgeClient:
         self._base = None
         self._token = None
 
-    def _request(self, method: str, path: str, *, json: Any = None, timeout: Any = _SHORT_TIMEOUT) -> Any:
+    def _request(
+        self, method: str, path: str, *, json: Any = None,
+        timeout: Any = _SHORT_TIMEOUT, _retry: bool = True,
+    ) -> Any:
+        # The MCP server is long-lived, but CapForge may restart under it with a
+        # new port and/or token. On a connection failure or 401 we drop the
+        # cached connection, re-read the discovery file, and retry once.
         self._ensure()
         try:
             res = httpx.request(method, f"{self._base}{path}", json=json,
                                 headers=self._headers(), timeout=timeout)
         except httpx.ConnectError as exc:
-            # Stale discovery file (app closed/restarted) — clear and explain.
             self.reset()
+            if _retry:
+                return self._request(method, path, json=json, timeout=timeout, _retry=False)
             raise BackendNotFound(
                 "Could not reach the CapForge backend. Is the app still open?"
             ) from exc
+        if res.status_code == 401 and _retry:
+            self.reset()
+            return self._request(method, path, json=json, timeout=timeout, _retry=False)
         res.raise_for_status()
         return res.json() if res.content else {}
 
@@ -79,3 +89,27 @@ class CapForgeClient:
 
     def send_command(self, op: str, payload: dict) -> Any:
         return self._request("POST", "/api/agent/command", json={"op": op, "payload": payload})
+
+    def check_layout(self, t: float, platform: str = "off") -> Any:
+        return self._request("POST", "/api/agent/check-layout", json={"t": t, "platform": platform})
+
+    def get_frame(self, t: float, composite: bool = True, _retry: bool = True) -> bytes:
+        """Render a QA frame and return raw PNG bytes (not JSON)."""
+        self._ensure()
+        try:
+            res = httpx.post(
+                f"{self._base}/api/render-frame",
+                json={"t": t, "composite": composite},
+                headers=self._headers(),
+                timeout=_LONG_TIMEOUT,
+            )
+        except httpx.ConnectError as exc:
+            self.reset()
+            if _retry:
+                return self.get_frame(t, composite, _retry=False)
+            raise BackendNotFound("Could not reach the CapForge backend. Is the app still open?") from exc
+        if res.status_code == 401 and _retry:
+            self.reset()
+            return self.get_frame(t, composite, _retry=False)
+        res.raise_for_status()
+        return res.content

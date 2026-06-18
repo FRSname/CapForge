@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.responses import FileResponse
@@ -25,6 +25,7 @@ from backend.engine.errors import explain
 from backend.engine.hardware import detect_hardware
 from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.ass_export import export_ass
+from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
 from backend.exporters.json_export import export_json
 from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
@@ -39,6 +40,7 @@ from backend.models.schemas import (
     SystemInfo,
     TranscribeRequest,
     TranscriptionResult,
+    VideoRenderConfig,
     VideoRenderRequest,
 )
 
@@ -400,6 +402,55 @@ async def agent_command(cmd: dict):
         raise HTTPException(status_code=400, detail=f"Unknown command op: {op!r}")
     await broadcast_event({"type": "agent_command", "op": op, "payload": cmd.get("payload", {})})
     return {"status": "ok"}
+
+
+# --- Vision QA: single-frame render so the agent can SEE its output ---
+
+def _agent_frame_inputs() -> tuple[VideoRenderConfig, Optional[list]]:
+    """Resolve the (config, custom_groups) the renderer last mirrored."""
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    render = (current_ui_state or {}).get("render")
+    if not render or "config" not in render:
+        raise HTTPException(
+            status_code=409,
+            detail="No render config mirrored yet — open the results screen in CapForge",
+        )
+    config = VideoRenderConfig(**render["config"])
+    return config, render.get("custom_groups")
+
+
+@app.post("/api/render-frame", dependencies=[Depends(require_agent_token)])
+async def agent_render_frame(req: dict):
+    """Render the subtitle frame at time ``t`` as a PNG the agent can view.
+
+    Uses the live mirrored style. ``composite`` (default true) overlays the
+    captions on the actual video frame so the agent can judge text-over-face
+    and contrast; false returns the transparent overlay only.
+    """
+    config, custom_groups = _agent_frame_inputs()
+    t = float(req.get("t", 0.0))
+    composite = bool(req.get("composite", True))
+    source = current_result.audio_path if composite else None
+    loop = asyncio.get_running_loop()
+    png = await loop.run_in_executor(
+        None,
+        lambda: render_qa_frame_png(current_result, config, t, composite, custom_groups, source),
+    )
+    return Response(content=png, media_type="image/png")
+
+
+@app.post("/api/agent/check-layout", dependencies=[Depends(require_agent_token)])
+async def agent_check_layout(req: dict):
+    """Mechanical layout read at ``t``: caption bbox, frame-edge contact, and
+    advisory safe-zone violations (platform: tiktok/reels/shorts/off)."""
+    config, custom_groups = _agent_frame_inputs()
+    t = float(req.get("t", 0.0))
+    platform = str(req.get("platform", "off"))
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None, lambda: analyze_layout(current_result, config, t, custom_groups, platform)
+    )
 
 
 @app.post("/api/export")

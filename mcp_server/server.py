@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.fastmcp import FastMCP, Image
 from pydantic import BaseModel, Field
 
 from .cleanup import apply_word_edits, remove_fillers
@@ -178,6 +178,31 @@ def emphasize(edits: list[WordEmphasis]) -> dict:
     """
     _client.send_command("set_word_overrides", {"edits": [e.model_dump() for e in edits]})
     return {"status": "ok", "words_styled": len(edits)}
+
+
+# --- Vision QA -----------------------------------------------------------
+
+@mcp.tool()
+def render_frame(t: float, composite: bool = True) -> Image:
+    """Render the subtitle frame at time `t` (seconds) and return it as an image
+    so you can SEE the result and critique the design.
+
+    composite=True (default) overlays the captions on the actual video frame —
+    use it to check text-over-face and contrast. composite=False returns the
+    transparent overlay only. Reflects the live style, so call it after
+    set_style / apply_preset / emphasize to see your change.
+    """
+    return Image(data=_client.get_frame(t, composite), format="png")
+
+
+@mcp.tool()
+def check_layout(t: float, platform: str = "off") -> dict:
+    """Mechanical layout read at time `t`: caption bounding box, whether it
+    touches the frame edge, and (platform = tiktok/reels/shorts) advisory
+    safe-zone violations. Safe zones are guidance, not errors — text may sit
+    over them intentionally. Use `render_frame` for visual judgment.
+    """
+    return _client.check_layout(t, platform)
 
 
 def main() -> None:

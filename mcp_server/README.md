@@ -66,6 +66,8 @@ Manual registration (grab the real paths from Settings → Copy config manually)
 | `set_style` | Change global style (camelCase StudioSettings patch) → live UI |
 | `apply_preset` | Apply a built-in style preset by name → live UI |
 | `emphasize` | Style individual words (size/animation/color) → live UI |
+| `render_frame` | Render the frame at time `t` (composited over video) — agent SEES it |
+| `check_layout` | Caption bbox + frame-edge + advisory safe-zone check at `t` |
 
 ## Tests
 

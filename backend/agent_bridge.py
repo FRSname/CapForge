@@ -39,9 +39,42 @@ def discovery_path() -> Path:
     return Path.home() / ".capforge" / "backend.json"
 
 
+def token_file_path() -> Path:
+    return discovery_path().parent / "agent-token"
+
+
 def resolve_token() -> str:
-    """Use a pinned token from the environment, else mint a fresh one."""
-    return os.environ.get("CAPFORGE_AGENT_TOKEN") or secrets.token_urlsafe(32)
+    """Resolve the agent token, stable across restarts.
+
+    Priority: ``CAPFORGE_AGENT_TOKEN`` env → persisted token file → freshly
+    minted (and persisted). Stability matters because the MCP server is a
+    long-lived process that caches the token; regenerating it every launch would
+    401 the agent after a CapForge restart.
+    """
+    env = os.environ.get("CAPFORGE_AGENT_TOKEN")
+    if env:
+        return env
+
+    path = token_file_path()
+    try:
+        if path.is_file():
+            existing = path.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+    except OSError:
+        pass
+
+    token = secrets.token_urlsafe(32)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(token, encoding="utf-8")
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
+    except OSError:
+        pass  # in-memory only this run; the client's 401 retry still recovers
+    return token
 
 
 def resolve_port() -> int:
