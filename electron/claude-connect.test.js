@@ -4,62 +4,71 @@
  * No electron required — only the import-safe helpers are exercised.
  */
 
-const { test } = require("node:test");
-const assert = require("node:assert/strict");
+const { test } = require('node:test')
+const assert = require('node:assert/strict')
 
 const {
   buildServerEntryFrom,
   mergeMcpServers,
   desktopConfigPath,
   codeConfigPath,
-} = require("./claude-connect");
+} = require('./claude-connect')
 
-test("buildServerEntryFrom wires command, module args, cwd and PYTHONPATH", () => {
-  const entry = buildServerEntryFrom("/runtime/python", "/proj");
-  assert.equal(entry.command, "/runtime/python");
-  assert.deepEqual(entry.args, ["-m", "mcp_server.server"]);
-  assert.equal(entry.cwd, "/proj");
-  assert.equal(entry.env.PYTHONPATH, "/proj");
-});
+test('buildServerEntryFrom wires command, sys.path bootstrap, cwd and PYTHONPATH', () => {
+  const entry = buildServerEntryFrom('/runtime/python', '/proj')
+  assert.equal(entry.command, '/runtime/python')
+  assert.equal(entry.args[0], '-c')
+  // The bootstrap puts projectDir on sys.path explicitly (cwd/PYTHONPATH are
+  // unreliable across clients/platforms) then runs the package entry point.
+  assert.match(entry.args[1], /sys\.path\.insert\(0, "\/proj"\)/)
+  assert.match(entry.args[1], /from mcp_server\.server import main; main\(\)/)
+  assert.equal(entry.cwd, '/proj')
+  assert.equal(entry.env.PYTHONPATH, '/proj')
+})
 
-test("mergeMcpServers adds capforge to an empty config", () => {
-  const out = mergeMcpServers({}, { command: "py" });
-  assert.deepEqual(out, { mcpServers: { capforge: { command: "py" } } });
-});
+test('buildServerEntryFrom escapes Windows backslash paths into a valid Python literal', () => {
+  const winPath = 'C:\\Program Files\\CapForge\\resources\\app.asar.unpacked'
+  const entry = buildServerEntryFrom('C:\\py\\python.exe', winPath)
+  // JSON.stringify yields a Python-valid double-quoted literal: backslashes
+  // doubled, so Python un-escapes back to the original path.
+  assert.ok(entry.args[1].includes(`sys.path.insert(0, ${JSON.stringify(winPath)})`))
+})
 
-test("mergeMcpServers preserves existing servers and other top-level keys", () => {
+test('mergeMcpServers adds capforge to an empty config', () => {
+  const out = mergeMcpServers({}, { command: 'py' })
+  assert.deepEqual(out, { mcpServers: { capforge: { command: 'py' } } })
+})
+
+test('mergeMcpServers preserves existing servers and other top-level keys', () => {
   const existing = {
-    theme: "dark",
-    mcpServers: { other: { command: "x" } },
-  };
-  const out = mergeMcpServers(existing, { command: "py" });
-  assert.equal(out.theme, "dark");
-  assert.deepEqual(out.mcpServers.other, { command: "x" });
-  assert.deepEqual(out.mcpServers.capforge, { command: "py" });
+    theme: 'dark',
+    mcpServers: { other: { command: 'x' } },
+  }
+  const out = mergeMcpServers(existing, { command: 'py' })
+  assert.equal(out.theme, 'dark')
+  assert.deepEqual(out.mcpServers.other, { command: 'x' })
+  assert.deepEqual(out.mcpServers.capforge, { command: 'py' })
   // input not mutated
-  assert.equal(existing.mcpServers.capforge, undefined);
-});
+  assert.equal(existing.mcpServers.capforge, undefined)
+})
 
-test("mergeMcpServers overwrites a stale capforge entry", () => {
-  const out = mergeMcpServers(
-    { mcpServers: { capforge: { command: "old" } } },
-    { command: "new" }
-  );
-  assert.deepEqual(out.mcpServers.capforge, { command: "new" });
-});
+test('mergeMcpServers overwrites a stale capforge entry', () => {
+  const out = mergeMcpServers({ mcpServers: { capforge: { command: 'old' } } }, { command: 'new' })
+  assert.deepEqual(out.mcpServers.capforge, { command: 'new' })
+})
 
-test("mergeMcpServers tolerates a null/garbage config", () => {
-  assert.deepEqual(mergeMcpServers(null, { command: "py" }), {
-    mcpServers: { capforge: { command: "py" } },
-  });
-});
+test('mergeMcpServers tolerates a null/garbage config', () => {
+  assert.deepEqual(mergeMcpServers(null, { command: 'py' }), {
+    mcpServers: { capforge: { command: 'py' } },
+  })
+})
 
-test("config paths are absolute and client-correct", () => {
-  assert.ok(path_isAbsolute(desktopConfigPath()));
-  assert.match(desktopConfigPath(), /claude_desktop_config\.json$/);
-  assert.match(codeConfigPath(), /\.claude\.json$/);
-});
+test('config paths are absolute and client-correct', () => {
+  assert.ok(path_isAbsolute(desktopConfigPath()))
+  assert.match(desktopConfigPath(), /claude_desktop_config\.json$/)
+  assert.match(codeConfigPath(), /\.claude\.json$/)
+})
 
 function path_isAbsolute(p) {
-  return require("node:path").isAbsolute(p);
+  return require('node:path').isAbsolute(p)
 }

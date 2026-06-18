@@ -38,19 +38,26 @@ Deps are bundled automatically in the packaged app; for dev:
 .venv-dev/bin/python -m mcp_server.server      # run over stdio
 ```
 
-Manual registration (grab the real paths from Settings → Copy config manually):
+Manual registration (grab the real, fully-escaped JSON from Settings → Copy
+config manually — it bakes in the absolute paths for you):
 
 ```json
 {
   "mcpServers": {
     "capforge": {
       "command": "<bundled python>",
-      "args": ["-m", "mcp_server.server"],
+      "args": ["-c", "import sys; sys.path.insert(0, \"<folder containing mcp_server/>\"); from mcp_server.server import main; main()"],
+      "cwd": "<folder containing mcp_server/>",
       "env": { "PYTHONPATH": "<folder containing mcp_server/>" }
     }
   }
 }
 ```
+
+The `-c` bootstrap puts the package folder on `sys.path` explicitly. Plain
+`["-m", "mcp_server.server"]` only works when the client honours `cwd` (Claude
+Desktop on Windows does not) **and** the python honours `PYTHONPATH` (the Windows
+embeddable build ignores it) — so it silently failed to launch on Windows.
 
 ## Tools
 
