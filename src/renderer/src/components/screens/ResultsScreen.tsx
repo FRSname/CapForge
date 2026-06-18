@@ -294,6 +294,13 @@ export function ResultsScreen({
           setGroupsEdited(true)
         }
       },
+      applyAgentResult: (agentResult: TranscriptionResult) => {
+        // Replace the live transcript with the agent's edit. pushUndo first so
+        // the user can revert. setSegmentsEdited re-publishes derived groups.
+        pushUndo()
+        setSegments(agentResult.segments)
+        setSegmentsEdited(true)
+      },
     }
     return () => {
       projectIORef.current = null

@@ -14,20 +14,20 @@ import type { StudioSettings } from '../components/studio/StudioPanel'
 export const PROJECT_VERSION = 1
 
 export interface ProjectFile {
-  version:              number
+  version: number
   /** Preferred file name shown in the native save dialog (e.g. "my-video.capforge"). */
-  suggestedName?:       string
+  suggestedName?: string
   /** Absolute path that was transcribed. */
-  selectedFilePath:     string | null
-  outputDir:            string
-  transcriptionResult:  TranscriptionResult
-  studioSettings:       StudioSettings
+  selectedFilePath: string | null
+  outputDir: string
+  transcriptionResult: TranscriptionResult
+  studioSettings: StudioSettings
   /** True when the user manually merged/split/reordered groups. */
-  customGroupsEdited:   boolean
+  customGroupsEdited: boolean
   /** Manually-edited groups — only populated when customGroupsEdited is true. */
-  studioGroups:         Segment[] | null
+  studioGroups: Segment[] | null
   /** Populated by the main process on read so we know what path to save back to. */
-  _filePath?:           string
+  _filePath?: string
 }
 
 /**
@@ -36,9 +36,11 @@ export interface ProjectFile {
  */
 export interface ProjectIOHandle {
   /** Snapshot the current editor state into a ProjectFile payload. */
-  gather:  () => Omit<ProjectFile, '_filePath'>
+  gather: () => Omit<ProjectFile, '_filePath'>
   /** Apply a ProjectFile loaded from disk, restoring editor state. */
   restore: (file: ProjectFile) => void
+  /** Replace the live transcript with an agent edit (pushes undo first). */
+  applyAgentResult: (result: TranscriptionResult) => void
 }
 
 /** Strip extension + folder from a path → "my-video". */

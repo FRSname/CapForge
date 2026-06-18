@@ -3,16 +3,24 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import Depends, FastAPI, Header, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.responses import FileResponse
 
+from backend.agent_bridge import (
+    remove_discovery,
+    resolve_port,
+    resolve_token,
+    token_matches,
+    write_discovery,
+)
 from backend.engine.errors import explain
 from backend.engine.hardware import detect_hardware
 from backend.engine.transcriber import Transcriber, TranscriptionCancelled
@@ -53,6 +61,10 @@ transcriber = Transcriber()
 current_result: Optional[TranscriptionResult] = None
 current_status = ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Ready")
 ws_clients: list[WebSocket] = []
+
+# Per-session token gating the agent-only /api/agent/* endpoints. Minted once at
+# import; written to the discovery file on startup so a local MCP server can read it.
+AGENT_TOKEN = resolve_token()
 
 # Supported languages (ISO 639-1 codes supported by Whisper)
 WHISPER_LANGUAGES = {
@@ -99,6 +111,50 @@ async def broadcast_progress(update: ProgressUpdate) -> None:
             disconnected.append(ws)
     for ws in disconnected:
         ws_clients.remove(ws)
+
+
+async def broadcast_event(payload: dict) -> None:
+    """Broadcast a non-progress control event (e.g. ``result_updated``).
+
+    Progress messages are plain ``ProgressUpdate`` JSON with no ``type`` field;
+    control events carry a ``type`` discriminator so the renderer can route them
+    without disturbing the progress UI.
+    """
+    data = json.dumps(payload)
+    disconnected: list[WebSocket] = []
+    for ws in ws_clients:
+        try:
+            await ws.send_text(data)
+        except Exception:
+            disconnected.append(ws)
+    for ws in disconnected:
+        if ws in ws_clients:
+            ws_clients.remove(ws)
+
+
+# --- Agent control layer: discovery file + token auth ---
+
+@app.on_event("startup")
+async def _write_agent_discovery() -> None:
+    """Publish {port, token} so a local MCP server can find and authenticate."""
+    try:
+        path = write_discovery(resolve_port(), AGENT_TOKEN)
+        logger.info("Agent discovery file written: %s (port %s)", path, resolve_port())
+    except Exception:
+        logger.warning("Could not write agent discovery file", exc_info=True)
+
+
+@app.on_event("shutdown")
+async def _remove_agent_discovery() -> None:
+    remove_discovery()
+
+
+async def require_agent_token(
+    x_capforge_agent_token: Optional[str] = Header(None),
+) -> None:
+    """FastAPI dependency: reject requests without a valid agent token."""
+    if not token_matches(x_capforge_agent_token, AGENT_TOKEN):
+        raise HTTPException(status_code=401, detail="Invalid or missing agent token")
 
 
 def make_sync_progress_callback(loop: asyncio.AbstractEventLoop):
@@ -283,6 +339,26 @@ async def update_result(updated: TranscriptionResult):
     """Save edited transcription result (subtitle corrections)."""
     global current_result
     current_result = updated
+    return {"status": "ok", "segments": len(updated.segments)}
+
+
+# --- Agent endpoints (token-guarded; drive the live UI) ---
+
+@app.get("/api/agent/result", dependencies=[Depends(require_agent_token)])
+async def agent_get_result():
+    """Agent read of the current transcript (same source as the UI)."""
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    return current_result
+
+
+@app.put("/api/agent/result", dependencies=[Depends(require_agent_token)])
+async def agent_put_result(updated: TranscriptionResult):
+    """Agent write of the transcript. Broadcasts ``result_updated`` so the open
+    renderer picks up the change live."""
+    global current_result
+    current_result = updated
+    await broadcast_event({"type": "result_updated", "source": "agent"})
     return {"status": "ok", "segments": len(updated.segments)}
 
 

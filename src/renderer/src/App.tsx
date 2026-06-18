@@ -11,6 +11,7 @@ import { ShortcutOverlay } from './components/ShortcutOverlay'
 import { StudioPanel, STUDIO_DEFAULTS, snapFps } from './components/studio/StudioPanel'
 import type { StudioSettings } from './components/studio/StudioPanel'
 import { Button } from './components/ui/Button'
+import { AgentLiveSync } from './components/AgentLiveSync'
 import { ToastProvider } from './hooks/useToast'
 import { useSettingsUndo } from './hooks/useSettingsUndo'
 import { useAutosave } from './hooks/useAutosave'
@@ -83,6 +84,13 @@ export function App() {
   const handleGroupsUpdate = useCallback((g: Segment[], edited: boolean) => {
     setGroups(g)
     setGroupsEdited(edited)
+  }, [])
+
+  // ── Agent live-sync ─────────────────────────────────────────────
+  // Forward an agent transcript edit into the live editor via the ResultsScreen
+  // imperative handle. Memoized so AgentLiveSync's control connection is stable.
+  const handleApplyAgentResult = useCallback((r: TranscriptionResult) => {
+    projectIORef.current?.applyAgentResult(r)
   }, [])
 
   // ── Source video info probe ─────────────────────────────────────
@@ -316,6 +324,7 @@ export function App() {
 
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+        <AgentLiveSync active={screen === 'results'} applyResult={handleApplyAgentResult} />
       </div>
     </ToastProvider>
   )
