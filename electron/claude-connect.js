@@ -68,21 +68,65 @@ function mergeMcpServers(config, entry, name = SERVER_NAME) {
   }
 }
 
-function desktopConfigPath() {
+/**
+ * Pure: given %LOCALAPPDATA% and the folder names under `Packages\`, return the
+ * Claude Desktop targets for any Microsoft Store (MSIX) install.
+ *
+ * The Store build is sandboxed — Windows virtualizes its `%APPDATA%\Claude\`
+ * into the package container, so it never reads the standard Roaming path. The
+ * real config lives at:
+ *   %LOCALAPPDATA%\Packages\<pkg>\LocalCache\Roaming\Claude\claude_desktop_config.json
+ * `dir` is the package folder (proof the Store app is installed); `config` is
+ * the file to write.
+ */
+function storeDesktopTargetsFrom(localAppData, packageNames) {
+  return packageNames
+    .filter((name) => /claude/i.test(name))
+    .map((name) => {
+      const dir = path.join(localAppData, 'Packages', name)
+      return {
+        dir,
+        config: path.join(dir, 'LocalCache', 'Roaming', 'Claude', 'claude_desktop_config.json'),
+      }
+    })
+}
+
+/**
+ * All Claude Desktop install targets on this machine. Each is `{ dir, config }`
+ * where `dir` existing means that flavour of Claude Desktop is installed. On
+ * Windows this covers BOTH the standard .exe installer (Roaming) and any
+ * Microsoft Store builds (virtualized package container) — a user can have
+ * either, and writing to the wrong one is a silent no-op (the symptom that
+ * started this whole chase).
+ */
+function desktopTargets() {
   if (process.platform === 'darwin') {
-    return path.join(
-      os.homedir(),
-      'Library',
-      'Application Support',
-      'Claude',
-      'claude_desktop_config.json'
-    )
+    const dir = path.join(os.homedir(), 'Library', 'Application Support', 'Claude')
+    return [{ dir, config: path.join(dir, 'claude_desktop_config.json') }]
   }
   if (process.platform === 'win32') {
     const appData = process.env.APPDATA || path.join(os.homedir(), 'AppData', 'Roaming')
-    return path.join(appData, 'Claude', 'claude_desktop_config.json')
+    const stdDir = path.join(appData, 'Claude')
+    const targets = [{ dir: stdDir, config: path.join(stdDir, 'claude_desktop_config.json') }]
+    const local = process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local')
+    let names = []
+    try {
+      names = fs.readdirSync(path.join(local, 'Packages'))
+    } catch {
+      /* no Packages dir → no Store apps */
+    }
+    targets.push(...storeDesktopTargetsFrom(local, names))
+    return targets
   }
-  return path.join(os.homedir(), '.config', 'Claude', 'claude_desktop_config.json')
+  const dir = path.join(os.homedir(), '.config', 'Claude')
+  return [{ dir, config: path.join(dir, 'claude_desktop_config.json') }]
+}
+
+/** Primary desktop config path for display/manual-copy: an installed one if found. */
+function desktopConfigPath() {
+  const targets = desktopTargets()
+  const existing = targets.find((t) => fs.existsSync(t.dir))
+  return (existing || targets[0]).config
 }
 
 function codeConfigPath() {
@@ -122,20 +166,17 @@ function readJsonSafe(filePath) {
 /** Which clients look installed + whether the python runtime is ready. */
 function detectClients() {
   return {
-    desktop: fs.existsSync(path.dirname(desktopConfigPath())),
+    desktop: desktopTargets().some((t) => fs.existsSync(t.dir)),
     code: fs.existsSync(codeConfigPath()),
     runtimeReady: isRuntimeReady(),
   }
 }
 
-function _connect(configPath, requireExistingDir, entry) {
-  if (!isRuntimeReady()) return { ok: false, reason: 'runtime-not-ready' }
-  const dir = path.dirname(configPath)
-  // Only write where the client clearly exists — don't fabricate its folders.
-  if (requireExistingDir && !fs.existsSync(dir)) return { ok: false, reason: 'not-installed' }
+/** Merge `entry` into the config at `configPath`, creating parent dirs as needed. */
+function _writeConfig(configPath, entry) {
   try {
     const next = mergeMcpServers(readJsonSafe(configPath), entry)
-    fs.mkdirSync(dir, { recursive: true })
+    fs.mkdirSync(path.dirname(configPath), { recursive: true })
     fs.writeFileSync(configPath, JSON.stringify(next, null, 2) + '\n', 'utf-8')
     return { ok: true, path: configPath }
   } catch (err) {
@@ -144,13 +185,22 @@ function _connect(configPath, requireExistingDir, entry) {
 }
 
 function connectDesktop() {
-  return _connect(desktopConfigPath(), true, buildServerEntry())
+  if (!isRuntimeReady()) return { ok: false, reason: 'runtime-not-ready' }
+  const entry = buildServerEntry()
+  // Write to EVERY installed Claude Desktop flavour (standard + Store). Writing
+  // only the standard path silently no-ops for Store users — the original bug.
+  const installed = desktopTargets().filter((t) => fs.existsSync(t.dir))
+  if (installed.length === 0) return { ok: false, reason: 'not-installed' }
+  const results = installed.map((t) => _writeConfig(t.config, entry))
+  return results.find((r) => r.ok) || results[0]
 }
 
 function connectCode() {
-  // Claude Code stdio entries carry an explicit type discriminator.
+  if (!isRuntimeReady()) return { ok: false, reason: 'runtime-not-ready' }
+  // Claude Code stdio entries carry an explicit type discriminator. The config
+  // lives in the home dir, which always exists — so this always writes.
   const entry = { type: 'stdio', ...buildServerEntry() }
-  return _connect(codeConfigPath(), true, entry)
+  return _writeConfig(codeConfigPath(), entry)
 }
 
 /** Everything needed for a manual copy-paste fallback. */
@@ -169,6 +219,8 @@ module.exports = {
   SERVER_NAME,
   buildServerEntryFrom,
   mergeMcpServers,
+  storeDesktopTargetsFrom,
+  desktopTargets,
   desktopConfigPath,
   codeConfigPath,
   getProjectDir,

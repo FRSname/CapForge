@@ -6,10 +6,12 @@
 
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
+const path = require('node:path')
 
 const {
   buildServerEntryFrom,
   mergeMcpServers,
+  storeDesktopTargetsFrom,
   desktopConfigPath,
   codeConfigPath,
 } = require('./claude-connect')
@@ -32,6 +34,35 @@ test('buildServerEntryFrom escapes Windows backslash paths into a valid Python l
   // JSON.stringify yields a Python-valid double-quoted literal: backslashes
   // doubled, so Python un-escapes back to the original path.
   assert.ok(entry.args[1].includes(`sys.path.insert(0, ${JSON.stringify(winPath)})`))
+})
+
+test('storeDesktopTargetsFrom builds MSIX package config paths, ignoring non-Claude packages', () => {
+  const local = path.join('C:\\Users\\me\\AppData\\Local')
+  const targets = storeDesktopTargetsFrom(local, [
+    'Claude_pzs8sxrjxfjjc',
+    'Microsoft.WindowsCalculator_8wekyb3d8bbwe',
+    'AnthropicClaude_abc123',
+  ])
+  // Only the two Claude packages survive the filter.
+  assert.equal(targets.length, 2)
+  // dir is the package folder (proof of install); config is the virtualized path.
+  assert.equal(targets[0].dir, path.join(local, 'Packages', 'Claude_pzs8sxrjxfjjc'))
+  assert.equal(
+    targets[0].config,
+    path.join(
+      local,
+      'Packages',
+      'Claude_pzs8sxrjxfjjc',
+      'LocalCache',
+      'Roaming',
+      'Claude',
+      'claude_desktop_config.json'
+    )
+  )
+})
+
+test('storeDesktopTargetsFrom returns nothing when no Claude package is present', () => {
+  assert.deepEqual(storeDesktopTargetsFrom('C:\\x', ['Foo_1', 'Bar_2']), [])
 })
 
 test('mergeMcpServers adds capforge to an empty config', () => {

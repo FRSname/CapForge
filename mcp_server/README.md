@@ -59,6 +59,14 @@ The `-c` bootstrap puts the package folder on `sys.path` explicitly. Plain
 Desktop on Windows does not) **and** the python honours `PYTHONPATH` (the Windows
 embeddable build ignores it) — so it silently failed to launch on Windows.
 
+**Windows config location matters.** The standard Claude Desktop installer reads
+`%APPDATA%\Claude\claude_desktop_config.json`, but the **Microsoft Store** build
+is sandboxed — Windows virtualizes that into the package container at
+`%LOCALAPPDATA%\Packages\Claude_*\LocalCache\Roaming\Claude\claude_desktop_config.json`.
+Connect writes to every install it finds (`desktopTargets()` in
+`electron/claude-connect.js`); if you hand-edit, pick the file your build
+actually reads.
+
 ## Tools
 
 | Tool | What it does |
