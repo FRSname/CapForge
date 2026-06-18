@@ -27,49 +27,53 @@
  *   detectAccelerator()                  -> Promise<{ present, name, kind }>
  */
 
-const { app } = require("electron");
-const { spawn } = require("child_process");
-const path = require("path");
-const fs = require("fs");
-const https = require("https");
+const { app } = require('electron')
+const { spawn } = require('child_process')
+const path = require('path')
+const fs = require('fs')
+const https = require('https')
 
-const platform = require("./platform");
+const platform = require('./platform')
 
 // Bump this whenever the install recipe changes (python version, package set,
 // platform module logic, etc.) — a mismatch forces a clean reinstall on next
 // launch.
-const RUNTIME_VERSION = 9;
+const RUNTIME_VERSION = 10
 
 const BACKEND_PACKAGES = [
-  "whisperx",
-  "fastapi[standard]",
-  "uvicorn[standard]",
-  "websockets",
-  "pydantic>=2.0",
-];
+  'whisperx',
+  'fastapi[standard]',
+  'uvicorn[standard]',
+  'websockets',
+  'pydantic>=2.0',
+  // MCP control layer: the bundled runtime also launches mcp_server.server,
+  // so the agent integration works with zero extra install for the customer.
+  'mcp>=1.2',
+  'httpx>=0.27',
+]
 
-const GET_PIP_URL = "https://bootstrap.pypa.io/get-pip.py";
+const GET_PIP_URL = 'https://bootstrap.pypa.io/get-pip.py'
 
 // Default Whisper model preloaded during first-run setup.
 // large-v3-turbo: ~1.6 GB, near-v3 quality at ~4x speed.
-const DEFAULT_MODEL = "large-v3-turbo";
+const DEFAULT_MODEL = 'large-v3-turbo'
 
 // ---------------------------------------------------------------------------
 // Paths
 // ---------------------------------------------------------------------------
 
 function getRuntimePaths() {
-  const runtimeDir = path.join(app.getPath("userData"), "runtime");
-  const pythonDir = path.join(runtimeDir, "python");
-  const modelDir = path.join(app.getPath("userData"), "models");
+  const runtimeDir = path.join(app.getPath('userData'), 'runtime')
+  const pythonDir = path.join(runtimeDir, 'python')
+  const modelDir = path.join(app.getPath('userData'), 'models')
   return {
     runtimeDir,
     pythonDir,
     pythonExe: path.join(pythonDir, platform.pythonExeRelPath),
-    getPipFile: path.join(runtimeDir, "get-pip.py"),
-    stateFile: path.join(runtimeDir, ".state.json"),
+    getPipFile: path.join(runtimeDir, 'get-pip.py'),
+    stateFile: path.join(runtimeDir, '.state.json'),
     modelDir,
-  };
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -77,36 +81,36 @@ function getRuntimePaths() {
 // ---------------------------------------------------------------------------
 
 function readState() {
-  const { stateFile } = getRuntimePaths();
-  if (!fs.existsSync(stateFile)) return null;
+  const { stateFile } = getRuntimePaths()
+  if (!fs.existsSync(stateFile)) return null
   try {
-    return JSON.parse(fs.readFileSync(stateFile, "utf-8"));
+    return JSON.parse(fs.readFileSync(stateFile, 'utf-8'))
   } catch {
-    return null;
+    return null
   }
 }
 
 function writeState(state) {
-  const { stateFile, runtimeDir } = getRuntimePaths();
-  fs.mkdirSync(runtimeDir, { recursive: true });
-  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), "utf-8");
+  const { stateFile, runtimeDir } = getRuntimePaths()
+  fs.mkdirSync(runtimeDir, { recursive: true })
+  fs.writeFileSync(stateFile, JSON.stringify(state, null, 2), 'utf-8')
 }
 
 function isRuntimeReady() {
-  const state = readState();
-  if (!state) return false;
-  if (state.version !== RUNTIME_VERSION) return false;
-  if (!state.completed) return false;
-  const { pythonExe, stateFile } = getRuntimePaths();
-  if (fs.existsSync(pythonExe)) return true;
+  const state = readState()
+  if (!state) return false
+  if (state.version !== RUNTIME_VERSION) return false
+  if (!state.completed) return false
+  const { pythonExe, stateFile } = getRuntimePaths()
+  if (fs.existsSync(pythonExe)) return true
   // Self-heal: state claims install is complete but python is gone
   // (antivirus quarantine, user manually nuked the folder, disk corruption).
   // Delete the stale state file so the next launch re-runs the wizard.
   try {
-    fs.unlinkSync(stateFile);
-    console.warn("[CapForge] Runtime marker was stale; deleted .state.json to force reinstall");
+    fs.unlinkSync(stateFile)
+    console.warn('[CapForge] Runtime marker was stale; deleted .state.json to force reinstall')
   } catch {}
-  return false;
+  return false
 }
 
 // ---------------------------------------------------------------------------
@@ -115,32 +119,34 @@ function isRuntimeReady() {
 
 function downloadFile(url, destPath, { onProgress } = {}) {
   return new Promise((resolve, reject) => {
-    const file = fs.createWriteStream(destPath);
+    const file = fs.createWriteStream(destPath)
     const req = https.get(url, (res) => {
       if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-        file.close();
-        fs.unlinkSync(destPath);
-        downloadFile(res.headers.location, destPath, { onProgress }).then(resolve, reject);
-        return;
+        file.close()
+        fs.unlinkSync(destPath)
+        downloadFile(res.headers.location, destPath, { onProgress }).then(resolve, reject)
+        return
       }
       if (res.statusCode !== 200) {
-        reject(new Error(`Download failed: HTTP ${res.statusCode} for ${url}`));
-        return;
+        reject(new Error(`Download failed: HTTP ${res.statusCode} for ${url}`))
+        return
       }
-      const total = parseInt(res.headers["content-length"] || "0", 10);
-      let received = 0;
-      res.on("data", (chunk) => {
-        received += chunk.length;
-        if (onProgress && total) onProgress(received, total);
-      });
-      res.pipe(file);
-      file.on("finish", () => file.close(resolve));
-    });
-    req.on("error", (err) => {
-      try { fs.unlinkSync(destPath); } catch {}
-      reject(err);
-    });
-  });
+      const total = parseInt(res.headers['content-length'] || '0', 10)
+      let received = 0
+      res.on('data', (chunk) => {
+        received += chunk.length
+        if (onProgress && total) onProgress(received, total)
+      })
+      res.pipe(file)
+      file.on('finish', () => file.close(resolve))
+    })
+    req.on('error', (err) => {
+      try {
+        fs.unlinkSync(destPath)
+      } catch {}
+      reject(err)
+    })
+  })
 }
 
 /**
@@ -149,25 +155,30 @@ function downloadFile(url, destPath, { onProgress } = {}) {
  */
 function runCommand(cmd, args, { cwd, env, onLine } = {}) {
   return new Promise((resolve, reject) => {
-    const child = spawn(cmd, args, { cwd, env, windowsHide: true });
-    const tail = [];
+    const child = spawn(cmd, args, { cwd, env, windowsHide: true })
+    const tail = []
     const handle = (data) => {
-      const text = data.toString();
+      const text = data.toString()
       text.split(/\r?\n/).forEach((line) => {
-        if (!line) return;
-        tail.push(line);
-        if (tail.length > 200) tail.shift();
-        if (onLine) onLine(line);
-      });
-    };
-    child.stdout.on("data", handle);
-    child.stderr.on("data", handle);
-    child.on("error", reject);
-    child.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`Command failed (${code}): ${cmd} ${args.join(" ")}\n${tail.slice(-20).join("\n")}`));
-    });
-  });
+        if (!line) return
+        tail.push(line)
+        if (tail.length > 200) tail.shift()
+        if (onLine) onLine(line)
+      })
+    }
+    child.stdout.on('data', handle)
+    child.stderr.on('data', handle)
+    child.on('error', reject)
+    child.on('exit', (code) => {
+      if (code === 0) resolve()
+      else
+        reject(
+          new Error(
+            `Command failed (${code}): ${cmd} ${args.join(' ')}\n${tail.slice(-20).join('\n')}`
+          )
+        )
+    })
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -175,50 +186,55 @@ function runCommand(cmd, args, { cwd, env, onLine } = {}) {
 // ---------------------------------------------------------------------------
 
 async function extractPython(report) {
-  const { pythonDir, runtimeDir } = getRuntimePaths();
-  const archivePath = platform.findBundledPythonArchive();
+  const { pythonDir, runtimeDir } = getRuntimePaths()
+  const archivePath = platform.findBundledPythonArchive()
   // Fresh install: nuke any stale python dir first.
   if (fs.existsSync(pythonDir)) {
-    fs.rmSync(pythonDir, { recursive: true, force: true });
+    fs.rmSync(pythonDir, { recursive: true, force: true })
   }
-  fs.mkdirSync(runtimeDir, { recursive: true });
-  report({ stage: "extract", message: "Extracting Python runtime…" });
-  await platform.extractPython(archivePath, pythonDir);
+  fs.mkdirSync(runtimeDir, { recursive: true })
+  report({ stage: 'extract', message: 'Extracting Python runtime…' })
+  await platform.extractPython(archivePath, pythonDir)
 }
 
 async function installPip(report) {
-  const { getPipFile, pythonExe, runtimeDir } = getRuntimePaths();
-  report({ stage: "pip", message: "Downloading pip bootstrap…" });
+  const { getPipFile, pythonExe, runtimeDir } = getRuntimePaths()
+  report({ stage: 'pip', message: 'Downloading pip bootstrap…' })
   await downloadFile(GET_PIP_URL, getPipFile, {
     onProgress: (rx, total) => {
-      report({ stage: "pip", message: `Downloading get-pip.py (${Math.round((rx / total) * 100)}%)` });
+      report({
+        stage: 'pip',
+        message: `Downloading get-pip.py (${Math.round((rx / total) * 100)}%)`,
+      })
     },
-  });
-  report({ stage: "pip", message: "Installing pip…" });
-  await runCommand(pythonExe, [getPipFile, "--no-warn-script-location"], {
+  })
+  report({ stage: 'pip', message: 'Installing pip…' })
+  await runCommand(pythonExe, [getPipFile, '--no-warn-script-location'], {
     cwd: runtimeDir,
-    onLine: (line) => report({ stage: "pip", message: line }),
-  });
+    onLine: (line) => report({ stage: 'pip', message: line }),
+  })
 }
 
 async function pipInstall(pkgs, { indexUrl, extraIndexUrl, report }) {
-  const { pythonExe, runtimeDir } = getRuntimePaths();
-  const args = ["-m", "pip", "install", "--no-warn-script-location", "--disable-pip-version-check"];
-  if (indexUrl) args.push("--index-url", indexUrl);
-  if (extraIndexUrl) args.push("--extra-index-url", extraIndexUrl);
-  args.push(...pkgs);
+  const { pythonExe, runtimeDir } = getRuntimePaths()
+  const args = ['-m', 'pip', 'install', '--no-warn-script-location', '--disable-pip-version-check']
+  if (indexUrl) args.push('--index-url', indexUrl)
+  if (extraIndexUrl) args.push('--extra-index-url', extraIndexUrl)
+  args.push(...pkgs)
   await runCommand(pythonExe, args, {
     cwd: runtimeDir,
-    onLine: (line) => report({ stage: "install", message: line }),
-  });
+    onLine: (line) => report({ stage: 'install', message: line }),
+  })
 }
 
 async function pipUninstall(pkgs, report) {
-  const { pythonExe, runtimeDir } = getRuntimePaths();
-  await runCommand(pythonExe, ["-m", "pip", "uninstall", "-y", ...pkgs], {
+  const { pythonExe, runtimeDir } = getRuntimePaths()
+  await runCommand(pythonExe, ['-m', 'pip', 'uninstall', '-y', ...pkgs], {
     cwd: runtimeDir,
-    onLine: (line) => report({ stage: "install", message: line }),
-  }).catch(() => { /* nothing to uninstall is fine */ });
+    onLine: (line) => report({ stage: 'install', message: line }),
+  }).catch(() => {
+    /* nothing to uninstall is fine */
+  })
 }
 
 /**
@@ -227,16 +243,16 @@ async function pipUninstall(pkgs, report) {
  * be written to the state file for later diagnostics.
  */
 async function installPackages(accelerator, report) {
-  report({ stage: "install", message: "Installing WhisperX and backend dependencies…" });
-  await pipInstall(BACKEND_PACKAGES, { report });
+  report({ stage: 'install', message: 'Installing WhisperX and backend dependencies…' })
+  await pipInstall(BACKEND_PACKAGES, { report })
 
   const { torchVariant } = await platform.installTorch({
     accelerator,
     pipInstall,
     pipUninstall,
     report,
-  });
-  return torchVariant;
+  })
+  return torchVariant
 }
 
 /**
@@ -245,59 +261,59 @@ async function installPackages(accelerator, report) {
  * `download_root` pointed at our managed folder.
  */
 async function downloadDefaultModel(report) {
-  const { pythonExe, modelDir } = getRuntimePaths();
-  fs.mkdirSync(modelDir, { recursive: true });
+  const { pythonExe, modelDir } = getRuntimePaths()
+  fs.mkdirSync(modelDir, { recursive: true })
   report({
-    stage: "model",
+    stage: 'model',
     message: `Downloading Whisper model (${DEFAULT_MODEL}, ~1.6 GB)…`,
-  });
+  })
   const script = [
-    "import os, sys, traceback",
-    "try:",
-    "    import torch",
+    'import os, sys, traceback',
+    'try:',
+    '    import torch',
     "    print(f'[capforge] torch={torch.__version__} cuda_build={torch.version.cuda} cuda_available={torch.cuda.is_available()}', flush=True)",
-    "except Exception:",
+    'except Exception:',
     "    print('[capforge] torch import FAILED:', flush=True)",
-    "    traceback.print_exc()",
-    "    sys.exit(2)",
-    "try:",
-    "    import whisperx",
-    "except Exception as e:",
+    '    traceback.print_exc()',
+    '    sys.exit(2)',
+    'try:',
+    '    import whisperx',
+    'except Exception as e:',
     "    print('[capforge] whisperx import FAILED — full cause chain:', flush=True)",
-    "    traceback.print_exc()",
-    "    cause = e.__cause__ or e.__context__",
-    "    while cause is not None:",
+    '    traceback.print_exc()',
+    '    cause = e.__cause__ or e.__context__',
+    '    while cause is not None:',
     "        print('[capforge] caused by:', flush=True)",
-    "        traceback.print_exception(type(cause), cause, cause.__traceback__)",
-    "        cause = cause.__cause__ or cause.__context__",
-    "    sys.exit(3)",
-    `model_dir = r"${modelDir.replace(/\\/g, "\\\\")}"`,
-    "os.makedirs(model_dir, exist_ok=True)",
+    '        traceback.print_exception(type(cause), cause, cause.__traceback__)',
+    '        cause = cause.__cause__ or cause.__context__',
+    '    sys.exit(3)',
+    `model_dir = r"${modelDir.replace(/\\/g, '\\\\')}"`,
+    'os.makedirs(model_dir, exist_ok=True)',
     'print(f"[capforge] Downloading into {model_dir}", flush=True)',
-    "try:",
+    'try:',
     `    whisperx.load_model("${DEFAULT_MODEL}", "cpu", compute_type="int8", download_root=model_dir)`,
-    "except Exception as e:",
+    'except Exception as e:',
     "    print('[capforge] load_model FAILED — full cause chain:', flush=True)",
-    "    traceback.print_exc()",
-    "    cause = e.__cause__ or e.__context__",
-    "    while cause is not None:",
+    '    traceback.print_exc()',
+    '    cause = e.__cause__ or e.__context__',
+    '    while cause is not None:',
     "        print('[capforge] caused by:', flush=True)",
-    "        traceback.print_exception(type(cause), cause, cause.__traceback__)",
-    "        cause = cause.__cause__ or cause.__context__",
-    "    sys.exit(4)",
+    '        traceback.print_exception(type(cause), cause, cause.__traceback__)',
+    '        cause = cause.__cause__ or cause.__context__',
+    '    sys.exit(4)',
     'print("[capforge] Model ready", flush=True)',
-  ].join("\n");
-  await runCommand(pythonExe, ["-u", "-c", script], {
+  ].join('\n')
+  await runCommand(pythonExe, ['-u', '-c', script], {
     env: {
       ...process.env,
-      PYTHONIOENCODING: "utf-8",
-      PYTHONUTF8: "1",
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1',
       HF_HOME: modelDir,
       HUGGINGFACE_HUB_CACHE: modelDir,
       ...platform.extraModelDownloadEnv,
     },
-    onLine: (line) => report({ stage: "model", message: line }),
-  });
+    onLine: (line) => report({ stage: 'model', message: line }),
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -309,33 +325,36 @@ async function downloadDefaultModel(report) {
  * installed and the state file matches RUNTIME_VERSION.
  */
 async function ensureRuntime({ onProgress, force = false } = {}) {
-  const report = (p) => { if (onProgress) onProgress(p); };
+  const report = (p) => {
+    if (onProgress) onProgress(p)
+  }
 
   if (!force && isRuntimeReady()) {
-    const state = readState();
+    const state = readState()
     return {
       pythonExe: getRuntimePaths().pythonExe,
       accelerator: state.accelerator || state.gpu,
       torchVariant: state.torchVariant,
       alreadyReady: true,
-    };
+    }
   }
 
-  report({ stage: "start", message: "Preparing CapForge runtime…" });
+  report({ stage: 'start', message: 'Preparing CapForge runtime…' })
 
-  const accelerator = await platform.detectAccelerator();
+  const accelerator = await platform.detectAccelerator()
   report({
-    stage: "detect",
-    message: accelerator.kind === "cuda"
-      ? `NVIDIA GPU detected: ${accelerator.name}`
-      : `Running in CPU mode (${accelerator.name})`,
-  });
+    stage: 'detect',
+    message:
+      accelerator.kind === 'cuda'
+        ? `NVIDIA GPU detected: ${accelerator.name}`
+        : `Running in CPU mode (${accelerator.name})`,
+  })
 
-  await extractPython(report);
-  platform.patchPythonConfig(getRuntimePaths().pythonDir);
-  await installPip(report);
-  const torchVariant = await installPackages(accelerator, report);
-  await downloadDefaultModel(report);
+  await extractPython(report)
+  platform.patchPythonConfig(getRuntimePaths().pythonDir)
+  await installPip(report)
+  const torchVariant = await installPackages(accelerator, report)
+  await downloadDefaultModel(report)
 
   const state = {
     version: RUNTIME_VERSION,
@@ -345,16 +364,16 @@ async function ensureRuntime({ onProgress, force = false } = {}) {
     accelerator,
     torchVariant,
     defaultModel: DEFAULT_MODEL,
-  };
-  writeState(state);
-  report({ stage: "done", message: "Runtime ready." });
+  }
+  writeState(state)
+  report({ stage: 'done', message: 'Runtime ready.' })
 
   return {
     pythonExe: getRuntimePaths().pythonExe,
     accelerator,
     torchVariant,
     alreadyReady: false,
-  };
+  }
 }
 
 module.exports = {
@@ -363,4 +382,4 @@ module.exports = {
   isRuntimeReady,
   detectAccelerator: platform.detectAccelerator,
   RUNTIME_VERSION,
-};
+}

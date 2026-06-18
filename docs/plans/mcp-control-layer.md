@@ -125,6 +125,22 @@ Files: `backend/agent_bridge.py`, `backend/main.py` (`/api/agent/*`, broadcast, 
 
 ---
 
+## Milestone A.5 — One-click "Connect to Claude" — ✅ IMPLEMENTED
+
+> Make the MCP server trivial to install for non-technical customers (both clients).
+
+**Done (2026-06-18).** Customer flow: **Settings → Claude AI integration → Connect Desktop /
+Connect Code → restart Claude.** No terminal, pip, or manual JSON.
+- Bundled runtime: `mcp`+`httpx` added to `runtime-setup.js` `BACKEND_PACKAGES` (RUNTIME_VERSION 9→10);
+  `mcp_server/**` added to package.json `files` + `asarUnpack`.
+- `electron/claude-connect.js`: builds the stdio entry (bundled python + `-m mcp_server.server`,
+  `cwd` + `env.PYTHONPATH` to cover mac PYTHONPATH and Windows `._pth`), immutably merges a `capforge`
+  entry into `claude_desktop_config.json` / `~/.claude.json`; `detectClients` + manual-config fallback.
+- IPC `claude:*` in `main.js`, `window.subforge.claude.*` in preload, UI section in `SettingsPanel.tsx`.
+- Verified: 6 node:test (merge/entry/paths), both tsc projects clean, `-m mcp_server.server` resolves
+  via PYTHONPATH from a foreign cwd and lists all 6 tools. **Live click-through still needs manual
+  verification in the packaged/first-run app** (needs the bundled runtime present). Not committed yet.
+
 ## Milestone B — Live style & keyword emphasis
 
 > Needs the full control bus, because settings/groups live in the renderer (`App.tsx:22,27`).

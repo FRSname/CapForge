@@ -19,27 +19,34 @@ filler removal). Style/emphasis and vision QA come in later milestones — see
 
 **CapForge must be open** with a transcription loaded for the edit tools to work.
 
-## Install
+## Connecting (end users — one click)
+
+In CapForge: **Settings → Claude AI integration → Connect Desktop** (and/or **Connect Code**),
+then restart Claude. CapForge bundles its own Python runtime (with `mcp`+`httpx`) and writes the
+client config for you — no terminal, no pip, no hand-edited JSON. If a client isn't detected, use
+**Copy config manually**.
+
+Implementation: `electron/claude-connect.js` (merges a `capforge` entry into
+`claude_desktop_config.json` / `~/.claude.json`), exposed via `window.subforge.claude.*`.
+
+## Manual / dev setup
+
+Deps are bundled automatically in the packaged app; for dev:
 
 ```bash
 .venv-dev/bin/pip install -r mcp_server/requirements.txt
+.venv-dev/bin/python -m mcp_server.server      # run over stdio
 ```
 
-## Run (stdio)
-
-```bash
-.venv-dev/bin/python -m mcp_server.server
-```
-
-## Register with Claude Desktop / Claude Code
+Manual registration (grab the real paths from Settings → Copy config manually):
 
 ```json
 {
   "mcpServers": {
     "capforge": {
-      "command": "/Users/tobbot/capforge/CapForge/.venv-dev/bin/python",
+      "command": "<bundled python>",
       "args": ["-m", "mcp_server.server"],
-      "cwd": "/Users/tobbot/capforge/CapForge"
+      "env": { "PYTHONPATH": "<folder containing mcp_server/>" }
     }
   }
 }

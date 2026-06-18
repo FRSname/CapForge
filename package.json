@@ -68,6 +68,8 @@
       "out/renderer/**/*",
       "backend/**/*.py",
       "backend/requirements.txt",
+      "mcp_server/**/*.py",
+      "!mcp_server/tests/**",
       "!backend/__pycache__/**",
       "!**/*.pyc",
       "!**/.venv/**",
@@ -78,7 +80,8 @@
       "!**/*.{iml,o,hprof,orig,pyc,pyo,rbc,swp,csproj,sln,xproj}"
     ],
     "asarUnpack": [
-      "backend/**/*"
+      "backend/**/*",
+      "mcp_server/**/*"
     ],
     "win": {
       "target": [
