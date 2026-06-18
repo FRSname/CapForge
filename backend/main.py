@@ -62,6 +62,14 @@ current_result: Optional[TranscriptionResult] = None
 current_status = ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Ready")
 ws_clients: list[WebSocket] = []
 
+# Renderer-owned UI state (StudioSettings + groups), mirrored here so the agent
+# can read what to change. Style/groups live in the renderer, not the backend —
+# this is just a cache the renderer pushes to via PUT /api/ui-state.
+current_ui_state: Optional[dict] = None
+
+# Commands the agent may relay to the renderer over /ws/control.
+AGENT_COMMAND_OPS = {"set_settings", "apply_preset", "set_word_overrides"}
+
 # Per-session token gating the agent-only /api/agent/* endpoints. Minted once at
 # import; written to the discovery file on startup so a local MCP server can read it.
 AGENT_TOKEN = resolve_token()
@@ -360,6 +368,38 @@ async def agent_put_result(updated: TranscriptionResult):
     current_result = updated
     await broadcast_event({"type": "result_updated", "source": "agent"})
     return {"status": "ok", "segments": len(updated.segments)}
+
+
+# --- UI-state mirror (renderer → backend cache → agent) ---
+
+@app.put("/api/ui-state")
+async def put_ui_state(state: dict):
+    """Renderer mirrors its StudioSettings + groups here (no token — loopback UI)."""
+    global current_ui_state
+    current_ui_state = state
+    return {"status": "ok"}
+
+
+@app.get("/api/agent/ui-state", dependencies=[Depends(require_agent_token)])
+async def agent_get_ui_state():
+    """Agent read of the current renderer UI state (style + groups + presets)."""
+    if current_ui_state is None:
+        raise HTTPException(status_code=404, detail="No UI state available — open a transcription")
+    return current_ui_state
+
+
+@app.post("/api/agent/command", dependencies=[Depends(require_agent_token)])
+async def agent_command(cmd: dict):
+    """Relay a style/emphasis command to the renderer over /ws/control.
+
+    Fire-and-forget: the renderer applies it to its own state (the source of
+    truth for style); the agent can re-read /api/agent/ui-state to confirm.
+    """
+    op = cmd.get("op")
+    if op not in AGENT_COMMAND_OPS:
+        raise HTTPException(status_code=400, detail=f"Unknown command op: {op!r}")
+    await broadcast_event({"type": "agent_command", "op": op, "payload": cmd.get("payload", {})})
+    return {"status": "ok"}
 
 
 @app.post("/api/export")

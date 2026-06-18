@@ -8,7 +8,7 @@
  * the main process (window.subforge.saveProject / openProject).
  */
 
-import type { TranscriptionResult, Segment } from '../types/app'
+import type { TranscriptionResult, Segment, WordOverrides } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 
 export const PROJECT_VERSION = 1
@@ -41,6 +41,15 @@ export interface ProjectIOHandle {
   restore: (file: ProjectFile) => void
   /** Replace the live transcript with an agent edit (pushes undo first). */
   applyAgentResult: (result: TranscriptionResult) => void
+  /** Merge per-word style overrides onto group words (agent emphasis). */
+  applyWordOverrides: (edits: WordOverrideEdit[]) => void
+}
+
+/** One per-word override edit, located by group + word index. */
+export interface WordOverrideEdit {
+  group: number
+  word: number
+  overrides: WordOverrides
 }
 
 /** Strip extension + folder from a path → "my-video". */

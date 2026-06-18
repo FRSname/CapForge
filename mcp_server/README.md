@@ -62,6 +62,10 @@ Manual registration (grab the real paths from Settings → Copy config manually)
 | `remove_filler_words` | Drop um/uh/er… (timing preserved) → live UI |
 | `transcribe` | Start a transcription (blocks until done) |
 | `export` | Export current transcript (srt/ass/json/…) |
+| `get_ui_state` | Current style + display groups + preset names |
+| `set_style` | Change global style (camelCase StudioSettings patch) → live UI |
+| `apply_preset` | Apply a built-in style preset by name → live UI |
+| `emphasize` | Style individual words (size/animation/color) → live UI |
 
 ## Tests
 

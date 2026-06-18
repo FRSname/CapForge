@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Screen, TranscriptionResult, Segment } from './types/app'
-import type { ProjectFile, ProjectIOHandle } from './lib/project'
+import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from './lib/project'
 import { api, type VideoInfo } from './lib/api'
+import { builtinPresetNames } from './lib/agentCommands'
 import { TitleBar } from './components/TitleBar/TitleBar'
 import { DropZoneScreen } from './components/screens/DropZoneScreen'
 import { ProgressScreen } from './components/screens/ProgressScreen'
@@ -92,6 +93,22 @@ export function App() {
   const handleApplyAgentResult = useCallback((r: TranscriptionResult) => {
     projectIORef.current?.applyAgentResult(r)
   }, [])
+
+  const handleApplyWordOverrides = useCallback((edits: WordOverrideEdit[]) => {
+    projectIORef.current?.applyWordOverrides(edits)
+  }, [])
+
+  // Mirror UI state (settings + groups + preset names) to the backend so the
+  // agent can read what to change. Debounced — settings churn during edits.
+  useEffect(() => {
+    if (screen !== 'results') return
+    const t = setTimeout(() => {
+      api.putUiState({ settings, groups, presets: builtinPresetNames() }).catch(() => {
+        /* best-effort mirror */
+      })
+    }, 300)
+    return () => clearTimeout(t)
+  }, [screen, settings, groups])
 
   // ── Source video info probe ─────────────────────────────────────
   // Runs once per result.audioPath — auto-sets resolution + fps.
@@ -324,7 +341,13 @@ export function App() {
 
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
-        <AgentLiveSync active={screen === 'results'} applyResult={handleApplyAgentResult} />
+        <AgentLiveSync
+          active={screen === 'results'}
+          settings={settings}
+          applyResult={handleApplyAgentResult}
+          applySettings={handleSettingsChange}
+          applyWordOverrides={handleApplyWordOverrides}
+        />
       </div>
     </ToastProvider>
   )

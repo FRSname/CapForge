@@ -77,6 +77,18 @@ export function normalizeResult(raw: TranscriptionResult): AppTranscriptionResul
   }
 }
 
+/** A style/emphasis command relayed from the agent over the control channel. */
+export interface AgentCommand {
+  op: string
+  payload?: Record<string, unknown>
+}
+
+/** Handlers for agent-driven control-channel events. */
+export interface ControlHandlers {
+  onResultUpdated?: () => void
+  onCommand?: (cmd: AgentCommand) => void
+}
+
 class CapForgeAPI {
   private base: string
   private wsBase: string
@@ -84,10 +96,10 @@ class CapForgeAPI {
   private _onProgress: ((update: ProgressUpdate) => void) | null = null
   private _wsReconnectDelay = 1000
   private _wsReconnectTimer: ReturnType<typeof setTimeout> | null = null
-  // Control channel — persistent listener for agent-driven events (e.g. the
-  // agent editing the transcript) while on the results screen.
+  // Control channel — persistent listener for agent-driven events (transcript
+  // edits + style/emphasis commands) while on the results screen.
   private controlWs: WebSocket | null = null
-  private _onResultUpdated: (() => void) | null = null
+  private _controlHandlers: ControlHandlers | null = null
   private _controlReconnectDelay = 1000
   private _controlReconnectTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -180,6 +192,11 @@ class CapForgeAPI {
     return this.put('/api/result', result)
   }
 
+  /** Mirror the renderer's UI state (settings + groups) so the agent can read it. */
+  putUiState(state: unknown) {
+    return this.put('/api/ui-state', state)
+  }
+
   exportResult(params: unknown) {
     return this.post('/api/export', params)
   }
@@ -267,12 +284,12 @@ class CapForgeAPI {
   // ── Control channel (agent-driven events) ──────────────────────────
 
   /**
-   * Persistent listener for control events. Used on the results screen so the
-   * UI picks up agent transcript edits live. Separate socket from progress so
-   * the two lifecycles don't fight.
+   * Persistent listener for control events (transcript edits + style/emphasis
+   * commands). Used on the results screen. Separate socket from progress so the
+   * two lifecycles don't fight.
    */
-  connectControl(onResultUpdated: () => void) {
-    this._onResultUpdated = onResultUpdated
+  connectControl(handlers: ControlHandlers) {
+    this._controlHandlers = handlers
     if (this._controlReconnectTimer) {
       clearTimeout(this._controlReconnectTimer)
       this._controlReconnectTimer = null
@@ -291,18 +308,23 @@ class CapForgeAPI {
     this.controlWs.onmessage = (event: MessageEvent) => {
       try {
         const raw = JSON.parse(event.data as string)
-        if (raw && raw.type === 'result_updated') this._onResultUpdated?.()
+        if (!raw || !raw.type) return
+        if (raw.type === 'result_updated') this._controlHandlers?.onResultUpdated?.()
+        else if (raw.type === 'agent_command') {
+          this._controlHandlers?.onCommand?.({ op: raw.op, payload: raw.payload })
+        }
       } catch {
         /* ignore malformed */
       }
     }
 
     this.controlWs.onclose = () => {
-      if (!this._onResultUpdated) return
+      const handlers = this._controlHandlers
+      if (!handlers) return
       const delay = this._controlReconnectDelay
       this._controlReconnectDelay = Math.min(delay * 2, 30_000)
       this._controlReconnectTimer = setTimeout(() => {
-        if (this._onResultUpdated) this.connectControl(this._onResultUpdated)
+        if (this._controlHandlers) this.connectControl(this._controlHandlers)
       }, delay)
     }
 
@@ -312,7 +334,7 @@ class CapForgeAPI {
   }
 
   disconnectControl() {
-    this._onResultUpdated = null
+    this._controlHandlers = null
     this._controlReconnectDelay = 1000
     if (this._controlReconnectTimer) {
       clearTimeout(this._controlReconnectTimer)

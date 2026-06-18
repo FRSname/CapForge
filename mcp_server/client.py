@@ -73,3 +73,9 @@ class CapForgeClient:
 
     def export(self, payload: dict) -> Any:
         return self._request("POST", "/api/export", json=payload)
+
+    def get_ui_state(self) -> Any:
+        return self._request("GET", "/api/agent/ui-state")
+
+    def send_command(self, op: str, payload: dict) -> Any:
+        return self._request("POST", "/api/agent/command", json={"op": op, "payload": payload})

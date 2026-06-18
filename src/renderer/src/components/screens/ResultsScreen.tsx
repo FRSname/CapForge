@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TranscriptionResult, Segment } from '../../types/app'
 import { buildStudioGroups } from '../../lib/groups'
-import type { ProjectFile, ProjectIOHandle } from '../../lib/project'
+import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
 import { useUndoRedo } from '../../hooks/useUndoRedo'
 import { AudioPlayer, type AudioPlayerHandle } from '../player/AudioPlayer'
@@ -300,6 +300,23 @@ export function ResultsScreen({
         pushUndo()
         setSegments(agentResult.segments)
         setSegmentsEdited(true)
+      },
+      applyWordOverrides: (edits: WordOverrideEdit[]) => {
+        // Agent emphasis: merge per-word overrides onto group words. The Canvas
+        // preview and backend both read these verbatim, so the change is visible
+        // immediately and survives to render. groupsEdited → sent as custom_groups.
+        if (!edits.length) return
+        pushUndo()
+        setGroups((prev) => {
+          const next = prev.map((g) => ({ ...g, words: g.words.map((w) => ({ ...w })) }))
+          for (const e of edits) {
+            const word = next[e.group]?.words[e.word]
+            if (!word) continue
+            word.overrides = { ...word.overrides, ...e.overrides }
+          }
+          return next
+        })
+        setGroupsEdited(true)
       },
     }
     return () => {

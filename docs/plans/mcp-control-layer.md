@@ -141,7 +141,20 @@ Connect Code → restart Claude.** No terminal, pip, or manual JSON.
   via PYTHONPATH from a foreign cwd and lists all 6 tools. **Live click-through still needs manual
   verification in the packaged/first-run app** (needs the bundled runtime present). Not committed yet.
 
-## Milestone B — Live style & keyword emphasis
+## Milestone B — Live style & keyword emphasis — ✅ IMPLEMENTED (regroup deferred)
+
+**Done (2026-06-18).** Two-way control bus: renderer mirrors `{settings, groups, presets}` to the
+backend (`PUT /api/ui-state`, debounced in `App.tsx`); agent reads `GET /api/agent/ui-state` and
+relays commands via `POST /api/agent/command` → broadcast `agent_command` over the control WS →
+applied live in the renderer. Ops: `set_settings`, `apply_preset` (builtin, via `lib/agentCommands.ts`),
+`set_word_overrides` (emphasis → `ResultsScreen.applyWordOverrides`). Per-word `overrides` are already
+snake_case (consumed verbatim by Canvas preview + backend), so emphasis needs no translation. MCP
+tools: `get_ui_state`, `set_style`, `apply_preset`, `emphasize`. Verified: 108 vitest (new
+agentCommands), control-bus integration (ui-state 404→mirror→read; command 400/401 gates + broadcast).
+**Live application in the renderer needs manual Electron verification.** Not committed yet.
+**Deferred:** semantic regrouping (`set_groups`) — interacts with the fragile groups-derivation effect.
+
+## Milestone B (original detail) — Live style & keyword emphasis
 
 > Needs the full control bus, because settings/groups live in the renderer (`App.tsx:22,27`).
 

@@ -29,6 +29,19 @@ class WordEdit(BaseModel):
     new: str = Field(description="Replacement word")
 
 
+class WordEmphasis(BaseModel):
+    """Per-word style override located by group + word index (from get_ui_state)."""
+    group: int = Field(description="Group index (from get_ui_state.groups)")
+    word: int = Field(description="Word index within that group")
+    overrides: dict = Field(
+        description=(
+            "snake_case overrides, e.g. {\"font_size_scale\": 1.4}, "
+            "{\"word_transition\": \"bounce\"}, {\"active_word_color\": \"#FF3366\"}, "
+            "{\"scale_factor\": 1.3}"
+        )
+    )
+
+
 # --- Read tools -----------------------------------------------------------
 
 @mcp.tool()
@@ -116,6 +129,55 @@ def transcribe(
 def export(formats: list[str], output_dir: str = "output") -> dict:
     """Export the current transcript (e.g. ["srt_word", "ass", "json"])."""
     return _client.export({"formats": formats, "output_dir": output_dir})
+
+
+# --- Style & emphasis (live UI) ------------------------------------------
+
+@mcp.tool()
+def get_ui_state() -> dict:
+    """Current renderer style + display groups + available preset names.
+
+    Returns `{settings, groups, presets}`. Use `settings` (camelCase keys) with
+    `set_style`, `presets` with `apply_preset`, and `groups` (with word indices)
+    with `emphasize`.
+    """
+    return _client.get_ui_state()
+
+
+@mcp.tool()
+def set_style(patch: dict) -> dict:
+    """Change global subtitle style. Updates the live UI.
+
+    `patch` uses camelCase StudioSettings keys (see `get_ui_state().settings`),
+    e.g. {"fontSize": 84}, {"posY": 70}, {"textColor": "#FFFFFF"},
+    {"wordStyle": "highlight"}, {"animationType": "pop"}. Unknown keys are ignored.
+    """
+    _client.send_command("set_settings", {"patch": patch})
+    return {"status": "ok"}
+
+
+@mcp.tool()
+def apply_preset(name: str) -> dict:
+    """Apply a built-in style preset by name (see `get_ui_state().presets`).
+
+    Names include: YouTube Bold, TikTok Pop, Minimal White, Highlight Pill,
+    Karaoke Neon, Subtitles (Clean), Reveal Dark.
+    """
+    _client.send_command("apply_preset", {"name": name})
+    return {"status": "ok"}
+
+
+@mcp.tool()
+def emphasize(edits: list[WordEmphasis]) -> dict:
+    """Style individual words (make keywords bigger / different animation/color).
+
+    Locate words with `get_ui_state().groups`, then pass edits like
+    `[{"group": 0, "word": 2, "overrides": {"font_size_scale": 1.4,
+       "word_transition": "bounce", "active_word_color": "#FF3366"}}]`.
+    Updates the live preview and survives to render.
+    """
+    _client.send_command("set_word_overrides", {"edits": [e.model_dump() for e in edits]})
+    return {"status": "ok", "words_styled": len(edits)}
 
 
 def main() -> None:

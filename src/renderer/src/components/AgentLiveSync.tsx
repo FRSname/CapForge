@@ -1,27 +1,35 @@
 /**
- * Live-sync bridge for the MCP control layer (Milestone A).
+ * Live-sync bridge for the MCP control layer.
  *
- * While the results screen is active, this opens a persistent control channel to
- * the backend. When a local Claude agent edits the transcript, the backend
- * broadcasts `result_updated`; we re-fetch and push the change into the editor.
+ * Owns the single control channel while the results screen is active and routes
+ * agent-driven events:
+ *   - result_updated  → re-fetch transcript and apply (soft-locked while editing)
+ *   - agent_command   → set_settings / apply_preset (style) and set_word_overrides
+ *                       (keyword emphasis), applied live to renderer state.
  *
- * Soft lock: if the user is mid-edit in a text field, we don't clobber their
- * work — the update is queued and surfaced via a banner with an explicit Apply.
- *
- * Lives in its own component (a child of ToastProvider) so it can use useToast,
- * which App.tsx — being the provider's parent — cannot.
+ * All callbacks/state are held in refs so the control connection stays stable
+ * (one socket) rather than reconnecting on every settings change. Lives inside
+ * ToastProvider so it can use useToast (App, the provider's parent, cannot).
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { api, normalizeResult } from '../lib/api'
+import { api, normalizeResult, type AgentCommand } from '../lib/api'
 import type { TranscriptionResult } from '../types/app'
+import type { StudioSettings } from './studio/StudioPanel'
+import type { WordOverrideEdit } from '../lib/project'
+import { applySettingsCommand } from '../lib/agentCommands'
 import { useToast } from '../hooks/useToast'
 
 interface AgentLiveSyncProps {
-  /** True while the results screen is showing — gates the control connection. */
   active: boolean
+  /** Current studio settings — read when applying a style command. */
+  settings: StudioSettings
   /** Apply an agent transcript edit to the live editor (pushes undo). */
   applyResult: (result: TranscriptionResult) => void
+  /** Apply a new StudioSettings (set_settings / apply_preset). */
+  applySettings: (next: StudioSettings) => void
+  /** Merge per-word overrides onto group words (emphasis). */
+  applyWordOverrides: (edits: WordOverrideEdit[]) => void
 }
 
 function isEditableTarget(el: EventTarget | null): boolean {
@@ -30,10 +38,29 @@ function isEditableTarget(el: EventTarget | null): boolean {
   return node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable
 }
 
-export function AgentLiveSync({ active, applyResult }: AgentLiveSyncProps) {
+export function AgentLiveSync({
+  active,
+  settings,
+  applyResult,
+  applySettings,
+  applyWordOverrides,
+}: AgentLiveSyncProps) {
   const { toast } = useToast()
   const editingRef = useRef(false)
   const [pending, setPending] = useState<TranscriptionResult | null>(null)
+
+  // Hold everything the control handlers need in refs so the connection effect
+  // can depend only on `active` and never reconnect mid-session.
+  const settingsRef = useRef(settings)
+  const applyResultRef = useRef(applyResult)
+  const applySettingsRef = useRef(applySettings)
+  const applyWordOverridesRef = useRef(applyWordOverrides)
+  const toastRef = useRef(toast)
+  settingsRef.current = settings
+  applyResultRef.current = applyResult
+  applySettingsRef.current = applySettings
+  applyWordOverridesRef.current = applyWordOverrides
+  toastRef.current = toast
 
   // Soft lock — track whether a text field currently has focus.
   useEffect(() => {
@@ -64,13 +91,34 @@ export function AgentLiveSync({ active, applyResult }: AgentLiveSyncProps) {
         if (cancelled) return
         if (editingRef.current) {
           setPending(result)
-          toast('Agent updated the transcript while you were editing.', 'info')
+          toastRef.current('Agent updated the transcript while you were editing.', 'info')
         } else {
-          applyResult(result)
-          toast('Agent updated the transcript.', 'info')
+          applyResultRef.current(result)
+          toastRef.current('Agent updated the transcript.', 'info')
         }
       } catch {
-        /* best-effort — a failed fetch just means no live update this time */
+        /* best-effort */
+      }
+    }
+
+    const handleCommand = (cmd: AgentCommand) => {
+      try {
+        if (cmd.op === 'set_word_overrides') {
+          const edits = (cmd.payload?.edits ?? []) as WordOverrideEdit[]
+          applyWordOverridesRef.current(edits)
+          toastRef.current('Agent restyled words.', 'info')
+          return
+        }
+        const next = applySettingsCommand(settingsRef.current, cmd)
+        if (next) {
+          applySettingsRef.current(next)
+          toastRef.current(
+            cmd.op === 'apply_preset' ? 'Agent applied a preset.' : 'Agent updated the style.',
+            'info',
+          )
+        }
+      } catch {
+        /* ignore malformed command */
       }
     }
 
@@ -78,9 +126,14 @@ export function AgentLiveSync({ active, applyResult }: AgentLiveSyncProps) {
       try {
         api.setPort(await window.subforge.getBackendPort())
       } catch {
-        /* fall back to the default port already set on the singleton */
+        /* fall back to the default port */
       }
-      if (!cancelled) api.connectControl(() => void handleResultUpdated())
+      if (!cancelled) {
+        api.connectControl({
+          onResultUpdated: () => void handleResultUpdated(),
+          onCommand: handleCommand,
+        })
+      }
     })()
 
     return () => {
@@ -88,14 +141,14 @@ export function AgentLiveSync({ active, applyResult }: AgentLiveSyncProps) {
       api.disconnectControl()
       setPending(null)
     }
-  }, [active, applyResult, toast])
+  }, [active])
 
   const applyPending = useCallback(() => {
     setPending((p) => {
-      if (p) applyResult(p)
+      if (p) applyResultRef.current(p)
       return null
     })
-  }, [applyResult])
+  }, [])
 
   if (!pending) return null
 
