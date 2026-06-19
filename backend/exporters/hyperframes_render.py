@@ -7,11 +7,16 @@ CLI and streams its frame-capture progress back to a callback.
 
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Callable, Optional
+
+logger = logging.getLogger(__name__)
+
+_VIDEO_EXTS = {".mp4", ".webm", ".mov"}
 
 
 class HyperframesRenderError(RuntimeError):
@@ -33,6 +38,32 @@ def _resolve_npx() -> str:
             "Node.js 22+. Install Node, or use the file-only HyperFrames export."
         )
     return npx
+
+
+def _discover_output(project_dir: str, out: Path, video_format: str) -> Optional[Path]:
+    """Find the rendered video when the CLI wrote it somewhere other than `out`.
+
+    Some CLI versions ignore an absolute ``--output`` and emit to the project's
+    default ``renders/`` directory. Checks there first, then any video under the
+    project (excluding the copied source and `out`), newest first.
+    """
+    ext = ".webm" if video_format == "webm" else f".{video_format}"
+    renders = Path(project_dir) / "renders"
+    candidates: list[Path] = []
+    if renders.is_dir():
+        candidates = [p for p in renders.glob(f"*{ext}") if p.is_file()]
+    if not candidates:
+        candidates = [
+            p
+            for p in Path(project_dir).rglob("*")
+            if p.is_file()
+            and p.suffix.lower() in _VIDEO_EXTS
+            and p.stem != "source"
+            and p.resolve() != out.resolve()
+        ]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
 def render_hyperframes_project(
@@ -57,6 +88,7 @@ def render_hyperframes_project(
         "--format", video_format,
         "--output", str(out),
     ]
+    logger.info("HyperFrames render: %s (cwd=%s)", " ".join(cmd), project_dir)
     if on_progress:
         on_progress(1.0, "Starting HyperFrames render…")
 
@@ -72,12 +104,10 @@ def render_hyperframes_project(
     except FileNotFoundError as exc:  # npx vanished between which() and exec
         raise HyperframesRenderError(f"Failed to launch HyperFrames: {exc}") from exc
 
-    tail: list[str] = []
+    lines: list[str] = []
     assert proc.stdout is not None
     for line in proc.stdout:
-        tail.append(line.rstrip())
-        if len(tail) > 12:
-            tail.pop(0)
+        lines.append(line.rstrip())
         match = _FRAME_RE.search(line)
         if match and on_progress:
             current, total = int(match.group(1)), int(match.group(2))
@@ -85,12 +115,33 @@ def render_hyperframes_project(
             on_progress(min(_CAPTURE_PCT_CEILING, pct), f"Rendering frame {current}/{total}")
     proc.wait()
 
+    tail = "\n".join(lines[-15:])
     if proc.returncode != 0:
-        raise HyperframesRenderError(
-            f"HyperFrames render failed (exit {proc.returncode}):\n" + "\n".join(tail[-8:])
+        logger.error(
+            "HyperFrames render failed (exit %s):\n%s", proc.returncode, "\n".join(lines)
         )
+        raise HyperframesRenderError(
+            f"HyperFrames render failed (exit {proc.returncode}):\n{tail}"
+        )
+
+    # Exit 0 but no file at the requested path: relocate from the default
+    # `renders/` dir if the CLI wrote there (some versions ignore --output).
     if not out.exists():
-        raise HyperframesRenderError("HyperFrames render produced no output file")
+        produced = _discover_output(project_dir, out, video_format)
+        if produced is not None:
+            logger.warning("HyperFrames wrote %s instead of %s — relocating.", produced, out)
+            shutil.move(str(produced), str(out))
+
+    if not out.exists():
+        logger.error(
+            "HyperFrames exited 0 but produced no file at %s.\nCLI output:\n%s",
+            out, "\n".join(lines),
+        )
+        raise HyperframesRenderError(
+            f"HyperFrames render finished but produced no output file at {out}.\n"
+            f"CLI output (tail):\n{tail}"
+        )
+
     if on_progress:
         on_progress(100.0, "HyperFrames render complete")
     return str(out)

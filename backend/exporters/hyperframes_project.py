@@ -86,7 +86,11 @@ def _groups_html(groups: list[dict]) -> str:
             f'<span id="cg-{gi}-w{wj}" class="cw">{html.escape(w["word"].strip())}</span>'
             for wj, w in enumerate(group["words"])
         ]
-        blocks.append(f'<div id="cg-{gi}" class="cgroup">{" ".join(spans)}</div>')
+        blocks.append(
+            f'<div id="cg-{gi}" class="cgroup">'
+            f'<span id="cb-{gi}" class="cbubble">{" ".join(spans)}</span>'
+            f"</div>"
+        )
     return "\n      ".join(blocks)
 
 
@@ -179,7 +183,7 @@ def _build_index_html(
         f'  var BASE = "{config.text_color}";\n'
         "  var tl = gsap.timeline({ paused: true });\n"
         "  GROUPS.forEach(function(g, gi){\n"
-        '    var sel = "#cg-" + gi;\n'
+        '    var sel = "#cb-" + gi;\n'
         '    tl.set(sel, { visibility: "visible" }, g.s);\n'
         f"    tl.fromTo(sel, {enter_from}, "
         f'{{ opacity: 1, y: 0, scale: 1, duration: {enter_dur}, ease: "{enter_ease}", overwrite: "auto" }}, g.s);\n'
@@ -221,12 +225,24 @@ def _build_index_html(
       position: absolute;
       left: 0; right: 0;
       top: {pos_top_pct}%;
+      text-align: center;
+      z-index: 10;
+    }}
+    /* Each group is taken OUT OF FLOW (absolute) so groups don't stack/wrap into
+       a tall block — they all overlap at the same anchor row, one visible at a
+       time. translateY(-50%) centers the row on position_y. */
+    .cgroup {{
+      position: absolute;
+      left: 0; right: 0;
+      top: 0;
       transform: translateY(-50%);
       text-align: center;
       padding: 0 {config.bg_padding_h}px;
       box-sizing: border-box;
     }}
-    .cgroup {{
+    /* The visible pill. Animated by GSAP (a child, so its transforms never
+       fight .cgroup's centering transform). */
+    .cbubble {{
       display: inline-block;
       opacity: 0;
       visibility: hidden;
@@ -242,7 +258,6 @@ def _build_index_html(
       border-radius: {config.bg_corner_radius}px;
     }}
     .cw {{ color: {config.text_color}; }}
-    .captions {{ z-index: 10; }}
     .fx {{ position: absolute; opacity: 0; visibility: hidden; z-index: 5; pointer-events: none; }}
     """
 
@@ -279,7 +294,7 @@ def _font_face_block(config: VideoRenderConfig, project_dir: Path) -> str:
     fonts_dir = project_dir / "fonts"
     fonts_dir.mkdir(parents=True, exist_ok=True)
     dest = fonts_dir / src.name
-    shutil.copy2(src, dest)
+    shutil.copy(src, dest)  # not copy2 — copystat fails on flagged files (system fonts)
     fmt = "opentype" if src.suffix.lower() == ".otf" else "truetype"
     return (
         f'@font-face {{ font-family: "{config.font_family}"; '
@@ -316,7 +331,8 @@ def export_hyperframes_project(
     if source_video_path and Path(source_video_path).exists():
         ext = Path(source_video_path).suffix or ".mp4"
         source_src = f"source{ext}"
-        shutil.copy2(source_video_path, project_dir / source_src)
+        # copy (not copy2): copy2's copystat fails on files with special flags.
+        shutil.copy(source_video_path, project_dir / source_src)
     else:
         source_src = "source.mp4"
 
