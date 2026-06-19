@@ -23,7 +23,7 @@ from backend.agent_bridge import (
 )
 from backend.engine.errors import explain
 from backend.engine.hardware import detect_hardware
-from backend.engine.moments import find_transcript_moments
+from backend.engine.moments import find_semantic_moments, find_transcript_moments
 from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
@@ -707,6 +707,18 @@ async def find_moments_endpoint(query: str):
     if current_result is None:
         raise HTTPException(status_code=404, detail="No transcription result available")
     return {"matches": find_transcript_moments(current_result, query)}
+
+
+@app.get("/api/agent/find-semantic-moments", dependencies=[Depends(require_agent_token)])
+async def find_semantic_moments_endpoint(kind: str):
+    """Detect moments by category (numbers | cta | speaker_change) for placing
+    kinetic-stat / lower-third effects without a literal phrase."""
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    try:
+        return {"matches": find_semantic_moments(current_result, kind)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # --- Export helpers ---

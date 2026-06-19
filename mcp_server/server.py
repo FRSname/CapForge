@@ -219,16 +219,51 @@ def find_moments(query: str) -> dict:
 
 
 @mcp.tool()
+def find_semantic_moments(kind: str) -> dict:
+    """Find moments by category instead of a literal phrase.
+
+    kind: "numbers" (spoken/written numbers — for a kinetic_stat), "cta" (calls
+    to action like "subscribe" / "link in bio"), or "speaker_change" (each new
+    diarized speaker — for a lower_third). Returns matches with `start`/`end`
+    seconds and `word_id` (plus `speaker` for speaker_change).
+    """
+    return _client.find_semantic_moments(kind)
+
+
+@mcp.tool()
 def list_effect_types() -> dict:
     """List available effect types and the variables each accepts."""
+    pos = ["start (s)", "duration (s)", "anchor_x (0-1)", "anchor_y (0-1)"]
     return {
         "types": [
             {
                 "type": "logo",
                 "description": "Animated image overlay — pops in, holds, pops out.",
-                "fields": ["start (s)", "duration (s)", "anchor_x (0-1)", "anchor_y (0-1)"],
+                "fields": pos,
                 "variables": {"src": "absolute path to image", "width": "px (optional)"},
-            }
+            },
+            {
+                "type": "lower_third",
+                "description": "Name/title bar that slides in from the left. "
+                "Pair with find_semantic_moments('speaker_change').",
+                "fields": pos,
+                "variables": {
+                    "title": "name (required)",
+                    "subtitle": "role/handle (optional)",
+                    "accent": "#hex accent bar color (optional)",
+                },
+            },
+            {
+                "type": "kinetic_stat",
+                "description": "Big animated number + label that pops in. "
+                "Pair with find_semantic_moments('numbers').",
+                "fields": pos,
+                "variables": {
+                    "value": "the number, e.g. '2.4M' (required)",
+                    "label": "caption under the number (optional)",
+                    "accent": "#hex number color (optional)",
+                },
+            },
         ]
     }
 
@@ -239,32 +274,62 @@ def list_effects() -> dict:
     return _client.get_effects()
 
 
+# Type-appropriate default anchors (normalized, 0,0 = top-left) used when the
+# caller doesn't specify a position.
+_DEFAULT_ANCHORS = {
+    "logo": (0.82, 0.2),          # top-right
+    "lower_third": (0.06, 0.82),  # lower-left
+    "kinetic_stat": (0.5, 0.4),   # upper-center
+}
+
+
 @mcp.tool()
 def add_effect(
-    src: str,
     start: float,
     duration: float = 2.0,
     type: str = "logo",
-    anchor_x: float = 0.82,
-    anchor_y: float = 0.2,
+    src: Optional[str] = None,
     width: int = 200,
+    title: Optional[str] = None,
+    subtitle: Optional[str] = None,
+    value: Optional[str] = None,
+    label: Optional[str] = None,
+    accent: Optional[str] = None,
+    anchor_x: Optional[float] = None,
+    anchor_y: Optional[float] = None,
     source_word_id: Optional[str] = None,
 ) -> dict:
-    """Place an animated effect (e.g. a logo image) at `start` for `duration` seconds.
+    """Place an animated effect at `start` for `duration` seconds.
 
-    `src` is an absolute path to the image. Position via anchor_x/anchor_y (0-1,
-    where 0,0 is top-left). Pair with find_moments to place effects at spoken
-    words; pass that moment's word_id as `source_word_id` for provenance.
+    Content by type (see list_effect_types):
+      - logo: `src` (absolute image path), optional `width` px.
+      - lower_third: `title` (required), optional `subtitle`, `accent`.
+      - kinetic_stat: `value` (required, e.g. "2.4M"), optional `label`, `accent`.
+
+    Position via anchor_x/anchor_y (0-1, 0,0 = top-left); omit for a sensible
+    per-type default. Pair with find_moments / find_semantic_moments to place at
+    spoken words; pass that moment's word_id as `source_word_id` for provenance.
     """
+    if type == "logo":
+        variables = {"src": src, "width": width}
+    elif type == "lower_third":
+        variables = {"title": title, "subtitle": subtitle, "accent": accent}
+    elif type == "kinetic_stat":
+        variables = {"value": value, "label": label, "accent": accent}
+    else:
+        variables = {}
+    variables = {k: v for k, v in variables.items() if v is not None}
+
+    def_x, def_y = _DEFAULT_ANCHORS.get(type, (0.5, 0.5))
     effect = {
         "type": type,
         "start": start,
         "duration": duration,
         "track_index": 1,
-        "anchor_x": anchor_x,
-        "anchor_y": anchor_y,
+        "anchor_x": def_x if anchor_x is None else anchor_x,
+        "anchor_y": def_y if anchor_y is None else anchor_y,
         "source_word_id": source_word_id,
-        "variables": {"src": src, "width": width},
+        "variables": variables,
         "created_by": "agent",
     }
     return _client.add_effect(effect)

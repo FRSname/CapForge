@@ -127,3 +127,48 @@ def test_no_effects_emits_empty_effects_array(transcription_result, tmp_path):
     html = (_generate(transcription_result, tmp_path) / "index.html").read_text()
     assert 'class="fx"' not in html
     assert "var EFFECTS = []" in html
+
+
+# --- Phase D: text effect types ---
+
+
+def test_lower_third_effect_renders_title_and_subtitle(transcription_result, tmp_path):
+    effects = [{
+        "id": "e1", "type": "lower_third", "start": 0.5, "duration": 2.0,
+        "variables": {"title": "Jane Doe", "subtitle": "CEO, Acme"},
+    }]
+    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
+    assert 'class="fx"' in html and 'class="fx-inner fx-lower"' in html
+    assert "Jane Doe" in html and "CEO, Acme" in html
+
+
+def test_kinetic_stat_effect_renders_value_and_label(transcription_result, tmp_path):
+    effects = [{
+        "id": "e1", "type": "kinetic_stat", "start": 1.0, "duration": 1.5,
+        "variables": {"value": "2.4M", "label": "downloads"},
+    }]
+    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
+    assert 'class="fx-inner fx-stat"' in html
+    assert "2.4M" in html and "downloads" in html
+
+
+def test_lower_third_without_title_is_skipped(transcription_result, tmp_path):
+    effects = [{"id": "e1", "type": "lower_third", "start": 0.0, "variables": {"subtitle": "x"}}]
+    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
+    assert 'class="fx"' not in html
+
+
+def test_unknown_effect_type_is_skipped(transcription_result, tmp_path):
+    effects = [{"id": "e1", "type": "explosion", "start": 0.0, "variables": {}}]
+    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
+    assert 'class="fx"' not in html
+
+
+def test_text_effect_escapes_html(transcription_result, tmp_path):
+    effects = [{
+        "id": "e1", "type": "lower_third", "start": 0.0,
+        "variables": {"title": "<script>x</script>"},
+    }]
+    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
+    assert "<script>x</script>" not in html
+    assert "&lt;script&gt;" in html

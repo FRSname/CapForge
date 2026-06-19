@@ -106,6 +106,9 @@ class CapForgeClient:
     def find_moments(self, query: str) -> Any:
         return self._request("GET", f"/api/agent/find-moments?query={quote(query)}")
 
+    def find_semantic_moments(self, kind: str) -> Any:
+        return self._request("GET", f"/api/agent/find-semantic-moments?kind={quote(kind)}")
+
     def render_hyperframes(self, payload: dict) -> Any:
         # Headless-Chrome capture can take a while.
         return self._request("POST", "/api/export-hyperframes", json=payload, timeout=_LONG_TIMEOUT)

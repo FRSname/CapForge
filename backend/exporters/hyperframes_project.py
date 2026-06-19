@@ -43,6 +43,31 @@ _ENTRANCES = {
 _EXIT_DUR = 0.12  # caption exit fade (captions.md Caption Exit Guarantee)
 
 _DEFAULT_LOGO_WIDTH_FRAC = 0.18  # logo width as a fraction of canvas width when unset
+_ACCENT = "#D4952A"  # CapForge brand orange — default accent for text effects
+
+# Per-effect-type entrance/exit. Each set animates the effect's INNER element so
+# the outer .fx keeps positioning (centering transforms never fight the motion —
+# the same split that fixed caption drift).
+_FX_ANIM: dict[str, dict] = {
+    "logo": {
+        "from": {"opacity": 0, "scale": 0.8},
+        "to": {"opacity": 1, "scale": 1},
+        "exit": {"opacity": 0, "scale": 0.95},
+        "edur": 0.4, "xdur": 0.25, "ease": "back.out(1.7)",
+    },
+    "lower_third": {
+        "from": {"opacity": 0, "x": -40},
+        "to": {"opacity": 1, "x": 0},
+        "exit": {"opacity": 0, "x": -28},
+        "edur": 0.45, "xdur": 0.3, "ease": "power3.out",
+    },
+    "kinetic_stat": {
+        "from": {"opacity": 0, "scale": 0.6, "y": 18},
+        "to": {"opacity": 1, "scale": 1, "y": 0},
+        "exit": {"opacity": 0, "scale": 0.9},
+        "edur": 0.5, "xdur": 0.25, "ease": "back.out(2)",
+    },
+}
 
 
 def _css_rgba(hex_color: str, opacity: float) -> str:
@@ -107,53 +132,128 @@ def _groups_timing_json(groups: list[dict]) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-def _prepare_effects(
-    effects: Optional[list[dict]], project_dir: Path, canvas_w: int
-) -> list[dict]:
-    """Copy effect assets into the project and return render-ready effect dicts.
+def _build_effect_inner(
+    ftype: str,
+    variables: dict,
+    x: float,
+    y: float,
+    canvas_w: int,
+    project_dir: Path,
+    copied: set[str],
+) -> Optional[tuple[str, str, str]]:
+    """Build one effect's (outer_style, inner_class, inner_html), or None to skip.
 
-    Phase B handles type 'logo' (an absolutely-positioned animated <img>).
-    Effects with an unknown type or a missing source image are skipped.
+    `outer_style` positions the wrapper (incl. its centering transform); the
+    inner element is what the timeline animates. Returns None when required
+    content is missing (e.g. a logo with no image, an empty text effect).
     """
-    if not effects:
-        return []
-    assets_dir = project_dir / "assets"
-    prepared: list[dict] = []
-    copied: set[str] = set()
-    for i, fx in enumerate(effects):
-        if fx.get("type", "logo") != "logo":
-            continue
-        variables = fx.get("variables") or {}
+    if ftype == "logo":
         src = variables.get("src") or variables.get("logo_path")
         if not src or not Path(src).exists():
-            continue  # nothing to show without an image
+            return None  # nothing to show without an image
         src_path = Path(src)
         if src_path.name not in copied:
+            assets_dir = project_dir / "assets"
             assets_dir.mkdir(parents=True, exist_ok=True)
             shutil.copy2(src_path, assets_dir / src_path.name)
             copied.add(src_path.name)
         width = variables.get("width")
         if not isinstance(width, (int, float)) or width <= 0:
             width = int(_DEFAULT_LOGO_WIDTH_FRAC * canvas_w)
+        outer_style = (
+            f"left: {x}%; top: {y}%; width: {int(width)}px; "
+            "transform: translate(-50%, -50%);"
+        )
+        inner = f'<img src="assets/{src_path.name}" style="width: 100%; display: block;" />'
+        return outer_style, "fx-logo", inner
+
+    if ftype == "lower_third":
+        title = str(variables.get("title") or variables.get("text") or "").strip()
+        if not title:
+            return None
+        subtitle = str(variables.get("subtitle") or "").strip()
+        accent = str(variables.get("accent") or _ACCENT)
+        outer_style = f"left: {x}%; top: {y}%; transform: translateY(-50%);"
+        sub_html = (
+            f'<div class="fx-lower-sub">{html.escape(subtitle)}</div>' if subtitle else ""
+        )
+        inner = (
+            f'<div class="fx-lower-bar" style="background: {accent};"></div>'
+            f'<div class="fx-lower-text">'
+            f'<div class="fx-lower-title">{html.escape(title)}</div>{sub_html}'
+            f"</div>"
+        )
+        return outer_style, "fx-lower", inner
+
+    if ftype == "kinetic_stat":
+        value = str(variables.get("value") or variables.get("text") or "").strip()
+        if not value:
+            return None
+        label = str(variables.get("label") or "").strip()
+        accent = str(variables.get("accent") or _ACCENT)
+        outer_style = f"left: {x}%; top: {y}%; transform: translate(-50%, -50%);"
+        label_html = (
+            f'<div class="fx-stat-label">{html.escape(label)}</div>' if label else ""
+        )
+        inner = (
+            f'<div class="fx-stat-value" style="color: {accent};">{html.escape(value)}</div>'
+            f"{label_html}"
+        )
+        return outer_style, "fx-stat", inner
+
+    return None  # unknown type
+
+
+def _prepare_effects(
+    effects: Optional[list[dict]], project_dir: Path, canvas_w: int
+) -> list[dict]:
+    """Copy effect assets in and return render-ready effect dicts.
+
+    Dispatches per `type` (logo / lower_third / kinetic_stat). Effects with an
+    unknown type or missing required content are skipped. Each prepared effect
+    carries its own enter/exit animation so the timeline stays type-agnostic.
+    """
+    if not effects:
+        return []
+    prepared: list[dict] = []
+    copied: set[str] = set()
+    for i, fx in enumerate(effects):
+        ftype = fx.get("type", "logo")
+        if ftype not in _FX_ANIM:
+            continue
+        variables = fx.get("variables") or {}
+        x = round(float(fx.get("anchor_x", 0.5)) * 100, 3)
+        y = round(float(fx.get("anchor_y", 0.5)) * 100, 3)
+        built = _build_effect_inner(ftype, variables, x, y, canvas_w, project_dir, copied)
+        if built is None:
+            continue
+        outer_style, inner_class, inner_html = built
         start = float(fx.get("start", 0.0))
         duration = float(fx.get("duration", 2.0))
+        anim = _FX_ANIM[ftype]
         prepared.append({
             "id": f"fx-{i}",
-            "src": f"assets/{src_path.name}",
-            "x": round(float(fx.get("anchor_x", 0.5)) * 100, 3),
-            "y": round(float(fx.get("anchor_y", 0.5)) * 100, 3),
-            "w": int(width),
             "s": start,
             "e": start + duration,
+            "style": outer_style,
+            "cls": inner_class,
+            "inner": inner_html,
+            "ef": anim["from"], "et": anim["to"], "xt": anim["exit"],
+            "ed": anim["edur"], "xd": anim["xdur"], "ee": anim["ease"],
         })
     return prepared
 
 
 def _effects_html(effects: list[dict]) -> str:
-    """Pre-rendered effect elements (hidden via CSS; revealed by the timeline)."""
+    """Pre-rendered effect wrappers (hidden via CSS; revealed by the timeline).
+
+    Outer `.fx` is positioned; the inner element is the animation target — the
+    same position/motion split used for captions so transforms never collide.
+    """
     return "\n      ".join(
-        f'<img id="{fx["id"]}" class="fx" src="{fx["src"]}" '
-        f'style="left: {fx["x"]}%; top: {fx["y"]}%; width: {fx["w"]}px;" />'
+        f'<div id="{fx["id"]}" class="fx" style="{fx["style"]}">'
+        f'<div id="{fx["id"]}-i" class="fx-inner {fx["cls"]}">{fx["inner"]}</div>'
+        f"</div>"
         for fx in effects
     )
 
@@ -175,6 +275,11 @@ def _build_index_html(
     max_width_px = int(config.max_width * width)
     pos_top_pct = round(config.position_y * 100, 3)
     effects_html = _effects_html(effects)
+    # Text-effect sizing, derived from canvas height for resolution independence.
+    lt_title_px = max(20, int(height * 0.045))
+    lt_sub_px = max(14, int(height * 0.030))
+    stat_value_px = max(48, int(height * 0.16))
+    stat_label_px = max(16, int(height * 0.038))
 
     timeline_js = (
         "(function(){\n"
@@ -196,15 +301,18 @@ def _build_index_html(
         f'    tl.to(sel, {{ opacity: 0, duration: {_EXIT_DUR}, ease: "power2.in", overwrite: "auto" }}, exitAt);\n'
         '    tl.set(sel, { opacity: 0, visibility: "hidden" }, g.e);\n'
         "  });\n"
-        f"  var EFFECTS = {json.dumps([{k: fx[k] for k in ('id', 's', 'e')} for fx in effects])};\n"
+        f"  var EFFECTS = {json.dumps([{k: fx[k] for k in ('id', 's', 'e', 'ef', 'et', 'xt', 'ed', 'xd', 'ee')} for fx in effects])};\n"
         "  EFFECTS.forEach(function(fx){\n"
-        '    var sel = "#" + fx.id;\n'
-        '    tl.set(sel, { visibility: "visible" }, fx.s);\n'
-        "    tl.fromTo(sel, { opacity: 0, scale: 0.8, xPercent: -50, yPercent: -50 }, "
-        '{ opacity: 1, scale: 1, xPercent: -50, yPercent: -50, duration: 0.4, ease: "back.out(1.7)", overwrite: "auto" }, fx.s);\n'
-        "    var fxExit = Math.max(fx.s, fx.e - 0.25);\n"
-        '    tl.to(sel, { opacity: 0, scale: 0.95, xPercent: -50, yPercent: -50, duration: 0.25, ease: "power2.in", overwrite: "auto" }, fxExit);\n'
-        '    tl.set(sel, { opacity: 0, visibility: "hidden" }, fx.e);\n'
+        '    var outer = "#" + fx.id;\n'
+        '    var inner = "#" + fx.id + "-i";\n'
+        '    tl.set(outer, { visibility: "visible" }, fx.s);\n'
+        '    var to = Object.assign({}, fx.et, { duration: fx.ed, ease: fx.ee, overwrite: "auto" });\n'
+        "    tl.fromTo(inner, fx.ef, to, fx.s);\n"
+        "    var fxExit = Math.max(fx.s, fx.e - fx.xd);\n"
+        '    var ex = Object.assign({}, fx.xt, { duration: fx.xd, ease: "power2.in", overwrite: "auto" });\n'
+        "    tl.to(inner, ex, fxExit);\n"
+        '    tl.set(outer, { visibility: "hidden" }, fx.e);\n'
+        "    tl.set(inner, { opacity: 0 }, fx.e);\n"
         "  });\n"
         "  window.__timelines = window.__timelines || {};\n"
         '  window.__timelines["root"] = tl;\n'
@@ -258,7 +366,22 @@ def _build_index_html(
       border-radius: {config.bg_corner_radius}px;
     }}
     .cw {{ color: {config.text_color}; }}
-    .fx {{ position: absolute; opacity: 0; visibility: hidden; z-index: 5; pointer-events: none; }}
+    /* Effects: outer .fx positions (incl. centering transform), .fx-inner is the
+       animation target — position/motion split, same as captions. */
+    .fx {{ position: absolute; visibility: hidden; z-index: 5; pointer-events: none; }}
+    .fx-inner {{ opacity: 0; }}
+    .fx-lower {{
+      display: flex; align-items: stretch; gap: 14px; max-width: 46%;
+      background: rgba(12, 12, 14, 0.78);
+      padding: 14px 22px 14px 14px; border-radius: 10px;
+      font-family: "{config.font_family}", system-ui, sans-serif;
+    }}
+    .fx-lower-bar {{ width: 5px; border-radius: 3px; flex: 0 0 auto; }}
+    .fx-lower-title {{ color: #fff; font-size: {lt_title_px}px; font-weight: 700; line-height: 1.15; white-space: nowrap; }}
+    .fx-lower-sub {{ color: rgba(255, 255, 255, 0.72); font-size: {lt_sub_px}px; margin-top: 3px; white-space: nowrap; }}
+    .fx-stat {{ text-align: center; font-family: "{config.font_family}", system-ui, sans-serif; }}
+    .fx-stat-value {{ font-size: {stat_value_px}px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.45); }}
+    .fx-stat-label {{ color: #fff; font-size: {stat_label_px}px; font-weight: 600; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.08em; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5); }}
     """
 
     return f"""<!doctype html>

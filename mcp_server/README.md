@@ -84,9 +84,10 @@ actually reads.
 | `render_frame` | Render the frame at time `t` (composited over video) — agent SEES it |
 | `check_layout` | Caption bbox + frame-edge + advisory safe-zone check at `t` |
 | `find_moments` | Find transcript moments (word timings) matching a phrase — where to place effects |
-| `list_effect_types` | Available effect types + their variable schemas |
+| `find_semantic_moments` | Find moments by category: `numbers` / `cta` / `speaker_change` (diarization) |
+| `list_effect_types` | Available effect types (logo, lower_third, kinetic_stat) + their variable schemas |
 | `list_effects` | Effect clips currently on the timeline |
-| `add_effect` | Place an animated effect (e.g. a logo) at a time — the AI video director |
+| `add_effect` | Place an animated effect (logo / lower_third / kinetic_stat) at a time — the AI video director |
 | `remove_effect` | Remove an effect clip by id |
 | `render_hyperframes` | Render captions + placed effects via HyperFrames → output path |
 
