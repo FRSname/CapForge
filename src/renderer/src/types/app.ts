@@ -58,10 +58,13 @@ export interface Segment {
   speaker?: string
 }
 
-/** An agent- or user-placed animated effect (logo, etc.) on the effects timeline. */
+/** Effect types the HyperFrames generator can composite (see backend `_FX_ANIM`). */
+export type EffectType = 'logo' | 'lower_third' | 'kinetic_stat' | 'highlight' | 'b_roll'
+
+/** An agent- or user-placed animated effect on the effects timeline. */
 export interface EffectClip {
   id: string
-  type: 'logo'
+  type: EffectType
   start: number
   duration: number
   trackIndex: number

@@ -172,3 +172,45 @@ def test_text_effect_escapes_html(transcription_result, tmp_path):
     html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
     assert "<script>x</script>" not in html
     assert "&lt;script&gt;" in html
+
+
+# --- Phase D slice 2: highlight + b_roll ---
+
+
+def test_highlight_renders_marker_bar(transcription_result, tmp_path):
+    effects = [{
+        "id": "e1", "type": "highlight", "start": 0.5, "duration": 1.0,
+        "anchor_x": 0.4, "anchor_y": 0.5, "variables": {"width": 240, "height": 40},
+    }]
+    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
+    assert 'class="fx-inner fx-highlight"' in html
+    assert "fx-hl-bar" in html and "width: 240px" in html
+    assert '"transformOrigin": "left center"' in html  # GSAP sweep origin
+
+
+def test_b_roll_image_composited_and_copied(transcription_result, tmp_path):
+    img = _make_logo(tmp_path)  # any image file works
+    effects = [{
+        "id": "e1", "type": "b_roll", "start": 1.0, "duration": 2.0,
+        "variables": {"src": img, "width": 600},
+    }]
+    project = _generate(transcription_result, tmp_path, effects=effects)
+    html = (project / "index.html").read_text()
+    assert 'class="fx-inner fx-broll"' in html and "width: 600px" in html
+    assert (project / "assets" / "logo.png").exists()
+
+
+def test_b_roll_fullscreen_covers_frame(transcription_result, tmp_path):
+    img = _make_logo(tmp_path)
+    effects = [{
+        "id": "e1", "type": "b_roll", "start": 0.0, "duration": 1.0,
+        "variables": {"src": img, "fullscreen": True},
+    }]
+    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
+    assert "object-fit: cover" in html and "width: 100%; height: 100%" in html
+
+
+def test_b_roll_with_missing_image_is_skipped(transcription_result, tmp_path):
+    effects = [{"id": "e1", "type": "b_roll", "start": 0.0, "variables": {"src": str(tmp_path / "nope.png")}}]
+    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
+    assert 'class="fx"' not in html

@@ -264,6 +264,28 @@ def list_effect_types() -> dict:
                     "accent": "#hex number color (optional)",
                 },
             },
+            {
+                "type": "highlight",
+                "description": "Translucent highlighter marker swept across a "
+                "spoken word for emphasis. Place at the word's position.",
+                "fields": pos,
+                "variables": {
+                    "color": "css color (optional; default translucent accent)",
+                    "width": "px (optional)",
+                    "height": "px (optional)",
+                },
+            },
+            {
+                "type": "b_roll",
+                "description": "Timed image insert that sits behind the captions. "
+                "Sized at an anchor, or fullscreen cover.",
+                "fields": pos,
+                "variables": {
+                    "src": "absolute path to image (required)",
+                    "width": "px (optional; ignored when fullscreen)",
+                    "fullscreen": "true to cover the whole frame (optional)",
+                },
+            },
         ]
     }
 
@@ -280,6 +302,8 @@ _DEFAULT_ANCHORS = {
     "logo": (0.82, 0.2),          # top-right
     "lower_third": (0.06, 0.82),  # lower-left
     "kinetic_stat": (0.5, 0.4),   # upper-center
+    "highlight": (0.4, 0.5),      # centered-ish, over caption text
+    "b_roll": (0.5, 0.5),         # centered
 }
 
 
@@ -289,12 +313,15 @@ def add_effect(
     duration: float = 2.0,
     type: str = "logo",
     src: Optional[str] = None,
-    width: int = 200,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
     title: Optional[str] = None,
     subtitle: Optional[str] = None,
     value: Optional[str] = None,
     label: Optional[str] = None,
+    color: Optional[str] = None,
     accent: Optional[str] = None,
+    fullscreen: bool = False,
     anchor_x: Optional[float] = None,
     anchor_y: Optional[float] = None,
     source_word_id: Optional[str] = None,
@@ -305,6 +332,8 @@ def add_effect(
       - logo: `src` (absolute image path), optional `width` px.
       - lower_third: `title` (required), optional `subtitle`, `accent`.
       - kinetic_stat: `value` (required, e.g. "2.4M"), optional `label`, `accent`.
+      - highlight: optional `color`, `width`, `height` px (a marker sweep).
+      - b_roll: `src` (required), optional `width`, `fullscreen=True`.
 
     Position via anchor_x/anchor_y (0-1, 0,0 = top-left); omit for a sensible
     per-type default. Pair with find_moments / find_semantic_moments to place at
@@ -316,6 +345,10 @@ def add_effect(
         variables = {"title": title, "subtitle": subtitle, "accent": accent}
     elif type == "kinetic_stat":
         variables = {"value": value, "label": label, "accent": accent}
+    elif type == "highlight":
+        variables = {"color": color, "accent": accent, "width": width, "height": height}
+    elif type == "b_roll":
+        variables = {"src": src, "width": width, "fullscreen": fullscreen or None}
     else:
         variables = {}
     variables = {k: v for k, v in variables.items() if v is not None}

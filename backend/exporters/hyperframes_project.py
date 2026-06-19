@@ -67,6 +67,21 @@ _FX_ANIM: dict[str, dict] = {
         "exit": {"opacity": 0, "scale": 0.9},
         "edur": 0.5, "xdur": 0.25, "ease": "back.out(2)",
     },
+    # Marker sweep: scaleX from the left edge (transformOrigin set via GSAP so it
+    # survives GSAP overwriting the inline transform-origin).
+    "highlight": {
+        "from": {"opacity": 0, "scaleX": 0, "transformOrigin": "left center"},
+        "to": {"opacity": 1, "scaleX": 1, "transformOrigin": "left center"},
+        "exit": {"opacity": 0},
+        "edur": 0.4, "xdur": 0.2, "ease": "power2.out",
+    },
+    # B-roll insert: gentle zoom-settle, sits behind the captions (z-index 5).
+    "b_roll": {
+        "from": {"opacity": 0, "scale": 1.06},
+        "to": {"opacity": 1, "scale": 1},
+        "exit": {"opacity": 0, "scale": 1.0},
+        "edur": 0.5, "xdur": 0.3, "ease": "power2.out",
+    },
 }
 
 
@@ -132,12 +147,29 @@ def _groups_timing_json(groups: list[dict]) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _copy_asset(
+    src: object, project_dir: Path, copied: set[str]
+) -> Optional[str]:
+    """Copy an asset into assets/ (once) and return its project-relative path,
+    or None if the source is missing."""
+    if not src or not Path(str(src)).exists():
+        return None
+    src_path = Path(str(src))
+    if src_path.name not in copied:
+        assets_dir = project_dir / "assets"
+        assets_dir.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src_path, assets_dir / src_path.name)
+        copied.add(src_path.name)
+    return f"assets/{src_path.name}"
+
+
 def _build_effect_inner(
     ftype: str,
     variables: dict,
     x: float,
     y: float,
     canvas_w: int,
+    canvas_h: int,
     project_dir: Path,
     copied: set[str],
 ) -> Optional[tuple[str, str, str]]:
@@ -148,15 +180,9 @@ def _build_effect_inner(
     content is missing (e.g. a logo with no image, an empty text effect).
     """
     if ftype == "logo":
-        src = variables.get("src") or variables.get("logo_path")
-        if not src or not Path(src).exists():
+        rel = _copy_asset(variables.get("src") or variables.get("logo_path"), project_dir, copied)
+        if rel is None:
             return None  # nothing to show without an image
-        src_path = Path(src)
-        if src_path.name not in copied:
-            assets_dir = project_dir / "assets"
-            assets_dir.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(src_path, assets_dir / src_path.name)
-            copied.add(src_path.name)
         width = variables.get("width")
         if not isinstance(width, (int, float)) or width <= 0:
             width = int(_DEFAULT_LOGO_WIDTH_FRAC * canvas_w)
@@ -164,7 +190,7 @@ def _build_effect_inner(
             f"left: {x}%; top: {y}%; width: {int(width)}px; "
             "transform: translate(-50%, -50%);"
         )
-        inner = f'<img src="assets/{src_path.name}" style="width: 100%; display: block;" />'
+        inner = f'<img src="{rel}" style="width: 100%; display: block;" />'
         return outer_style, "fx-logo", inner
 
     if ftype == "lower_third":
@@ -201,17 +227,56 @@ def _build_effect_inner(
         )
         return outer_style, "fx-stat", inner
 
+    if ftype == "highlight":
+        # A highlighter marker swept across a spoken word. Translucent so the
+        # word stays legible; sized in px (defaults relative to the canvas).
+        color = variables.get("color")
+        color = str(color) if color else _css_rgba(str(variables.get("accent") or _ACCENT), 0.45)
+        width = variables.get("width")
+        if not isinstance(width, (int, float)) or width <= 0:
+            width = int(0.22 * canvas_w)
+        height = variables.get("height")
+        if not isinstance(height, (int, float)) or height <= 0:
+            height = max(24, int(0.055 * canvas_h))
+        # Outer anchored by the marker's left edge so the sweep starts where placed.
+        outer_style = f"left: {x}%; top: {y}%; transform: translate(0, -50%);"
+        inner = (
+            f'<div class="fx-hl-bar" style="width: {int(width)}px; '
+            f'height: {int(height)}px; background: {color};"></div>'
+        )
+        return outer_style, "fx-highlight", inner
+
+    if ftype == "b_roll":
+        rel = _copy_asset(variables.get("src"), project_dir, copied)
+        if rel is None:
+            return None
+        if variables.get("fullscreen"):
+            outer_style = "left: 0; top: 0; width: 100%; height: 100%;"
+            img_style = "width: 100%; height: 100%; object-fit: cover; display: block;"
+        else:
+            width = variables.get("width")
+            if not isinstance(width, (int, float)) or width <= 0:
+                width = int(0.5 * canvas_w)
+            outer_style = (
+                f"left: {x}%; top: {y}%; width: {int(width)}px; "
+                "transform: translate(-50%, -50%);"
+            )
+            img_style = "width: 100%; height: auto; display: block;"
+        inner = f'<img src="{rel}" style="{img_style}" />'
+        return outer_style, "fx-broll", inner
+
     return None  # unknown type
 
 
 def _prepare_effects(
-    effects: Optional[list[dict]], project_dir: Path, canvas_w: int
+    effects: Optional[list[dict]], project_dir: Path, canvas_w: int, canvas_h: int
 ) -> list[dict]:
     """Copy effect assets in and return render-ready effect dicts.
 
-    Dispatches per `type` (logo / lower_third / kinetic_stat). Effects with an
-    unknown type or missing required content are skipped. Each prepared effect
-    carries its own enter/exit animation so the timeline stays type-agnostic.
+    Dispatches per `type` (logo / lower_third / kinetic_stat / highlight /
+    b_roll). Effects with an unknown type or missing required content are
+    skipped. Each prepared effect carries its own enter/exit animation so the
+    timeline stays type-agnostic.
     """
     if not effects:
         return []
@@ -224,7 +289,9 @@ def _prepare_effects(
         variables = fx.get("variables") or {}
         x = round(float(fx.get("anchor_x", 0.5)) * 100, 3)
         y = round(float(fx.get("anchor_y", 0.5)) * 100, 3)
-        built = _build_effect_inner(ftype, variables, x, y, canvas_w, project_dir, copied)
+        built = _build_effect_inner(
+            ftype, variables, x, y, canvas_w, canvas_h, project_dir, copied
+        )
         if built is None:
             continue
         outer_style, inner_class, inner_html = built
@@ -382,6 +449,9 @@ def _build_index_html(
     .fx-stat {{ text-align: center; font-family: "{config.font_family}", system-ui, sans-serif; }}
     .fx-stat-value {{ font-size: {stat_value_px}px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.45); }}
     .fx-stat-label {{ color: #fff; font-size: {stat_label_px}px; font-weight: 600; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.08em; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5); }}
+    .fx-highlight {{ display: inline-block; }}
+    .fx-hl-bar {{ border-radius: 4px; }}
+    .fx-broll {{ line-height: 0; }}
     """
 
     return f"""<!doctype html>
@@ -466,7 +536,9 @@ def export_hyperframes_project(
     )
 
     font_face = _font_face_block(config, project_dir)
-    effects_render = _prepare_effects(effects, project_dir, config.resolution_w)
+    effects_render = _prepare_effects(
+        effects, project_dir, config.resolution_w, config.resolution_h
+    )
     index_html = _build_index_html(
         config, groups, total_duration, source_src, font_face, effects_render
     )
