@@ -7,6 +7,7 @@ CapForge is open; the first tool call then surfaces a clear BackendNotFound.
 from __future__ import annotations
 
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -92,6 +93,22 @@ class CapForgeClient:
 
     def check_layout(self, t: float, platform: str = "off") -> Any:
         return self._request("POST", "/api/agent/check-layout", json={"t": t, "platform": platform})
+
+    def get_effects(self) -> Any:
+        return self._request("GET", "/api/agent/effects")
+
+    def add_effect(self, effect: dict) -> Any:
+        return self._request("POST", "/api/agent/effects", json=effect)
+
+    def remove_effect(self, effect_id: str) -> Any:
+        return self._request("DELETE", f"/api/agent/effects/{quote(effect_id)}")
+
+    def find_moments(self, query: str) -> Any:
+        return self._request("GET", f"/api/agent/find-moments?query={quote(query)}")
+
+    def render_hyperframes(self, payload: dict) -> Any:
+        # Headless-Chrome capture can take a while.
+        return self._request("POST", "/api/export-hyperframes", json=payload, timeout=_LONG_TIMEOUT)
 
     def get_frame(self, t: float, composite: bool = True, _retry: bool = True) -> bytes:
         """Render a QA frame and return raw PNG bytes (not JSON)."""

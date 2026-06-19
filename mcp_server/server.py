@@ -205,6 +205,89 @@ def check_layout(t: float, platform: str = "off") -> dict:
     return _client.check_layout(t, platform)
 
 
+# --- Effects (AI video director) -----------------------------------------
+
+@mcp.tool()
+def find_moments(query: str) -> dict:
+    """Find transcript moments (word timings) matching a phrase — e.g. a brand
+    or product name. Returns matches with `start`/`end` seconds and `word_id`.
+
+    Use this to decide WHERE to place an effect: find the spoken moment, then
+    call add_effect with its `start`.
+    """
+    return _client.find_moments(query)
+
+
+@mcp.tool()
+def list_effect_types() -> dict:
+    """List available effect types and the variables each accepts."""
+    return {
+        "types": [
+            {
+                "type": "logo",
+                "description": "Animated image overlay — pops in, holds, pops out.",
+                "fields": ["start (s)", "duration (s)", "anchor_x (0-1)", "anchor_y (0-1)"],
+                "variables": {"src": "absolute path to image", "width": "px (optional)"},
+            }
+        ]
+    }
+
+
+@mcp.tool()
+def list_effects() -> dict:
+    """List the effect clips currently on the timeline."""
+    return _client.get_effects()
+
+
+@mcp.tool()
+def add_effect(
+    src: str,
+    start: float,
+    duration: float = 2.0,
+    type: str = "logo",
+    anchor_x: float = 0.82,
+    anchor_y: float = 0.2,
+    width: int = 200,
+    source_word_id: Optional[str] = None,
+) -> dict:
+    """Place an animated effect (e.g. a logo image) at `start` for `duration` seconds.
+
+    `src` is an absolute path to the image. Position via anchor_x/anchor_y (0-1,
+    where 0,0 is top-left). Pair with find_moments to place effects at spoken
+    words; pass that moment's word_id as `source_word_id` for provenance.
+    """
+    effect = {
+        "type": type,
+        "start": start,
+        "duration": duration,
+        "track_index": 1,
+        "anchor_x": anchor_x,
+        "anchor_y": anchor_y,
+        "source_word_id": source_word_id,
+        "variables": {"src": src, "width": width},
+        "created_by": "agent",
+    }
+    return _client.add_effect(effect)
+
+
+@mcp.tool()
+def remove_effect(effect_id: str) -> dict:
+    """Remove an effect clip by id (see list_effects for ids)."""
+    return _client.remove_effect(effect_id)
+
+
+@mcp.tool()
+def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dict:
+    """Render the video (captions + placed effects) with the HyperFrames engine.
+
+    Uses the effects currently on the timeline (see list_effects/add_effect) and
+    returns the output file path. quality: draft|standard|high. May take a while.
+    """
+    return _client.render_hyperframes(
+        {"render": True, "quality": quality, "video_format": video_format}
+    )
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 

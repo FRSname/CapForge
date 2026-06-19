@@ -23,6 +23,7 @@ from backend.agent_bridge import (
 )
 from backend.engine.errors import explain
 from backend.engine.hardware import detect_hardware
+from backend.engine.moments import find_transcript_moments
 from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
@@ -39,6 +40,7 @@ from backend.exporters.srt_word import export_srt_word
 from backend.exporters.vtt_export import export_vtt
 from backend.exporters.video_render import RenderCancelled, cancel_render, render_subtitle_video
 from backend.models.schemas import (
+    EffectClip,
     ExportFormat,
     ExportRequest,
     HyperframesRenderRequest,
@@ -69,6 +71,9 @@ app.add_middleware(
 transcriber = Transcriber()
 current_result: Optional[TranscriptionResult] = None
 current_status = ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Ready")
+# Agent/user effects timeline (logos, etc.). The HyperFrames render uses this
+# when the request doesn't supply its own effects (the agent's placement path).
+current_effects: list[EffectClip] = []
 ws_clients: list[WebSocket] = []
 
 # Renderer-owned UI state (StudioSettings + groups), mirrored here so the agent
@@ -588,9 +593,10 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     custom_groups_dicts = (
         [g.model_dump() for g in request.custom_groups] if request.custom_groups else None
     )
-    effects_dicts = (
-        [e.model_dump() for e in request.effects] if request.effects else None
-    )
+    # Prefer effects supplied in the request (frontend panel); otherwise fall
+    # back to the server-side timeline the agent populates via /api/agent/effects.
+    effects_source = request.effects if request.effects is not None else current_effects
+    effects_dicts = [e.model_dump() for e in effects_source] if effects_source else None
 
     def _work() -> dict:
         project_dir = export_hyperframes_project(
@@ -642,6 +648,47 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             status_code=500,
             detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
         )
+
+
+# --- Agent effects endpoints ---
+
+@app.get("/api/agent/effects", dependencies=[Depends(require_agent_token)])
+async def get_effects():
+    """Return the current effects timeline."""
+    return {"effects": [e.model_dump() for e in current_effects]}
+
+
+@app.post("/api/agent/effects", dependencies=[Depends(require_agent_token)])
+async def add_effect(effect: EffectClip):
+    """Append an effect clip (id auto-generated if absent). Returns the stored effect."""
+    global current_effects
+    current_effects = [*current_effects, effect]
+    return {"status": "ok", "effect": effect.model_dump(), "count": len(current_effects)}
+
+
+@app.put("/api/agent/effects", dependencies=[Depends(require_agent_token)])
+async def replace_effects(effects: list[EffectClip]):
+    """Replace the entire effects timeline."""
+    global current_effects
+    current_effects = list(effects)
+    return {"status": "ok", "count": len(current_effects)}
+
+
+@app.delete("/api/agent/effects/{effect_id}", dependencies=[Depends(require_agent_token)])
+async def remove_effect(effect_id: str):
+    """Remove an effect clip by id."""
+    global current_effects
+    before = len(current_effects)
+    current_effects = [e for e in current_effects if e.id != effect_id]
+    return {"status": "ok", "removed": before - len(current_effects), "count": len(current_effects)}
+
+
+@app.get("/api/agent/find-moments", dependencies=[Depends(require_agent_token)])
+async def find_moments_endpoint(query: str):
+    """Find transcript moments matching `query` — used to place effects at spoken words."""
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    return {"matches": find_transcript_moments(current_result, query)}
 
 
 # --- Export helpers ---

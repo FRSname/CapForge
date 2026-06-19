@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Optional
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -196,7 +197,7 @@ class VideoRenderRequest(BaseModel):
 
 class EffectClip(BaseModel):
     """An agent- or user-placed animated effect on the HyperFrames effects timeline."""
-    id: str
+    id: str = Field(default_factory=lambda: f"fx-{uuid4().hex[:8]}")
     type: str = Field("logo", description="Effect type: logo (more types in later phases)")
     start: float = Field(..., ge=0.0, description="Start time in seconds")
     duration: float = Field(2.0, gt=0.0, description="Visible duration in seconds")
