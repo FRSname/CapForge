@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import pytest
+from PIL import Image
 
 from backend.exporters.hyperframes_project import export_hyperframes_project
 from backend.models.schemas import TranscriptionResult, VideoRenderConfig
@@ -86,3 +87,43 @@ def test_custom_groups_override_autogrouping(transcription_result, tmp_path):
 def test_empty_result_raises(empty_result, tmp_path):
     with pytest.raises(ValueError):
         export_hyperframes_project(empty_result, VideoRenderConfig(), str(tmp_path))
+
+
+# --- Phase B: effect clips ---
+
+
+def _make_logo(tmp_path) -> str:
+    path = tmp_path / "logo.png"
+    Image.new("RGBA", (64, 64), (212, 149, 42, 255)).save(path)
+    return str(path)
+
+
+def test_logo_effect_composited(transcription_result, tmp_path):
+    logo = _make_logo(tmp_path)
+    effects = [{
+        "id": "e1", "type": "logo", "start": 0.5, "duration": 1.5,
+        "anchor_x": 0.5, "anchor_y": 0.3,
+        "variables": {"src": logo, "width": 200},
+    }]
+    project = _generate(transcription_result, tmp_path, effects=effects)
+    html = (project / "index.html").read_text()
+    assert 'class="fx"' in html and 'id="fx-0"' in html
+    assert "var EFFECTS" in html
+    assert "width: 200px" in html
+    assert (project / "assets" / "logo.png").exists()  # asset copied in
+
+
+def test_logo_with_missing_image_is_skipped(transcription_result, tmp_path):
+    effects = [{
+        "id": "e1", "type": "logo", "start": 0.0, "duration": 1.0,
+        "variables": {"src": str(tmp_path / "does-not-exist.png")},
+    }]
+    project = _generate(transcription_result, tmp_path, effects=effects)
+    html = (project / "index.html").read_text()
+    assert 'class="fx"' not in html
+
+
+def test_no_effects_emits_empty_effects_array(transcription_result, tmp_path):
+    html = (_generate(transcription_result, tmp_path) / "index.html").read_text()
+    assert 'class="fx"' not in html
+    assert "var EFFECTS = []" in html

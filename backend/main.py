@@ -588,6 +588,9 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     custom_groups_dicts = (
         [g.model_dump() for g in request.custom_groups] if request.custom_groups else None
     )
+    effects_dicts = (
+        [e.model_dump() for e in request.effects] if request.effects else None
+    )
 
     def _work() -> dict:
         project_dir = export_hyperframes_project(
@@ -596,6 +599,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             request.output_dir,
             source_video_path=current_result.audio_path,
             custom_groups=custom_groups_dicts,
+            effects=effects_dicts,
         )
         if not request.render:
             return {"project": project_dir, "file": None}

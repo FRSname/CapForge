@@ -42,6 +42,8 @@ _ENTRANCES = {
 
 _EXIT_DUR = 0.12  # caption exit fade (captions.md Caption Exit Guarantee)
 
+_DEFAULT_LOGO_WIDTH_FRAC = 0.18  # logo width as a fraction of canvas width when unset
+
 
 def _css_rgba(hex_color: str, opacity: float) -> str:
     """Convert '#RRGGBB' (+ opacity) to a CSS rgba() string."""
@@ -101,12 +103,64 @@ def _groups_timing_json(groups: list[dict]) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
+def _prepare_effects(
+    effects: Optional[list[dict]], project_dir: Path, canvas_w: int
+) -> list[dict]:
+    """Copy effect assets into the project and return render-ready effect dicts.
+
+    Phase B handles type 'logo' (an absolutely-positioned animated <img>).
+    Effects with an unknown type or a missing source image are skipped.
+    """
+    if not effects:
+        return []
+    assets_dir = project_dir / "assets"
+    prepared: list[dict] = []
+    copied: set[str] = set()
+    for i, fx in enumerate(effects):
+        if fx.get("type", "logo") != "logo":
+            continue
+        variables = fx.get("variables") or {}
+        src = variables.get("src") or variables.get("logo_path")
+        if not src or not Path(src).exists():
+            continue  # nothing to show without an image
+        src_path = Path(src)
+        if src_path.name not in copied:
+            assets_dir.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src_path, assets_dir / src_path.name)
+            copied.add(src_path.name)
+        width = variables.get("width")
+        if not isinstance(width, (int, float)) or width <= 0:
+            width = int(_DEFAULT_LOGO_WIDTH_FRAC * canvas_w)
+        start = float(fx.get("start", 0.0))
+        duration = float(fx.get("duration", 2.0))
+        prepared.append({
+            "id": f"fx-{i}",
+            "src": f"assets/{src_path.name}",
+            "x": round(float(fx.get("anchor_x", 0.5)) * 100, 3),
+            "y": round(float(fx.get("anchor_y", 0.5)) * 100, 3),
+            "w": int(width),
+            "s": start,
+            "e": start + duration,
+        })
+    return prepared
+
+
+def _effects_html(effects: list[dict]) -> str:
+    """Pre-rendered effect elements (hidden via CSS; revealed by the timeline)."""
+    return "\n      ".join(
+        f'<img id="{fx["id"]}" class="fx" src="{fx["src"]}" '
+        f'style="left: {fx["x"]}%; top: {fx["y"]}%; width: {fx["w"]}px;" />'
+        for fx in effects
+    )
+
+
 def _build_index_html(
     config: VideoRenderConfig,
     groups: list[dict],
     duration: float,
     source_src: str,
     font_face: str,
+    effects: list[dict],
 ) -> str:
     width = config.resolution_w
     height = config.resolution_h
@@ -116,6 +170,7 @@ def _build_index_html(
     bg_rgba = _css_rgba(config.bg_color, config.bg_opacity)
     max_width_px = int(config.max_width * width)
     pos_top_pct = round(config.position_y * 100, 3)
+    effects_html = _effects_html(effects)
 
     timeline_js = (
         "(function(){\n"
@@ -136,6 +191,16 @@ def _build_index_html(
         f"    var exitAt = Math.max(g.s, g.e - {_EXIT_DUR});\n"
         f'    tl.to(sel, {{ opacity: 0, duration: {_EXIT_DUR}, ease: "power2.in", overwrite: "auto" }}, exitAt);\n'
         '    tl.set(sel, { opacity: 0, visibility: "hidden" }, g.e);\n'
+        "  });\n"
+        f"  var EFFECTS = {json.dumps([{k: fx[k] for k in ('id', 's', 'e')} for fx in effects])};\n"
+        "  EFFECTS.forEach(function(fx){\n"
+        '    var sel = "#" + fx.id;\n'
+        '    tl.set(sel, { visibility: "visible" }, fx.s);\n'
+        "    tl.fromTo(sel, { opacity: 0, scale: 0.8, xPercent: -50, yPercent: -50 }, "
+        '{ opacity: 1, scale: 1, xPercent: -50, yPercent: -50, duration: 0.4, ease: "back.out(1.7)", overwrite: "auto" }, fx.s);\n'
+        "    var fxExit = Math.max(fx.s, fx.e - 0.25);\n"
+        '    tl.to(sel, { opacity: 0, scale: 0.95, xPercent: -50, yPercent: -50, duration: 0.25, ease: "power2.in", overwrite: "auto" }, fxExit);\n'
+        '    tl.set(sel, { opacity: 0, visibility: "hidden" }, fx.e);\n'
         "  });\n"
         "  window.__timelines = window.__timelines || {};\n"
         '  window.__timelines["root"] = tl;\n'
@@ -177,6 +242,8 @@ def _build_index_html(
       border-radius: {config.bg_corner_radius}px;
     }}
     .cw {{ color: {config.text_color}; }}
+    .captions {{ z-index: 10; }}
+    .fx {{ position: absolute; opacity: 0; visibility: hidden; z-index: 5; pointer-events: none; }}
     """
 
     return f"""<!doctype html>
@@ -190,6 +257,7 @@ def _build_index_html(
   <div id="root" data-composition-id="root" data-width="{width}" data-height="{height}" data-start="0" data-duration="{duration}">
     <video id="src-v" src="{source_src}" muted playsinline data-start="0" data-duration="{duration}" data-track-index="0"></video>
     <audio id="src-a" src="{source_src}" data-start="0" data-duration="{duration}" data-track-index="2" data-volume="1"></audio>
+    {effects_html}
     <div class="captions" id="captions">
       {_groups_html(groups)}
     </div>
@@ -226,6 +294,7 @@ def export_hyperframes_project(
     output_dir: str,
     source_video_path: Optional[str] = None,
     custom_groups: Optional[list[dict]] = None,
+    effects: Optional[list[dict]] = None,
     duration: Optional[float] = None,
 ) -> str:
     """Write a HyperFrames project folder and return its path.
@@ -258,7 +327,10 @@ def export_hyperframes_project(
     )
 
     font_face = _font_face_block(config, project_dir)
-    index_html = _build_index_html(config, groups, total_duration, source_src, font_face)
+    effects_render = _prepare_effects(effects, project_dir, config.resolution_w)
+    index_html = _build_index_html(
+        config, groups, total_duration, source_src, font_face, effects_render
+    )
     (project_dir / "index.html").write_text(index_html, encoding="utf-8")
 
     (project_dir / "README.txt").write_text(

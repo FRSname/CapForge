@@ -194,11 +194,26 @@ class VideoRenderRequest(BaseModel):
     custom_groups: Optional[list[CustomGroup]] = Field(None, description="Manually edited groups; skips auto-grouping when provided")
 
 
+class EffectClip(BaseModel):
+    """An agent- or user-placed animated effect on the HyperFrames effects timeline."""
+    id: str
+    type: str = Field("logo", description="Effect type: logo (more types in later phases)")
+    start: float = Field(..., ge=0.0, description="Start time in seconds")
+    duration: float = Field(2.0, gt=0.0, description="Visible duration in seconds")
+    track_index: int = Field(1, description="HyperFrames track index for the effect")
+    anchor_x: float = Field(0.5, ge=0.0, le=1.0, description="Normalized horizontal anchor (0=left, 1=right)")
+    anchor_y: float = Field(0.5, ge=0.0, le=1.0, description="Normalized vertical anchor (0=top, 1=bottom)")
+    source_word_id: Optional[str] = Field(None, description="Transcript word that triggered this effect (provenance)")
+    variables: dict = Field(default_factory=dict, description="Per-effect content/style, e.g. {src, width}")
+    created_by: str = Field("user", description="user or agent")
+
+
 class HyperframesRenderRequest(BaseModel):
     """Request to generate (and optionally render) a HyperFrames composition."""
     config: VideoRenderConfig = Field(default_factory=VideoRenderConfig)
     output_dir: str = "output"
     custom_groups: Optional[list[CustomGroup]] = Field(None, description="Manually edited groups; skips auto-grouping when provided")
+    effects: Optional[list[EffectClip]] = Field(None, description="Animated effect clips (logos, etc.) composited over the captions")
     render: bool = Field(True, description="Run `npx hyperframes render` after generating the project folder")
     quality: str = Field("draft", description="HyperFrames render quality: draft, standard, high")
     video_format: str = Field("mp4", description="HyperFrames output container: mp4 or webm")
