@@ -50,6 +50,7 @@ class ExportFormat(str, Enum):
     VTT = "vtt"
     ASS = "ass"
     SUBFORGE = "subforge"
+    HYPERFRAMES = "hyperframes"
 
 
 # --- System Info ---

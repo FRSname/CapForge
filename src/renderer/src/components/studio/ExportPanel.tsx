@@ -123,6 +123,20 @@ export function ExportPanel({ audioPath, render, outputDir, onOutputDir }: Expor
         >
           .ASS
         </Button>
+        <Button
+          variant="ghost"
+          className="flex-1 text-[11px] py-1 justify-center"
+          onClick={() =>
+            api
+              .exportResult(buildExportParams(['hyperframes'], effectiveOutputDir))
+              .then(() => toast('Exported HyperFrames transcript', 'success'))
+              .catch((e) => toast(e.message || 'Export failed', 'error'))
+          }
+          disabled={busy}
+          title="HyperFrames transcript ([{text,start,end}] word array) for npx hyperframes"
+        >
+          HyperFrames
+        </Button>
       </div>
     </StudioCard>
   )

@@ -26,6 +26,7 @@ from backend.engine.hardware import detect_hardware
 from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
+from backend.exporters.hyperframes_export import export_hyperframes
 from backend.exporters.json_export import export_json
 from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
@@ -555,6 +556,8 @@ EXPORTERS = {
     ExportFormat.VTT: (export_vtt, ".vtt"),
     ExportFormat.ASS: (export_ass, ".ass"),
     ExportFormat.SUBFORGE: (export_subforge, ".capforge"),
+    # Distinct suffix so it never collides with the plain JSON export's ".json".
+    ExportFormat.HYPERFRAMES: (export_hyperframes, "_hyperframes.json"),
 }
 
 # Suffix overrides to avoid collision when both SRT formats are requested
