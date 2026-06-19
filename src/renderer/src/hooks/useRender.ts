@@ -13,7 +13,7 @@ import { useRef, useState, useCallback } from 'react'
 import { api } from '../lib/api'
 import { buildRenderBody, type RenderOverrides } from '../lib/render'
 import type { StudioSettings } from '../components/studio/StudioPanel'
-import type { Segment } from '../types/app'
+import type { EffectClip, Segment } from '../types/app'
 import { useToast } from './useToast'
 
 export type RenderStatus = 'idle' | 'rendering' | 'done' | 'error'
@@ -40,9 +40,15 @@ interface UseRenderArgs {
   settings: StudioSettings
   groups: Segment[]
   groupsEdited: boolean
+  effects: EffectClip[]
 }
 
-export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): RenderController {
+export function useRender({
+  settings,
+  groups,
+  groupsEdited,
+  effects,
+}: UseRenderArgs): RenderController {
   const [status, setStatus] = useState<RenderStatus>('idle')
   const [progress, setProgress] = useState(0)
   const [elapsed, setElapsed] = useState('')
@@ -105,7 +111,7 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
       })
 
       try {
-        const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir)
+        const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir, effects)
         if (engine === 'hyperframes') {
           await api.exportHyperframes(body)
         } else {
@@ -130,7 +136,7 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
         if (!cancelled) toast(msg, 'error')
       }
     },
-    [settings, groups, groupsEdited, stopTimer, toast]
+    [settings, groups, groupsEdited, effects, stopTimer, toast]
   )
 
   const cancelRender = useCallback(() => {

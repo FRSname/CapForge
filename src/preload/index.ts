@@ -19,6 +19,7 @@ export interface SubforgeApi {
   getPathForFile: (file: File) => string
   pickAudioFile: () => Promise<string | null>
   pickOutputDir: () => Promise<string | null>
+  pickImageFile: () => Promise<string | null>
   getBackendPort: () => Promise<number>
   saveFont: (fileName: string, data: ArrayBuffer) => Promise<string>
   listFonts: () => Promise<FontInfo[]>
@@ -83,6 +84,7 @@ contextBridge.exposeInMainWorld('subforge', {
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   pickAudioFile: () => ipcRenderer.invoke('dialog:openFile'),
   pickOutputDir: () => ipcRenderer.invoke('dialog:openDir'),
+  pickImageFile: () => ipcRenderer.invoke('dialog:openImageFile'),
   getBackendPort: () => ipcRenderer.invoke('backend:port'),
   saveFont: (fileName: string, data: ArrayBuffer) =>
     ipcRenderer.invoke('fonts:save', fileName, data),

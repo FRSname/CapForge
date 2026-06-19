@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('subforge', {
   /** Open native directory picker. Returns path or null. */
   pickOutputDir: () => ipcRenderer.invoke('dialog:openDir'),
 
+  /** Open native image-file picker (logos/overlays). Returns path or null. */
+  pickImageFile: () => ipcRenderer.invoke('dialog:openImageFile'),
+
   /** Get backend port number. */
   getBackendPort: () => ipcRenderer.invoke('backend:port'),
 

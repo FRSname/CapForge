@@ -6,28 +6,28 @@ export type Screen = 'file' | 'progress' | 'results'
  * Keys match the Python backend's renderer contract (renderSubtitleVideo).
  */
 export interface WordOverrides {
-  text_color?:         string
-  active_word_color?:  string
-  font_size_scale?:    number
-  bold?:               boolean
-  font_family?:        string
-  custom_font_path?:   string
-  word_transition?:    WordTransition
+  text_color?: string
+  active_word_color?: string
+  font_size_scale?: number
+  bold?: boolean
+  font_family?: string
+  custom_font_path?: string
+  word_transition?: WordTransition
   // Per-word position nudge (px) — additive to the row layout.
-  pos_offset_x?:       number
-  pos_offset_y?:       number
+  pos_offset_x?: number
+  pos_offset_y?: number
   // Per-word transition sub-setting overrides (only used when the effective
   // transition for this word matches).
-  highlight_radius?:   number
+  highlight_radius?: number
   highlight_padding_x?: number
   highlight_padding_y?: number
-  highlight_opacity?:  number
+  highlight_opacity?: number
   underline_thickness?: number
-  underline_color?:    string
+  underline_color?: string
   underline_offset_y?: number
-  underline_width?:    number
-  bounce_strength?:    number
-  scale_factor?:       number
+  underline_width?: number
+  bounce_strength?: number
+  scale_factor?: number
 }
 
 export type WordTransition =
@@ -56,6 +56,20 @@ export interface Segment {
   text: string
   words: Word[]
   speaker?: string
+}
+
+/** An agent- or user-placed animated effect (logo, etc.) on the effects timeline. */
+export interface EffectClip {
+  id: string
+  type: 'logo'
+  start: number
+  duration: number
+  trackIndex: number
+  anchorX: number
+  anchorY: number
+  sourceWordId?: string
+  variables: Record<string, unknown>
+  createdBy: 'user' | 'agent'
 }
 
 /** Top-level transcription result from the backend. */

@@ -447,6 +447,23 @@ app.whenReady().then(async () => {
     return picked
   })
 
+  // IPC: open image-file dialog (logos/overlays for HyperFrames effects).
+  ipcMain.handle('dialog:openImageFile', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select Image',
+      defaultPath: appState.get('lastImagePath') || undefined,
+      filters: [
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    })
+    if (result.canceled) return null
+    const picked = result.filePaths[0]
+    appState.set('lastImagePath', picked)
+    return picked
+  })
+
   // IPC: get backend port
   ipcMain.handle('backend:port', () => {
     return pythonBackend ? pythonBackend.port : 53421
