@@ -214,3 +214,37 @@ def test_b_roll_with_missing_image_is_skipped(transcription_result, tmp_path):
     effects = [{"id": "e1", "type": "b_roll", "start": 0.0, "variables": {"src": str(tmp_path / "nope.png")}}]
     html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
     assert 'class="fx"' not in html
+
+
+# --- Phase 3: native HyperFrames caption styles ---
+
+
+def test_classic_caption_style_is_the_default_and_unchanged(transcription_result, tmp_path):
+    html = (_generate(transcription_result, tmp_path) / "index.html").read_text()
+    # Default config = classic: hand-rolled track, no sub-composition reference.
+    assert "data-composition-src" not in html
+    assert html.count('class="cgroup"') == 2
+
+
+def test_native_caption_style_references_subcomposition(transcription_result, tmp_path):
+    # Pre-place the registry component so install (npx) is skipped (cache path),
+    # keeping the test Node-free.
+    project = tmp_path / "audio-hyperframes"  # stem of fixture audio_path /tmp/audio.wav
+    comp = project / "compositions" / "components" / "caption-pill-karaoke.html"
+    comp.parent.mkdir(parents=True, exist_ok=True)
+    comp.write_text(
+        '<div data-composition-id="cap" data-duration="8"></div>\n'
+        "<script>var DURATION = 8;\n"
+        '  var TRANSCRIPT = [{ text: "demo", start: 0.0, end: 0.5 }];</script>'
+    )
+    cfg = VideoRenderConfig(caption_style="caption-pill-karaoke")
+    out = export_hyperframes_project(transcription_result, cfg, str(tmp_path))
+    html = (Path(out) / "index.html").read_text()
+    # Native path: captions are a sub-composition; the hand-rolled track is gone.
+    assert 'data-composition-src="compositions/components/caption-pill-karaoke.html"' in html
+    assert 'class="cgroup"' not in html and 'class="cw"' not in html
+    # Root timeline (effects) still registered.
+    assert 'window.__timelines["root"]' in html
+    # Our transcript + duration were injected into the component.
+    injected = comp.read_text()
+    assert "Hello" in injected and "var DURATION = 8;" not in injected

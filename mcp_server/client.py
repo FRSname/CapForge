@@ -136,6 +136,9 @@ class CapForgeClient:
             f"/api/agent/effect-templates/{quote(name)}/apply?start={start}&duration={duration}",
         )
 
+    def list_caption_styles(self) -> Any:
+        return self._request("GET", "/api/caption-styles")
+
     def get_frame(self, t: float, composite: bool = True, _retry: bool = True) -> bytes:
         """Render a QA frame and return raw PNG bytes (not JSON)."""
         self._ensure()

@@ -55,6 +55,9 @@ export interface StudioSettings {
    */
   safeZone: 'off' | 'tiktok' | 'reels' | 'shorts'
   wordsPerGroup: number
+  /** 'classic' = CapForge's built-in caption track; else a HyperFrames registry
+   *  caption-style name (HyperFrames render path only). */
+  captionStyle: string
   lines: number
   bgOpacity: number
   bgRadius: number
@@ -142,6 +145,7 @@ const DEFAULTS: StudioSettings = {
   maxWidth: 90,
   safeZone: 'off',
   wordsPerGroup: 3,
+  captionStyle: 'classic',
   lines: 1,
   bgOpacity: 0,
   bgRadius: 16,
@@ -968,6 +972,8 @@ export function StudioPanel({
             <HyperFramesPanel
               effects={effects}
               onEffectsChange={setEffects}
+              captionStyle={s.captionStyle}
+              onCaptionStyleChange={(v) => set('captionStyle', v)}
               audioPath={audioPath}
               outputDir={outputDir}
               render={render}

@@ -95,6 +95,7 @@ export function buildRenderBody(
     text_align_v: settings.textAlignV,
 
     words_per_group: settings.wordsPerGroup,
+    caption_style: settings.captionStyle ?? 'classic',
     lines: settings.lines,
     max_width: settings.maxWidth / 100,
     line_height: settings.lineHeight,

@@ -332,7 +332,12 @@ def _build_index_html(
     source_src: str,
     font_face: str,
     effects: list[dict],
+    caption_sub_src: Optional[str] = None,
 ) -> str:
+    # When a native HyperFrames caption style is selected, captions are a
+    # referenced sub-composition that owns its own grouping + timeline; the
+    # hand-rolled track + its timeline block are skipped. None = classic path.
+    native_captions = caption_sub_src is not None
     width = config.resolution_w
     height = config.resolution_h
     enter_from, enter_dur, enter_ease = _ENTRANCES.get(
@@ -348,12 +353,13 @@ def _build_index_html(
     stat_value_px = max(48, int(height * 0.16))
     stat_label_px = max(16, int(height * 0.038))
 
-    timeline_js = (
-        "(function(){\n"
+    # Caption timeline lives only on the classic path; native styles own theirs.
+    caption_setup = "" if native_captions else (
         f"  var GROUPS = {_groups_timing_json(groups)};\n"
         f'  var ACTIVE = "{config.active_word_color}";\n'
         f'  var BASE = "{config.text_color}";\n'
-        "  var tl = gsap.timeline({ paused: true });\n"
+    )
+    caption_loop = "" if native_captions else (
         "  GROUPS.forEach(function(g, gi){\n"
         '    var sel = "#cb-" + gi;\n'
         '    tl.set(sel, { visibility: "visible" }, g.s);\n'
@@ -368,6 +374,8 @@ def _build_index_html(
         f'    tl.to(sel, {{ opacity: 0, duration: {_EXIT_DUR}, ease: "power2.in", overwrite: "auto" }}, exitAt);\n'
         '    tl.set(sel, { opacity: 0, visibility: "hidden" }, g.e);\n'
         "  });\n"
+    )
+    effects_and_register = (
         f"  var EFFECTS = {json.dumps([{k: fx[k] for k in ('id', 's', 'e', 'ef', 'et', 'xt', 'ed', 'xd', 'ee')} for fx in effects])};\n"
         "  EFFECTS.forEach(function(fx){\n"
         '    var outer = "#" + fx.id;\n'
@@ -384,6 +392,13 @@ def _build_index_html(
         "  window.__timelines = window.__timelines || {};\n"
         '  window.__timelines["root"] = tl;\n'
         "})();"
+    )
+    timeline_js = (
+        "(function(){\n"
+        + caption_setup
+        + "  var tl = gsap.timeline({ paused: true });\n"
+        + caption_loop
+        + effects_and_register
     )
 
     css = f"""
@@ -454,6 +469,19 @@ def _build_index_html(
     .fx-broll {{ line-height: 0; }}
     """
 
+    if native_captions:
+        # Reference the installed registry caption component as a sub-composition.
+        captions_markup = (
+            f'<div data-composition-id="captions" data-composition-src="{caption_sub_src}" '
+            f'data-start="0" data-duration="{duration}" data-track-index="1"></div>'
+        )
+    else:
+        captions_markup = (
+            '<div class="captions" id="captions">\n'
+            f"      {_groups_html(groups)}\n"
+            "    </div>"
+        )
+
     return f"""<!doctype html>
 <html>
 <head>
@@ -466,9 +494,7 @@ def _build_index_html(
     <video id="src-v" src="{source_src}" muted playsinline data-start="0" data-duration="{duration}" data-track-index="0"></video>
     <audio id="src-a" src="{source_src}" data-start="0" data-duration="{duration}" data-track-index="2" data-volume="1"></audio>
     {effects_html}
-    <div class="captions" id="captions">
-      {_groups_html(groups)}
-    </div>
+    {captions_markup}
     <script src="{GSAP_CDN}"></script>
     <script>{timeline_js}</script>
   </div>
@@ -494,6 +520,31 @@ def _font_face_block(config: VideoRenderConfig, project_dir: Path) -> str:
         f'src: url("fonts/{src.name}") format("{fmt}"); font-weight: 400; '
         f"font-display: block; }}"
     )
+
+
+def _prepare_caption_style(
+    config: VideoRenderConfig,
+    project_dir: Path,
+    transcript_json: str,
+    duration: float,
+) -> Optional[str]:
+    """For a native caption style, install the registry component and inject our
+    transcript; return its project-relative src. Returns None for 'classic'.
+
+    The Node-shelling caption module is imported lazily so the classic path has
+    no dependency on it.
+    """
+    style = getattr(config, "caption_style", "classic") or "classic"
+    if style == "classic":
+        return None
+    from backend.exporters.hyperframes_captions import (
+        inject_transcript,
+        install_caption_component,
+    )
+
+    rel = install_caption_component(str(project_dir), style)
+    inject_transcript(project_dir / rel, transcript_json, duration)
+    return rel
 
 
 def export_hyperframes_project(
@@ -531,8 +582,11 @@ def export_hyperframes_project(
 
     total_duration = _resolve_duration(result, groups, source_video_path, duration)
 
-    (project_dir / "transcript.json").write_text(
-        export_hyperframes(result), encoding="utf-8"
+    transcript_json = export_hyperframes(result)
+    (project_dir / "transcript.json").write_text(transcript_json, encoding="utf-8")
+
+    caption_sub_src = _prepare_caption_style(
+        config, project_dir, transcript_json, total_duration
     )
 
     font_face = _font_face_block(config, project_dir)
@@ -540,7 +594,8 @@ def export_hyperframes_project(
         effects, project_dir, config.resolution_w, config.resolution_h
     )
     index_html = _build_index_html(
-        config, groups, total_duration, source_src, font_face, effects_render
+        config, groups, total_duration, source_src, font_face, effects_render,
+        caption_sub_src,
     )
     (project_dir / "index.html").write_text(index_html, encoding="utf-8")
 

@@ -423,6 +423,28 @@ def delete_effect_template(name: str) -> dict:
     return _client.delete_effect_template(name)
 
 
+# --- Caption style ------------------------------------------------------
+
+@mcp.tool()
+def list_caption_styles() -> dict:
+    """List caption styles for the HyperFrames render: 'classic' (CapForge's
+    built-in track) + native registry styles (caption-pill-karaoke, etc.).
+    """
+    return _client.list_caption_styles()
+
+
+@mcp.tool()
+def set_caption_style(name: str) -> dict:
+    """Set the caption look for the HyperFrames render. Updates the live UI.
+
+    `name` is 'classic' or a registry style from list_caption_styles, e.g.
+    'caption-pill-karaoke'. Native styles install on the next HyperFrames
+    render/Studio (needs Node 22+) and bring their own animation + grouping.
+    """
+    _client.send_command("set_settings", {"patch": {"captionStyle": name}})
+    return {"status": "ok"}
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 

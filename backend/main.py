@@ -778,6 +778,13 @@ async def apply_effect_template_endpoint(name: str, start: float = 0.0, duration
     return {"status": "ok", "effect": clip.model_dump(), "count": len(current_effects)}
 
 
+@app.get("/api/caption-styles")
+async def caption_styles_endpoint():
+    """Available caption styles: 'classic' + HyperFrames registry caption styles."""
+    from backend.exporters.hyperframes_captions import list_caption_styles
+    return {"styles": list_caption_styles()}
+
+
 # --- Export helpers ---
 
 EXPORTERS = {

@@ -94,6 +94,8 @@ actually reads.
 | `save_effect_template` | Save a timeline effect (by id) as a reusable template — "save this so we can reuse it" |
 | `apply_effect_template` | Drop a saved template onto the timeline at a time → live UI |
 | `delete_effect_template` | Delete a saved effect template by name |
+| `list_caption_styles` | List caption styles: `classic` + native HyperFrames registry styles |
+| `set_caption_style` | Set the caption look (classic / `caption-pill-karaoke` / …) → live UI |
 
 ## Tests
 

@@ -140,6 +140,7 @@ class VideoRenderConfig(BaseModel):
     text_align_h: str = Field("center", description="Horizontal text alignment within bg box: left, center, right")
     text_align_v: str = Field("middle", description="Vertical text alignment within bg box: top, middle, bottom")
     words_per_group: int = Field(3, ge=1, description="Words per subtitle group")
+    caption_style: str = Field("classic", description="Caption renderer: 'classic' (CapForge's built-in track) or a HyperFrames registry caption-style name, e.g. 'caption-pill-karaoke'. Only applies to the HyperFrames render path.")
     lines: int = Field(1, ge=1, le=10, description="Number of subtitle rows per group")
     max_width: float = Field(0.9, ge=0.0, le=1.0, description="Max subtitle width as fraction of resolution (0-1). When lines=1 and measured width exceeds this, words wrap automatically.")
     line_height: float = Field(1.2, ge=0.5, le=5.0, description="Line height multiplier (1.0 = no gap, 1.2 = 20% gap)")

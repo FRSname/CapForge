@@ -318,6 +318,13 @@ class CapForgeAPI {
     return this.del(`/api/effect-templates/${encodeURIComponent(name)}`)
   }
 
+  /** Caption styles for the HyperFrames render path: 'classic' + registry styles. */
+  listCaptionStyles(): Promise<Array<{ name: string; title: string }>> {
+    return this.get<{ styles: Array<{ name: string; title: string }> }>('/api/caption-styles').then(
+      (r) => r.styles ?? []
+    )
+  }
+
   getVideoInfo(filePath: string) {
     return this.get<VideoInfo>(`/api/video-info?path=${encodeURIComponent(filePath)}`)
   }
