@@ -122,9 +122,10 @@ Transcript export `[{text,start,end}]` from CapForge's `WordSegment`. New `Expor
 - **Done:** 6 new tests pass; full backend suite 57/57 green; output verified against the captions.md spec.
 - **Remaining manual check:** live round-trip `npx hyperframes transcribe <file>_hyperframes.json` (needs Node 22); renderer `npm run typecheck` after the worktree's `npm install`.
 
-### Phase A — HyperFrames render path in the fork (2–3 days)
-Resolve **R1 (Node)**, then build `hyperframes_project.py` that generates a composition with **video base track + caption track** and renders via `npx hyperframes render`. No effects yet. This proves the engine is wired and captions render with HyperFrames styles.
-- **Verify:** `npx hyperframes lint && validate && inspect` clean on the generated folder; render an MP4; captions match CapForge grouping/timing.
+### Phase A — HyperFrames render path in the fork
+**Core ✅ DONE (2026-06-19):** `backend/exporters/hyperframes_project.py` generates a self-contained composition (video base track + separate audio track + caption track) from `TranscriptionResult` + `VideoRenderConfig`, reusing `_build_groups` for parity. Captions follow captions.md (one group at a time, per-word active-color recolor, entrance + hard `tl.set` kill). 10 unit tests. **Proven end-to-end:** `hyperframes lint` 0/0 on the generated folder; `doctor` all-green; `render --quality draft` → valid 1280×720 MP4 with audio; frame grab confirms captions + active-word highlight composited over the source video.
+- R1 (Node) is a non-blocker on this dev box (Node 22 + system Chrome + FFmpeg all present).
+- **Remaining for Phase A (app wiring):** an endpoint (mirror `/api/render-video` at `main.py:489`) that generates the project and optionally shells `npx hyperframes render` with WS progress; a UI trigger in ExportPanel/CustomRenderPanel. Optional: `validate`/`inspect` in CI; parametrize style via `data-composition-variables`; richer caption styles (pill/karaoke) beyond instant recolor.
 
 ### Phase B — Effects data model + manual logo (2–3 days)
 Add `EffectClip` to the project model + `effects` to `/api/result`. Build the `logo` sub-composition. Add the UI effects track + inspector. User can manually place a logo and render it composited.
