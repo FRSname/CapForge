@@ -219,3 +219,11 @@ class HyperframesRenderRequest(BaseModel):
     quality: str = Field("draft", description="HyperFrames render quality: draft, standard, high")
     video_format: str = Field("mp4", description="HyperFrames output container: mp4 or webm")
     use_ui_config: bool = Field(False, description="Use the renderer's mirrored caption styling + groups instead of this request's config (the agent render path)")
+
+
+class SaveTemplateRequest(BaseModel):
+    """Save an effect as a reusable, cross-project template. Provide `effect`
+    inline, or `effect_id` to snapshot a clip already on the timeline."""
+    name: str = Field(..., description="Template name (overwrites an existing one)")
+    effect: Optional[EffectClip] = Field(None, description="The effect to save (inline)")
+    effect_id: Optional[str] = Field(None, description="Id of a current timeline effect to snapshot")

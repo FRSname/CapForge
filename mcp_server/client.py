@@ -113,6 +113,29 @@ class CapForgeClient:
         # Headless-Chrome capture can take a while.
         return self._request("POST", "/api/export-hyperframes", json=payload, timeout=_LONG_TIMEOUT)
 
+    # -- reusable effect templates ---------------------------------------
+    def list_effect_templates(self) -> Any:
+        return self._request("GET", "/api/effect-templates")
+
+    def save_effect_template(
+        self, name: str, effect_id: Optional[str] = None, effect: Optional[dict] = None
+    ) -> Any:
+        body: dict = {"name": name}
+        if effect_id:
+            body["effect_id"] = effect_id
+        if effect is not None:
+            body["effect"] = effect
+        return self._request("POST", "/api/effect-templates", json=body)
+
+    def delete_effect_template(self, name: str) -> Any:
+        return self._request("DELETE", f"/api/effect-templates/{quote(name)}")
+
+    def apply_effect_template(self, name: str, start: float, duration: float = 2.0) -> Any:
+        return self._request(
+            "POST",
+            f"/api/agent/effect-templates/{quote(name)}/apply?start={start}&duration={duration}",
+        )
+
     def get_frame(self, t: float, composite: bool = True, _retry: bool = True) -> bytes:
         """Render a QA frame and return raw PNG bytes (not JSON)."""
         self._ensure()

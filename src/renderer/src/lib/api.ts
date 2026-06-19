@@ -107,6 +107,40 @@ function mapEffect(e: BackendEffect): EffectClip {
   }
 }
 
+/** Backend effect template (snake_case) as returned by /api/effect-templates. */
+interface BackendTemplate {
+  name: string
+  type: string
+  track_index: number
+  anchor_x: number
+  anchor_y: number
+  variables?: Record<string, unknown>
+  created_by?: string
+}
+
+/** A saved reusable effect "look" (timing-less EffectClip prototype). */
+export interface EffectTemplate {
+  name: string
+  type: EffectClip['type']
+  trackIndex: number
+  anchorX: number
+  anchorY: number
+  variables: Record<string, unknown>
+  createdBy: EffectClip['createdBy']
+}
+
+function mapTemplate(t: BackendTemplate): EffectTemplate {
+  return {
+    name: t.name,
+    type: t.type as EffectClip['type'],
+    trackIndex: t.track_index,
+    anchorX: t.anchor_x,
+    anchorY: t.anchor_y,
+    variables: t.variables ?? {},
+    createdBy: (t.created_by as EffectClip['createdBy']) ?? 'user',
+  }
+}
+
 /** A style/emphasis command relayed from the agent over the control channel. */
 export interface AgentCommand {
   op: string
@@ -186,6 +220,12 @@ class CapForgeAPI {
     return res.json() as Promise<T>
   }
 
+  private async del<T>(path: string): Promise<T> {
+    const res = await fetch(`${this.base}${path}`, { method: 'DELETE' })
+    if (!res.ok) throw await this.handleError(res)
+    return res.json() as Promise<T>
+  }
+
   getSystemInfo() {
     return this.get('/api/system-info')
   }
@@ -246,6 +286,36 @@ class CapForgeAPI {
     return this.get<{ effects: BackendEffect[] }>('/api/effects').then((r) =>
       (r.effects ?? []).map(mapEffect)
     )
+  }
+
+  /** List saved reusable effect templates (cross-project looks). */
+  listEffectTemplates(): Promise<EffectTemplate[]> {
+    return this.get<{ templates: BackendTemplate[] }>('/api/effect-templates').then((r) =>
+      (r.templates ?? []).map(mapTemplate)
+    )
+  }
+
+  /** Save an effect as a reusable template (timing is stripped server-side). */
+  saveEffectTemplate(name: string, effect: EffectClip): Promise<unknown> {
+    return this.post('/api/effect-templates', {
+      name,
+      effect: {
+        id: effect.id,
+        type: effect.type,
+        start: effect.start,
+        duration: effect.duration,
+        track_index: effect.trackIndex,
+        anchor_x: effect.anchorX,
+        anchor_y: effect.anchorY,
+        variables: effect.variables,
+        created_by: effect.createdBy,
+      },
+    })
+  }
+
+  /** Delete a saved effect template by name. */
+  deleteEffectTemplate(name: string): Promise<unknown> {
+    return this.del(`/api/effect-templates/${encodeURIComponent(name)}`)
   }
 
   getVideoInfo(filePath: string) {

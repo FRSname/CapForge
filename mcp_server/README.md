@@ -90,6 +90,10 @@ actually reads.
 | `add_effect` | Place an animated effect (logo / lower_third / kinetic_stat / highlight / b_roll) at a time — the AI video director |
 | `remove_effect` | Remove an effect clip by id |
 | `render_hyperframes` | Render captions + placed effects via HyperFrames → output path |
+| `list_effect_templates` | List saved reusable effect templates (cross-project looks) |
+| `save_effect_template` | Save a timeline effect (by id) as a reusable template — "save this so we can reuse it" |
+| `apply_effect_template` | Drop a saved template onto the timeline at a time → live UI |
+| `delete_effect_template` | Delete a saved effect template by name |
 
 ## Tests
 

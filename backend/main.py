@@ -46,11 +46,18 @@ from backend.models.schemas import (
     HyperframesRenderRequest,
     JobStatus,
     ProgressUpdate,
+    SaveTemplateRequest,
     SystemInfo,
     TranscribeRequest,
     TranscriptionResult,
     VideoRenderConfig,
     VideoRenderRequest,
+)
+from backend.effect_templates import (
+    apply_template,
+    delete_template,
+    list_templates,
+    save_template,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -719,6 +726,56 @@ async def find_semantic_moments_endpoint(kind: str):
         return {"matches": find_semantic_moments(current_result, kind)}
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# --- Reusable effect templates (cross-project look library) ---
+# Store CRUD is open (loopback app-data the user owns; the renderer carries no
+# agent token) — consistent with the open /api/effects + /api/render-* posture.
+# Only the apply path, which mutates the live timeline, sits under /api/agent.
+
+@app.get("/api/effect-templates")
+async def list_effect_templates_endpoint():
+    """Saved reusable effect templates (used by the renderer + the agent)."""
+    return {"templates": list_templates()}
+
+
+@app.post("/api/effect-templates")
+async def save_effect_template_endpoint(req: SaveTemplateRequest):
+    """Save an effect as a reusable template — `effect` inline, or `effect_id`
+    to snapshot a clip already on the timeline."""
+    if req.effect is not None:
+        effect = req.effect.model_dump()
+    elif req.effect_id:
+        match = next((e for e in current_effects if e.id == req.effect_id), None)
+        if match is None:
+            raise HTTPException(status_code=404, detail=f"No effect with id {req.effect_id!r}")
+        effect = match.model_dump()
+    else:
+        raise HTTPException(status_code=400, detail="Provide `effect` or `effect_id`")
+    try:
+        template = save_template(req.name, effect)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "template": template}
+
+
+@app.delete("/api/effect-templates/{name}")
+async def delete_effect_template_endpoint(name: str):
+    """Delete a saved template by name."""
+    return {"status": "ok", "removed": delete_template(name)}
+
+
+@app.post("/api/agent/effect-templates/{name}/apply", dependencies=[Depends(require_agent_token)])
+async def apply_effect_template_endpoint(name: str, start: float = 0.0, duration: float = 2.0):
+    """Instantiate a saved template onto the live effects timeline at `start`."""
+    global current_effects
+    try:
+        clip = apply_template(name, start, duration)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    current_effects = [*current_effects, clip]
+    await broadcast_event({"type": "effects_updated"})
+    return {"status": "ok", "effect": clip.model_dump(), "count": len(current_effects)}
 
 
 # --- Export helpers ---

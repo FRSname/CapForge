@@ -386,6 +386,43 @@ def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dic
     )
 
 
+# --- Reusable effect templates (cross-project look library) --------------
+
+@mcp.tool()
+def list_effect_templates() -> dict:
+    """List saved reusable effect templates — looks the user (or you) saved to
+    reuse across projects, e.g. a brand logo or a lower-third style. Drop one
+    onto the timeline with apply_effect_template.
+    """
+    return _client.list_effect_templates()
+
+
+@mcp.tool()
+def save_effect_template(name: str, effect_id: str) -> dict:
+    """Save an effect already on the timeline as a reusable template `name`.
+
+    Find the effect's id with list_effects. Timing is stripped — a template is a
+    reusable *look*, not a placement. For asset effects (logo/b_roll) the image
+    is copied into a stable store so the template survives the project being
+    deleted. Overwrites an existing template with the same name.
+    """
+    return _client.save_effect_template(name, effect_id=effect_id)
+
+
+@mcp.tool()
+def apply_effect_template(name: str, start: float, duration: float = 2.0) -> dict:
+    """Add a saved template (see list_effect_templates) onto the effects
+    timeline at `start` for `duration` seconds. Updates the live UI.
+    """
+    return _client.apply_effect_template(name, start, duration)
+
+
+@mcp.tool()
+def delete_effect_template(name: str) -> dict:
+    """Delete a saved effect template by name."""
+    return _client.delete_effect_template(name)
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 
