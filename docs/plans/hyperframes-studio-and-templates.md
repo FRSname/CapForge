@@ -1,7 +1,13 @@
 # CapForge Enhanced — HyperFrames Studio, Reusable Templates & Native Captions
 
-**Status:** Proposed · **Branch:** `capforge-enhanced` (worktree `../CapForge-enhanced`) · **Authored:** 2026-06-19
+**Status:** Phases 1–3 SHIPPED (2026-06-19) · **Branch:** `capforge-enhanced` (worktree `../CapForge-enhanced`) · **Authored:** 2026-06-19
 **Parent plan:** [`hyperframes-integration.md`](./hyperframes-integration.md) (Phases 0–E). This is the next slice: the *"level-up" entry point* + a *cross-project reusable effect library* + *HyperFrames' native caption styles*.
+
+### Build log
+- **Phase 1 — Open in HyperFrames Studio** ✅ `fe9d71b` (+ card grouping `7ec5ab0`). Electron-managed `npx hyperframes preview` server (free port, tree-killed on quit), `studio:open/stop` IPC, `window.subforge.openStudio`, `useRender.openStudio`, and a dedicated **HyperFrames ✦** sidebar card (Open Studio + Render + Effects). Typechecks clean; live click-through is manual.
+- **Phase 2 — Reusable effect templates** ✅ `bb8f4cb`. `~/.capforge`-backed store (`backend/effect_templates.py`, timing stripped, assets copied in); open `/api/effect-templates` CRUD + guarded `…/apply`; MCP `save/list/apply/delete_effect_template`; UI "Apply template…" picker + per-effect "★ Save as template". 121 tests.
+- **Phase 3 — Native caption styles** ✅ `592024b`. `caption_style` (default `classic`); `backend/exporters/hyperframes_captions.py` (install via `npx add`, inject transcript, list styles); generator references the component as a sub-composition; `GET /api/caption-styles`; "Captions" picker; MCP `list/set_caption_style`. Proven end-to-end (lint 0/0 + render + frame grab). 122 tests, golden updated.
+- **Phase 4 — felt demo:** the live in-app run (Studio → connect Claude → place + save + apply + native captions → render) remains manual (needs the app + whisperx venv + a connected agent). Portrait/4k fit for native styles is a follow-up.
 
 ---
 
