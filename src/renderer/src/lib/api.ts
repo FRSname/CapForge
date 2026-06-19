@@ -205,6 +205,11 @@ class CapForgeAPI {
     return this.post('/api/render-video', params)
   }
 
+  /** Generate (and optionally render) a HyperFrames composition from the current result. */
+  exportHyperframes(params: unknown) {
+    return this.post('/api/export-hyperframes', params)
+  }
+
   getVideoInfo(filePath: string) {
     return this.get<VideoInfo>(`/api/video-info?path=${encodeURIComponent(filePath)}`)
   }

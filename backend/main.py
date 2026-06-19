@@ -27,6 +27,11 @@ from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
 from backend.exporters.hyperframes_export import export_hyperframes
+from backend.exporters.hyperframes_project import export_hyperframes_project
+from backend.exporters.hyperframes_render import (
+    HyperframesRenderError,
+    render_hyperframes_project,
+)
 from backend.exporters.json_export import export_json
 from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
@@ -36,6 +41,7 @@ from backend.exporters.video_render import RenderCancelled, cancel_render, rende
 from backend.models.schemas import (
     ExportFormat,
     ExportRequest,
+    HyperframesRenderRequest,
     JobStatus,
     ProgressUpdate,
     SystemInfo,
@@ -543,6 +549,93 @@ async def render_video(request: VideoRenderRequest):
         ))
         raise HTTPException(
             status_code=400 if isinstance(e, FileNotFoundError) else 500,
+            detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
+        )
+
+
+# --- HyperFrames composition endpoint ---
+
+@app.post("/api/export-hyperframes")
+async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
+    """Generate a HyperFrames composition from the current result; optionally render it.
+
+    Mirrors /api/render-video: runs in an executor, broadcasts progress over
+    /ws/progress, and resolves only when the work finishes.
+    """
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+
+    if current_status.status in (
+        JobStatus.LOADING_MODEL, JobStatus.TRANSCRIBING, JobStatus.ALIGNING,
+        JobStatus.DIARIZING, JobStatus.RENDERING, JobStatus.ENCODING,
+    ):
+        raise HTTPException(status_code=409, detail="Another job is in progress")
+
+    await broadcast_progress(ProgressUpdate(
+        status=JobStatus.RENDERING, progress=0, message="Building HyperFrames composition…"
+    ))
+
+    loop = asyncio.get_running_loop()
+    sync_progress = make_sync_progress_callback(loop)
+
+    def on_progress(pct: float, message: str) -> None:
+        sync_progress(ProgressUpdate(
+            status=JobStatus.RENDERING,
+            progress=max(0.0, min(100.0, pct)),
+            message=message,
+        ))
+
+    custom_groups_dicts = (
+        [g.model_dump() for g in request.custom_groups] if request.custom_groups else None
+    )
+
+    def _work() -> dict:
+        project_dir = export_hyperframes_project(
+            current_result,
+            request.config,
+            request.output_dir,
+            source_video_path=current_result.audio_path,
+            custom_groups=custom_groups_dicts,
+        )
+        if not request.render:
+            return {"project": project_dir, "file": None}
+        stem = Path(current_result.audio_path).stem or "capforge"
+        ext = ".webm" if request.video_format == "webm" else ".mp4"
+        out_path = str(Path(request.output_dir) / f"{stem}_hyperframes{ext}")
+        file = render_hyperframes_project(
+            project_dir, out_path,
+            quality=request.quality, video_format=request.video_format,
+            on_progress=on_progress,
+        )
+        return {"project": project_dir, "file": file}
+
+    try:
+        result = await loop.run_in_executor(None, _work)
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.DONE, progress=100,
+            message=("HyperFrames render ready" if request.render else "HyperFrames project ready"),
+        ))
+        return {"status": "ok", **result}
+
+    except HyperframesRenderError as e:
+        logger.warning("HyperFrames render unavailable/failed: %s", e)
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.ERROR, progress=0,
+            message="HyperFrames render failed", detail=str(e),
+        ))
+        raise HTTPException(
+            status_code=400,
+            detail={"title": "HyperFrames render failed", "hint": str(e), "raw": str(e)},
+        )
+    except Exception as e:
+        logger.exception("HyperFrames export failed")
+        friendly = explain(e)
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.ERROR, progress=0,
+            message=friendly.title, detail=friendly.hint,
+        ))
+        raise HTTPException(
+            status_code=500,
             detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
         )
 

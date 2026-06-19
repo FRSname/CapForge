@@ -192,3 +192,13 @@ class VideoRenderRequest(BaseModel):
     config: VideoRenderConfig = Field(default_factory=VideoRenderConfig)
     output_dir: str = "output"
     custom_groups: Optional[list[CustomGroup]] = Field(None, description="Manually edited groups; skips auto-grouping when provided")
+
+
+class HyperframesRenderRequest(BaseModel):
+    """Request to generate (and optionally render) a HyperFrames composition."""
+    config: VideoRenderConfig = Field(default_factory=VideoRenderConfig)
+    output_dir: str = "output"
+    custom_groups: Optional[list[CustomGroup]] = Field(None, description="Manually edited groups; skips auto-grouping when provided")
+    render: bool = Field(True, description="Run `npx hyperframes render` after generating the project folder")
+    quality: str = Field("draft", description="HyperFrames render quality: draft, standard, high")
+    video_format: str = Field("mp4", description="HyperFrames output container: mp4 or webm")

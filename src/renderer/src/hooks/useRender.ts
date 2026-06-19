@@ -18,30 +18,37 @@ import { useToast } from './useToast'
 
 export type RenderStatus = 'idle' | 'rendering' | 'done' | 'error'
 
+/** Which renderer fulfils the job: CapForge's Pillow renderer or HyperFrames (GSAP). */
+export type RenderEngine = 'pillow' | 'hyperframes'
+
 export interface RenderController {
-  status:    RenderStatus
-  progress:  number
-  message:   string
-  elapsed:   string
-  busy:      boolean
-  startRender: (overrides?: RenderOverrides, outputDir?: string) => Promise<void>
+  status: RenderStatus
+  progress: number
+  message: string
+  elapsed: string
+  busy: boolean
+  startRender: (
+    overrides?: RenderOverrides,
+    outputDir?: string,
+    engine?: RenderEngine
+  ) => Promise<void>
   cancelRender: () => void
-  reset:     () => void
+  reset: () => void
 }
 
 interface UseRenderArgs {
-  settings:     StudioSettings
-  groups:       Segment[]
+  settings: StudioSettings
+  groups: Segment[]
   groupsEdited: boolean
 }
 
 export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): RenderController {
-  const [status,   setStatus]   = useState<RenderStatus>('idle')
+  const [status, setStatus] = useState<RenderStatus>('idle')
   const [progress, setProgress] = useState(0)
-  const [elapsed,  setElapsed]  = useState('')
-  const [message,  setMessage]  = useState<string>('')
-  const timerRef                = useRef<number | null>(null)
-  const { toast }               = useToast()
+  const [elapsed, setElapsed] = useState('')
+  const [message, setMessage] = useState<string>('')
+  const timerRef = useRef<number | null>(null)
+  const { toast } = useToast()
 
   const stopTimer = useCallback(() => {
     if (timerRef.current != null) {
@@ -59,59 +66,77 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
     setElapsed('')
   }, [stopTimer])
 
-  const startRender = useCallback(async (overrides: RenderOverrides = {}, outputDir?: string) => {
-    setStatus('rendering')
-    setProgress(0)
-    setElapsed('00:00')
-    setMessage('Starting…')
+  const startRender = useCallback(
+    async (
+      overrides: RenderOverrides = {},
+      outputDir?: string,
+      engine: RenderEngine = 'pillow'
+    ) => {
+      setStatus('rendering')
+      setProgress(0)
+      setElapsed('00:00')
+      setMessage('Starting…')
 
-    const t0 = Date.now()
-    stopTimer()
-    timerRef.current = window.setInterval(() => {
-      const s = Math.floor((Date.now() - t0) / 1000)
-      setElapsed(`${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`)
-    }, 1000)
+      const t0 = Date.now()
+      stopTimer()
+      timerRef.current = window.setInterval(() => {
+        const s = Math.floor((Date.now() - t0) / 1000)
+        setElapsed(
+          `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
+        )
+      }, 1000)
 
-    // Track when the user actually started the render, so the WS replay of
-    // the prior job's cached status doesn't pollute progress.
-    const startedAt = Date.now()
+      // Track when the user actually started the render, so the WS replay of
+      // the prior job's cached status doesn't pollute progress.
+      const startedAt = Date.now()
 
-    api.connectProgress(update => {
-      // Ignore replays of the prior status that arrive in the first 200ms
-      // (FastAPI sends current_status on connect — see main.py:307).
-      if (Date.now() - startedAt < 200 && update.step === 'done') return
-      setProgress(Math.round(update.pct))
-      if (update.message) setMessage(update.message)
-      if (update.step === 'error') {
+      api.connectProgress((update) => {
+        // Ignore replays of the prior status that arrive in the first 200ms
+        // (FastAPI sends current_status on connect — see main.py:307).
+        if (Date.now() - startedAt < 200 && update.step === 'done') return
+        setProgress(Math.round(update.pct))
+        if (update.message) setMessage(update.message)
+        if (update.step === 'error') {
+          stopTimer()
+          setStatus('error')
+          api.disconnectProgress()
+        }
+        // 'done' is intentionally NOT handled here — driven by HTTP response below.
+      })
+
+      try {
+        const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir)
+        if (engine === 'hyperframes') {
+          await api.exportHyperframes(body)
+        } else {
+          await api.renderVideo(body)
+        }
+        // HTTP response only resolves once the render actually finishes.
         stopTimer()
-        setStatus('error')
+        setProgress(100)
+        setStatus('done')
         api.disconnectProgress()
+        toast(
+          engine === 'hyperframes' ? 'HyperFrames render complete' : 'Render complete',
+          'success'
+        )
+      } catch (err) {
+        stopTimer()
+        const msg = err instanceof Error ? err.message : 'Render failed'
+        const cancelled = msg.toLowerCase().includes('cancel')
+        setMessage(cancelled ? 'Cancelled.' : `Error: ${msg}`)
+        setStatus(cancelled ? 'idle' : 'error')
+        api.disconnectProgress()
+        if (!cancelled) toast(msg, 'error')
       }
-      // 'done' is intentionally NOT handled here — driven by HTTP response below.
-    })
-
-    try {
-      const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir)
-      await api.renderVideo(body)
-      // HTTP response only resolves once the render actually finishes.
-      stopTimer()
-      setProgress(100)
-      setStatus('done')
-      api.disconnectProgress()
-      toast('Render complete', 'success')
-    } catch (err) {
-      stopTimer()
-      const msg = err instanceof Error ? err.message : 'Render failed'
-      const cancelled = msg.toLowerCase().includes('cancel')
-      setMessage(cancelled ? 'Cancelled.' : `Error: ${msg}`)
-      setStatus(cancelled ? 'idle' : 'error')
-      api.disconnectProgress()
-      if (!cancelled) toast(msg, 'error')
-    }
-  }, [settings, groups, groupsEdited, stopTimer, toast])
+    },
+    [settings, groups, groupsEdited, stopTimer, toast]
+  )
 
   const cancelRender = useCallback(() => {
-    api.cancelJob().catch(() => { /* ignore */ })
+    api.cancelJob().catch(() => {
+      /* ignore */
+    })
     api.disconnectProgress()
     stopTimer()
     setStatus('idle')
@@ -119,8 +144,13 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
   }, [stopTimer])
 
   return {
-    status, progress, message, elapsed,
+    status,
+    progress,
+    message,
+    elapsed,
     busy: status === 'rendering',
-    startRender, cancelRender, reset,
+    startRender,
+    cancelRender,
+    reset,
   }
 }
