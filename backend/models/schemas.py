@@ -218,3 +218,4 @@ class HyperframesRenderRequest(BaseModel):
     render: bool = Field(True, description="Run `npx hyperframes render` after generating the project folder")
     quality: str = Field("draft", description="HyperFrames render quality: draft, standard, high")
     video_format: str = Field("mp4", description="HyperFrames output container: mp4 or webm")
+    use_ui_config: bool = Field(False, description="Use the renderer's mirrored caption styling + groups instead of this request's config (the agent render path)")

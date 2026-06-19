@@ -284,7 +284,7 @@ def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dic
     returns the output file path. quality: draft|standard|high. May take a while.
     """
     return _client.render_hyperframes(
-        {"render": True, "quality": quality, "video_format": video_format}
+        {"render": True, "quality": quality, "video_format": video_format, "use_ui_config": True}
     )
 
 

@@ -576,6 +576,18 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     ):
         raise HTTPException(status_code=409, detail="Another job is in progress")
 
+    # Resolve caption styling + groups. With use_ui_config (the agent's render
+    # path) use what the renderer last mirrored so the output matches the live
+    # UI; otherwise use the config/groups carried in the request (panel path).
+    config = request.config
+    custom_groups_dicts = (
+        [g.model_dump() for g in request.custom_groups] if request.custom_groups else None
+    )
+    if request.use_ui_config:
+        config, ui_groups = _agent_frame_inputs()
+        if ui_groups is not None:
+            custom_groups_dicts = ui_groups
+
     await broadcast_progress(ProgressUpdate(
         status=JobStatus.RENDERING, progress=0, message="Building HyperFrames composition…"
     ))
@@ -590,9 +602,6 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             message=message,
         ))
 
-    custom_groups_dicts = (
-        [g.model_dump() for g in request.custom_groups] if request.custom_groups else None
-    )
     # Prefer effects supplied in the request (frontend panel); otherwise fall
     # back to the server-side timeline the agent populates via /api/agent/effects.
     effects_source = request.effects if request.effects is not None else current_effects
@@ -601,7 +610,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     def _work() -> dict:
         project_dir = export_hyperframes_project(
             current_result,
-            request.config,
+            config,
             request.output_dir,
             source_video_path=current_result.audio_path,
             custom_groups=custom_groups_dicts,
@@ -652,6 +661,12 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
 
 # --- Agent effects endpoints ---
 
+@app.get("/api/effects")
+async def get_effects_public():
+    """Read the current effects timeline (open endpoint for the renderer's live mirror)."""
+    return {"effects": [e.model_dump() for e in current_effects]}
+
+
 @app.get("/api/agent/effects", dependencies=[Depends(require_agent_token)])
 async def get_effects():
     """Return the current effects timeline."""
@@ -663,6 +678,7 @@ async def add_effect(effect: EffectClip):
     """Append an effect clip (id auto-generated if absent). Returns the stored effect."""
     global current_effects
     current_effects = [*current_effects, effect]
+    await broadcast_event({"type": "effects_updated"})
     return {"status": "ok", "effect": effect.model_dump(), "count": len(current_effects)}
 
 
@@ -671,6 +687,7 @@ async def replace_effects(effects: list[EffectClip]):
     """Replace the entire effects timeline."""
     global current_effects
     current_effects = list(effects)
+    await broadcast_event({"type": "effects_updated"})
     return {"status": "ok", "count": len(current_effects)}
 
 
@@ -680,6 +697,7 @@ async def remove_effect(effect_id: str):
     global current_effects
     before = len(current_effects)
     current_effects = [e for e in current_effects if e.id != effect_id]
+    await broadcast_event({"type": "effects_updated"})
     return {"status": "ok", "removed": before - len(current_effects), "count": len(current_effects)}
 
 

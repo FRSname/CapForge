@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Screen, TranscriptionResult, Segment } from './types/app'
+import type { Screen, TranscriptionResult, Segment, EffectClip } from './types/app'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from './lib/project'
 import { api, type VideoInfo } from './lib/api'
 import { builtinPresetNames } from './lib/agentCommands'
@@ -28,6 +28,9 @@ export function App() {
 
   // Published from ResultsScreen — forwarded to StudioPanel for render/export.
   const [groups, setGroups] = useState<Segment[]>([])
+  // Effects timeline (logos, etc.) — lifted here so the agent's live-sync can
+  // mirror agent-placed effects into the same state the StudioPanel renders.
+  const [effects, setEffects] = useState<EffectClip[]>([])
   const [groupsEdited, setGroupsEdited] = useState(false)
   const [sourceVideoInfo, setSourceVideoInfo] = useState<VideoInfo | null>(null)
 
@@ -346,6 +349,8 @@ export function App() {
             groupsEdited={groupsEdited}
             audioPath={result?.audioPath ?? filePath ?? ''}
             sourceVideoInfo={sourceVideoInfo}
+            effects={effects}
+            onEffectsChange={setEffects}
           />
         </main>
 
@@ -357,6 +362,7 @@ export function App() {
           applyResult={handleApplyAgentResult}
           applySettings={handleSettingsChange}
           applyWordOverrides={handleApplyWordOverrides}
+          applyEffects={setEffects}
         />
       </div>
     </ToastProvider>

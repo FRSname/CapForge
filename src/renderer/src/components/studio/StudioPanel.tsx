@@ -192,6 +192,9 @@ interface StudioPanelProps {
   audioPath?: string
   /** Probed source video info — drives quick-render resolution/fps. */
   sourceVideoInfo?: VideoInfo | null
+  /** Effects timeline (logos, etc.) — owned by App so agent placements mirror in. */
+  effects?: EffectClip[]
+  onEffectsChange?: (effects: EffectClip[]) => void
 }
 
 export { DEFAULTS as STUDIO_DEFAULTS }
@@ -248,15 +251,19 @@ export function StudioPanel({
   groupsEdited = false,
   audioPath = '',
   sourceVideoInfo = null,
+  effects: externalEffects,
+  onEffectsChange,
 }: StudioPanelProps) {
   const [internalS, setInternalS] = useState<StudioSettings>({ ...DEFAULTS })
   const [outputDir, setOutputDir] = useState<string>('')
-  // Effects timeline (logos, etc.) — local to the panel for now; persistence +
-  // agent mirroring come later. Sent in the render body for HyperFrames renders.
-  const [effects, setEffects] = useState<EffectClip[]>([])
+  const [internalEffects, setInternalEffects] = useState<EffectClip[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   // Merge with defaults so older saved projects that lack new fields don't produce undefined/NaN
   const s: StudioSettings = externalSettings ? { ...DEFAULTS, ...externalSettings } : internalS
+  // Effects come from App (so agent-placed effects mirror in); fall back to
+  // local panel state when StudioPanel is used standalone.
+  const effects = externalEffects ?? internalEffects
+  const setEffects = onEffectsChange ?? setInternalEffects
 
   function set<K extends keyof StudioSettings>(key: K, val: StudioSettings[K]) {
     const next = { ...s, [key]: val }
