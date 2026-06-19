@@ -1,22 +1,21 @@
 /**
- * Effects — user-placed animated overlays composited by the HyperFrames
- * renderer: logo, lower-third, kinetic-stat, highlight marker, and b-roll image.
- * Effects are sent in the HyperFrames render body
+ * Effects controls — user-placed animated overlays composited by the
+ * HyperFrames renderer: logo, lower-third, kinetic-stat, highlight marker, and
+ * b-roll image. Effects are sent in the HyperFrames render body
  * (useRender → buildRenderBody → /api/export-hyperframes).
  *
- * State lives in App for now (mirrored from the agent's server-side timeline);
- * project persistence comes in a later phase.
+ * Rendered (without card chrome) inside the "HyperFrames ✦" card — see
+ * HyperFramesPanel. State lives in App (mirrored from the agent's server-side
+ * timeline); project persistence comes in a later phase.
  */
 
-import { StudioCard } from './StudioCard'
 import { Button } from '../ui/Button'
 import { useToast } from '../../hooks/useToast'
 import type { EffectClip, EffectType } from '../../types/app'
 
-interface EffectsPanelProps {
+interface EffectsControlsProps {
   effects: EffectClip[]
   onChange: (effects: EffectClip[]) => void
-  audioPath: string
 }
 
 let _fxSeq = 0
@@ -58,7 +57,7 @@ function clamp01(v: number): number {
   return Math.max(0, Math.min(1, v))
 }
 
-export function EffectsPanel({ effects, onChange }: EffectsPanelProps) {
+export function EffectsControls({ effects, onChange }: EffectsControlsProps) {
   const { toast } = useToast()
 
   async function addEffect(type: EffectType) {
@@ -98,7 +97,7 @@ export function EffectsPanel({ effects, onChange }: EffectsPanelProps) {
   }
 
   return (
-    <StudioCard title="Effects" defaultOpen={false}>
+    <div className="flex flex-col gap-1.5">
       <div className="grid grid-cols-3 gap-1">
         {(Object.keys(TYPE_LABEL) as EffectType[]).map((t) => (
           <Button
@@ -129,7 +128,7 @@ export function EffectsPanel({ effects, onChange }: EffectsPanelProps) {
           ))}
         </div>
       )}
-    </StudioCard>
+    </div>
   )
 }
 
@@ -152,7 +151,8 @@ function EffectRow({
   onPatchVar: (key: string, val: unknown) => void
   onRemove: () => void
 }) {
-  const sVar = (k: string): string => (typeof e.variables[k] === 'string' ? (e.variables[k] as string) : '')
+  const sVar = (k: string): string =>
+    typeof e.variables[k] === 'string' ? (e.variables[k] as string) : ''
   const nVar = (k: string, d: number): number =>
     typeof e.variables[k] === 'number' ? (e.variables[k] as number) : d
 
@@ -179,40 +179,98 @@ function EffectRow({
       </div>
 
       <div className="grid grid-cols-2 gap-1.5">
-        <FxNumber label="Start (s)" value={e.start} step={0.1} min={0} onChange={(v) => onPatch({ start: Math.max(0, v) })} />
-        <FxNumber label="Duration (s)" value={e.duration} step={0.1} min={0.1} onChange={(v) => onPatch({ duration: Math.max(0.1, v) })} />
-        <FxNumber label="X (0–1)" value={e.anchorX} step={0.01} min={0} max={1} onChange={(v) => onPatch({ anchorX: clamp01(v) })} />
-        <FxNumber label="Y (0–1)" value={e.anchorY} step={0.01} min={0} max={1} onChange={(v) => onPatch({ anchorY: clamp01(v) })} />
+        <FxNumber
+          label="Start (s)"
+          value={e.start}
+          step={0.1}
+          min={0}
+          onChange={(v) => onPatch({ start: Math.max(0, v) })}
+        />
+        <FxNumber
+          label="Duration (s)"
+          value={e.duration}
+          step={0.1}
+          min={0.1}
+          onChange={(v) => onPatch({ duration: Math.max(0.1, v) })}
+        />
+        <FxNumber
+          label="X (0–1)"
+          value={e.anchorX}
+          step={0.01}
+          min={0}
+          max={1}
+          onChange={(v) => onPatch({ anchorX: clamp01(v) })}
+        />
+        <FxNumber
+          label="Y (0–1)"
+          value={e.anchorY}
+          step={0.01}
+          min={0}
+          max={1}
+          onChange={(v) => onPatch({ anchorY: clamp01(v) })}
+        />
       </div>
 
       <div className="mt-1.5 flex flex-col gap-1.5">
-        {(e.type === 'lower_third') && (
+        {e.type === 'lower_third' && (
           <>
             <FxText label="Title" value={sVar('title')} onChange={(v) => onPatchVar('title', v)} />
-            <FxText label="Subtitle" value={sVar('subtitle')} onChange={(v) => onPatchVar('subtitle', v)} />
+            <FxText
+              label="Subtitle"
+              value={sVar('subtitle')}
+              onChange={(v) => onPatchVar('subtitle', v)}
+            />
           </>
         )}
-        {(e.type === 'kinetic_stat') && (
+        {e.type === 'kinetic_stat' && (
           <>
             <FxText label="Value" value={sVar('value')} onChange={(v) => onPatchVar('value', v)} />
             <FxText label="Label" value={sVar('label')} onChange={(v) => onPatchVar('label', v)} />
           </>
         )}
-        {(e.type === 'highlight') && (
+        {e.type === 'highlight' && (
           <div className="grid grid-cols-2 gap-1.5">
-            <FxNumber label="Width (px)" value={nVar('width', 240)} step={10} min={10} onChange={(v) => onPatchVar('width', Math.max(10, Math.round(v)))} />
-            <FxNumber label="Height (px)" value={nVar('height', 40)} step={2} min={4} onChange={(v) => onPatchVar('height', Math.max(4, Math.round(v)))} />
+            <FxNumber
+              label="Width (px)"
+              value={nVar('width', 240)}
+              step={10}
+              min={10}
+              onChange={(v) => onPatchVar('width', Math.max(10, Math.round(v)))}
+            />
+            <FxNumber
+              label="Height (px)"
+              value={nVar('height', 40)}
+              step={2}
+              min={4}
+              onChange={(v) => onPatchVar('height', Math.max(4, Math.round(v)))}
+            />
           </div>
         )}
-        {(e.type === 'logo') && (
+        {e.type === 'logo' && (
           <div className="grid grid-cols-2 gap-1.5">
-            <FxNumber label="Width (px)" value={nVar('width', 200)} step={10} min={10} onChange={(v) => onPatchVar('width', Math.max(10, Math.round(v)))} />
+            <FxNumber
+              label="Width (px)"
+              value={nVar('width', 200)}
+              step={10}
+              min={10}
+              onChange={(v) => onPatchVar('width', Math.max(10, Math.round(v)))}
+            />
           </div>
         )}
-        {(e.type === 'b_roll') && (
+        {e.type === 'b_roll' && (
           <div className="grid grid-cols-2 gap-1.5 items-end">
-            <FxNumber label="Width (px)" value={nVar('width', 600)} step={20} min={20} onChange={(v) => onPatchVar('width', Math.max(20, Math.round(v)))} />
-            <FxCheckbox label="Fullscreen" checked={e.variables.fullscreen === true} onChange={(c) => onPatchVar('fullscreen', c || undefined)} />
+            <FxNumber
+              label="Width (px)"
+              value={nVar('width', 600)}
+              step={20}
+              min={20}
+              onChange={(v) => onPatchVar('width', Math.max(20, Math.round(v)))}
+            />
+            <FxCheckbox
+              label="Fullscreen"
+              checked={e.variables.fullscreen === true}
+              onChange={(c) => onPatchVar('fullscreen', c || undefined)}
+            />
           </div>
         )}
       </div>

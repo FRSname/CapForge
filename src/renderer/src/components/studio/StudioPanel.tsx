@@ -13,7 +13,7 @@ import { Select } from '../ui/Select'
 import { ExportPanel } from './ExportPanel'
 import { ExportFooter } from './ExportFooter'
 import { CustomRenderPanel } from './CustomRenderPanel'
-import { EffectsPanel } from './EffectsPanel'
+import { HyperFramesPanel } from './HyperFramesPanel'
 import { PresetPicker } from './PresetPicker'
 import { RenderProgressModal } from './RenderProgressModal'
 import { useRender } from '../../hooks/useRender'
@@ -964,8 +964,14 @@ export function StudioPanel({
               render={render}
             />
 
-            {/* ── Effects (logos, etc.) — composited by HyperFrames ─ */}
-            <EffectsPanel effects={effects} onChange={setEffects} audioPath={audioPath} />
+            {/* ── HyperFrames ✦ — Open Studio + Render + Effects ──── */}
+            <HyperFramesPanel
+              effects={effects}
+              onEffectsChange={setEffects}
+              audioPath={audioPath}
+              outputDir={outputDir}
+              render={render}
+            />
           </>
         )}
       </div>
