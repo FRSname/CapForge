@@ -32,6 +32,8 @@ export interface RenderController {
     outputDir?: string,
     engine?: RenderEngine
   ) => Promise<void>
+  /** Generate a HyperFrames project (no render) and open it in the local Studio webapp. */
+  openStudio: (outputDir?: string) => Promise<void>
   cancelRender: () => void
   reset: () => void
 }
@@ -139,6 +141,29 @@ export function useRender({
     [settings, groups, groupsEdited, effects, stopTimer, toast]
   )
 
+  // Generate the HyperFrames project folder (render:false) and hand it to the
+  // Electron-managed `npx hyperframes preview` studio. Separate from startRender
+  // because this never renders — it only scaffolds + opens the preview webapp.
+  const openStudio = useCallback(
+    async (outputDir?: string) => {
+      try {
+        toast('Building HyperFrames project…', 'info')
+        const body = buildRenderBody(settings, groups, groupsEdited, {}, outputDir, effects)
+        const res = (await api.exportHyperframes({ ...body, render: false })) as {
+          project?: string
+        }
+        if (!res?.project) throw new Error('No project folder was generated.')
+        const opened = await window.subforge.openStudio(res.project)
+        if (opened?.error) throw new Error(opened.error)
+        toast('HyperFrames Studio opened in your browser', 'success')
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : 'Could not open HyperFrames Studio'
+        toast(msg, 'error')
+      }
+    },
+    [settings, groups, groupsEdited, effects, toast]
+  )
+
   const cancelRender = useCallback(() => {
     api.cancelJob().catch(() => {
       /* ignore */
@@ -156,6 +181,7 @@ export function useRender({
     elapsed,
     busy: status === 'rendering',
     startRender,
+    openStudio,
     cancelRender,
     reset,
   }

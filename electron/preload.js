@@ -81,6 +81,13 @@ contextBridge.exposeInMainWorld('subforge', {
   /** Reveal a file/folder in the OS file manager. */
   showInFolder: (filePath) => ipcRenderer.invoke('shell:showInFolder', filePath),
 
+  /** Launch the HyperFrames Studio (local preview webapp) for a project folder
+   *  and open it in the browser. Returns {url} or {error}. */
+  openStudio: (projectDir) => ipcRenderer.invoke('studio:open', projectDir),
+
+  /** Stop the HyperFrames Studio preview server. */
+  stopStudio: () => ipcRenderer.invoke('studio:stop'),
+
   /** One-click "Connect to Claude" (MCP control layer). */
   claude: {
     detect: () => ipcRenderer.invoke('claude:detect'),

@@ -40,6 +40,8 @@ export interface SubforgeApi {
   openLogsFolder: () => Promise<void>
   openLogFile: () => Promise<void>
   showInFolder: (filePath: string) => Promise<void>
+  openStudio: (projectDir: string) => Promise<{ url?: string; error?: string }>
+  stopStudio: () => Promise<boolean>
   claude: ClaudeConnectApi
 }
 
@@ -107,6 +109,8 @@ contextBridge.exposeInMainWorld('subforge', {
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),
   showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),
+  openStudio: (projectDir: string) => ipcRenderer.invoke('studio:open', projectDir),
+  stopStudio: () => ipcRenderer.invoke('studio:stop'),
   claude: {
     detect: () => ipcRenderer.invoke('claude:detect'),
     connectDesktop: () => ipcRenderer.invoke('claude:connectDesktop'),

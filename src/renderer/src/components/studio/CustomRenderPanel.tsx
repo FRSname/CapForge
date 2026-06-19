@@ -64,7 +64,7 @@ export function CustomRenderPanel({
     onChange({ ...s, [key]: val })
   }
 
-  const { busy, startRender } = render
+  const { busy, startRender, openStudio } = render
   const effectiveOutputDir = outputDir || dirname(audioPath)
 
   return (
@@ -191,6 +191,15 @@ export function CustomRenderPanel({
         title="Render captions with the HyperFrames engine (GSAP animation). Requires Node.js 22+."
       >
         Render with HyperFrames ✦
+      </Button>
+      <Button
+        variant="ghost"
+        className="w-full justify-center mt-1.5"
+        disabled={busy}
+        onClick={() => openStudio(effectiveOutputDir)}
+        title="Open the generated composition in the local HyperFrames Studio to inspect and refine it in your browser. Requires Node.js 22+."
+      >
+        Open in HyperFrames Studio ⧉
       </Button>
       <p className="text-2xs text-[var(--color-text-3)] text-center">
         {s.resolution[0]}×{s.resolution[1]} · {s.fps}fps · {s.format.toUpperCase()} · {s.renderMode}
