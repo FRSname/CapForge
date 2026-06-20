@@ -15,9 +15,12 @@
  *     poll it for readiness, the same way python-manager waits on the backend.
  */
 
+const path = require('path')
 const { spawn } = require('child_process')
 const http = require('http')
 const net = require('net')
+
+const { getNodeRuntimePaths, isNodeRuntimeReady, isHyperframesReady } = require('./node-runtime')
 
 // HyperFrames' own default preview port. The free-port lookup below falls back
 // to an OS-assigned port if it's busy (another studio, unrelated dev server).
@@ -51,9 +54,35 @@ function findFreePort(preferred) {
   })
 }
 
-/** On Windows the npx shim is `npx.cmd`; spawn(...) needs the exact name. */
-function resolveNpx() {
-  return process.platform === 'win32' ? 'npx.cmd' : 'npx'
+/**
+ * Resolve the command + args to launch the studio preview server.
+ * Prefer the app-managed CLI run as `node <cli.js>` (works without a system Node
+ * and avoids the npx.cmd shim Windows can't spawn). Fall back to `npx -y
+ * hyperframes` (dev / system Node; `npx.cmd` on Windows).
+ */
+function resolveStudioCommand(projectDir, port) {
+  const previewArgs = ['preview', '--no-open', '--port', String(port), projectDir]
+  if (isHyperframesReady()) {
+    const { nodeExe, hyperframesCli } = getNodeRuntimePaths()
+    return { cmd: nodeExe, args: [hyperframesCli, ...previewArgs] }
+  }
+  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  return { cmd: npx, args: ['-y', 'hyperframes', ...previewArgs] }
+}
+
+/**
+ * Spawn env for the studio: when a managed Node exists, put its bin dir on PATH
+ * (the CLI spawns `node`) and point the headless browser at the app-managed
+ * cache. Otherwise inherit the parent env unchanged.
+ */
+function studioEnv() {
+  const env = { ...process.env }
+  if (isNodeRuntimeReady()) {
+    const node = getNodeRuntimePaths()
+    env.PATH = node.nodeBinDir + path.delimiter + (env.PATH || '')
+    env.PUPPETEER_CACHE_DIR = node.browserCacheDir
+  }
+  return env
 }
 
 class HyperframesStudio {
@@ -74,13 +103,12 @@ class HyperframesStudio {
     const port = await findFreePort(PREFERRED_STUDIO_PORT)
 
     return new Promise((resolve, reject) => {
-      const npx = resolveNpx()
-      const args = ['-y', 'hyperframes', 'preview', '--no-open', '--port', String(port), projectDir]
-      console.log(`[CapForge] Starting HyperFrames Studio: ${npx} ${args.join(' ')}`)
+      const { cmd, args } = resolveStudioCommand(projectDir, port)
+      console.log(`[CapForge] Starting HyperFrames Studio: ${cmd} ${args.join(' ')}`)
 
       let proc
       try {
-        proc = spawn(npx, args, { cwd: projectDir, windowsHide: true, env: { ...process.env } })
+        proc = spawn(cmd, args, { cwd: projectDir, windowsHide: true, env: studioEnv() })
       } catch (err) {
         reject(new Error(`Failed to launch HyperFrames Studio: ${err.message}`))
         return

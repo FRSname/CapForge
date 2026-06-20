@@ -382,4 +382,7 @@ module.exports = {
   isRuntimeReady,
   detectAccelerator: platform.detectAccelerator,
   RUNTIME_VERSION,
+  // Reused by node-provision.js / hyperframes-provision.js (Node + HyperFrames).
+  downloadFile,
+  runCommand,
 }

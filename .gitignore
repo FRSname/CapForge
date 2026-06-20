@@ -61,6 +61,5 @@ Thumbs.db
 
 # Build artifacts
 *.spec
-tsconfig.web.tsbuildinfo
-CLAUDE.md
+*.tsbuildinfo
 CLAUDE.md

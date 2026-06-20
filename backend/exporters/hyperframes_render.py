@@ -14,6 +14,8 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
+from .node_runtime import hyperframes_argv
+
 logger = logging.getLogger(__name__)
 
 _VIDEO_EXTS = {".mp4", ".webm", ".mov"}
@@ -30,14 +32,15 @@ _FRAME_RE = re.compile(r"Capturing frame (\d+)\s*/\s*(\d+)")
 _CAPTURE_PCT_CEILING = 95.0
 
 
-def _resolve_npx() -> str:
-    npx = shutil.which("npx")
-    if not npx:
+def _hyperframes_cmd() -> list[str]:
+    """Argv prefix to run the HyperFrames CLI, or raise if Node is unavailable."""
+    argv = hyperframes_argv()
+    if argv is None:
         raise HyperframesRenderError(
-            "Node.js (npx) was not found on PATH. HyperFrames rendering needs "
-            "Node.js 22+. Install Node, or use the file-only HyperFrames export."
+            "Node.js was not found. HyperFrames rendering needs Node.js 22+. "
+            "Install Node, or use the file-only HyperFrames export."
         )
-    return npx
+    return argv
 
 
 def _discover_output(project_dir: str, out: Path, video_format: str) -> Optional[Path]:
@@ -78,12 +81,12 @@ def render_hyperframes_project(
     Streams the CLI's "Capturing frame X/Y" lines into `on_progress` (capped at
     95%); the final encode/assemble completes the bar.
     """
-    npx = _resolve_npx()
+    hf = _hyperframes_cmd()
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
 
     cmd = [
-        npx, "-y", "hyperframes", "render",
+        *hf, "render",
         "--quality", quality,
         "--format", video_format,
         "--output", str(out),
@@ -155,9 +158,8 @@ def snapshot_hyperframes_project(project_dir: str, t: float) -> bytes:
     (seconds, not minutes). `--describe false` skips the optional Gemini vision
     pass. Returns the PNG bytes for the agent to view.
     """
-    npx = _resolve_npx()
     snaps = Path(project_dir) / "snapshots"
-    cmd = [npx, "-y", "hyperframes", "snapshot", "--at", f"{float(t):g}", "--describe", "false"]
+    cmd = [*_hyperframes_cmd(), "snapshot", "--at", f"{float(t):g}", "--describe", "false"]
     logger.info("HyperFrames snapshot: %s (cwd=%s)", " ".join(cmd), project_dir)
     try:
         proc = subprocess.run(cmd, cwd=str(project_dir), capture_output=True, text=True)

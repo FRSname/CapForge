@@ -25,9 +25,9 @@
  *   extraModelDownloadEnv: object                    — HF hub env tweaks
  */
 
-const { spawn, spawnSync } = require("child_process");
-const path = require("path");
-const fs = require("fs");
+const { spawn, spawnSync } = require('child_process')
+const path = require('path')
+const fs = require('fs')
 
 // ---------------------------------------------------------------------------
 // Torch package pinning
@@ -36,8 +36,8 @@ const fs = require("fs");
 // cu124 index tops out at 2.6.0 (not 2.8 as the name might suggest). Driver
 // requirement: NVIDIA driver ≥ 550. See DOCS.md "Packaging Lessons Learned"
 // for the full trap list around torch install order.
-const TORCH_CUDA_INDEX = "https://download.pytorch.org/whl/cu124";
-const TORCH_CUDA_PACKAGES = ["torch==2.6.0", "torchaudio==2.6.0", "torchvision==0.21.0"];
+const TORCH_CUDA_INDEX = 'https://download.pytorch.org/whl/cu124'
+const TORCH_CUDA_PACKAGES = ['torch==2.6.0', 'torchaudio==2.6.0', 'torchvision==0.21.0']
 
 // ---------------------------------------------------------------------------
 // Python runtime bootstrapping
@@ -45,14 +45,12 @@ const TORCH_CUDA_PACKAGES = ["torch==2.6.0", "torchaudio==2.6.0", "torchvision==
 
 function findBundledPythonArchive() {
   if (process.resourcesPath) {
-    const packaged = path.join(process.resourcesPath, "python", "python-embed.zip");
-    if (fs.existsSync(packaged)) return packaged;
+    const packaged = path.join(process.resourcesPath, 'python', 'python-embed.zip')
+    if (fs.existsSync(packaged)) return packaged
   }
-  const dev = path.join(__dirname, "..", "..", "resources", "python", "python-embed.zip");
-  if (fs.existsSync(dev)) return dev;
-  throw new Error(
-    "Bundled Python not found. Expected python-embed.zip in resources/python/."
-  );
+  const dev = path.join(__dirname, '..', '..', 'resources', 'python', 'python-embed.zip')
+  if (fs.existsSync(dev)) return dev
+  throw new Error('Bundled Python not found. Expected python-embed.zip in resources/python/.')
 }
 
 /**
@@ -61,25 +59,27 @@ function findBundledPythonArchive() {
  */
 function extractPython(archivePath, destDir) {
   return new Promise((resolve, reject) => {
-    fs.mkdirSync(destDir, { recursive: true });
+    fs.mkdirSync(destDir, { recursive: true })
     const ps = spawn(
-      "powershell.exe",
+      'powershell.exe',
       [
-        "-NoProfile",
-        "-NonInteractive",
-        "-Command",
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
         `Expand-Archive -LiteralPath "${archivePath}" -DestinationPath "${destDir}" -Force`,
       ],
       { windowsHide: true }
-    );
-    let stderr = "";
-    ps.stderr.on("data", (d) => { stderr += d.toString(); });
-    ps.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`Expand-Archive failed (${code}): ${stderr}`));
-    });
-    ps.on("error", reject);
-  });
+    )
+    let stderr = ''
+    ps.stderr.on('data', (d) => {
+      stderr += d.toString()
+    })
+    ps.on('exit', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(`Expand-Archive failed (${code}): ${stderr}`))
+    })
+    ps.on('error', reject)
+  })
 }
 
 /**
@@ -90,16 +90,62 @@ function extractPython(archivePath, destDir) {
  * why this matters; embedded Python ignores PYTHONPATH when _pth exists).
  */
 function patchPythonConfig(pythonDir) {
-  const pthFile = path.join(pythonDir, "python311._pth");
-  const patched = [
-    "python311.zip",
-    ".",
-    "Lib\\site-packages",
-    "",
-    "import site",
-    "",
-  ].join("\r\n");
-  fs.writeFileSync(pthFile, patched, "utf-8");
+  const pthFile = path.join(pythonDir, 'python311._pth')
+  const patched = ['python311.zip', '.', 'Lib\\site-packages', '', 'import site', ''].join('\r\n')
+  fs.writeFileSync(pthFile, patched, 'utf-8')
+}
+
+// ---------------------------------------------------------------------------
+// Node runtime (for HyperFrames) — downloaded on first run, extracted here.
+// ---------------------------------------------------------------------------
+
+function nodeArchiveUrl(version) {
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  return `https://nodejs.org/dist/v${version}/node-v${version}-win-${arch}.zip`
+}
+
+/**
+ * Extract the Node .zip. The archive wraps everything in a single top-level
+ * `node-v…-win-…/` dir, so we expand to a staging folder then promote that
+ * inner dir to `destDir` (mirrors the macOS --strip-components=1 behaviour).
+ */
+function extractNode(archivePath, destDir) {
+  return new Promise((resolve, reject) => {
+    const staging = `${destDir}-staging`
+    fs.rmSync(staging, { recursive: true, force: true })
+    fs.mkdirSync(staging, { recursive: true })
+    const ps = spawn(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `Expand-Archive -LiteralPath "${archivePath}" -DestinationPath "${staging}" -Force`,
+      ],
+      { windowsHide: true }
+    )
+    let stderr = ''
+    ps.stderr.on('data', (d) => {
+      stderr += d.toString()
+    })
+    ps.on('error', reject)
+    ps.on('exit', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Expand-Archive failed (${code}): ${stderr}`))
+        return
+      }
+      try {
+        const entries = fs.readdirSync(staging)
+        const inner = entries.length === 1 ? path.join(staging, entries[0]) : staging
+        fs.rmSync(destDir, { recursive: true, force: true })
+        fs.renameSync(inner, destDir)
+        fs.rmSync(staging, { recursive: true, force: true })
+        resolve()
+      } catch (err) {
+        reject(err)
+      }
+    })
+  })
 }
 
 // ---------------------------------------------------------------------------
@@ -113,19 +159,19 @@ function patchPythonConfig(pythonDir) {
  */
 async function detectAccelerator() {
   try {
-    const result = spawnSync("nvidia-smi", ["--query-gpu=name", "--format=csv,noheader"], {
-      encoding: "utf-8",
+    const result = spawnSync('nvidia-smi', ['--query-gpu=name', '--format=csv,noheader'], {
+      encoding: 'utf-8',
       timeout: 5000,
       windowsHide: true,
-    });
+    })
     if (result.status === 0 && result.stdout) {
-      const name = result.stdout.split("\n")[0].trim();
-      if (name) return { present: true, name, kind: "cuda" };
+      const name = result.stdout.split('\n')[0].trim()
+      if (name) return { present: true, name, kind: 'cuda' }
     }
   } catch {
     // fall through
   }
-  return { present: false, name: "CPU", kind: "cpu" };
+  return { present: false, name: 'CPU', kind: 'cpu' }
 }
 
 // ---------------------------------------------------------------------------
@@ -140,21 +186,21 @@ async function detectAccelerator() {
  * this dance is required.
  */
 async function installTorch({ accelerator, pipInstall, pipUninstall, report }) {
-  if (accelerator.kind !== "cuda") {
+  if (accelerator.kind !== 'cuda') {
     // CPU users are already done — whisperx pulled the right (CPU) torch.
-    return { torchVariant: "cpu" };
+    return { torchVariant: 'cpu' }
   }
 
-  report({ stage: "install", message: "Removing CPU PyTorch…" });
-  await pipUninstall(["torch", "torchaudio", "torchvision"], report);
+  report({ stage: 'install', message: 'Removing CPU PyTorch…' })
+  await pipUninstall(['torch', 'torchaudio', 'torchvision'], report)
 
-  report({ stage: "install", message: `Installing PyTorch (CUDA 12.4) for ${accelerator.name}…` });
+  report({ stage: 'install', message: `Installing PyTorch (CUDA 12.4) for ${accelerator.name}…` })
   await pipInstall(TORCH_CUDA_PACKAGES, {
     indexUrl: TORCH_CUDA_INDEX,
     report,
-  });
+  })
 
-  return { torchVariant: "cu124" };
+  return { torchVariant: 'cu124' }
 }
 
 // ---------------------------------------------------------------------------
@@ -163,21 +209,28 @@ async function installTorch({ accelerator, pipInstall, pipUninstall, report }) {
 
 function killProcess(child) {
   try {
-    const treeKill = require("tree-kill");
-    treeKill(child.pid);
+    const treeKill = require('tree-kill')
+    treeKill(child.pid)
   } catch {
-    child.kill();
+    child.kill()
   }
 }
 
 module.exports = {
-  id: "win",
+  id: 'win',
 
-  pythonExeRelPath: "python.exe",
-  devVenvPythonRelPath: path.join(".venv", "Scripts", "python.exe"),
+  pythonExeRelPath: 'python.exe',
+  devVenvPythonRelPath: path.join('.venv', 'Scripts', 'python.exe'),
 
-  ffmpegExeName: "ffmpeg.exe",
-  ffprobeExeName: "ffprobe.exe",
+  // Official Node Windows zip layout: <extracted>/{node.exe,npx.cmd} at root.
+  nodeExeRelPath: 'node.exe',
+  // npm global modules live under <nodeDir>/node_modules on Windows. We invoke
+  // their JS entrypoints with node.exe directly — never npm.cmd/hyperframes.cmd,
+  // which Node 22 / Python subprocess won't spawn without a shell on Windows.
+  globalNodeModulesRelPath: 'node_modules',
+
+  ffmpegExeName: 'ffmpeg.exe',
+  ffprobeExeName: 'ffprobe.exe',
 
   findBundledPythonArchive,
   extractPython,
@@ -186,11 +239,14 @@ module.exports = {
   installTorch,
   killProcess,
 
+  nodeArchiveUrl,
+  extractNode,
+
   // HF Hub on Windows tries to symlink blobs into snapshots/ by default. That
   // fails with WinError 1314 unless the user has admin or Developer Mode.
   // Disabling symlinks makes HF copy files instead. See DOCS.md for context.
   extraModelDownloadEnv: {
-    HF_HUB_DISABLE_SYMLINKS: "1",
-    HF_HUB_DISABLE_SYMLINKS_WARNING: "1",
+    HF_HUB_DISABLE_SYMLINKS: '1',
+    HF_HUB_DISABLE_SYMLINKS_WARNING: '1',
   },
-};
+}

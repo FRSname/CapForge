@@ -37,9 +37,9 @@
  *    both installers automatically.
  */
 
-const { spawn } = require("child_process");
-const path = require("path");
-const fs = require("fs");
+const { spawn } = require('child_process')
+const path = require('path')
+const fs = require('fs')
 
 // ---------------------------------------------------------------------------
 // Python runtime bootstrapping
@@ -61,26 +61,33 @@ const fs = require("fs");
  */
 function findBundledPythonArchive() {
   if (process.resourcesPath) {
-    const packaged = path.join(process.resourcesPath, "python");
-    if (fs.existsSync(path.join(packaged, "bin", "python3"))) return packaged;
+    const packaged = path.join(process.resourcesPath, 'python')
+    if (fs.existsSync(path.join(packaged, 'bin', 'python3'))) return packaged
   }
 
-  const devExtracted = path.join(__dirname, "..", "..", "resources", "python-mac-extracted");
-  if (fs.existsSync(path.join(devExtracted, "bin", "python3"))) return devExtracted;
+  const devExtracted = path.join(__dirname, '..', '..', 'resources', 'python-mac-extracted')
+  if (fs.existsSync(path.join(devExtracted, 'bin', 'python3'))) return devExtracted
 
-  const devTarball = path.join(__dirname, "..", "..", "resources", "python", "python-mac-arm64.tar.gz");
+  const devTarball = path.join(
+    __dirname,
+    '..',
+    '..',
+    'resources',
+    'python',
+    'python-mac-arm64.tar.gz'
+  )
   if (fs.existsSync(devTarball)) {
-    const { execFileSync } = require("child_process");
-    fs.mkdirSync(devExtracted, { recursive: true });
-    execFileSync("tar", ["--strip-components=1", "-xzf", devTarball, "-C", devExtracted]);
-    return devExtracted;
+    const { execFileSync } = require('child_process')
+    fs.mkdirSync(devExtracted, { recursive: true })
+    execFileSync('tar', ['--strip-components=1', '-xzf', devTarball, '-C', devExtracted])
+    return devExtracted
   }
 
   throw new Error(
-    "Bundled Python not found. Run `node scripts/prepare-mac-python.js` or " +
-    "download a build from https://github.com/astral-sh/python-build-standalone " +
-    "into resources/python/python-mac-arm64.tar.gz."
-  );
+    'Bundled Python not found. Run `node scripts/prepare-mac-python.js` or ' +
+      'download a build from https://github.com/astral-sh/python-build-standalone ' +
+      'into resources/python/python-mac-arm64.tar.gz.'
+  )
 }
 
 /**
@@ -91,22 +98,51 @@ function findBundledPythonArchive() {
  */
 function extractPython(sourceDir, destDir) {
   return new Promise((resolve, reject) => {
-    fs.mkdirSync(destDir, { recursive: true });
-    const proc = spawn("ditto", [sourceDir, destDir], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stderr = "";
-    proc.stderr.on("data", (d) => { stderr += d.toString(); });
-    proc.on("exit", (code) => {
-      if (code === 0) resolve();
-      else reject(new Error(`ditto failed (${code}): ${stderr}`));
-    });
-    proc.on("error", reject);
-  });
+    fs.mkdirSync(destDir, { recursive: true })
+    const proc = spawn('ditto', [sourceDir, destDir], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    })
+    let stderr = ''
+    proc.stderr.on('data', (d) => {
+      stderr += d.toString()
+    })
+    proc.on('exit', (code) => {
+      if (code === 0) resolve()
+      else reject(new Error(`ditto failed (${code}): ${stderr}`))
+    })
+    proc.on('error', reject)
+  })
 }
 
 // python-build-standalone ships a normal Python install — no `._pth` file
 // and site-packages is enabled by default. Nothing to patch.
+// ---------------------------------------------------------------------------
+// Node runtime (for HyperFrames) — downloaded on first run, extracted here.
+// Official Node macOS builds are Apple-notarized by the Node project, so the
+// downloaded binary executes under Gatekeeper without us re-signing it.
+// ---------------------------------------------------------------------------
+
+function nodeArchiveUrl(version) {
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  return `https://nodejs.org/dist/v${version}/node-v${version}-darwin-${arch}.tar.gz`
+}
+
+/** Extract the Node .tar.gz, stripping its top-level `node-v…-darwin-…/` dir. */
+function extractNode(archivePath, destDir) {
+  return new Promise((resolve, reject) => {
+    fs.mkdirSync(destDir, { recursive: true })
+    const proc = spawn('tar', ['--strip-components=1', '-xzf', archivePath, '-C', destDir])
+    let stderr = ''
+    proc.stderr.on('data', (d) => {
+      stderr += d.toString()
+    })
+    proc.on('error', reject)
+    proc.on('exit', (code) =>
+      code === 0 ? resolve() : reject(new Error(`tar failed (${code}): ${stderr}`))
+    )
+  })
+}
+
 function patchPythonConfig(_pythonDir) {
   /* no-op */
 }
@@ -123,9 +159,9 @@ function patchPythonConfig(_pythonDir) {
 async function detectAccelerator() {
   return {
     present: false,
-    name: process.arch === "arm64" ? "Apple Silicon (CPU)" : "CPU",
-    kind: "cpu",
-  };
+    name: process.arch === 'arm64' ? 'Apple Silicon (CPU)' : 'CPU',
+    kind: 'cpu',
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -140,9 +176,11 @@ async function detectAccelerator() {
  */
 async function installTorch({ accelerator, pipInstall, pipUninstall, report }) {
   // Avoid unused-param lint noise — contract symmetry with win.js.
-  void pipInstall; void pipUninstall; void accelerator;
-  report({ stage: "install", message: "PyTorch (CPU) already installed by whisperx." });
-  return { torchVariant: "cpu" };
+  void pipInstall
+  void pipUninstall
+  void accelerator
+  report({ stage: 'install', message: 'PyTorch (CPU) already installed by whisperx.' })
+  return { torchVariant: 'cpu' }
 }
 
 // ---------------------------------------------------------------------------
@@ -155,18 +193,28 @@ async function installTorch({ accelerator, pipInstall, pipUninstall, report }) {
  * escalation after a short grace period.
  */
 function killProcess(child) {
-  try { child.kill("SIGTERM"); } catch { /* already dead */ }
+  try {
+    child.kill('SIGTERM')
+  } catch {
+    /* already dead */
+  }
 }
 
 module.exports = {
-  id: "mac",
+  id: 'mac',
 
   // python-build-standalone standard layout: <extracted>/bin/python3
-  pythonExeRelPath: path.join("bin", "python3"),
-  devVenvPythonRelPath: path.join(".venv", "bin", "python3"),
+  pythonExeRelPath: path.join('bin', 'python3'),
+  devVenvPythonRelPath: path.join('.venv', 'bin', 'python3'),
 
-  ffmpegExeName: "ffmpeg",
-  ffprobeExeName: "ffprobe",
+  // Official Node tarball layout: <extracted>/bin/node
+  nodeExeRelPath: path.join('bin', 'node'),
+  // npm global modules live under <nodeDir>/lib/node_modules on macOS. We invoke
+  // their JS entrypoints with node.exe directly (never the .cmd/shell shims).
+  globalNodeModulesRelPath: path.join('lib', 'node_modules'),
+
+  ffmpegExeName: 'ffmpeg',
+  ffprobeExeName: 'ffprobe',
 
   findBundledPythonArchive,
   extractPython,
@@ -175,6 +223,9 @@ module.exports = {
   installTorch,
   killProcess,
 
+  nodeArchiveUrl,
+  extractNode,
+
   // macOS supports symlinks natively — no HF Hub workarounds needed.
   extraModelDownloadEnv: {},
-};
+}
