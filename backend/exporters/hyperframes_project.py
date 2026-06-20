@@ -538,12 +538,18 @@ def _prepare_caption_style(
     if style == "classic":
         return None
     from backend.exporters.hyperframes_captions import (
+        fit_caption_component,
         inject_transcript,
         install_caption_component,
     )
 
     rel = install_caption_component(str(project_dir), style)
-    inject_transcript(project_dir / rel, transcript_json, duration)
+    component_path = project_dir / rel
+    inject_transcript(component_path, transcript_json, duration)
+    # Native caption components are authored for a fixed (16:9) stage — fit them
+    # to CapForge's chosen canvas (portrait/4:5/square/4K) so captions aren't
+    # clipped or mis-placed. No-op at the native size.
+    fit_caption_component(component_path, config.resolution_w, config.resolution_h)
     return rel
 
 

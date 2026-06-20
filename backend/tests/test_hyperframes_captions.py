@@ -5,6 +5,7 @@ import pytest
 from backend.exporters.hyperframes_captions import (
     CaptionStyleError,
     component_rel_path,
+    fit_caption_component,
     inject_transcript,
     install_caption_component,
 )
@@ -52,6 +53,61 @@ def test_install_is_idempotent_when_component_present(tmp_path):
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text("<div></div>")
     assert install_caption_component(str(tmp_path), style) == component_rel_path(style)
+
+
+# A component with the canvas-dimension surface fit_caption_component rewrites.
+_FIT_COMPONENT = (
+    '<head>\n'
+    '<meta name="viewport" content="width=1920, height=1080" />\n'
+    '<style>\nhtml, body { width: 1920px; height: 1080px; }\n</style>\n'
+    '</head>\n'
+    '<body><div id="pk" data-composition-id="cap" data-width="1920" data-height="1080">'
+    '<div class="caption-layer"></div></div></body>'
+)
+
+
+def _fit_file(tmp_path, body=_FIT_COMPONENT):
+    f = tmp_path / "c.html"
+    f.write_text(body)
+    return f
+
+
+def test_fit_is_noop_at_native_size(tmp_path):
+    f = _fit_file(tmp_path)
+    fit_caption_component(f, 1920, 1080)  # native stage
+    out = f.read_text()
+    assert out == _FIT_COMPONENT  # byte-identical — the proven path is untouched
+
+
+def test_fit_portrait_rewrites_canvas_and_injects_fit_transform(tmp_path):
+    f = _fit_file(tmp_path)
+    fit_caption_component(f, 1080, 1920)  # portrait
+    out = f.read_text()
+    # viewport + body canvas → target
+    assert 'content="width=1080, height=1920"' in out
+    assert "width: 1080px !important; height: 1920px !important;" in out
+    # comp root fit transform: scale to target width (1080/1920 = 0.5625), bottom-anchored
+    assert "[data-composition-id]" in out
+    assert "scale(0.5625)" in out
+    assert "transform-origin: bottom center" in out
+    # native box preserved on the root so internal layout stays in native coords
+    assert "width: 1920px !important; height: 1080px !important;" in out
+
+
+def test_fit_4k_same_aspect_scales_by_two(tmp_path):
+    f = _fit_file(tmp_path)
+    fit_caption_component(f, 3840, 2160)  # 4K, same 16:9 aspect
+    out = f.read_text()
+    assert "scale(2.0)" in out
+    assert "width: 3840px !important; height: 2160px !important;" in out
+
+
+def test_fit_falls_back_to_1920x1080_without_data_dims(tmp_path):
+    # No data-width/height, no viewport → default native 1920×1080 assumed.
+    f = _fit_file(tmp_path, '<style></style><body><div data-composition-id="cap"></div></body>')
+    fit_caption_component(f, 1080, 1920)
+    out = f.read_text()
+    assert "scale(0.5625)" in out  # 1080/1920
 
 
 def test_list_caption_styles_prepends_classic_and_falls_back(monkeypatch):

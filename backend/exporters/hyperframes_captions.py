@@ -139,6 +139,68 @@ def install_caption_component(project_dir: str, style: str) -> str:
     return rel
 
 
+def _native_dims(src: str) -> tuple[int, int]:
+    """Read a caption component's authored canvas size (it's designed for a fixed
+    stage, e.g. 1920×1080). Falls back through data-* → viewport → 1920×1080."""
+    mw = re.search(r'data-width="(\d+)"', src)
+    mh = re.search(r'data-height="(\d+)"', src)
+    if mw and mh:
+        return int(mw.group(1)), int(mh.group(1))
+    vp = re.search(r'width=(\d+),\s*height=(\d+)', src)
+    if vp:
+        return int(vp.group(1)), int(vp.group(2))
+    return 1920, 1080
+
+
+def fit_caption_component(component_path: Path, target_w: int, target_h: int) -> None:
+    """Make a registry caption component fill a `target_w`×`target_h` frame.
+
+    Registry caption components are authored for a fixed stage (typically
+    1920×1080) with absolute-pixel internal layout. HyperFrames renders a
+    sub-composition at its OWN body size, unscaled (verified: a 1920×1080
+    component drops top-left into a 1080×1920 frame, clipped). So for any
+    non-native canvas we:
+      1. set the component's body/viewport to the target size, and
+      2. fit its natively-authored content to the frame with a single CSS
+         transform on the composition root (`[data-composition-id]`): scale to
+         the target *width* and anchor the caption band to the bottom
+         (bottom-center origin). The component's own JS/layout runs untouched in
+         native coordinates — CSS just scales the rendered result.
+
+    Component-agnostic (no per-style internal-constant surgery) and a no-op when
+    the target already matches the native stage (keeps that path byte-stable).
+    Proven end-to-end (portrait 1080×1920: captions full-width, bottom-anchored,
+    karaoke intact).
+    """
+    src = component_path.read_text(encoding="utf-8")
+    native_w, native_h = _native_dims(src)
+    if (target_w, target_h) == (native_w, native_h):
+        return  # native stage — leave the proven path exactly as-is
+
+    scale = round(target_w / native_w, 6)
+    src = re.sub(
+        r'<meta name="viewport"[^>]*/?>',
+        f'<meta name="viewport" content="width={target_w}, height={target_h}" />',
+        src,
+        count=1,
+    )
+    # Appended !important rules override the component's own canvas + root box
+    # without depending on its exact CSS formatting.
+    override = (
+        f"\nhtml, body {{ width: {target_w}px !important; height: {target_h}px !important; }}\n"
+        f"[data-composition-id] {{ position: absolute !important; left: 50% !important; "
+        f"bottom: 0 !important; top: auto !important; "
+        f"width: {native_w}px !important; height: {native_h}px !important; "
+        f"transform: translateX(-50%) scale({scale}) !important; "
+        f"transform-origin: bottom center !important; }}\n"
+    )
+    if "</style>" in src:
+        src = src.replace("</style>", override + "</style>", 1)
+    else:  # defensive — every shipped caption component has a <style>, but don't crash
+        src = src.replace("</head>", f"<style>{override}</style>\n</head>", 1)
+    component_path.write_text(src, encoding="utf-8")
+
+
 def inject_transcript(component_path: Path, transcript_json: str, duration: float) -> None:
     """Rewrite a caption component's baked-in TRANSCRIPT + clock in place.
 
