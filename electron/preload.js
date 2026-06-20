@@ -95,4 +95,16 @@ contextBridge.exposeInMainWorld('subforge', {
     connectCode: () => ipcRenderer.invoke('claude:connectCode'),
     getManualConfig: () => ipcRenderer.invoke('claude:getManualConfig'),
   },
+
+  /** Opt-in provisioning of the HyperFrames extras (managed Node + CLI + browser). */
+  hyperframes: {
+    status: () => ipcRenderer.invoke('hyperframes:status'),
+    provision: () => ipcRenderer.invoke('hyperframes:provision'),
+    /** Subscribe to provisioning progress; returns an unsubscribe fn. */
+    onProvisionProgress: (cb) => {
+      const listener = (_event, p) => cb(p)
+      ipcRenderer.on('hyperframes:provision-progress', listener)
+      return () => ipcRenderer.removeListener('hyperframes:provision-progress', listener)
+    },
+  },
 })

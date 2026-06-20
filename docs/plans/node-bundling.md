@@ -71,14 +71,31 @@ signed/notarized by the Node project so the downloaded binary runs under Gatekee
 **Known limitation (→ Phase 3):** only *new* installs provision Node (they run the wizard).
 Existing installs keep the system-`npx` fallback until a lazy/opt-in provision is added.
 
-### Phase 3 — Provision hyperframes + browser
-- Install the `hyperframes` package into a managed dir with the managed Node (correct
-  native binaries), or `npx -y hyperframes` with a managed npm cache.
-- Run `hyperframes browser install` (or `hyperframes setup`) with `PUPPETEER_CACHE_DIR`
-  pointed at `<userData>/runtime/puppeteer/` during first-run setup.
-- Add a `hyperframes doctor` check + a setup-wizard step with progress; surface a clear
-  "HyperFrames extras (~Xmb) — install now?" opt-in so users who only need classic
-  captions don't pay the download.
+### Phase 3 — Provision hyperframes + browser ◑ (mechanism done; UI remains)
+Live CLI findings (v0.6.116): the command is **`hyperframes browser ensure`** (not
+`install`) — it uses a **system Chrome if present**, else downloads
+`chrome-headless-shell` into `PUPPETEER_CACHE_DIR`; runs non-interactively;
+**`doctor --json`** gives `{ok, checks[]}`.
+
+Done:
+- `electron/hyperframes-provision.js` — `ensureHyperframesRuntime()`: `npm install -g
+  hyperframes@0.6.116` into the managed Node prefix → `browser ensure` (PUPPETEER_CACHE_DIR
+  = `<userData>/runtime/puppeteer/`) → `doctor` (best-effort). Idempotent via a
+  `.hyperframes-version` marker under the managed Node dir.
+- Resolver: `backend/exporters/node_runtime.hyperframes_argv()` prefers the managed CLI
+  (`CAPFORGE_HYPERFRAMES_BIN`) over `npx -y hyperframes`; render/snapshot/catalog/add all
+  route through it; `python-manager.js` injects the env var when the CLI exists.
+- **Opt-in trigger** (not forced into first-run, since it's the heavy ~150–300 MB step):
+  IPC `hyperframes:status` / `hyperframes:provision` (+ progress event) and the runtime
+  preload `window.subforge.hyperframes`. This single path provisions Node→CLI→browser, so
+  it also serves **existing installs** that finished setup before this shipped.
+
+Remaining:
+- Renderer **opt-in UI** ("Install HyperFrames extras (~Xmb)" button + progress) and the
+  **typed preload** entry in `src/preload/index.ts` for `window.subforge.hyperframes`.
+- **Clean-machine validation**: the `npm install -g` + `chrome-headless-shell` download
+  couldn't be fully exercised here (this dev box has system Node + system Chrome, which
+  the CLI prefers). Verify on a box without either, on both macOS and Windows.
 
 ## Open questions
 - Exact `hyperframes browser` / `setup` flag surface + offline behaviour (verify against

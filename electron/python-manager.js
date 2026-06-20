@@ -10,7 +10,7 @@ const fs = require('fs')
 const net = require('net')
 
 const { getRuntimePaths, isRuntimeReady } = require('./runtime-setup')
-const { getNodeRuntimePaths, isNodeRuntimeReady } = require('./node-runtime')
+const { getNodeRuntimePaths, isNodeRuntimeReady, isHyperframesReady } = require('./node-runtime')
 const platform = require('./platform')
 
 const PROJECT_ROOT = path.join(__dirname, '..')
@@ -179,6 +179,8 @@ class PythonBackend {
         env.PATH = node.nodeBinDir + path.delimiter + (env.PATH || '')
         // Keep the managed chrome-headless-shell app-local + uninstallable.
         env.PUPPETEER_CACHE_DIR = node.browserCacheDir
+        // Prefer the pinned, offline hyperframes CLI over `npx -y hyperframes`.
+        if (isHyperframesReady()) env.CAPFORGE_HYPERFRAMES_BIN = node.hyperframesBin
       }
 
       // Open the log file for append (rotating first if it's oversized).

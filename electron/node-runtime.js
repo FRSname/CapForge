@@ -29,8 +29,11 @@ function getNodeRuntimePaths() {
     nodeDir,
     nodeExe: path.join(nodeDir, platform.nodeExeRelPath),
     npx: path.join(nodeDir, platform.npxRelPath),
-    // Dir to prepend to PATH so `node`/`npx` (and the node the hyperframes CLI
-    // spawns) resolve. macOS: <nodeDir>/bin; Windows: <nodeDir> (exe at root).
+    npm: path.join(nodeDir, platform.npmRelPath),
+    // The hyperframes CLI, installed via `npm install -g` into the managed node.
+    hyperframesBin: path.join(nodeDir, platform.hyperframesBinRelPath),
+    // Dir to prepend to PATH so `node`/`npx`/`hyperframes` (and the node the
+    // CLI spawns) resolve. macOS: <nodeDir>/bin; Windows: <nodeDir> (exe at root).
     nodeBinDir: path.join(nodeDir, path.dirname(platform.nodeExeRelPath)),
     // hyperframes downloads chrome-headless-shell via @puppeteer/browsers and
     // honours PUPPETEER_CACHE_DIR — keep it app-managed, not in ~/.cache.
@@ -47,4 +50,13 @@ function isNodeRuntimeReady() {
   }
 }
 
-module.exports = { getNodeRuntimePaths, isNodeRuntimeReady }
+/** True once the hyperframes CLI is installed into the managed Node. */
+function isHyperframesReady() {
+  try {
+    return fs.existsSync(getNodeRuntimePaths().hyperframesBin)
+  } catch {
+    return false
+  }
+}
+
+module.exports = { getNodeRuntimePaths, isNodeRuntimeReady, isHyperframesReady }

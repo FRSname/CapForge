@@ -9,6 +9,8 @@ const fs = require('fs')
 const { PythonBackend } = require('./python-manager')
 const { ensureRuntime, isRuntimeReady, detectAccelerator } = require('./runtime-setup')
 const { ensureNodeRuntime } = require('./node-provision')
+const { ensureHyperframesRuntime, isHyperframesCurrent } = require('./hyperframes-provision')
+const { isNodeRuntimeReady } = require('./node-runtime')
 const appState = require('./app-state')
 const autosave = require('./autosave')
 const { checkForUpdates } = require('./update-check')
@@ -434,6 +436,28 @@ app.whenReady().then(async () => {
   ipcMain.handle('studio:stop', () => {
     if (hyperframesStudio) hyperframesStudio.stop()
     return true
+  })
+
+  // IPC: opt-in provisioning of the HyperFrames extras — the managed Node + the
+  // hyperframes CLI + its render browser (~150–300 MB). Triggered on demand from
+  // the UI so users who only want classic captions don't pay the download, and
+  // so existing installs (which finished setup before this shipped) can opt in.
+  // Streams progress on 'hyperframes:provision-progress'.
+  ipcMain.handle('hyperframes:status', () => ({
+    nodeReady: isNodeRuntimeReady(),
+    hyperframesReady: isHyperframesCurrent(),
+  }))
+  ipcMain.handle('hyperframes:provision', async (event) => {
+    const report = (p) => {
+      if (!event.sender.isDestroyed()) event.sender.send('hyperframes:provision-progress', p)
+    }
+    try {
+      await ensureNodeRuntime({ onProgress: report })
+      await ensureHyperframesRuntime({ onProgress: report })
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err.message }
+    }
   })
 
   // IPC: open file dialog — restore last-used directory as starting point,

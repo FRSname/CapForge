@@ -37,3 +37,10 @@ test('platform node rel paths match the official layouts', () => {
   assert.equal(win.nodeExeRelPath, 'node.exe')
   assert.equal(win.npxRelPath, 'npx.cmd')
 })
+
+test('platform npm + hyperframes bin rel paths match the install layouts', () => {
+  assert.equal(mac.npmRelPath, path.join('bin', 'npm'))
+  assert.equal(mac.hyperframesBinRelPath, path.join('bin', 'hyperframes'))
+  assert.equal(win.npmRelPath, 'npm.cmd')
+  assert.equal(win.hyperframesBinRelPath, 'hyperframes.cmd')
+})

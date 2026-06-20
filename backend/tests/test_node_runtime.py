@@ -33,3 +33,27 @@ def test_returns_none_when_no_npx_anywhere(monkeypatch) -> None:
     monkeypatch.delenv("CAPFORGE_NPX", raising=False)
     monkeypatch.setattr(node_runtime.shutil, "which", lambda _: None)
     assert node_runtime.find_npx() is None
+
+
+# --- hyperframes_argv ------------------------------------------------------
+
+def test_argv_prefers_managed_cli_when_present(monkeypatch, tmp_path) -> None:
+    cli = tmp_path / "hyperframes"
+    cli.write_text("#!/bin/sh\n")
+    monkeypatch.setenv("CAPFORGE_HYPERFRAMES_BIN", str(cli))
+    monkeypatch.setenv("CAPFORGE_NPX", "/usr/bin/npx")  # ignored when CLI present
+    assert node_runtime.hyperframes_argv() == [str(cli)]
+
+
+def test_argv_falls_back_to_npx_when_managed_cli_missing(monkeypatch, tmp_path) -> None:
+    monkeypatch.setenv("CAPFORGE_HYPERFRAMES_BIN", str(tmp_path / "gone"))
+    monkeypatch.delenv("CAPFORGE_NPX", raising=False)
+    monkeypatch.setattr(node_runtime.shutil, "which", lambda _: "/usr/bin/npx")
+    assert node_runtime.hyperframes_argv() == ["/usr/bin/npx", "-y", "hyperframes"]
+
+
+def test_argv_none_when_no_node_at_all(monkeypatch) -> None:
+    monkeypatch.delenv("CAPFORGE_HYPERFRAMES_BIN", raising=False)
+    monkeypatch.delenv("CAPFORGE_NPX", raising=False)
+    monkeypatch.setattr(node_runtime.shutil, "which", lambda _: None)
+    assert node_runtime.hyperframes_argv() is None

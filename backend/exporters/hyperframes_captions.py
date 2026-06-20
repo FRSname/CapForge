@@ -28,7 +28,7 @@ import subprocess
 from pathlib import Path
 from typing import Optional
 
-from .node_runtime import find_npx
+from .node_runtime import hyperframes_argv
 
 logger = logging.getLogger(__name__)
 
@@ -71,12 +71,12 @@ def component_rel_path(style: str) -> str:
 
 def _query_catalog() -> Optional[list[dict]]:
     """Ask the live registry for caption styles, or None if unavailable."""
-    npx = find_npx()
-    if not npx:
+    argv = hyperframes_argv()
+    if not argv:
         return None
     try:
         proc = subprocess.run(
-            [npx, "-y", "hyperframes", "catalog", "--tag", "caption-style", "--json"],
+            [*argv, "catalog", "--tag", "caption-style", "--json"],
             capture_output=True, text=True, timeout=120,
         )
         if proc.returncode != 0:
@@ -120,14 +120,14 @@ def install_caption_component(project_dir: str, style: str) -> str:
     if dest.exists():
         return rel  # cached — `add` already ran for this style in this project
 
-    npx = find_npx()
-    if not npx:
+    argv = hyperframes_argv()
+    if not argv:
         raise CaptionStyleError(
-            f"Node.js 22+ (npx) is required to use the '{style}' caption style. "
+            f"Node.js 22+ is required to use the '{style}' caption style. "
             "Install Node, or use the Classic caption style."
         )
     cmd = [
-        npx, "-y", "hyperframes", "add", style,
+        *argv, "add", style,
         "--json", "--no-clipboard", "--dir", str(proj),
     ]
     logger.info("Installing caption style: %s", " ".join(cmd))

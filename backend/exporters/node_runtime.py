@@ -23,3 +23,22 @@ def find_npx() -> str | None:
     if managed and Path(managed).exists():
         return managed
     return shutil.which("npx")
+
+
+def hyperframes_argv() -> list[str] | None:
+    """The argv *prefix* for invoking the HyperFrames CLI.
+
+    Prefers the app-managed install (``CAPFORGE_HYPERFRAMES_BIN`` — a pinned,
+    offline ``hyperframes`` bin) so renders don't hit the npm registry. Falls
+    back to ``npx -y hyperframes`` (dev / system Node). ``None`` when neither
+    Node nor a managed CLI is available.
+
+    Call sites append the subcommand, e.g. ``[*hyperframes_argv(), "render", …]``.
+    """
+    managed = os.environ.get("CAPFORGE_HYPERFRAMES_BIN")
+    if managed and Path(managed).exists():
+        return [managed]
+    npx = find_npx()
+    if npx:
+        return [npx, "-y", "hyperframes"]
+    return None

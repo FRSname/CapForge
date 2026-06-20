@@ -222,9 +222,12 @@ module.exports = {
   pythonExeRelPath: 'python.exe',
   devVenvPythonRelPath: path.join('.venv', 'Scripts', 'python.exe'),
 
-  // Official Node Windows zip layout: <extracted>/{node.exe,npx.cmd} at root.
+  // Official Node Windows zip layout: <extracted>/{node.exe,npx.cmd,npm.cmd} at root.
   nodeExeRelPath: 'node.exe',
   npxRelPath: 'npx.cmd',
+  npmRelPath: 'npm.cmd',
+  // `npm install -g` on Windows puts shims at the prefix root (the node dir).
+  hyperframesBinRelPath: 'hyperframes.cmd',
 
   ffmpegExeName: 'ffmpeg.exe',
   ffprobeExeName: 'ffprobe.exe',

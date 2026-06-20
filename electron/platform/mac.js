@@ -207,9 +207,12 @@ module.exports = {
   pythonExeRelPath: path.join('bin', 'python3'),
   devVenvPythonRelPath: path.join('.venv', 'bin', 'python3'),
 
-  // Official Node tarball layout: <extracted>/bin/{node,npx}
+  // Official Node tarball layout: <extracted>/bin/{node,npx,npm}
   nodeExeRelPath: path.join('bin', 'node'),
   npxRelPath: path.join('bin', 'npx'),
+  npmRelPath: path.join('bin', 'npm'),
+  // `npm install -g` into the managed node puts bins under <nodeDir>/bin.
+  hyperframesBinRelPath: path.join('bin', 'hyperframes'),
 
   ffmpegExeName: 'ffmpeg',
   ffprobeExeName: 'ffprobe',
