@@ -175,12 +175,12 @@ class PythonBackend {
       if (isNodeRuntimeReady()) {
         const node = getNodeRuntimePaths()
         env.CAPFORGE_NODE_BIN = node.nodeExe
-        env.CAPFORGE_NPX = node.npx
         env.PATH = node.nodeBinDir + path.delimiter + (env.PATH || '')
         // Keep the managed chrome-headless-shell app-local + uninstallable.
         env.PUPPETEER_CACHE_DIR = node.browserCacheDir
-        // Prefer the pinned, offline hyperframes CLI over `npx -y hyperframes`.
-        if (isHyperframesReady()) env.CAPFORGE_HYPERFRAMES_BIN = node.hyperframesBin
+        // Prefer the pinned, offline hyperframes CLI (run via `node <cli.js>`,
+        // never the .cmd shim) over `npx -y hyperframes`.
+        if (isHyperframesReady()) env.CAPFORGE_HYPERFRAMES_CLI = node.hyperframesCli
       }
 
       // Open the log file for append (rotating first if it's oversized).

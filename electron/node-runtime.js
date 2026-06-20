@@ -25,15 +25,16 @@ const platform = require('./platform')
 function getNodeRuntimePaths() {
   const runtimeDir = path.join(app.getPath('userData'), 'runtime')
   const nodeDir = path.join(runtimeDir, 'node')
+  const globalNodeModules = path.join(nodeDir, platform.globalNodeModulesRelPath)
   return {
     nodeDir,
     nodeExe: path.join(nodeDir, platform.nodeExeRelPath),
-    npx: path.join(nodeDir, platform.npxRelPath),
-    npm: path.join(nodeDir, platform.npmRelPath),
-    // The hyperframes CLI, installed via `npm install -g` into the managed node.
-    hyperframesBin: path.join(nodeDir, platform.hyperframesBinRelPath),
-    // Dir to prepend to PATH so `node`/`npx`/`hyperframes` (and the node the
-    // CLI spawns) resolve. macOS: <nodeDir>/bin; Windows: <nodeDir> (exe at root).
+    // JS entrypoints we invoke with `node <entry.js>` — never the .cmd shims,
+    // which Node 22 / Python subprocess can't spawn without a shell on Windows.
+    npmCli: path.join(globalNodeModules, 'npm', 'bin', 'npm-cli.js'),
+    hyperframesCli: path.join(globalNodeModules, 'hyperframes', 'dist', 'cli.js'),
+    // Dir to prepend to PATH so the `node` the CLI may sub-spawn resolves.
+    // macOS: <nodeDir>/bin; Windows: <nodeDir> (exe at root).
     nodeBinDir: path.join(nodeDir, path.dirname(platform.nodeExeRelPath)),
     // hyperframes downloads chrome-headless-shell via @puppeteer/browsers and
     // honours PUPPETEER_CACHE_DIR — keep it app-managed, not in ~/.cache.
@@ -50,10 +51,10 @@ function isNodeRuntimeReady() {
   }
 }
 
-/** True once the hyperframes CLI is installed into the managed Node. */
+/** True once the hyperframes CLI (its JS entrypoint) is installed in the managed Node. */
 function isHyperframesReady() {
   try {
-    return fs.existsSync(getNodeRuntimePaths().hyperframesBin)
+    return fs.existsSync(getNodeRuntimePaths().hyperframesCli)
   } catch {
     return false
   }

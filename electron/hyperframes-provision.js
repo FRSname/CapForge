@@ -67,10 +67,10 @@ function managedEnv() {
  */
 async function ensureHyperframesRuntime({ onProgress } = {}) {
   const report = (p) => onProgress && onProgress(p)
-  const { hyperframesBin, npm, browserCacheDir } = getNodeRuntimePaths()
+  const { nodeExe, npmCli, hyperframesCli, browserCacheDir } = getNodeRuntimePaths()
 
   if (isHyperframesCurrent()) {
-    return { hyperframesBin, alreadyReady: true }
+    return { hyperframesCli, alreadyReady: true }
   }
   if (!isNodeRuntimeReady()) {
     throw new Error('Managed Node runtime is not ready — provision Node before HyperFrames.')
@@ -78,31 +78,34 @@ async function ensureHyperframesRuntime({ onProgress } = {}) {
 
   const env = managedEnv()
 
+  // Invoke `node <npm-cli.js>` rather than the npm.cmd shim — Node 22 won't spawn
+  // a .cmd without a shell on Windows, and this is identical on macOS.
   report({ stage: 'hyperframes', message: `Installing HyperFrames ${HYPERFRAMES_VERSION}…` })
-  await runCommand(npm, ['install', '-g', `hyperframes@${HYPERFRAMES_VERSION}`, '--no-fund', '--no-audit'], {
-    env,
-    onLine: (line) => report({ stage: 'hyperframes', message: line }),
-  })
+  await runCommand(
+    nodeExe,
+    [npmCli, 'install', '-g', `hyperframes@${HYPERFRAMES_VERSION}`, '--no-fund', '--no-audit'],
+    { env, onLine: (line) => report({ stage: 'hyperframes', message: line }) }
+  )
   if (!isHyperframesReady()) {
-    throw new Error('HyperFrames install did not produce a CLI binary.')
+    throw new Error('HyperFrames install did not produce a CLI entrypoint.')
   }
 
   fs.mkdirSync(browserCacheDir, { recursive: true })
   report({ stage: 'hyperframes', message: 'Preparing the HyperFrames render browser…' })
-  await runCommand(hyperframesBin, ['browser', 'ensure'], {
+  await runCommand(nodeExe, [hyperframesCli, 'browser', 'ensure'], {
     env,
     onLine: (line) => report({ stage: 'hyperframes', message: line }),
   })
 
   // Best-effort sanity check; never gate provisioning on it.
-  await runCommand(hyperframesBin, ['doctor'], {
+  await runCommand(nodeExe, [hyperframesCli, 'doctor'], {
     env,
     onLine: (line) => report({ stage: 'hyperframes', message: line }),
   }).catch(() => {})
 
   fs.writeFileSync(versionMarkerPath(), HYPERFRAMES_VERSION, 'utf-8')
   report({ stage: 'hyperframes', message: 'HyperFrames ready.' })
-  return { hyperframesBin, alreadyReady: false }
+  return { hyperframesCli, alreadyReady: false }
 }
 
 module.exports = { ensureHyperframesRuntime, isHyperframesCurrent, HYPERFRAMES_VERSION }

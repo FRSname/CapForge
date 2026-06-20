@@ -28,16 +28,18 @@ def find_npx() -> str | None:
 def hyperframes_argv() -> list[str] | None:
     """The argv *prefix* for invoking the HyperFrames CLI.
 
-    Prefers the app-managed install (``CAPFORGE_HYPERFRAMES_BIN`` — a pinned,
-    offline ``hyperframes`` bin) so renders don't hit the npm registry. Falls
-    back to ``npx -y hyperframes`` (dev / system Node). ``None`` when neither
-    Node nor a managed CLI is available.
+    Prefers the app-managed install, invoked as ``[node, cli.js]`` via
+    ``CAPFORGE_NODE_BIN`` + ``CAPFORGE_HYPERFRAMES_CLI`` — a pinned, offline CLI
+    that never touches the npm registry and, crucially, avoids the ``.cmd`` shim
+    (Windows ``subprocess`` can't run a ``.cmd`` without a shell). Falls back to
+    ``npx -y hyperframes`` (dev / system Node). ``None`` when no Node is available.
 
     Call sites append the subcommand, e.g. ``[*hyperframes_argv(), "render", …]``.
     """
-    managed = os.environ.get("CAPFORGE_HYPERFRAMES_BIN")
-    if managed and Path(managed).exists():
-        return [managed]
+    node = os.environ.get("CAPFORGE_NODE_BIN")
+    cli = os.environ.get("CAPFORGE_HYPERFRAMES_CLI")
+    if node and cli and Path(node).exists() and Path(cli).exists():
+        return [node, cli]
     npx = find_npx()
     if npx:
         return [npx, "-y", "hyperframes"]

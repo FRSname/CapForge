@@ -20,7 +20,7 @@ const { spawn } = require('child_process')
 const http = require('http')
 const net = require('net')
 
-const { getNodeRuntimePaths, isNodeRuntimeReady } = require('./node-runtime')
+const { getNodeRuntimePaths, isNodeRuntimeReady, isHyperframesReady } = require('./node-runtime')
 
 // HyperFrames' own default preview port. The free-port lookup below falls back
 // to an OS-assigned port if it's busy (another studio, unrelated dev server).
@@ -55,12 +55,19 @@ function findFreePort(preferred) {
 }
 
 /**
- * Resolve the `npx` to launch. Prefer the app-managed Node runtime (so the
- * studio works without a system Node); fall back to PATH (`npx.cmd` on Windows).
+ * Resolve the command + args to launch the studio preview server.
+ * Prefer the app-managed CLI run as `node <cli.js>` (works without a system Node
+ * and avoids the npx.cmd shim Windows can't spawn). Fall back to `npx -y
+ * hyperframes` (dev / system Node; `npx.cmd` on Windows).
  */
-function resolveNpx() {
-  if (isNodeRuntimeReady()) return getNodeRuntimePaths().npx
-  return process.platform === 'win32' ? 'npx.cmd' : 'npx'
+function resolveStudioCommand(projectDir, port) {
+  const previewArgs = ['preview', '--no-open', '--port', String(port), projectDir]
+  if (isHyperframesReady()) {
+    const { nodeExe, hyperframesCli } = getNodeRuntimePaths()
+    return { cmd: nodeExe, args: [hyperframesCli, ...previewArgs] }
+  }
+  const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx'
+  return { cmd: npx, args: ['-y', 'hyperframes', ...previewArgs] }
 }
 
 /**
@@ -96,13 +103,12 @@ class HyperframesStudio {
     const port = await findFreePort(PREFERRED_STUDIO_PORT)
 
     return new Promise((resolve, reject) => {
-      const npx = resolveNpx()
-      const args = ['-y', 'hyperframes', 'preview', '--no-open', '--port', String(port), projectDir]
-      console.log(`[CapForge] Starting HyperFrames Studio: ${npx} ${args.join(' ')}`)
+      const { cmd, args } = resolveStudioCommand(projectDir, port)
+      console.log(`[CapForge] Starting HyperFrames Studio: ${cmd} ${args.join(' ')}`)
 
       let proc
       try {
-        proc = spawn(npx, args, { cwd: projectDir, windowsHide: true, env: studioEnv() })
+        proc = spawn(cmd, args, { cwd: projectDir, windowsHide: true, env: studioEnv() })
       } catch (err) {
         reject(new Error(`Failed to launch HyperFrames Studio: ${err.message}`))
         return

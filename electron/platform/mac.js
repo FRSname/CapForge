@@ -207,12 +207,11 @@ module.exports = {
   pythonExeRelPath: path.join('bin', 'python3'),
   devVenvPythonRelPath: path.join('.venv', 'bin', 'python3'),
 
-  // Official Node tarball layout: <extracted>/bin/{node,npx,npm}
+  // Official Node tarball layout: <extracted>/bin/node
   nodeExeRelPath: path.join('bin', 'node'),
-  npxRelPath: path.join('bin', 'npx'),
-  npmRelPath: path.join('bin', 'npm'),
-  // `npm install -g` into the managed node puts bins under <nodeDir>/bin.
-  hyperframesBinRelPath: path.join('bin', 'hyperframes'),
+  // npm global modules live under <nodeDir>/lib/node_modules on macOS. We invoke
+  // their JS entrypoints with node.exe directly (never the .cmd/shell shims).
+  globalNodeModulesRelPath: path.join('lib', 'node_modules'),
 
   ffmpegExeName: 'ffmpeg',
   ffprobeExeName: 'ffprobe',

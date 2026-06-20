@@ -31,14 +31,24 @@ installer.
 
 | Var | Set by | Consumed by |
 |---|---|---|
-| `CAPFORGE_NODE_BIN` | `python-manager.js` (when managed node exists) | reserved / diagnostics |
-| `CAPFORGE_NPX` | `python-manager.js` | `backend/exporters/node_runtime.find_npx()` |
+| `CAPFORGE_NODE_BIN` | `python-manager.js` (when managed node exists) | `node_runtime.hyperframes_argv()` — the `node` to run cli.js |
+| `CAPFORGE_HYPERFRAMES_CLI` | `python-manager.js` (when CLI installed) | `node_runtime.hyperframes_argv()` — the hyperframes `cli.js` |
 | `PUPPETEER_CACHE_DIR` | `python-manager.js` + `hyperframes-studio.js` | hyperframes (browser cache) |
-| `PATH` (node bin prepended) | both | the `node` the hyperframes CLI spawns |
+| `PATH` (node bin prepended) | both | the `node` the hyperframes CLI may sub-spawn |
 
 Managed layout under `<userData>/runtime/`: `node/` (extracted Node), `puppeteer/`
 (chrome-headless-shell). Paths computed in `electron/node-runtime.js`; platform leaf
-names in `platform/{mac,win}.js` (`nodeExeRelPath`, `npxRelPath`).
+names in `platform/{mac,win}.js` (`nodeExeRelPath`, `globalNodeModulesRelPath`).
+
+### Windows correctness ✅
+The HyperFrames CLI is **always invoked as `node <cli.js>`** (and npm as
+`node <npm-cli.js>`), never via the `npx.cmd` / `npm.cmd` / `hyperframes.cmd`
+shims — because Node 22's `spawn` and Python's `subprocess` both refuse to run a
+`.cmd`/`.bat` without a shell on Windows. This makes the managed path Windows-safe
+across the backend (render/snapshot/catalog/add), the provisioner, and the Studio,
+and it also fixes the pre-existing `npx hyperframes` render path. The only remaining
+`.cmd` exposure is the *system/dev* fallback (`npx -y hyperframes` when no managed
+runtime is provisioned), which doesn't apply to the shipped, provisioned product.
 
 ## Phases
 

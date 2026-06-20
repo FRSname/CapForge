@@ -31,16 +31,12 @@ test('archive URLs embed the requested version', () => {
   assert.match(win.nodeArchiveUrl('22.99.1'), /v22\.99\.1/)
 })
 
-test('platform node rel paths match the official layouts', () => {
+test('platform node exe rel paths match the official layouts', () => {
   assert.equal(mac.nodeExeRelPath, path.join('bin', 'node'))
-  assert.equal(mac.npxRelPath, path.join('bin', 'npx'))
   assert.equal(win.nodeExeRelPath, 'node.exe')
-  assert.equal(win.npxRelPath, 'npx.cmd')
 })
 
-test('platform npm + hyperframes bin rel paths match the install layouts', () => {
-  assert.equal(mac.npmRelPath, path.join('bin', 'npm'))
-  assert.equal(mac.hyperframesBinRelPath, path.join('bin', 'hyperframes'))
-  assert.equal(win.npmRelPath, 'npm.cmd')
-  assert.equal(win.hyperframesBinRelPath, 'hyperframes.cmd')
+test('platform global node_modules dirs match the npm prefix layouts', () => {
+  assert.equal(mac.globalNodeModulesRelPath, path.join('lib', 'node_modules'))
+  assert.equal(win.globalNodeModulesRelPath, 'node_modules')
 })

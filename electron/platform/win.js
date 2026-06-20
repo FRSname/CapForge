@@ -222,12 +222,12 @@ module.exports = {
   pythonExeRelPath: 'python.exe',
   devVenvPythonRelPath: path.join('.venv', 'Scripts', 'python.exe'),
 
-  // Official Node Windows zip layout: <extracted>/{node.exe,npx.cmd,npm.cmd} at root.
+  // Official Node Windows zip layout: <extracted>/{node.exe,npx.cmd} at root.
   nodeExeRelPath: 'node.exe',
-  npxRelPath: 'npx.cmd',
-  npmRelPath: 'npm.cmd',
-  // `npm install -g` on Windows puts shims at the prefix root (the node dir).
-  hyperframesBinRelPath: 'hyperframes.cmd',
+  // npm global modules live under <nodeDir>/node_modules on Windows. We invoke
+  // their JS entrypoints with node.exe directly — never npm.cmd/hyperframes.cmd,
+  // which Node 22 / Python subprocess won't spawn without a shell on Windows.
+  globalNodeModulesRelPath: 'node_modules',
 
   ffmpegExeName: 'ffmpeg.exe',
   ffprobeExeName: 'ffprobe.exe',
