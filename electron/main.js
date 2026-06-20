@@ -8,6 +8,7 @@ const path = require('path')
 const fs = require('fs')
 const { PythonBackend } = require('./python-manager')
 const { ensureRuntime, isRuntimeReady, detectAccelerator } = require('./runtime-setup')
+const { ensureNodeRuntime } = require('./node-provision')
 const appState = require('./app-state')
 const autosave = require('./autosave')
 const { checkForUpdates } = require('./update-check')
@@ -299,13 +300,23 @@ async function runFirstTimeSetup() {
   return new Promise((resolve, reject) => {
     ipcMain.once('setup:begin', async () => {
       try {
-        await ensureRuntime({
-          onProgress: (p) => {
-            if (setupWindow && !setupWindow.isDestroyed()) {
-              setupWindow.webContents.send('setup:progress', p)
-            }
-          },
-        })
+        const reportProgress = (p) => {
+          if (setupWindow && !setupWindow.isDestroyed()) {
+            setupWindow.webContents.send('setup:progress', p)
+          }
+        }
+        await ensureRuntime({ onProgress: reportProgress })
+        // Provision the Node 22 runtime for HyperFrames. Best-effort: a failure
+        // here must NOT block setup — HyperFrames degrades to "needs Node" while
+        // classic captions and rendering still work.
+        try {
+          await ensureNodeRuntime({ onProgress: reportProgress })
+        } catch (err) {
+          console.warn(
+            '[CapForge] Node runtime provisioning failed (HyperFrames will need a system Node):',
+            err.message
+          )
+        }
         if (setupWindow && !setupWindow.isDestroyed()) {
           setupWindow.webContents.send('setup:done')
         }

@@ -116,6 +116,33 @@ function extractPython(sourceDir, destDir) {
 
 // python-build-standalone ships a normal Python install — no `._pth` file
 // and site-packages is enabled by default. Nothing to patch.
+// ---------------------------------------------------------------------------
+// Node runtime (for HyperFrames) — downloaded on first run, extracted here.
+// Official Node macOS builds are Apple-notarized by the Node project, so the
+// downloaded binary executes under Gatekeeper without us re-signing it.
+// ---------------------------------------------------------------------------
+
+function nodeArchiveUrl(version) {
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  return `https://nodejs.org/dist/v${version}/node-v${version}-darwin-${arch}.tar.gz`
+}
+
+/** Extract the Node .tar.gz, stripping its top-level `node-v…-darwin-…/` dir. */
+function extractNode(archivePath, destDir) {
+  return new Promise((resolve, reject) => {
+    fs.mkdirSync(destDir, { recursive: true })
+    const proc = spawn('tar', ['--strip-components=1', '-xzf', archivePath, '-C', destDir])
+    let stderr = ''
+    proc.stderr.on('data', (d) => {
+      stderr += d.toString()
+    })
+    proc.on('error', reject)
+    proc.on('exit', (code) =>
+      code === 0 ? resolve() : reject(new Error(`tar failed (${code}): ${stderr}`))
+    )
+  })
+}
+
 function patchPythonConfig(_pythonDir) {
   /* no-op */
 }
@@ -193,6 +220,9 @@ module.exports = {
   detectAccelerator,
   installTorch,
   killProcess,
+
+  nodeArchiveUrl,
+  extractNode,
 
   // macOS supports symlinks natively — no HF Hub workarounds needed.
   extraModelDownloadEnv: {},

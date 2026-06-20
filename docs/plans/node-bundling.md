@@ -53,13 +53,23 @@ fall back to system `npx`).
 - `python-manager.js` + `hyperframes-studio.js` — inject env when managed node exists.
 - Tests: `backend/tests/test_node_runtime.py`.
 
-### Phase 2 — Provision the Node runtime
-- Bundle/extract a Node 22 build (official tarball/zip) into `<userData>/runtime/node/`,
-  mirroring `extractPython()`; add `findBundledNodeArchive()` / `extractNode()` to the
-  platform modules. Wire into `ensureRuntime()` and bump `RUNTIME_VERSION`.
-- `package.json` `build`: add the Node archive to per-platform `extraResources`.
-- Decision: **bundle-in-installer** (bigger download, offline) vs **download-on-first-run**
-  (smaller installer, matches the model-download UX). Lean download-on-first-run.
+### Phase 2 — Provision the Node runtime ✅ (this change)
+**Decision: download-on-first-run** (not bundle-in-installer) — the app already requires
+first-run network, it keeps the installer small, and official Node builds are
+signed/notarized by the Node project so the downloaded binary runs under Gatekeeper.
+- `electron/node-provision.js` — `ensureNodeRuntime()`: idempotent (own `.node-version`
+  marker, **no `RUNTIME_VERSION` coupling** so it never forces a model re-download),
+  downloads + extracts Node `NODE_VERSION` (pinned `22.20.0`) into `<userData>/runtime/node/`.
+- `platform/{mac,win}.js` — `nodeArchiveUrl()` + `extractNode()` (mac: `tar --strip-components=1`;
+  win: Expand-Archive to staging → promote inner dir).
+- `runtime-setup.js` exports `downloadFile` for reuse.
+- `main.js` — runs `ensureNodeRuntime()` in the first-run wizard after `ensureRuntime()`,
+  **best-effort** (a failure logs + continues; classic captions/rendering unaffected).
+- Verified live on macOS arm64: download → `extractNode` → `bin/node --version` works.
+  URL/path logic unit-tested in `electron/node-archive.test.js`.
+
+**Known limitation (→ Phase 3):** only *new* installs provision Node (they run the wizard).
+Existing installs keep the system-`npx` fallback until a lazy/opt-in provision is added.
 
 ### Phase 3 — Provision hyperframes + browser
 - Install the `hyperframes` package into a managed dir with the managed Node (correct

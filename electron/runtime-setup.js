@@ -382,4 +382,6 @@ module.exports = {
   isRuntimeReady,
   detectAccelerator: platform.detectAccelerator,
   RUNTIME_VERSION,
+  // Reused by node-provision.js (Node 22 runtime for HyperFrames).
+  downloadFile,
 }

@@ -96,6 +96,59 @@ function patchPythonConfig(pythonDir) {
 }
 
 // ---------------------------------------------------------------------------
+// Node runtime (for HyperFrames) — downloaded on first run, extracted here.
+// ---------------------------------------------------------------------------
+
+function nodeArchiveUrl(version) {
+  const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+  return `https://nodejs.org/dist/v${version}/node-v${version}-win-${arch}.zip`
+}
+
+/**
+ * Extract the Node .zip. The archive wraps everything in a single top-level
+ * `node-v…-win-…/` dir, so we expand to a staging folder then promote that
+ * inner dir to `destDir` (mirrors the macOS --strip-components=1 behaviour).
+ */
+function extractNode(archivePath, destDir) {
+  return new Promise((resolve, reject) => {
+    const staging = `${destDir}-staging`
+    fs.rmSync(staging, { recursive: true, force: true })
+    fs.mkdirSync(staging, { recursive: true })
+    const ps = spawn(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `Expand-Archive -LiteralPath "${archivePath}" -DestinationPath "${staging}" -Force`,
+      ],
+      { windowsHide: true }
+    )
+    let stderr = ''
+    ps.stderr.on('data', (d) => {
+      stderr += d.toString()
+    })
+    ps.on('error', reject)
+    ps.on('exit', (code) => {
+      if (code !== 0) {
+        reject(new Error(`Expand-Archive failed (${code}): ${stderr}`))
+        return
+      }
+      try {
+        const entries = fs.readdirSync(staging)
+        const inner = entries.length === 1 ? path.join(staging, entries[0]) : staging
+        fs.rmSync(destDir, { recursive: true, force: true })
+        fs.renameSync(inner, destDir)
+        fs.rmSync(staging, { recursive: true, force: true })
+        resolve()
+      } catch (err) {
+        reject(err)
+      }
+    })
+  })
+}
+
+// ---------------------------------------------------------------------------
 // GPU detection
 // ---------------------------------------------------------------------------
 
@@ -182,6 +235,9 @@ module.exports = {
   detectAccelerator,
   installTorch,
   killProcess,
+
+  nodeArchiveUrl,
+  extractNode,
 
   // HF Hub on Windows tries to symlink blobs into snapshots/ by default. That
   // fails with WinError 1314 unless the user has admin or Developer Mode.
