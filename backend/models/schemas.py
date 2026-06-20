@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from enum import Enum
 from typing import Optional
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -50,6 +51,7 @@ class ExportFormat(str, Enum):
     VTT = "vtt"
     ASS = "ass"
     SUBFORGE = "subforge"
+    HYPERFRAMES = "hyperframes"
 
 
 # --- System Info ---
@@ -138,6 +140,7 @@ class VideoRenderConfig(BaseModel):
     text_align_h: str = Field("center", description="Horizontal text alignment within bg box: left, center, right")
     text_align_v: str = Field("middle", description="Vertical text alignment within bg box: top, middle, bottom")
     words_per_group: int = Field(3, ge=1, description="Words per subtitle group")
+    caption_style: str = Field("classic", description="Caption renderer: 'classic' (CapForge's built-in track) or a HyperFrames registry caption-style name, e.g. 'caption-pill-karaoke'. Only applies to the HyperFrames render path.")
     lines: int = Field(1, ge=1, le=10, description="Number of subtitle rows per group")
     max_width: float = Field(0.9, ge=0.0, le=1.0, description="Max subtitle width as fraction of resolution (0-1). When lines=1 and measured width exceeds this, words wrap automatically.")
     line_height: float = Field(1.2, ge=0.5, le=5.0, description="Line height multiplier (1.0 = no gap, 1.2 = 20% gap)")
@@ -191,3 +194,37 @@ class VideoRenderRequest(BaseModel):
     config: VideoRenderConfig = Field(default_factory=VideoRenderConfig)
     output_dir: str = "output"
     custom_groups: Optional[list[CustomGroup]] = Field(None, description="Manually edited groups; skips auto-grouping when provided")
+
+
+class EffectClip(BaseModel):
+    """An agent- or user-placed animated effect on the HyperFrames effects timeline."""
+    id: str = Field(default_factory=lambda: f"fx-{uuid4().hex[:8]}")
+    type: str = Field("logo", description="Effect type: logo (more types in later phases)")
+    start: float = Field(..., ge=0.0, description="Start time in seconds")
+    duration: float = Field(2.0, gt=0.0, description="Visible duration in seconds")
+    track_index: int = Field(1, description="HyperFrames track index for the effect")
+    anchor_x: float = Field(0.5, ge=0.0, le=1.0, description="Normalized horizontal anchor (0=left, 1=right)")
+    anchor_y: float = Field(0.5, ge=0.0, le=1.0, description="Normalized vertical anchor (0=top, 1=bottom)")
+    source_word_id: Optional[str] = Field(None, description="Transcript word that triggered this effect (provenance)")
+    variables: dict = Field(default_factory=dict, description="Per-effect content/style, e.g. {src, width}")
+    created_by: str = Field("user", description="user or agent")
+
+
+class HyperframesRenderRequest(BaseModel):
+    """Request to generate (and optionally render) a HyperFrames composition."""
+    config: VideoRenderConfig = Field(default_factory=VideoRenderConfig)
+    output_dir: str = "output"
+    custom_groups: Optional[list[CustomGroup]] = Field(None, description="Manually edited groups; skips auto-grouping when provided")
+    effects: Optional[list[EffectClip]] = Field(None, description="Animated effect clips (logos, etc.) composited over the captions")
+    render: bool = Field(True, description="Run `npx hyperframes render` after generating the project folder")
+    quality: str = Field("draft", description="HyperFrames render quality: draft, standard, high")
+    video_format: str = Field("mp4", description="HyperFrames output container: mp4 or webm")
+    use_ui_config: bool = Field(False, description="Use the renderer's mirrored caption styling + groups instead of this request's config (the agent render path)")
+
+
+class SaveTemplateRequest(BaseModel):
+    """Save an effect as a reusable, cross-project template. Provide `effect`
+    inline, or `effect_id` to snapshot a clip already on the timeline."""
+    name: str = Field(..., description="Template name (overwrites an existing one)")
+    effect: Optional[EffectClip] = Field(None, description="The effect to save (inline)")
+    effect_id: Optional[str] = Field(None, description="Id of a current timeline effect to snapshot")

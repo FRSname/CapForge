@@ -81,8 +81,37 @@ actually reads.
 | `set_style` | Change global style (camelCase StudioSettings patch) → live UI |
 | `apply_preset` | Apply a built-in style preset by name → live UI |
 | `emphasize` | Style individual words (size/animation/color) → live UI |
-| `render_frame` | Render the frame at time `t` (composited over video) — agent SEES it |
+| `render_frame` | CLASSIC (Pillow) frame at time `t` (composited over video) — agent SEES it |
+| `preview_hyperframes_frame` | ONE HyperFrames frame at `t` (native/custom caption + effects) — fast preview, agent SEES it |
 | `check_layout` | Caption bbox + frame-edge + advisory safe-zone check at `t` |
+| `find_moments` | Find transcript moments (word timings) matching a phrase — where to place effects |
+| `find_semantic_moments` | Find moments by category: `numbers` / `cta` / `speaker_change` (diarization) |
+| `list_effect_types` | Available effect types (logo, lower_third, kinetic_stat, highlight, b_roll) + their variable schemas |
+| `list_effects` | Effect clips currently on the timeline |
+| `add_effect` | Place an animated effect (logo / lower_third / kinetic_stat / highlight / b_roll) at a time — the AI video director |
+| `remove_effect` | Remove an effect clip by id |
+| `render_hyperframes` | Render captions + placed effects via HyperFrames → output path |
+| `list_effect_templates` | List saved reusable effect templates (cross-project looks) |
+| `save_effect_template` | Save a timeline effect (by id) as a reusable template — "save this so we can reuse it" |
+| `apply_effect_template` | Drop a saved template onto the timeline at a time → live UI |
+| `delete_effect_template` | Delete a saved effect template by name |
+| `list_caption_styles` | List caption styles: `classic` + native HyperFrames registry styles |
+| `set_caption_style` | Set the caption look (classic / `caption-pill-karaoke` / …) → live UI |
+| `get_custom_caption_contract` | Contract + starter template for authoring your OWN caption style from scratch |
+| `set_custom_caption_style` | Set a brand-new agent-authored caption style (full HTML); validated on the way in → live UI |
+| `hyperframes_guide` | The HyperFrames **creative library** — caption craft, motion, type, the text-highlight vocabulary, transitions, palettes. Call with no topic for the operating model + index, then a topic id to pull on demand |
+
+## Creative library (`knowledge/`)
+
+The connected agent isn't the Claude that has the HyperFrames skills installed, so
+over MCP it would otherwise only see tool docstrings. `knowledge/` vendors a curated,
+verbatim slice of the HyperFrames creative references (caption, motion, type,
+text-animation, transitions, palettes), plus a CapForge-specific `INDEX.md` that
+rebinds the standalone CLI/project workflow onto these tools. It's served pull-on-demand
+via the `hyperframes_guide` tool and the `hyperframes://library` /
+`hyperframes://topic/{id}` resources. The `TOPICS` manifest in `knowledge.py` is the
+single source of truth (and the allowlist). The `.md` files ship via the
+`mcp_server/knowledge/**/*.md` entry in the electron-builder `files` list.
 
 ## Tests
 

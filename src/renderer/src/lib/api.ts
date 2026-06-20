@@ -3,7 +3,7 @@
  * Communicates with the Python FastAPI backend over REST + WebSocket.
  */
 
-import type { TranscriptionResult as AppTranscriptionResult } from '../types/app'
+import type { EffectClip, TranscriptionResult as AppTranscriptionResult } from '../types/app'
 
 export interface ApiError extends Error {
   title?: string
@@ -77,6 +77,70 @@ export function normalizeResult(raw: TranscriptionResult): AppTranscriptionResul
   }
 }
 
+/** Backend effect clip (snake_case) as returned by /api/effects. */
+interface BackendEffect {
+  id: string
+  type: string
+  start: number
+  duration: number
+  track_index: number
+  anchor_x: number
+  anchor_y: number
+  source_word_id?: string | null
+  variables?: Record<string, unknown>
+  created_by?: string
+}
+
+/** Map a backend effect (snake_case) to the renderer's camelCase EffectClip. */
+function mapEffect(e: BackendEffect): EffectClip {
+  return {
+    id: e.id,
+    type: e.type as EffectClip['type'],
+    start: e.start,
+    duration: e.duration,
+    trackIndex: e.track_index,
+    anchorX: e.anchor_x,
+    anchorY: e.anchor_y,
+    sourceWordId: e.source_word_id ?? undefined,
+    variables: e.variables ?? {},
+    createdBy: (e.created_by as EffectClip['createdBy']) ?? 'agent',
+  }
+}
+
+/** Backend effect template (snake_case) as returned by /api/effect-templates. */
+interface BackendTemplate {
+  name: string
+  type: string
+  track_index: number
+  anchor_x: number
+  anchor_y: number
+  variables?: Record<string, unknown>
+  created_by?: string
+}
+
+/** A saved reusable effect "look" (timing-less EffectClip prototype). */
+export interface EffectTemplate {
+  name: string
+  type: EffectClip['type']
+  trackIndex: number
+  anchorX: number
+  anchorY: number
+  variables: Record<string, unknown>
+  createdBy: EffectClip['createdBy']
+}
+
+function mapTemplate(t: BackendTemplate): EffectTemplate {
+  return {
+    name: t.name,
+    type: t.type as EffectClip['type'],
+    trackIndex: t.track_index,
+    anchorX: t.anchor_x,
+    anchorY: t.anchor_y,
+    variables: t.variables ?? {},
+    createdBy: (t.created_by as EffectClip['createdBy']) ?? 'user',
+  }
+}
+
 /** A style/emphasis command relayed from the agent over the control channel. */
 export interface AgentCommand {
   op: string
@@ -87,6 +151,7 @@ export interface AgentCommand {
 export interface ControlHandlers {
   onResultUpdated?: () => void
   onCommand?: (cmd: AgentCommand) => void
+  onEffectsUpdated?: () => void
 }
 
 class CapForgeAPI {
@@ -155,6 +220,12 @@ class CapForgeAPI {
     return res.json() as Promise<T>
   }
 
+  private async del<T>(path: string): Promise<T> {
+    const res = await fetch(`${this.base}${path}`, { method: 'DELETE' })
+    if (!res.ok) throw await this.handleError(res)
+    return res.json() as Promise<T>
+  }
+
   getSystemInfo() {
     return this.get('/api/system-info')
   }
@@ -203,6 +274,55 @@ class CapForgeAPI {
 
   renderVideo(params: unknown) {
     return this.post('/api/render-video', params)
+  }
+
+  /** Generate (and optionally render) a HyperFrames composition from the current result. */
+  exportHyperframes(params: unknown) {
+    return this.post('/api/export-hyperframes', params)
+  }
+
+  /** Read the current effects timeline (agent + user placed), mapped to EffectClip. */
+  getEffects(): Promise<EffectClip[]> {
+    return this.get<{ effects: BackendEffect[] }>('/api/effects').then((r) =>
+      (r.effects ?? []).map(mapEffect)
+    )
+  }
+
+  /** List saved reusable effect templates (cross-project looks). */
+  listEffectTemplates(): Promise<EffectTemplate[]> {
+    return this.get<{ templates: BackendTemplate[] }>('/api/effect-templates').then((r) =>
+      (r.templates ?? []).map(mapTemplate)
+    )
+  }
+
+  /** Save an effect as a reusable template (timing is stripped server-side). */
+  saveEffectTemplate(name: string, effect: EffectClip): Promise<unknown> {
+    return this.post('/api/effect-templates', {
+      name,
+      effect: {
+        id: effect.id,
+        type: effect.type,
+        start: effect.start,
+        duration: effect.duration,
+        track_index: effect.trackIndex,
+        anchor_x: effect.anchorX,
+        anchor_y: effect.anchorY,
+        variables: effect.variables,
+        created_by: effect.createdBy,
+      },
+    })
+  }
+
+  /** Delete a saved effect template by name. */
+  deleteEffectTemplate(name: string): Promise<unknown> {
+    return this.del(`/api/effect-templates/${encodeURIComponent(name)}`)
+  }
+
+  /** Caption styles for the HyperFrames render path: 'classic' + registry styles. */
+  listCaptionStyles(): Promise<Array<{ name: string; title: string }>> {
+    return this.get<{ styles: Array<{ name: string; title: string }> }>('/api/caption-styles').then(
+      (r) => r.styles ?? []
+    )
   }
 
   getVideoInfo(filePath: string) {
@@ -310,6 +430,7 @@ class CapForgeAPI {
         const raw = JSON.parse(event.data as string)
         if (!raw || !raw.type) return
         if (raw.type === 'result_updated') this._controlHandlers?.onResultUpdated?.()
+        else if (raw.type === 'effects_updated') this._controlHandlers?.onEffectsUpdated?.()
         else if (raw.type === 'agent_command') {
           this._controlHandlers?.onCommand?.({ op: raw.op, payload: raw.payload })
         }

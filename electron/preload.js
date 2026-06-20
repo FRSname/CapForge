@@ -17,6 +17,9 @@ contextBridge.exposeInMainWorld('subforge', {
   /** Open native directory picker. Returns path or null. */
   pickOutputDir: () => ipcRenderer.invoke('dialog:openDir'),
 
+  /** Open native image-file picker (logos/overlays). Returns path or null. */
+  pickImageFile: () => ipcRenderer.invoke('dialog:openImageFile'),
+
   /** Get backend port number. */
   getBackendPort: () => ipcRenderer.invoke('backend:port'),
 
@@ -77,6 +80,13 @@ contextBridge.exposeInMainWorld('subforge', {
 
   /** Reveal a file/folder in the OS file manager. */
   showInFolder: (filePath) => ipcRenderer.invoke('shell:showInFolder', filePath),
+
+  /** Launch the HyperFrames Studio (local preview webapp) for a project folder
+   *  and open it in the browser. Returns {url} or {error}. */
+  openStudio: (projectDir) => ipcRenderer.invoke('studio:open', projectDir),
+
+  /** Stop the HyperFrames Studio preview server. */
+  stopStudio: () => ipcRenderer.invoke('studio:stop'),
 
   /** One-click "Connect to Claude" (MCP control layer). */
   claude: {

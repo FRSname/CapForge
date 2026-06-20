@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from .cleanup import apply_word_edits, remove_fillers
 from .client import CapForgeClient
+from .knowledge import TopicNotFound, read_index, read_topic
 
 mcp = FastMCP("capforge")
 _client = CapForgeClient()
@@ -196,6 +197,20 @@ def render_frame(t: float, composite: bool = True) -> Image:
 
 
 @mcp.tool()
+def preview_hyperframes_frame(t: float) -> Image:
+    """Preview ONE HyperFrames frame at time `t` (seconds) — the current caption
+    style (native OR your custom one) + placed effects, composited over the video.
+
+    Fast (one frame, not a full render), so use it to SEE and iterate on a caption
+    style you authored with set_custom_caption_style, or to check effect placement,
+    before committing to render_hyperframes. NOTE: the separate `render_frame` tool
+    is the CLASSIC (Pillow) preview and does NOT reflect HyperFrames styles — use
+    THIS to see HyperFrames output.
+    """
+    return Image(data=_client.preview_hyperframes_frame(t), format="png")
+
+
+@mcp.tool()
 def check_layout(t: float, platform: str = "off") -> dict:
     """Mechanical layout read at time `t`: caption bounding box, whether it
     touches the frame edge, and (platform = tiktok/reels/shorts) advisory
@@ -203,6 +218,322 @@ def check_layout(t: float, platform: str = "off") -> dict:
     over them intentionally. Use `render_frame` for visual judgment.
     """
     return _client.check_layout(t, platform)
+
+
+# --- Effects (AI video director) -----------------------------------------
+
+@mcp.tool()
+def find_moments(query: str) -> dict:
+    """Find transcript moments (word timings) matching a phrase — e.g. a brand
+    or product name. Returns matches with `start`/`end` seconds and `word_id`.
+
+    Use this to decide WHERE to place an effect: find the spoken moment, then
+    call add_effect with its `start`.
+    """
+    return _client.find_moments(query)
+
+
+@mcp.tool()
+def find_semantic_moments(kind: str) -> dict:
+    """Find moments by category instead of a literal phrase.
+
+    kind: "numbers" (spoken/written numbers — for a kinetic_stat), "cta" (calls
+    to action like "subscribe" / "link in bio"), or "speaker_change" (each new
+    diarized speaker — for a lower_third). Returns matches with `start`/`end`
+    seconds and `word_id` (plus `speaker` for speaker_change).
+    """
+    return _client.find_semantic_moments(kind)
+
+
+@mcp.tool()
+def list_effect_types() -> dict:
+    """List available effect types and the variables each accepts."""
+    pos = ["start (s)", "duration (s)", "anchor_x (0-1)", "anchor_y (0-1)"]
+    return {
+        "types": [
+            {
+                "type": "logo",
+                "description": "Animated image overlay — pops in, holds, pops out.",
+                "fields": pos,
+                "variables": {"src": "absolute path to image", "width": "px (optional)"},
+            },
+            {
+                "type": "lower_third",
+                "description": "Name/title bar that slides in from the left. "
+                "Pair with find_semantic_moments('speaker_change').",
+                "fields": pos,
+                "variables": {
+                    "title": "name (required)",
+                    "subtitle": "role/handle (optional)",
+                    "accent": "#hex accent bar color (optional)",
+                },
+            },
+            {
+                "type": "kinetic_stat",
+                "description": "Big animated number + label that pops in. "
+                "Pair with find_semantic_moments('numbers').",
+                "fields": pos,
+                "variables": {
+                    "value": "the number, e.g. '2.4M' (required)",
+                    "label": "caption under the number (optional)",
+                    "accent": "#hex number color (optional)",
+                },
+            },
+            {
+                "type": "highlight",
+                "description": "Translucent highlighter marker swept across a "
+                "spoken word for emphasis. Place at the word's position.",
+                "fields": pos,
+                "variables": {
+                    "color": "css color (optional; default translucent accent)",
+                    "width": "px (optional)",
+                    "height": "px (optional)",
+                },
+            },
+            {
+                "type": "b_roll",
+                "description": "Timed image insert that sits behind the captions. "
+                "Sized at an anchor, or fullscreen cover.",
+                "fields": pos,
+                "variables": {
+                    "src": "absolute path to image (required)",
+                    "width": "px (optional; ignored when fullscreen)",
+                    "fullscreen": "true to cover the whole frame (optional)",
+                },
+            },
+        ]
+    }
+
+
+@mcp.tool()
+def list_effects() -> dict:
+    """List the effect clips currently on the timeline."""
+    return _client.get_effects()
+
+
+# Type-appropriate default anchors (normalized, 0,0 = top-left) used when the
+# caller doesn't specify a position.
+_DEFAULT_ANCHORS = {
+    "logo": (0.82, 0.2),          # top-right
+    "lower_third": (0.06, 0.82),  # lower-left
+    "kinetic_stat": (0.5, 0.4),   # upper-center
+    "highlight": (0.4, 0.5),      # centered-ish, over caption text
+    "b_roll": (0.5, 0.5),         # centered
+}
+
+
+@mcp.tool()
+def add_effect(
+    start: float,
+    duration: float = 2.0,
+    type: str = "logo",
+    src: Optional[str] = None,
+    width: Optional[int] = None,
+    height: Optional[int] = None,
+    title: Optional[str] = None,
+    subtitle: Optional[str] = None,
+    value: Optional[str] = None,
+    label: Optional[str] = None,
+    color: Optional[str] = None,
+    accent: Optional[str] = None,
+    fullscreen: bool = False,
+    anchor_x: Optional[float] = None,
+    anchor_y: Optional[float] = None,
+    source_word_id: Optional[str] = None,
+) -> dict:
+    """Place an animated effect at `start` for `duration` seconds.
+
+    Content by type (see list_effect_types):
+      - logo: `src` (absolute image path), optional `width` px.
+      - lower_third: `title` (required), optional `subtitle`, `accent`.
+      - kinetic_stat: `value` (required, e.g. "2.4M"), optional `label`, `accent`.
+      - highlight: optional `color`, `width`, `height` px (a marker sweep).
+      - b_roll: `src` (required), optional `width`, `fullscreen=True`.
+
+    Position via anchor_x/anchor_y (0-1, 0,0 = top-left); omit for a sensible
+    per-type default. Pair with find_moments / find_semantic_moments to place at
+    spoken words; pass that moment's word_id as `source_word_id` for provenance.
+    """
+    if type == "logo":
+        variables = {"src": src, "width": width}
+    elif type == "lower_third":
+        variables = {"title": title, "subtitle": subtitle, "accent": accent}
+    elif type == "kinetic_stat":
+        variables = {"value": value, "label": label, "accent": accent}
+    elif type == "highlight":
+        variables = {"color": color, "accent": accent, "width": width, "height": height}
+    elif type == "b_roll":
+        variables = {"src": src, "width": width, "fullscreen": fullscreen or None}
+    else:
+        variables = {}
+    variables = {k: v for k, v in variables.items() if v is not None}
+
+    def_x, def_y = _DEFAULT_ANCHORS.get(type, (0.5, 0.5))
+    effect = {
+        "type": type,
+        "start": start,
+        "duration": duration,
+        "track_index": 1,
+        "anchor_x": def_x if anchor_x is None else anchor_x,
+        "anchor_y": def_y if anchor_y is None else anchor_y,
+        "source_word_id": source_word_id,
+        "variables": variables,
+        "created_by": "agent",
+    }
+    return _client.add_effect(effect)
+
+
+@mcp.tool()
+def remove_effect(effect_id: str) -> dict:
+    """Remove an effect clip by id (see list_effects for ids)."""
+    return _client.remove_effect(effect_id)
+
+
+@mcp.tool()
+def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dict:
+    """Render the video (captions + placed effects) with the HyperFrames engine.
+
+    Uses the effects currently on the timeline (see list_effects/add_effect) and
+    returns the output file path. quality: draft|standard|high. May take a while.
+    """
+    return _client.render_hyperframes(
+        {"render": True, "quality": quality, "video_format": video_format, "use_ui_config": True}
+    )
+
+
+# --- Reusable effect templates (cross-project look library) --------------
+
+@mcp.tool()
+def list_effect_templates() -> dict:
+    """List saved reusable effect templates — looks the user (or you) saved to
+    reuse across projects, e.g. a brand logo or a lower-third style. Drop one
+    onto the timeline with apply_effect_template.
+    """
+    return _client.list_effect_templates()
+
+
+@mcp.tool()
+def save_effect_template(name: str, effect_id: str) -> dict:
+    """Save an effect already on the timeline as a reusable template `name`.
+
+    Find the effect's id with list_effects. Timing is stripped — a template is a
+    reusable *look*, not a placement. For asset effects (logo/b_roll) the image
+    is copied into a stable store so the template survives the project being
+    deleted. Overwrites an existing template with the same name.
+    """
+    return _client.save_effect_template(name, effect_id=effect_id)
+
+
+@mcp.tool()
+def apply_effect_template(name: str, start: float, duration: float = 2.0) -> dict:
+    """Add a saved template (see list_effect_templates) onto the effects
+    timeline at `start` for `duration` seconds. Updates the live UI.
+    """
+    return _client.apply_effect_template(name, start, duration)
+
+
+@mcp.tool()
+def delete_effect_template(name: str) -> dict:
+    """Delete a saved effect template by name."""
+    return _client.delete_effect_template(name)
+
+
+# --- Caption style ------------------------------------------------------
+
+@mcp.tool()
+def list_caption_styles() -> dict:
+    """List caption styles for the HyperFrames render: 'classic' (CapForge's
+    built-in track) + native registry styles (caption-pill-karaoke, etc.).
+    """
+    return _client.list_caption_styles()
+
+
+@mcp.tool()
+def set_caption_style(name: str) -> dict:
+    """Set the caption look for the HyperFrames render. Updates the live UI.
+
+    `name` is 'classic' or a registry style from list_caption_styles, e.g.
+    'caption-pill-karaoke'. Native styles install on the next HyperFrames
+    render/Studio (needs Node 22+) and bring their own animation + grouping.
+    """
+    _client.send_command("set_settings", {"patch": {"captionStyle": name}})
+    return {"status": "ok"}
+
+
+# --- HyperFrames creative library ---------------------------------------
+
+@mcp.tool()
+def hyperframes_guide(topic: Optional[str] = None) -> str:
+    """The HyperFrames creative library — caption craft, motion, type, the
+    text-highlight vocabulary (marker sweep, scribble, sketchout, burst),
+    transitions, and palettes — the same range a standalone HyperFrames author
+    has, bound to CapForge's tools.
+
+    Call with NO topic FIRST: returns the operating model, the custom-caption
+    contract, and the topic index. Then call with a `topic` id from that index
+    (e.g. "captions", "text-animation", "motion-principles") to pull that
+    reference on demand. Consult this BEFORE authoring a custom caption style
+    with set_custom_caption_style or when designing effects.
+    """
+    if not topic:
+        return read_index()
+    try:
+        return read_topic(topic)
+    except TopicNotFound as exc:
+        return str(exc)
+
+
+@mcp.resource("hyperframes://library")
+def hyperframes_library_resource() -> str:
+    """HyperFrames creative library entry: operating model + topic index."""
+    return read_index()
+
+
+@mcp.resource("hyperframes://topic/{topic}")
+def hyperframes_topic_resource(topic: str) -> str:
+    """One HyperFrames creative topic by id (see the library resource)."""
+    try:
+        return read_topic(topic)
+    except TopicNotFound as exc:
+        return str(exc)
+
+
+# --- Agent-authored custom caption style --------------------------------
+
+@mcp.tool()
+def get_custom_caption_contract() -> dict:
+    """Get the contract + a working starter template for authoring your OWN
+    caption style from scratch (HTML/CSS/GSAP), driven only by CapForge's
+    transcript + timing.
+
+    Returns `{contract, template}`. Adapt the template's CSS / entrance animation
+    to invent a new look, KEEP the structure (the `var TRANSCRIPT` placeholder,
+    the grouping, the paused `window.__timelines[...]` timeline, the hard
+    `tl.set` kill, `data-composition-id` + `data-width/height`), then send it with
+    `set_custom_caption_style`. CapForge swaps in the real words, fits it to the
+    output canvas (portrait/4K/…), and composites it over the video.
+
+    For the creative range to invent a *distinctive* look (motion, type, the
+    text-highlight vocabulary, palettes), call `hyperframes_guide` first — start
+    with no topic, then pull "captions" and whichever topics fit the look.
+    """
+    return _client.get_custom_caption_contract()
+
+
+@mcp.tool()
+def set_custom_caption_style(html: str) -> dict:
+    """Set a brand-new, agent-authored caption style (full HTML component) for the
+    HyperFrames render. Get the contract + starter via get_custom_caption_contract.
+
+    The HTML is validated immediately (transcript array, timeline, composition
+    root, no banned patterns) — a clear error comes back if anything's missing.
+    Also switches the live caption style to this custom one. Render it with
+    render_hyperframes (or open the Studio) to see it. For the design vocabulary
+    behind a strong custom look, see `hyperframes_guide`.
+    """
+    result = _client.set_custom_caption(html)
+    _client.send_command("set_settings", {"patch": {"captionStyle": "custom"}})
+    return {"status": "ok", **(result if isinstance(result, dict) else {})}
 
 
 def main() -> None:

@@ -23,9 +23,17 @@ from backend.agent_bridge import (
 )
 from backend.engine.errors import explain
 from backend.engine.hardware import detect_hardware
+from backend.engine.moments import find_semantic_moments, find_transcript_moments
 from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
+from backend.exporters.hyperframes_export import export_hyperframes
+from backend.exporters.hyperframes_project import export_hyperframes_project
+from backend.exporters.hyperframes_render import (
+    HyperframesRenderError,
+    render_hyperframes_project,
+    snapshot_hyperframes_project,
+)
 from backend.exporters.json_export import export_json
 from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
@@ -33,15 +41,24 @@ from backend.exporters.srt_word import export_srt_word
 from backend.exporters.vtt_export import export_vtt
 from backend.exporters.video_render import RenderCancelled, cancel_render, render_subtitle_video
 from backend.models.schemas import (
+    EffectClip,
     ExportFormat,
     ExportRequest,
+    HyperframesRenderRequest,
     JobStatus,
     ProgressUpdate,
+    SaveTemplateRequest,
     SystemInfo,
     TranscribeRequest,
     TranscriptionResult,
     VideoRenderConfig,
     VideoRenderRequest,
+)
+from backend.effect_templates import (
+    apply_template,
+    delete_template,
+    list_templates,
+    save_template,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -62,6 +79,12 @@ app.add_middleware(
 transcriber = Transcriber()
 current_result: Optional[TranscriptionResult] = None
 current_status = ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Ready")
+# Agent/user effects timeline (logos, etc.). The HyperFrames render uses this
+# when the request doesn't supply its own effects (the agent's placement path).
+current_effects: list[EffectClip] = []
+
+# Agent-authored caption component (HTML). Used when caption_style == "custom".
+current_custom_caption_html: Optional[str] = None
 ws_clients: list[WebSocket] = []
 
 # Renderer-owned UI state (StudioSettings + groups), mirrored here so the agent
@@ -546,6 +569,304 @@ async def render_video(request: VideoRenderRequest):
         )
 
 
+# --- HyperFrames composition endpoint ---
+
+@app.post("/api/export-hyperframes")
+async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
+    """Generate a HyperFrames composition from the current result; optionally render it.
+
+    Mirrors /api/render-video: runs in an executor, broadcasts progress over
+    /ws/progress, and resolves only when the work finishes.
+    """
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+
+    if current_status.status in (
+        JobStatus.LOADING_MODEL, JobStatus.TRANSCRIBING, JobStatus.ALIGNING,
+        JobStatus.DIARIZING, JobStatus.RENDERING, JobStatus.ENCODING,
+    ):
+        raise HTTPException(status_code=409, detail="Another job is in progress")
+
+    # Resolve caption styling + groups. With use_ui_config (the agent's render
+    # path) use what the renderer last mirrored so the output matches the live
+    # UI; otherwise use the config/groups carried in the request (panel path).
+    config = request.config
+    custom_groups_dicts = (
+        [g.model_dump() for g in request.custom_groups] if request.custom_groups else None
+    )
+    if request.use_ui_config:
+        config, ui_groups = _agent_frame_inputs()
+        if ui_groups is not None:
+            custom_groups_dicts = ui_groups
+
+    await broadcast_progress(ProgressUpdate(
+        status=JobStatus.RENDERING, progress=0, message="Building HyperFrames composition…"
+    ))
+
+    loop = asyncio.get_running_loop()
+    sync_progress = make_sync_progress_callback(loop)
+
+    def on_progress(pct: float, message: str) -> None:
+        sync_progress(ProgressUpdate(
+            status=JobStatus.RENDERING,
+            progress=max(0.0, min(100.0, pct)),
+            message=message,
+        ))
+
+    # Prefer effects supplied in the request (frontend panel); otherwise fall
+    # back to the server-side timeline the agent populates via /api/agent/effects.
+    effects_source = request.effects if request.effects is not None else current_effects
+    effects_dicts = [e.model_dump() for e in effects_source] if effects_source else None
+
+    def _work() -> dict:
+        project_dir = export_hyperframes_project(
+            current_result,
+            config,
+            request.output_dir,
+            source_video_path=current_result.audio_path,
+            custom_groups=custom_groups_dicts,
+            effects=effects_dicts,
+            caption_html=current_custom_caption_html,
+        )
+        if not request.render:
+            return {"project": project_dir, "file": None}
+        stem = Path(current_result.audio_path).stem or "capforge"
+        ext = ".webm" if request.video_format == "webm" else ".mp4"
+        out_path = str(Path(request.output_dir) / f"{stem}_hyperframes{ext}")
+        file = render_hyperframes_project(
+            project_dir, out_path,
+            quality=request.quality, video_format=request.video_format,
+            on_progress=on_progress,
+        )
+        return {"project": project_dir, "file": file}
+
+    try:
+        result = await loop.run_in_executor(None, _work)
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.DONE, progress=100,
+            message=("HyperFrames render ready" if request.render else "HyperFrames project ready"),
+        ))
+        return {"status": "ok", **result}
+
+    except HyperframesRenderError as e:
+        logger.warning("HyperFrames render unavailable/failed: %s", e)
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.ERROR, progress=0,
+            message="HyperFrames render failed", detail=str(e),
+        ))
+        raise HTTPException(
+            status_code=400,
+            detail={"title": "HyperFrames render failed", "hint": str(e), "raw": str(e)},
+        )
+    except Exception as e:
+        logger.exception("HyperFrames export failed")
+        friendly = explain(e)
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.ERROR, progress=0,
+            message=friendly.title, detail=friendly.hint,
+        ))
+        raise HTTPException(
+            status_code=500,
+            detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
+        )
+
+
+# --- Agent effects endpoints ---
+
+@app.get("/api/effects")
+async def get_effects_public():
+    """Read the current effects timeline (open endpoint for the renderer's live mirror)."""
+    return {"effects": [e.model_dump() for e in current_effects]}
+
+
+@app.get("/api/agent/effects", dependencies=[Depends(require_agent_token)])
+async def get_effects():
+    """Return the current effects timeline."""
+    return {"effects": [e.model_dump() for e in current_effects]}
+
+
+@app.post("/api/agent/effects", dependencies=[Depends(require_agent_token)])
+async def add_effect(effect: EffectClip):
+    """Append an effect clip (id auto-generated if absent). Returns the stored effect."""
+    global current_effects
+    current_effects = [*current_effects, effect]
+    await broadcast_event({"type": "effects_updated"})
+    return {"status": "ok", "effect": effect.model_dump(), "count": len(current_effects)}
+
+
+@app.put("/api/agent/effects", dependencies=[Depends(require_agent_token)])
+async def replace_effects(effects: list[EffectClip]):
+    """Replace the entire effects timeline."""
+    global current_effects
+    current_effects = list(effects)
+    await broadcast_event({"type": "effects_updated"})
+    return {"status": "ok", "count": len(current_effects)}
+
+
+@app.delete("/api/agent/effects/{effect_id}", dependencies=[Depends(require_agent_token)])
+async def remove_effect(effect_id: str):
+    """Remove an effect clip by id."""
+    global current_effects
+    before = len(current_effects)
+    current_effects = [e for e in current_effects if e.id != effect_id]
+    await broadcast_event({"type": "effects_updated"})
+    return {"status": "ok", "removed": before - len(current_effects), "count": len(current_effects)}
+
+
+@app.get("/api/agent/find-moments", dependencies=[Depends(require_agent_token)])
+async def find_moments_endpoint(query: str):
+    """Find transcript moments matching `query` — used to place effects at spoken words."""
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    return {"matches": find_transcript_moments(current_result, query)}
+
+
+@app.get("/api/agent/find-semantic-moments", dependencies=[Depends(require_agent_token)])
+async def find_semantic_moments_endpoint(kind: str):
+    """Detect moments by category (numbers | cta | speaker_change) for placing
+    kinetic-stat / lower-third effects without a literal phrase."""
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    try:
+        return {"matches": find_semantic_moments(current_result, kind)}
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+# --- Reusable effect templates (cross-project look library) ---
+# Store CRUD is open (loopback app-data the user owns; the renderer carries no
+# agent token) — consistent with the open /api/effects + /api/render-* posture.
+# Only the apply path, which mutates the live timeline, sits under /api/agent.
+
+@app.get("/api/effect-templates")
+async def list_effect_templates_endpoint():
+    """Saved reusable effect templates (used by the renderer + the agent)."""
+    return {"templates": list_templates()}
+
+
+@app.post("/api/effect-templates")
+async def save_effect_template_endpoint(req: SaveTemplateRequest):
+    """Save an effect as a reusable template — `effect` inline, or `effect_id`
+    to snapshot a clip already on the timeline."""
+    if req.effect is not None:
+        effect = req.effect.model_dump()
+    elif req.effect_id:
+        match = next((e for e in current_effects if e.id == req.effect_id), None)
+        if match is None:
+            raise HTTPException(status_code=404, detail=f"No effect with id {req.effect_id!r}")
+        effect = match.model_dump()
+    else:
+        raise HTTPException(status_code=400, detail="Provide `effect` or `effect_id`")
+    try:
+        template = save_template(req.name, effect)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "ok", "template": template}
+
+
+@app.delete("/api/effect-templates/{name}")
+async def delete_effect_template_endpoint(name: str):
+    """Delete a saved template by name."""
+    return {"status": "ok", "removed": delete_template(name)}
+
+
+@app.post("/api/agent/effect-templates/{name}/apply", dependencies=[Depends(require_agent_token)])
+async def apply_effect_template_endpoint(name: str, start: float = 0.0, duration: float = 2.0):
+    """Instantiate a saved template onto the live effects timeline at `start`."""
+    global current_effects
+    try:
+        clip = apply_template(name, start, duration)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    current_effects = [*current_effects, clip]
+    await broadcast_event({"type": "effects_updated"})
+    return {"status": "ok", "effect": clip.model_dump(), "count": len(current_effects)}
+
+
+@app.get("/api/caption-styles")
+async def caption_styles_endpoint():
+    """Available caption styles: 'classic' + registry styles (+ the agent's custom
+    style when one has been authored)."""
+    from backend.exporters.hyperframes_captions import list_caption_styles
+    styles = list_caption_styles()
+    if current_custom_caption_html:
+        styles.append({"name": "custom", "title": "Custom (agent)"})
+    return {"styles": styles}
+
+
+@app.get("/api/custom-caption-contract")
+async def custom_caption_contract_endpoint():
+    """The contract + a starter template for authoring a caption style from scratch."""
+    from backend.exporters.hyperframes_captions import custom_caption_contract
+    return custom_caption_contract()
+
+
+@app.post("/api/agent/custom-caption", dependencies=[Depends(require_agent_token)])
+async def set_custom_caption(payload: dict):
+    """Store an agent-authored caption component (HTML). Validated here so the
+    agent gets immediate, specific feedback before it ever renders."""
+    from backend.exporters.hyperframes_captions import (
+        CaptionStyleError,
+        validate_custom_caption,
+    )
+    global current_custom_caption_html
+    html = payload.get("html")
+    if not isinstance(html, str):
+        raise HTTPException(status_code=400, detail="Provide `html` (string).")
+    try:
+        validate_custom_caption(html)
+    except CaptionStyleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    current_custom_caption_html = html
+    return {"status": "ok", "bytes": len(html)}
+
+
+@app.get("/api/agent/custom-caption", dependencies=[Depends(require_agent_token)])
+async def get_custom_caption():
+    """Return the stored custom caption HTML (or null) — lets the agent read back
+    what it set / iterate on it."""
+    return {"html": current_custom_caption_html}
+
+
+@app.post("/api/agent/preview-hyperframes-frame", dependencies=[Depends(require_agent_token)])
+async def preview_hyperframes_frame(req: dict):
+    """Render ONE frame of the HyperFrames composition (current caption style +
+    placed effects, over the video) at time `t` and return it as PNG.
+
+    A fast single-frame preview (`hyperframes snapshot`, seconds not minutes) so
+    the agent can SEE a custom/native caption style or an effect placement without
+    a full render. Uses the live mirrored config (same as the agent render path).
+    """
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    t = float(req.get("t", 0.0))
+    config, ui_groups = _agent_frame_inputs()
+    effects_dicts = [e.model_dump() for e in current_effects] if current_effects else None
+    loop = asyncio.get_running_loop()
+
+    def _work() -> bytes:
+        project_dir = export_hyperframes_project(
+            current_result,
+            config,
+            "output",
+            source_video_path=current_result.audio_path,
+            custom_groups=ui_groups,
+            effects=effects_dicts,
+            caption_html=current_custom_caption_html,
+        )
+        return snapshot_hyperframes_project(project_dir, t)
+
+    try:
+        png = await loop.run_in_executor(None, _work)
+    except HyperframesRenderError as e:
+        logger.warning("HyperFrames preview failed: %s", e)
+        raise HTTPException(
+            status_code=400,
+            detail={"title": "HyperFrames preview failed", "hint": str(e), "raw": str(e)},
+        )
+    return Response(content=png, media_type="image/png")
+
+
 # --- Export helpers ---
 
 EXPORTERS = {
@@ -555,6 +876,8 @@ EXPORTERS = {
     ExportFormat.VTT: (export_vtt, ".vtt"),
     ExportFormat.ASS: (export_ass, ".ass"),
     ExportFormat.SUBFORGE: (export_subforge, ".capforge"),
+    # Distinct suffix so it never collides with the plain JSON export's ".json".
+    ExportFormat.HYPERFRAMES: (export_hyperframes, "_hyperframes.json"),
 }
 
 # Suffix overrides to avoid collision when both SRT formats are requested

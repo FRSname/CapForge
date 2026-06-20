@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Screen, TranscriptionResult, Segment } from './types/app'
+import type { Screen, TranscriptionResult, Segment, EffectClip } from './types/app'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from './lib/project'
 import { api, type VideoInfo } from './lib/api'
 import { builtinPresetNames } from './lib/agentCommands'
@@ -28,6 +28,9 @@ export function App() {
 
   // Published from ResultsScreen — forwarded to StudioPanel for render/export.
   const [groups, setGroups] = useState<Segment[]>([])
+  // Effects timeline (logos, etc.) — lifted here so the agent's live-sync can
+  // mirror agent-placed effects into the same state the StudioPanel renders.
+  const [effects, setEffects] = useState<EffectClip[]>([])
   const [groupsEdited, setGroupsEdited] = useState(false)
   const [sourceVideoInfo, setSourceVideoInfo] = useState<VideoInfo | null>(null)
 
@@ -152,11 +155,14 @@ export function App() {
   const handleSave = useCallback(async () => {
     const handle = projectIORef.current
     if (!handle) return
-    const savedPath = await window.subforge.saveProject(handle.gather())
+    // Effects are owned by App (so the agent's live-sync can mirror in), so we
+    // merge them onto the ResultsScreen-gathered payload rather than threading
+    // them through that handle.
+    const savedPath = await window.subforge.saveProject({ ...handle.gather(), effects })
     // Explicit save is now the source of truth — drop the autosave snapshot so
     // it isn't offered as "unsaved" next launch. Later edits re-arm it.
     if (savedPath) await window.subforge.autosaveClear()
-  }, [])
+  }, [effects])
 
   // ── Project restore (shared by Open and crash-recovery) ─────────
   const restoreFromProjectFile = useCallback(async (file: ProjectFile) => {
@@ -176,6 +182,7 @@ export function App() {
     setFilePath(file.selectedFilePath)
     setResult(file.transcriptionResult)
     setSettings(file.studioSettings)
+    setEffects(file.effects ?? []) // back-compat: pre-effects projects have none
     setScreen('results')
 
     pendingRestore.current = file
@@ -226,10 +233,11 @@ export function App() {
 
   // ── Autosave (crash recovery) ───────────────────────────────────
   // Snapshot the live session ~2s after any edit; cleared on Save / New.
-  const lastSavedAt = useAutosave(
-    () => (screen === 'results' ? (projectIORef.current?.gather() ?? null) : null),
-    [screen, groups, groupsEdited, settings]
-  )
+  const lastSavedAt = useAutosave(() => {
+    if (screen !== 'results') return null
+    const base = projectIORef.current?.gather()
+    return base ? { ...base, effects } : null
+  }, [screen, groups, groupsEdited, settings, effects])
 
   // ── Global keyboard shortcuts ───────────────────────────────────
   useEffect(() => {
@@ -346,6 +354,8 @@ export function App() {
             groupsEdited={groupsEdited}
             audioPath={result?.audioPath ?? filePath ?? ''}
             sourceVideoInfo={sourceVideoInfo}
+            effects={effects}
+            onEffectsChange={setEffects}
           />
         </main>
 
@@ -357,6 +367,7 @@ export function App() {
           applyResult={handleApplyAgentResult}
           applySettings={handleSettingsChange}
           applyWordOverrides={handleApplyWordOverrides}
+          applyEffects={setEffects}
         />
       </div>
     </ToastProvider>

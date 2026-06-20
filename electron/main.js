@@ -15,6 +15,7 @@ const { checkForUpdates } = require('./update-check')
 let mainWindow = null
 let setupWindow = null
 let pythonBackend = null
+let hyperframesStudio = null
 
 // ---------------------------------------------------------------------------
 // Crash logs — write uncaught main-process exceptions to <logs>/crash.log
@@ -401,6 +402,29 @@ app.whenReady().then(async () => {
   ipcMain.handle('claude:connectCode', () => claudeConnect.connectCode())
   ipcMain.handle('claude:getManualConfig', () => claudeConnect.getManualConfig())
 
+  // IPC: open a generated composition in the HyperFrames "studio" — the local
+  // preview webapp. The renderer first generates the project folder via the
+  // backend, then passes that path here to launch `npx hyperframes preview`.
+  const { HyperframesStudio } = require('./hyperframes-studio')
+  hyperframesStudio = new HyperframesStudio()
+  ipcMain.handle('studio:open', async (_event, projectDir) => {
+    if (!projectDir || typeof projectDir !== 'string') {
+      return { error: 'No project folder to open.' }
+    }
+    try {
+      const { url } = await hyperframesStudio.open(projectDir)
+      // Electron owns the browser-open (we pass --no-open to the CLI).
+      await shell.openExternal(url)
+      return { url }
+    } catch (err) {
+      return { error: err.message }
+    }
+  })
+  ipcMain.handle('studio:stop', () => {
+    if (hyperframesStudio) hyperframesStudio.stop()
+    return true
+  })
+
   // IPC: open file dialog — restore last-used directory as starting point,
   // and remember the chosen file so the renderer can reopen it next launch.
   ipcMain.handle('dialog:openFile', async () => {
@@ -444,6 +468,23 @@ app.whenReady().then(async () => {
     if (result.canceled) return null
     const picked = result.filePaths[0]
     appState.set('lastOutputDir', picked)
+    return picked
+  })
+
+  // IPC: open image-file dialog (logos/overlays for HyperFrames effects).
+  ipcMain.handle('dialog:openImageFile', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Select Image',
+      defaultPath: appState.get('lastImagePath') || undefined,
+      filters: [
+        { name: 'Images', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg'] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    })
+    if (result.canceled) return null
+    const picked = result.filePaths[0]
+    appState.set('lastImagePath', picked)
     return picked
   })
 
@@ -586,6 +627,9 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  if (hyperframesStudio) {
+    hyperframesStudio.stop()
+  }
   if (pythonBackend) {
     pythonBackend.stop()
   }

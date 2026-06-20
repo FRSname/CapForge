@@ -7,6 +7,7 @@ CapForge is open; the first tool call then surfaces a clear BackendNotFound.
 from __future__ import annotations
 
 from typing import Any, Optional
+from urllib.parse import quote
 
 import httpx
 
@@ -93,6 +94,60 @@ class CapForgeClient:
     def check_layout(self, t: float, platform: str = "off") -> Any:
         return self._request("POST", "/api/agent/check-layout", json={"t": t, "platform": platform})
 
+    def get_effects(self) -> Any:
+        return self._request("GET", "/api/agent/effects")
+
+    def add_effect(self, effect: dict) -> Any:
+        return self._request("POST", "/api/agent/effects", json=effect)
+
+    def remove_effect(self, effect_id: str) -> Any:
+        return self._request("DELETE", f"/api/agent/effects/{quote(effect_id)}")
+
+    def find_moments(self, query: str) -> Any:
+        return self._request("GET", f"/api/agent/find-moments?query={quote(query)}")
+
+    def find_semantic_moments(self, kind: str) -> Any:
+        return self._request("GET", f"/api/agent/find-semantic-moments?kind={quote(kind)}")
+
+    def render_hyperframes(self, payload: dict) -> Any:
+        # Headless-Chrome capture can take a while.
+        return self._request("POST", "/api/export-hyperframes", json=payload, timeout=_LONG_TIMEOUT)
+
+    # -- reusable effect templates ---------------------------------------
+    def list_effect_templates(self) -> Any:
+        return self._request("GET", "/api/effect-templates")
+
+    def save_effect_template(
+        self, name: str, effect_id: Optional[str] = None, effect: Optional[dict] = None
+    ) -> Any:
+        body: dict = {"name": name}
+        if effect_id:
+            body["effect_id"] = effect_id
+        if effect is not None:
+            body["effect"] = effect
+        return self._request("POST", "/api/effect-templates", json=body)
+
+    def delete_effect_template(self, name: str) -> Any:
+        return self._request("DELETE", f"/api/effect-templates/{quote(name)}")
+
+    def apply_effect_template(self, name: str, start: float, duration: float = 2.0) -> Any:
+        return self._request(
+            "POST",
+            f"/api/agent/effect-templates/{quote(name)}/apply?start={start}&duration={duration}",
+        )
+
+    def list_caption_styles(self) -> Any:
+        return self._request("GET", "/api/caption-styles")
+
+    def set_custom_caption(self, html: str) -> Any:
+        return self._request("POST", "/api/agent/custom-caption", json={"html": html})
+
+    def get_custom_caption(self) -> Any:
+        return self._request("GET", "/api/agent/custom-caption")
+
+    def get_custom_caption_contract(self) -> Any:
+        return self._request("GET", "/api/custom-caption-contract")
+
     def get_frame(self, t: float, composite: bool = True, _retry: bool = True) -> bytes:
         """Render a QA frame and return raw PNG bytes (not JSON)."""
         self._ensure()
@@ -111,5 +166,26 @@ class CapForgeClient:
         if res.status_code == 401 and _retry:
             self.reset()
             return self.get_frame(t, composite, _retry=False)
+        res.raise_for_status()
+        return res.content
+
+    def preview_hyperframes_frame(self, t: float, _retry: bool = True) -> bytes:
+        """Snapshot one HyperFrames frame at `t`; return raw PNG bytes (not JSON)."""
+        self._ensure()
+        try:
+            res = httpx.post(
+                f"{self._base}/api/agent/preview-hyperframes-frame",
+                json={"t": t},
+                headers=self._headers(),
+                timeout=_LONG_TIMEOUT,
+            )
+        except httpx.ConnectError as exc:
+            self.reset()
+            if _retry:
+                return self.preview_hyperframes_frame(t, _retry=False)
+            raise BackendNotFound("Could not reach the CapForge backend. Is the app still open?") from exc
+        if res.status_code == 401 and _retry:
+            self.reset()
+            return self.preview_hyperframes_frame(t, _retry=False)
         res.raise_for_status()
         return res.content

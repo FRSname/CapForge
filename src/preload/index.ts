@@ -19,6 +19,7 @@ export interface SubforgeApi {
   getPathForFile: (file: File) => string
   pickAudioFile: () => Promise<string | null>
   pickOutputDir: () => Promise<string | null>
+  pickImageFile: () => Promise<string | null>
   getBackendPort: () => Promise<number>
   saveFont: (fileName: string, data: ArrayBuffer) => Promise<string>
   listFonts: () => Promise<FontInfo[]>
@@ -39,6 +40,8 @@ export interface SubforgeApi {
   openLogsFolder: () => Promise<void>
   openLogFile: () => Promise<void>
   showInFolder: (filePath: string) => Promise<void>
+  openStudio: (projectDir: string) => Promise<{ url?: string; error?: string }>
+  stopStudio: () => Promise<boolean>
   claude: ClaudeConnectApi
 }
 
@@ -83,6 +86,7 @@ contextBridge.exposeInMainWorld('subforge', {
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   pickAudioFile: () => ipcRenderer.invoke('dialog:openFile'),
   pickOutputDir: () => ipcRenderer.invoke('dialog:openDir'),
+  pickImageFile: () => ipcRenderer.invoke('dialog:openImageFile'),
   getBackendPort: () => ipcRenderer.invoke('backend:port'),
   saveFont: (fileName: string, data: ArrayBuffer) =>
     ipcRenderer.invoke('fonts:save', fileName, data),
@@ -105,6 +109,8 @@ contextBridge.exposeInMainWorld('subforge', {
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),
   showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),
+  openStudio: (projectDir: string) => ipcRenderer.invoke('studio:open', projectDir),
+  stopStudio: () => ipcRenderer.invoke('studio:stop'),
   claude: {
     detect: () => ipcRenderer.invoke('claude:detect'),
     connectDesktop: () => ipcRenderer.invoke('claude:connectDesktop'),
