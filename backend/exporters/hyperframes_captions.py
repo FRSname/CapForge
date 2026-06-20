@@ -24,10 +24,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-import shutil
 import subprocess
 from pathlib import Path
 from typing import Optional
+
+from .node_runtime import find_npx
 
 logger = logging.getLogger(__name__)
 
@@ -70,7 +71,7 @@ def component_rel_path(style: str) -> str:
 
 def _query_catalog() -> Optional[list[dict]]:
     """Ask the live registry for caption styles, or None if unavailable."""
-    npx = shutil.which("npx")
+    npx = find_npx()
     if not npx:
         return None
     try:
@@ -119,7 +120,7 @@ def install_caption_component(project_dir: str, style: str) -> str:
     if dest.exists():
         return rel  # cached — `add` already ran for this style in this project
 
-    npx = shutil.which("npx")
+    npx = find_npx()
     if not npx:
         raise CaptionStyleError(
             f"Node.js 22+ (npx) is required to use the '{style}' caption style. "

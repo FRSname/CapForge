@@ -14,6 +14,8 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
+from .node_runtime import find_npx
+
 logger = logging.getLogger(__name__)
 
 _VIDEO_EXTS = {".mp4", ".webm", ".mov"}
@@ -31,11 +33,11 @@ _CAPTURE_PCT_CEILING = 95.0
 
 
 def _resolve_npx() -> str:
-    npx = shutil.which("npx")
+    npx = find_npx()
     if not npx:
         raise HyperframesRenderError(
-            "Node.js (npx) was not found on PATH. HyperFrames rendering needs "
-            "Node.js 22+. Install Node, or use the file-only HyperFrames export."
+            "Node.js (npx) was not found. HyperFrames rendering needs Node.js 22+. "
+            "Install Node, or use the file-only HyperFrames export."
         )
     return npx
 

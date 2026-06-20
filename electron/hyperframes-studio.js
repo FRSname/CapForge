@@ -15,9 +15,12 @@
  *     poll it for readiness, the same way python-manager waits on the backend.
  */
 
+const path = require('path')
 const { spawn } = require('child_process')
 const http = require('http')
 const net = require('net')
+
+const { getNodeRuntimePaths, isNodeRuntimeReady } = require('./node-runtime')
 
 // HyperFrames' own default preview port. The free-port lookup below falls back
 // to an OS-assigned port if it's busy (another studio, unrelated dev server).
@@ -51,9 +54,28 @@ function findFreePort(preferred) {
   })
 }
 
-/** On Windows the npx shim is `npx.cmd`; spawn(...) needs the exact name. */
+/**
+ * Resolve the `npx` to launch. Prefer the app-managed Node runtime (so the
+ * studio works without a system Node); fall back to PATH (`npx.cmd` on Windows).
+ */
 function resolveNpx() {
+  if (isNodeRuntimeReady()) return getNodeRuntimePaths().npx
   return process.platform === 'win32' ? 'npx.cmd' : 'npx'
+}
+
+/**
+ * Spawn env for the studio: when a managed Node exists, put its bin dir on PATH
+ * (the CLI spawns `node`) and point the headless browser at the app-managed
+ * cache. Otherwise inherit the parent env unchanged.
+ */
+function studioEnv() {
+  const env = { ...process.env }
+  if (isNodeRuntimeReady()) {
+    const node = getNodeRuntimePaths()
+    env.PATH = node.nodeBinDir + path.delimiter + (env.PATH || '')
+    env.PUPPETEER_CACHE_DIR = node.browserCacheDir
+  }
+  return env
 }
 
 class HyperframesStudio {
@@ -80,7 +102,7 @@ class HyperframesStudio {
 
       let proc
       try {
-        proc = spawn(npx, args, { cwd: projectDir, windowsHide: true, env: { ...process.env } })
+        proc = spawn(npx, args, { cwd: projectDir, windowsHide: true, env: studioEnv() })
       } catch (err) {
         reject(new Error(`Failed to launch HyperFrames Studio: ${err.message}`))
         return

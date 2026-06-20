@@ -10,6 +10,7 @@ const fs = require('fs')
 const net = require('net')
 
 const { getRuntimePaths, isRuntimeReady } = require('./runtime-setup')
+const { getNodeRuntimePaths, isNodeRuntimeReady } = require('./node-runtime')
 const platform = require('./platform')
 
 const PROJECT_ROOT = path.join(__dirname, '..')
@@ -165,6 +166,20 @@ class PythonBackend {
       // Platform-specific HF Hub tweaks (Windows disables symlinks to avoid
       // WinError 1314; macOS inherits defaults). See electron/platform/win.js.
       Object.assign(env, platform.extraModelDownloadEnv)
+
+      // HyperFrames (`npx hyperframes`) needs Node 22+. If we've provisioned an
+      // app-managed Node, point the backend at it and put its bin dir on PATH so
+      // the CLI — and the node it spawns — resolve without a system install.
+      // Until provisioning lands this is a no-op (the exe won't exist), so the
+      // backend transparently falls back to a system `npx` on PATH.
+      if (isNodeRuntimeReady()) {
+        const node = getNodeRuntimePaths()
+        env.CAPFORGE_NODE_BIN = node.nodeExe
+        env.CAPFORGE_NPX = node.npx
+        env.PATH = node.nodeBinDir + path.delimiter + (env.PATH || '')
+        // Keep the managed chrome-headless-shell app-local + uninstallable.
+        env.PUPPETEER_CACHE_DIR = node.browserCacheDir
+      }
 
       // Open the log file for append (rotating first if it's oversized).
       // Every backend write goes to both the file and the Electron console.
