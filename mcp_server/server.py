@@ -17,6 +17,7 @@ from pydantic import BaseModel, Field
 
 from .cleanup import apply_word_edits, remove_fillers
 from .client import CapForgeClient
+from .knowledge import TopicNotFound, read_index, read_topic
 
 mcp = FastMCP("capforge")
 _client = CapForgeClient()
@@ -459,6 +460,44 @@ def set_caption_style(name: str) -> dict:
     return {"status": "ok"}
 
 
+# --- HyperFrames creative library ---------------------------------------
+
+@mcp.tool()
+def hyperframes_guide(topic: Optional[str] = None) -> str:
+    """The HyperFrames creative library — caption craft, motion, type, the
+    text-highlight vocabulary (marker sweep, scribble, sketchout, burst),
+    transitions, and palettes — the same range a standalone HyperFrames author
+    has, bound to CapForge's tools.
+
+    Call with NO topic FIRST: returns the operating model, the custom-caption
+    contract, and the topic index. Then call with a `topic` id from that index
+    (e.g. "captions", "text-animation", "motion-principles") to pull that
+    reference on demand. Consult this BEFORE authoring a custom caption style
+    with set_custom_caption_style or when designing effects.
+    """
+    if not topic:
+        return read_index()
+    try:
+        return read_topic(topic)
+    except TopicNotFound as exc:
+        return str(exc)
+
+
+@mcp.resource("hyperframes://library")
+def hyperframes_library_resource() -> str:
+    """HyperFrames creative library entry: operating model + topic index."""
+    return read_index()
+
+
+@mcp.resource("hyperframes://topic/{topic}")
+def hyperframes_topic_resource(topic: str) -> str:
+    """One HyperFrames creative topic by id (see the library resource)."""
+    try:
+        return read_topic(topic)
+    except TopicNotFound as exc:
+        return str(exc)
+
+
 # --- Agent-authored custom caption style --------------------------------
 
 @mcp.tool()
@@ -473,6 +512,10 @@ def get_custom_caption_contract() -> dict:
     `tl.set` kill, `data-composition-id` + `data-width/height`), then send it with
     `set_custom_caption_style`. CapForge swaps in the real words, fits it to the
     output canvas (portrait/4K/…), and composites it over the video.
+
+    For the creative range to invent a *distinctive* look (motion, type, the
+    text-highlight vocabulary, palettes), call `hyperframes_guide` first — start
+    with no topic, then pull "captions" and whichever topics fit the look.
     """
     return _client.get_custom_caption_contract()
 
@@ -485,7 +528,8 @@ def set_custom_caption_style(html: str) -> dict:
     The HTML is validated immediately (transcript array, timeline, composition
     root, no banned patterns) — a clear error comes back if anything's missing.
     Also switches the live caption style to this custom one. Render it with
-    render_hyperframes (or open the Studio) to see it.
+    render_hyperframes (or open the Studio) to see it. For the design vocabulary
+    behind a strong custom look, see `hyperframes_guide`.
     """
     result = _client.set_custom_caption(html)
     _client.send_command("set_settings", {"patch": {"captionStyle": "custom"}})

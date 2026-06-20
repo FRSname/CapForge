@@ -99,6 +99,19 @@ actually reads.
 | `set_caption_style` | Set the caption look (classic / `caption-pill-karaoke` / …) → live UI |
 | `get_custom_caption_contract` | Contract + starter template for authoring your OWN caption style from scratch |
 | `set_custom_caption_style` | Set a brand-new agent-authored caption style (full HTML); validated on the way in → live UI |
+| `hyperframes_guide` | The HyperFrames **creative library** — caption craft, motion, type, the text-highlight vocabulary, transitions, palettes. Call with no topic for the operating model + index, then a topic id to pull on demand |
+
+## Creative library (`knowledge/`)
+
+The connected agent isn't the Claude that has the HyperFrames skills installed, so
+over MCP it would otherwise only see tool docstrings. `knowledge/` vendors a curated,
+verbatim slice of the HyperFrames creative references (caption, motion, type,
+text-animation, transitions, palettes), plus a CapForge-specific `INDEX.md` that
+rebinds the standalone CLI/project workflow onto these tools. It's served pull-on-demand
+via the `hyperframes_guide` tool and the `hyperframes://library` /
+`hyperframes://topic/{id}` resources. The `TOPICS` manifest in `knowledge.py` is the
+single source of truth (and the allowlist). The `.md` files ship via the
+`mcp_server/knowledge/**/*.md` entry in the electron-builder `files` list.
 
 ## Tests
 
