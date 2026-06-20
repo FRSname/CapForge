@@ -43,6 +43,7 @@ export interface SubforgeApi {
   openStudio: (projectDir: string) => Promise<{ url?: string; error?: string }>
   stopStudio: () => Promise<boolean>
   claude: ClaudeConnectApi
+  hyperframes: HyperframesApi
 }
 
 interface ClaudeDetect {
@@ -74,6 +75,25 @@ interface ClaudeConnectApi {
   connectDesktop: () => Promise<ClaudeConnectResult>
   connectCode: () => Promise<ClaudeConnectResult>
   getManualConfig: () => Promise<ClaudeManualConfig>
+}
+
+interface HyperframesStatus {
+  /** Managed Node runtime is installed. */
+  nodeReady: boolean
+  /** The pinned hyperframes CLI is installed into the managed Node. */
+  hyperframesReady: boolean
+}
+
+interface HyperframesProvisionProgress {
+  stage: string
+  message: string
+}
+
+interface HyperframesApi {
+  status: () => Promise<HyperframesStatus>
+  provision: () => Promise<{ ok: boolean; error?: string }>
+  /** Subscribe to provisioning progress; returns an unsubscribe fn. */
+  onProvisionProgress: (cb: (p: HyperframesProvisionProgress) => void) => () => void
 }
 
 declare global {
@@ -116,5 +136,14 @@ contextBridge.exposeInMainWorld('subforge', {
     connectDesktop: () => ipcRenderer.invoke('claude:connectDesktop'),
     connectCode: () => ipcRenderer.invoke('claude:connectCode'),
     getManualConfig: () => ipcRenderer.invoke('claude:getManualConfig'),
+  },
+  hyperframes: {
+    status: () => ipcRenderer.invoke('hyperframes:status'),
+    provision: () => ipcRenderer.invoke('hyperframes:provision'),
+    onProvisionProgress: (cb: (p: HyperframesProvisionProgress) => void) => {
+      const listener = (_e: unknown, p: HyperframesProvisionProgress) => cb(p)
+      ipcRenderer.on('hyperframes:provision-progress', listener)
+      return () => ipcRenderer.removeListener('hyperframes:provision-progress', listener)
+    },
   },
 } satisfies SubforgeApi)

@@ -18,6 +18,7 @@ import { Select } from '../ui/Select'
 import { EffectsControls } from './EffectsPanel'
 import { dirname } from '../../lib/render'
 import { api } from '../../lib/api'
+import { useToast } from '../../hooks/useToast'
 import type { EffectClip } from '../../types/app'
 import type { RenderController } from '../../hooks/useRender'
 
@@ -41,8 +42,13 @@ export function HyperFramesPanel({
   render,
 }: HyperFramesPanelProps) {
   const { busy, startRender, openStudio } = render
+  const { toast } = useToast()
   const effectiveOutputDir = outputDir || dirname(audioPath)
   const [styles, setStyles] = useState<Array<{ name: string; title: string }>>([])
+  // null = status not yet known; we only offer the install once we know it's missing.
+  const [hfReady, setHfReady] = useState<boolean | null>(null)
+  const [installing, setInstalling] = useState(false)
+  const [installMsg, setInstallMsg] = useState('')
 
   useEffect(() => {
     api
@@ -51,10 +57,69 @@ export function HyperFramesPanel({
       .catch(() => {
         /* picker is best-effort; the chosen value still renders */
       })
+    window.subforge.hyperframes
+      .status()
+      .then((s) => setHfReady(s.hyperframesReady))
+      .catch(() => setHfReady(null))
   }, [])
+
+  // Provision the bundled HyperFrames engine (Node + CLI + render browser). This
+  // is the heavy, opt-in step; it also covers existing installs. The classic
+  // Pillow path and a system Node still work whether or not this runs.
+  const installExtras = async () => {
+    setInstalling(true)
+    setInstallMsg('Starting…')
+    const off = window.subforge.hyperframes.onProvisionProgress((p) => setInstallMsg(p.message))
+    try {
+      const res = await window.subforge.hyperframes.provision()
+      if (res.ok) {
+        setHfReady(true)
+        toast('HyperFrames is ready.', 'success')
+      } else {
+        toast(res.error || 'HyperFrames setup failed.', 'error')
+      }
+    } catch {
+      toast('HyperFrames setup failed.', 'error')
+    } finally {
+      off()
+      setInstalling(false)
+    }
+  }
 
   return (
     <StudioCard title="HyperFrames ✦" defaultOpen={false}>
+      {hfReady === false && (
+        <div
+          className="mb-2 rounded-md p-2.5"
+          style={{
+            background: 'var(--color-surface-2)',
+            border: '1px solid var(--color-border)',
+          }}
+        >
+          <p className="text-xs mb-2" style={{ color: 'var(--color-text-2)' }}>
+            One-time setup downloads the bundled HyperFrames engine (Node + render browser) so this
+            works without installing Node yourself.
+          </p>
+          <Button
+            variant="primary"
+            className="w-full justify-center"
+            disabled={installing}
+            onClick={installExtras}
+            title="Download and install the bundled HyperFrames engine. ~150 MB, one time."
+          >
+            {installing ? 'Installing…' : 'Install HyperFrames extras'}
+          </Button>
+          {installing && installMsg && (
+            <p
+              className="text-2xs mt-1.5 truncate"
+              style={{ color: 'var(--color-text-3)' }}
+              title={installMsg}
+            >
+              {installMsg}
+            </p>
+          )}
+        </div>
+      )}
       <Button
         variant="primary"
         className="w-full justify-center"

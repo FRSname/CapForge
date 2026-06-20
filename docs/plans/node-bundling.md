@@ -90,12 +90,19 @@ Done:
   preload `window.subforge.hyperframes`. This single path provisions Node→CLI→browser, so
   it also serves **existing installs** that finished setup before this shipped.
 
+Opt-in UI ✅:
+- `HyperFramesPanel.tsx` shows a non-blocking "Install HyperFrames extras" banner (with
+  live progress) when the managed CLI isn't provisioned, calling
+  `window.subforge.hyperframes.provision()`. It's an *offer*, not a gate — the Studio /
+  Render buttons stay enabled so a system-Node user keeps working via the `npx` fallback.
+- Typed preload `window.subforge.hyperframes` added to `src/preload/index.ts` (mirrors the
+  runtime `electron/preload.js`). Renderer + node typechecks pass.
+
 Remaining:
-- Renderer **opt-in UI** ("Install HyperFrames extras (~Xmb)" button + progress) and the
-  **typed preload** entry in `src/preload/index.ts` for `window.subforge.hyperframes`.
 - **Clean-machine validation**: the `npm install -g` + `chrome-headless-shell` download
   couldn't be fully exercised here (this dev box has system Node + system Chrome, which
-  the CLI prefers). Verify on a box without either, on both macOS and Windows.
+  the CLI prefers). Verify end-to-end on a box without either, on both macOS and Windows,
+  ideally from a packaged build.
 
 ## Open questions
 - Exact `hyperframes browser` / `setup` flag surface + offline behaviour (verify against
