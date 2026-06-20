@@ -155,11 +155,14 @@ export function App() {
   const handleSave = useCallback(async () => {
     const handle = projectIORef.current
     if (!handle) return
-    const savedPath = await window.subforge.saveProject(handle.gather())
+    // Effects are owned by App (so the agent's live-sync can mirror in), so we
+    // merge them onto the ResultsScreen-gathered payload rather than threading
+    // them through that handle.
+    const savedPath = await window.subforge.saveProject({ ...handle.gather(), effects })
     // Explicit save is now the source of truth — drop the autosave snapshot so
     // it isn't offered as "unsaved" next launch. Later edits re-arm it.
     if (savedPath) await window.subforge.autosaveClear()
-  }, [])
+  }, [effects])
 
   // ── Project restore (shared by Open and crash-recovery) ─────────
   const restoreFromProjectFile = useCallback(async (file: ProjectFile) => {
@@ -179,6 +182,7 @@ export function App() {
     setFilePath(file.selectedFilePath)
     setResult(file.transcriptionResult)
     setSettings(file.studioSettings)
+    setEffects(file.effects ?? []) // back-compat: pre-effects projects have none
     setScreen('results')
 
     pendingRestore.current = file
@@ -229,10 +233,11 @@ export function App() {
 
   // ── Autosave (crash recovery) ───────────────────────────────────
   // Snapshot the live session ~2s after any edit; cleared on Save / New.
-  const lastSavedAt = useAutosave(
-    () => (screen === 'results' ? (projectIORef.current?.gather() ?? null) : null),
-    [screen, groups, groupsEdited, settings]
-  )
+  const lastSavedAt = useAutosave(() => {
+    if (screen !== 'results') return null
+    const base = projectIORef.current?.gather()
+    return base ? { ...base, effects } : null
+  }, [screen, groups, groupsEdited, settings, effects])
 
   // ── Global keyboard shortcuts ───────────────────────────────────
   useEffect(() => {
