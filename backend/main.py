@@ -81,6 +81,9 @@ current_status = ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Read
 # Agent/user effects timeline (logos, etc.). The HyperFrames render uses this
 # when the request doesn't supply its own effects (the agent's placement path).
 current_effects: list[EffectClip] = []
+
+# Agent-authored caption component (HTML). Used when caption_style == "custom".
+current_custom_caption_html: Optional[str] = None
 ws_clients: list[WebSocket] = []
 
 # Renderer-owned UI state (StudioSettings + groups), mirrored here so the agent
@@ -622,6 +625,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             source_video_path=current_result.audio_path,
             custom_groups=custom_groups_dicts,
             effects=effects_dicts,
+            caption_html=current_custom_caption_html,
         )
         if not request.render:
             return {"project": project_dir, "file": None}
@@ -780,9 +784,47 @@ async def apply_effect_template_endpoint(name: str, start: float = 0.0, duration
 
 @app.get("/api/caption-styles")
 async def caption_styles_endpoint():
-    """Available caption styles: 'classic' + HyperFrames registry caption styles."""
+    """Available caption styles: 'classic' + registry styles (+ the agent's custom
+    style when one has been authored)."""
     from backend.exporters.hyperframes_captions import list_caption_styles
-    return {"styles": list_caption_styles()}
+    styles = list_caption_styles()
+    if current_custom_caption_html:
+        styles.append({"name": "custom", "title": "Custom (agent)"})
+    return {"styles": styles}
+
+
+@app.get("/api/custom-caption-contract")
+async def custom_caption_contract_endpoint():
+    """The contract + a starter template for authoring a caption style from scratch."""
+    from backend.exporters.hyperframes_captions import custom_caption_contract
+    return custom_caption_contract()
+
+
+@app.post("/api/agent/custom-caption", dependencies=[Depends(require_agent_token)])
+async def set_custom_caption(payload: dict):
+    """Store an agent-authored caption component (HTML). Validated here so the
+    agent gets immediate, specific feedback before it ever renders."""
+    from backend.exporters.hyperframes_captions import (
+        CaptionStyleError,
+        validate_custom_caption,
+    )
+    global current_custom_caption_html
+    html = payload.get("html")
+    if not isinstance(html, str):
+        raise HTTPException(status_code=400, detail="Provide `html` (string).")
+    try:
+        validate_custom_caption(html)
+    except CaptionStyleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    current_custom_caption_html = html
+    return {"status": "ok", "bytes": len(html)}
+
+
+@app.get("/api/agent/custom-caption", dependencies=[Depends(require_agent_token)])
+async def get_custom_caption():
+    """Return the stored custom caption HTML (or null) — lets the agent read back
+    what it set / iterate on it."""
+    return {"html": current_custom_caption_html}
 
 
 # --- Export helpers ---

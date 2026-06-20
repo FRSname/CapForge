@@ -96,6 +96,8 @@ actually reads.
 | `delete_effect_template` | Delete a saved effect template by name |
 | `list_caption_styles` | List caption styles: `classic` + native HyperFrames registry styles |
 | `set_caption_style` | Set the caption look (classic / `caption-pill-karaoke` / …) → live UI |
+| `get_custom_caption_contract` | Contract + starter template for authoring your OWN caption style from scratch |
+| `set_custom_caption_style` | Set a brand-new agent-authored caption style (full HTML); validated on the way in → live UI |
 
 ## Tests
 

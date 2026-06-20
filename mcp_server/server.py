@@ -445,6 +445,39 @@ def set_caption_style(name: str) -> dict:
     return {"status": "ok"}
 
 
+# --- Agent-authored custom caption style --------------------------------
+
+@mcp.tool()
+def get_custom_caption_contract() -> dict:
+    """Get the contract + a working starter template for authoring your OWN
+    caption style from scratch (HTML/CSS/GSAP), driven only by CapForge's
+    transcript + timing.
+
+    Returns `{contract, template}`. Adapt the template's CSS / entrance animation
+    to invent a new look, KEEP the structure (the `var TRANSCRIPT` placeholder,
+    the grouping, the paused `window.__timelines[...]` timeline, the hard
+    `tl.set` kill, `data-composition-id` + `data-width/height`), then send it with
+    `set_custom_caption_style`. CapForge swaps in the real words, fits it to the
+    output canvas (portrait/4K/…), and composites it over the video.
+    """
+    return _client.get_custom_caption_contract()
+
+
+@mcp.tool()
+def set_custom_caption_style(html: str) -> dict:
+    """Set a brand-new, agent-authored caption style (full HTML component) for the
+    HyperFrames render. Get the contract + starter via get_custom_caption_contract.
+
+    The HTML is validated immediately (transcript array, timeline, composition
+    root, no banned patterns) — a clear error comes back if anything's missing.
+    Also switches the live caption style to this custom one. Render it with
+    render_hyperframes (or open the Studio) to see it.
+    """
+    result = _client.set_custom_caption(html)
+    _client.send_command("set_settings", {"patch": {"captionStyle": "custom"}})
+    return {"status": "ok", **(result if isinstance(result, dict) else {})}
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 

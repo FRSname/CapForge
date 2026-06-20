@@ -216,7 +216,7 @@ def _has_designed_layout(src: str) -> bool:
     word indices) rather than a plain flat transcript. Such a component can't be
     driven by a simple array swap — it needs a per-style generator, else its
     layout would point at the wrong words."""
-    return re.search(r"var BLOCKS = \[", src) is not None
+    return re.search(r"var\s+BLOCKS\s*=\s*\[", src) is not None
 
 
 def _retime(src: str, duration: float) -> str:
@@ -238,7 +238,7 @@ def inject_transcript(component_path: Path, transcript_json: str, duration: floa
     src = component_path.read_text(encoding="utf-8")
     for var in _TRANSCRIPT_VARS:
         src, n = re.subn(
-            rf"var {var} = \[[\s\S]*?\];",
+            rf"var\s+{var}\s*=\s*\[[\s\S]*?\];",
             f"var {var} = {transcript_json};",
             src,
             count=1,
@@ -313,9 +313,9 @@ def inject_editorial_blocks(component_path: Path, groups: list[dict], duration: 
     words, blocks = build_editorial_blocks(groups)
     if not words:
         raise CaptionStyleError("No caption words to build the editorial layout.")
-    src, nw = re.subn(r"var W = \[[\s\S]*?\];", "var W = " + json.dumps(words) + ";", src, count=1)
+    src, nw = re.subn(r"var\s+W\s*=\s*\[[\s\S]*?\];", "var W = " + json.dumps(words) + ";", src, count=1)
     src, nb = re.subn(
-        r"var BLOCKS = \[[\s\S]*?\];", "var BLOCKS = " + json.dumps(blocks) + ";", src, count=1
+        r"var\s+BLOCKS\s*=\s*\[[\s\S]*?\];", "var BLOCKS = " + json.dumps(blocks) + ";", src, count=1
     )
     if not (nw and nb):
         raise CaptionStyleError(
@@ -327,3 +327,154 @@ def inject_editorial_blocks(component_path: Path, groups: list[dict], duration: 
 
 #: style → designed-layout generator (else flat transcript injection is used).
 _BLOCKS_GENERATORS = {"caption-editorial-emphasis": inject_editorial_blocks}
+
+
+# --- Agent-authored custom caption styles --------------------------------
+# Instead of a registry style, the connected Claude agent can author a brand-new
+# caption component (its own HTML/CSS/GSAP) and CapForge drives it with only the
+# transcript + timing. caption_style == CUSTOM_CAPTION_STYLE selects it.
+
+CUSTOM_CAPTION_STYLE = "custom"
+CUSTOM_CAPTION_REL = f"{_COMPONENT_DIR}/custom-caption.html"
+
+# Patterns the HyperFrames renderer forbids (non-deterministic / unsupported);
+# a custom component carrying any of these would render wrong or non-reproducibly.
+_BANNED_PATTERNS = ("Math.random", "Date.now", "repeat: -1", "repeat:-1", "data-end", "data-layer")
+
+
+def custom_caption_template() -> str:
+    """A correct, minimal, restyle-ready caption component for the agent to adapt.
+
+    Follows the HyperFrames caption contract end-to-end: transparent stage, a
+    `var TRANSCRIPT` placeholder CapForge swaps for the real words, simple
+    grouping, a paused GSAP timeline with an entrance per group and a hard
+    `tl.set` kill at each group's end (one group visible at a time). The agent
+    keeps this structure and rewrites the CSS / entrance to invent a new look.
+    """
+    return """<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=1920, height=1080" />
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+  <style>
+    html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: transparent; }
+    #cap-root { position: relative; width: 1920px; height: 1080px; background: transparent;
+                font-family: "Inter", system-ui, sans-serif; }
+    /* ↓↓↓ RESTYLE THIS to invent a new look (colors, font, layout, motion). ↓↓↓ */
+    .cap-group { position: absolute; left: 0; right: 0; bottom: 140px; text-align: center;
+                 opacity: 0; visibility: hidden; }
+    .cap-word { display: inline-block; margin: 0 10px; font-size: 78px; font-weight: 800;
+                color: #ffffff; text-shadow: 0 4px 20px rgba(0, 0, 0, 0.55); }
+    /* ↑↑↑ RESTYLE ABOVE. Keep the structure/ids/timeline below intact. ↑↑↑ */
+  </style>
+</head>
+<body>
+  <div id="cap-root" data-composition-id="custom-caption"
+       data-width="1920" data-height="1080" data-start="0" data-duration="8">
+    <div id="cap-stage"></div>
+  </div>
+  <script>
+    // CapForge replaces this array with the real transcript (text + timing).
+    var TRANSCRIPT = [
+      { "text": "Your", "start": 0.0, "end": 0.4 },
+      { "text": "caption", "start": 0.4, "end": 0.8 },
+      { "text": "style", "start": 0.8, "end": 1.3 }
+    ];
+    var WORDS_PER_GROUP = 3;
+
+    // Group the flat transcript into display chunks.
+    var GROUPS = [];
+    for (var i = 0; i < TRANSCRIPT.length; i += WORDS_PER_GROUP) {
+      var slice = TRANSCRIPT.slice(i, i + WORDS_PER_GROUP);
+      GROUPS.push({ words: slice, start: slice[0].start, end: slice[slice.length - 1].end });
+    }
+
+    // Build the caption DOM.
+    var stage = document.getElementById("cap-stage");
+    GROUPS.forEach(function (g, gi) {
+      var el = document.createElement("div");
+      el.className = "cap-group";
+      el.id = "cap-g" + gi;
+      g.words.forEach(function (w) {
+        var span = document.createElement("span");
+        span.className = "cap-word";
+        span.textContent = w.text;
+        el.appendChild(span);
+      });
+      stage.appendChild(el);
+    });
+
+    // Paused timeline: one group visible at a time, entrance only, hard kill at end.
+    window.__timelines = window.__timelines || {};
+    var tl = gsap.timeline({ paused: true });
+    GROUPS.forEach(function (g, gi) {
+      var sel = "#cap-g" + gi;
+      tl.set(sel, { visibility: "visible" }, g.start);
+      tl.fromTo(sel, { opacity: 0, y: 30 },
+        { opacity: 1, y: 0, duration: 0.3, ease: "power3.out", overwrite: "auto" }, g.start);
+      tl.set(sel, { opacity: 0, visibility: "hidden" }, g.end);  // hard kill (captions.md)
+    });
+    window.__timelines["custom-caption"] = tl;
+  </script>
+</body>
+</html>
+"""
+
+
+#: The rules an agent-authored caption component must follow (returned to the
+#: agent alongside the template).
+CUSTOM_CAPTION_CONTRACT = [
+    "Self-contained HTML; transparent background (it overlays the video).",
+    "Root element with data-composition-id + data-width/data-height (author at 1920x1080).",
+    "Declare `var TRANSCRIPT = [{text,start,end}, ...]` — CapForge replaces it with the real words.",
+    "Build the caption DOM from TRANSCRIPT (do your own grouping if you like).",
+    'Register a PAUSED GSAP timeline at window.__timelines["<id>"].',
+    "One group visible at a time; entrance animation only; a hard tl.set kill at each group's end.",
+    "No Math.random / Date.now / repeat:-1, no data-end / data-layer (deterministic + finite).",
+]
+
+
+def custom_caption_contract() -> dict:
+    """Contract + starter template for authoring a caption style from scratch."""
+    return {"contract": CUSTOM_CAPTION_CONTRACT, "template": custom_caption_template()}
+
+
+def validate_custom_caption(html: str) -> None:
+    """Reject an agent-authored caption component that breaks the contract, with a
+    specific message so the agent can fix it. Checks the must-haves: a transcript
+    array to inject, a registered paused timeline, a composition root, and no
+    banned (non-deterministic / unsupported) patterns."""
+    if not html or "<" not in html:
+        raise CaptionStyleError("Custom caption HTML is empty or not HTML.")
+    if not any(re.search(rf"var\s+{v}\s*=\s*\[", html) for v in _TRANSCRIPT_VARS):
+        raise CaptionStyleError(
+            "Custom caption must declare a transcript array CapForge can fill — "
+            "`var TRANSCRIPT = [{text,start,end}, ...]` (a placeholder is fine)."
+        )
+    if "window.__timelines" not in html:
+        raise CaptionStyleError(
+            'Custom caption must register a paused GSAP timeline at '
+            'window.__timelines["<id>"].'
+        )
+    if "data-composition-id" not in html:
+        raise CaptionStyleError(
+            "Custom caption root must carry data-composition-id (+ data-width/height)."
+        )
+    for bad in _BANNED_PATTERNS:
+        if bad in html:
+            raise CaptionStyleError(
+                f"Custom caption uses a banned pattern '{bad}'. HyperFrames needs "
+                "deterministic, finite animations (no Math.random / Date.now / "
+                "repeat:-1, and no data-end / data-layer)."
+            )
+
+
+def write_custom_caption(project_dir: str, html: str) -> str:
+    """Validate + write an agent-authored caption component into the project.
+    Returns its project-relative path."""
+    validate_custom_caption(html)
+    dest = Path(project_dir) / CUSTOM_CAPTION_REL
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(html, encoding="utf-8")
+    return CUSTOM_CAPTION_REL

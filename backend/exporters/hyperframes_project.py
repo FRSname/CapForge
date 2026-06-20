@@ -528,6 +528,7 @@ def _prepare_caption_style(
     groups: list[dict],
     transcript_json: str,
     duration: float,
+    caption_html: Optional[str] = None,
 ) -> Optional[str]:
     """For a native caption style, install the registry component and feed it our
     transcript; return its project-relative src. Returns None for 'classic'.
@@ -544,13 +545,29 @@ def _prepare_caption_style(
     if style == "classic":
         return None
     from backend.exporters.hyperframes_captions import (
+        CUSTOM_CAPTION_STYLE,
         CaptionStyleError,
         _BLOCKS_GENERATORS,
         _has_designed_layout,
         fit_caption_component,
         inject_transcript,
         install_caption_component,
+        write_custom_caption,
     )
+
+    # Agent-authored style: write the supplied component instead of installing a
+    # registry one, then drive it with the transcript exactly like a flat style.
+    if style == CUSTOM_CAPTION_STYLE:
+        if not caption_html:
+            raise CaptionStyleError(
+                "No custom caption style has been set. Author one with the "
+                "set_custom_caption_style agent tool, or pick a built-in style."
+            )
+        rel = write_custom_caption(str(project_dir), caption_html)
+        component_path = project_dir / rel
+        inject_transcript(component_path, transcript_json, duration)
+        fit_caption_component(component_path, config.resolution_w, config.resolution_h)
+        return rel
 
     rel = install_caption_component(str(project_dir), style)
     component_path = project_dir / rel
@@ -582,13 +599,15 @@ def export_hyperframes_project(
     custom_groups: Optional[list[dict]] = None,
     effects: Optional[list[dict]] = None,
     duration: Optional[float] = None,
+    caption_html: Optional[str] = None,
 ) -> str:
     """Write a HyperFrames project folder and return its path.
 
     `custom_groups` (when provided) mirrors `render_subtitle_video` — manually
     edited groups skip auto-grouping. `source_video_path` is copied into the
     project so the composition is self-contained; when omitted, the composition
-    still references `source.mp4` for later wiring.
+    still references `source.mp4` for later wiring. `caption_html` is the
+    agent-authored component used when `config.caption_style == "custom"`.
     """
     groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
     if not groups:
@@ -613,7 +632,7 @@ def export_hyperframes_project(
     (project_dir / "transcript.json").write_text(transcript_json, encoding="utf-8")
 
     caption_sub_src = _prepare_caption_style(
-        config, project_dir, groups, transcript_json, total_duration
+        config, project_dir, groups, transcript_json, total_duration, caption_html
     )
 
     font_face = _font_face_block(config, project_dir)

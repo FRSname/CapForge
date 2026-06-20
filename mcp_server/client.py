@@ -139,6 +139,15 @@ class CapForgeClient:
     def list_caption_styles(self) -> Any:
         return self._request("GET", "/api/caption-styles")
 
+    def set_custom_caption(self, html: str) -> Any:
+        return self._request("POST", "/api/agent/custom-caption", json={"html": html})
+
+    def get_custom_caption(self) -> Any:
+        return self._request("GET", "/api/agent/custom-caption")
+
+    def get_custom_caption_contract(self) -> Any:
+        return self._request("GET", "/api/custom-caption-contract")
+
     def get_frame(self, t: float, composite: bool = True, _retry: bool = True) -> bytes:
         """Render a QA frame and return raw PNG bytes (not JSON)."""
         self._ensure()

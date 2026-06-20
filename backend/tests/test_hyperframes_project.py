@@ -226,6 +226,31 @@ def test_classic_caption_style_is_the_default_and_unchanged(transcription_result
     assert html.count('class="cgroup"') == 2
 
 
+def test_custom_caption_style_writes_agent_component(transcription_result, tmp_path):
+    from backend.exporters.hyperframes_captions import custom_caption_template
+
+    cfg = VideoRenderConfig(caption_style="custom")
+    out = export_hyperframes_project(
+        transcription_result, cfg, str(tmp_path), caption_html=custom_caption_template()
+    )
+    project = Path(out)
+    comp = project / "compositions" / "components" / "custom-caption.html"
+    assert comp.exists()
+    html = (project / "index.html").read_text()
+    assert 'data-composition-src="compositions/components/custom-caption.html"' in html
+    assert 'class="cgroup"' not in html  # hand-rolled track replaced by the custom one
+    # our transcript was injected into the agent's component
+    assert "Hello" in comp.read_text() and "Your" not in comp.read_text()
+
+
+def test_custom_caption_style_without_html_raises(transcription_result, tmp_path):
+    from backend.exporters.hyperframes_captions import CaptionStyleError
+
+    cfg = VideoRenderConfig(caption_style="custom")
+    with pytest.raises(CaptionStyleError, match="No custom caption style"):
+        export_hyperframes_project(transcription_result, cfg, str(tmp_path))
+
+
 def test_native_caption_style_references_subcomposition(transcription_result, tmp_path):
     # Pre-place the registry component so install (npx) is skipped (cache path),
     # keeping the test Node-free.

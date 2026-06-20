@@ -7,10 +7,13 @@ from backend.exporters.hyperframes_captions import (
     _has_designed_layout,
     build_editorial_blocks,
     component_rel_path,
+    custom_caption_template,
     fit_caption_component,
     inject_editorial_blocks,
     inject_transcript,
     install_caption_component,
+    validate_custom_caption,
+    write_custom_caption,
 )
 
 # A stand-in for an installed registry caption component: it carries the
@@ -122,6 +125,55 @@ def test_inject_editorial_blocks_raises_on_wrong_component(tmp_path):
     f.write_text("<script>var TRANSCRIPT = [];</script>")  # no W/BLOCKS
     with pytest.raises(CaptionStyleError):
         inject_editorial_blocks(f, _groups(), 1.0)
+
+
+# --- Agent-authored custom caption styles ---
+
+
+def test_starter_template_passes_validation():
+    validate_custom_caption(custom_caption_template())  # must not raise
+
+
+def test_starter_template_is_injectable_and_fittable(tmp_path):
+    # The template is a real caption component: its TRANSCRIPT swaps and it fits.
+    rel = write_custom_caption(str(tmp_path), custom_caption_template())
+    comp = tmp_path / rel
+    inject_transcript(comp, '[{"text": "Hi", "start": 0, "end": 1}]', 1.0)
+    assert '"text": "Hi"' in comp.read_text() and "Your" not in comp.read_text()
+    fit_caption_component(comp, 1080, 1920)  # portrait — no exception
+    assert "scale(0.5625)" in comp.read_text()
+
+
+def test_validate_rejects_missing_transcript():
+    with pytest.raises(CaptionStyleError, match="transcript array"):
+        validate_custom_caption(
+            '<div data-composition-id="x"></div><script>window.__timelines={}</script>'
+        )
+
+
+def test_validate_rejects_missing_timeline():
+    with pytest.raises(CaptionStyleError, match="timeline"):
+        validate_custom_caption('<div data-composition-id="x"></div><script>var TRANSCRIPT=[];</script>')
+
+
+def test_validate_rejects_missing_composition_id():
+    with pytest.raises(CaptionStyleError, match="data-composition-id"):
+        validate_custom_caption("<script>var TRANSCRIPT=[]; window.__timelines={};</script>")
+
+
+def test_validate_rejects_banned_pattern():
+    html = (
+        '<div data-composition-id="x"></div>'
+        "<script>var TRANSCRIPT=[]; window.__timelines={}; var r = Math.random();</script>"
+    )
+    with pytest.raises(CaptionStyleError, match="banned pattern"):
+        validate_custom_caption(html)
+
+
+def test_write_custom_caption_validates_before_writing(tmp_path):
+    with pytest.raises(CaptionStyleError):
+        write_custom_caption(str(tmp_path), "<div>not a caption</div>")
+    assert not (tmp_path / "compositions").exists()  # nothing written on rejection
 
 
 def test_install_is_idempotent_when_component_present(tmp_path):
