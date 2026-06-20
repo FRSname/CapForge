@@ -168,3 +168,24 @@ class CapForgeClient:
             return self.get_frame(t, composite, _retry=False)
         res.raise_for_status()
         return res.content
+
+    def preview_hyperframes_frame(self, t: float, _retry: bool = True) -> bytes:
+        """Snapshot one HyperFrames frame at `t`; return raw PNG bytes (not JSON)."""
+        self._ensure()
+        try:
+            res = httpx.post(
+                f"{self._base}/api/agent/preview-hyperframes-frame",
+                json={"t": t},
+                headers=self._headers(),
+                timeout=_LONG_TIMEOUT,
+            )
+        except httpx.ConnectError as exc:
+            self.reset()
+            if _retry:
+                return self.preview_hyperframes_frame(t, _retry=False)
+            raise BackendNotFound("Could not reach the CapForge backend. Is the app still open?") from exc
+        if res.status_code == 401 and _retry:
+            self.reset()
+            return self.preview_hyperframes_frame(t, _retry=False)
+        res.raise_for_status()
+        return res.content

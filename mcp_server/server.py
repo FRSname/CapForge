@@ -196,6 +196,20 @@ def render_frame(t: float, composite: bool = True) -> Image:
 
 
 @mcp.tool()
+def preview_hyperframes_frame(t: float) -> Image:
+    """Preview ONE HyperFrames frame at time `t` (seconds) — the current caption
+    style (native OR your custom one) + placed effects, composited over the video.
+
+    Fast (one frame, not a full render), so use it to SEE and iterate on a caption
+    style you authored with set_custom_caption_style, or to check effect placement,
+    before committing to render_hyperframes. NOTE: the separate `render_frame` tool
+    is the CLASSIC (Pillow) preview and does NOT reflect HyperFrames styles — use
+    THIS to see HyperFrames output.
+    """
+    return Image(data=_client.preview_hyperframes_frame(t), format="png")
+
+
+@mcp.tool()
 def check_layout(t: float, platform: str = "off") -> dict:
     """Mechanical layout read at time `t`: caption bounding box, whether it
     touches the frame edge, and (platform = tiktok/reels/shorts) advisory

@@ -81,7 +81,8 @@ actually reads.
 | `set_style` | Change global style (camelCase StudioSettings patch) → live UI |
 | `apply_preset` | Apply a built-in style preset by name → live UI |
 | `emphasize` | Style individual words (size/animation/color) → live UI |
-| `render_frame` | Render the frame at time `t` (composited over video) — agent SEES it |
+| `render_frame` | CLASSIC (Pillow) frame at time `t` (composited over video) — agent SEES it |
+| `preview_hyperframes_frame` | ONE HyperFrames frame at `t` (native/custom caption + effects) — fast preview, agent SEES it |
 | `check_layout` | Caption bbox + frame-edge + advisory safe-zone check at `t` |
 | `find_moments` | Find transcript moments (word timings) matching a phrase — where to place effects |
 | `find_semantic_moments` | Find moments by category: `numbers` / `cta` / `speaker_change` (diarization) |

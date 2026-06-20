@@ -145,3 +145,29 @@ def render_hyperframes_project(
     if on_progress:
         on_progress(100.0, "HyperFrames render complete")
     return str(out)
+
+
+def snapshot_hyperframes_project(project_dir: str, t: float) -> bytes:
+    """Capture a SINGLE frame of the composition at time `t` as PNG bytes.
+
+    Uses `npx hyperframes snapshot --at <t>` — one frame instead of the whole
+    video, so the agent can preview a caption style / effect placement fast
+    (seconds, not minutes). `--describe false` skips the optional Gemini vision
+    pass. Returns the PNG bytes for the agent to view.
+    """
+    npx = _resolve_npx()
+    snaps = Path(project_dir) / "snapshots"
+    cmd = [npx, "-y", "hyperframes", "snapshot", "--at", f"{float(t):g}", "--describe", "false"]
+    logger.info("HyperFrames snapshot: %s (cwd=%s)", " ".join(cmd), project_dir)
+    try:
+        proc = subprocess.run(cmd, cwd=str(project_dir), capture_output=True, text=True)
+    except FileNotFoundError as exc:
+        raise HyperframesRenderError(f"Failed to launch HyperFrames: {exc}") from exc
+    if proc.returncode != 0:
+        tail = (proc.stderr or proc.stdout or "").strip()[-600:]
+        logger.error("HyperFrames snapshot failed (exit %s):\n%s", proc.returncode, tail)
+        raise HyperframesRenderError(f"HyperFrames snapshot failed (exit {proc.returncode}):\n{tail}")
+    pngs = [p for p in snaps.glob("*.png") if p.is_file()] if snaps.is_dir() else []
+    if not pngs:
+        raise HyperframesRenderError("HyperFrames snapshot produced no PNG.")
+    return max(pngs, key=lambda p: p.stat().st_mtime).read_bytes()

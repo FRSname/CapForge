@@ -32,6 +32,7 @@ from backend.exporters.hyperframes_project import export_hyperframes_project
 from backend.exporters.hyperframes_render import (
     HyperframesRenderError,
     render_hyperframes_project,
+    snapshot_hyperframes_project,
 )
 from backend.exporters.json_export import export_json
 from backend.exporters.premiere_export import export_subforge
@@ -825,6 +826,45 @@ async def get_custom_caption():
     """Return the stored custom caption HTML (or null) — lets the agent read back
     what it set / iterate on it."""
     return {"html": current_custom_caption_html}
+
+
+@app.post("/api/agent/preview-hyperframes-frame", dependencies=[Depends(require_agent_token)])
+async def preview_hyperframes_frame(req: dict):
+    """Render ONE frame of the HyperFrames composition (current caption style +
+    placed effects, over the video) at time `t` and return it as PNG.
+
+    A fast single-frame preview (`hyperframes snapshot`, seconds not minutes) so
+    the agent can SEE a custom/native caption style or an effect placement without
+    a full render. Uses the live mirrored config (same as the agent render path).
+    """
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    t = float(req.get("t", 0.0))
+    config, ui_groups = _agent_frame_inputs()
+    effects_dicts = [e.model_dump() for e in current_effects] if current_effects else None
+    loop = asyncio.get_running_loop()
+
+    def _work() -> bytes:
+        project_dir = export_hyperframes_project(
+            current_result,
+            config,
+            "output",
+            source_video_path=current_result.audio_path,
+            custom_groups=ui_groups,
+            effects=effects_dicts,
+            caption_html=current_custom_caption_html,
+        )
+        return snapshot_hyperframes_project(project_dir, t)
+
+    try:
+        png = await loop.run_in_executor(None, _work)
+    except HyperframesRenderError as e:
+        logger.warning("HyperFrames preview failed: %s", e)
+        raise HTTPException(
+            status_code=400,
+            detail={"title": "HyperFrames preview failed", "hint": str(e), "raw": str(e)},
+        )
+    return Response(content=png, media_type="image/png")
 
 
 # --- Export helpers ---
