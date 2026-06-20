@@ -525,19 +525,28 @@ def _font_face_block(config: VideoRenderConfig, project_dir: Path) -> str:
 def _prepare_caption_style(
     config: VideoRenderConfig,
     project_dir: Path,
+    groups: list[dict],
     transcript_json: str,
     duration: float,
 ) -> Optional[str]:
-    """For a native caption style, install the registry component and inject our
+    """For a native caption style, install the registry component and feed it our
     transcript; return its project-relative src. Returns None for 'classic'.
 
-    The Node-shelling caption module is imported lazily so the classic path has
-    no dependency on it.
+    Most components are flat-transcript consumers (swap their words array). A few
+    are "designed" — they carry a hand-authored layout (`var BLOCKS`) tied to
+    word indices and need a per-style generator (e.g. editorial-emphasis, where
+    we rebuild the layout from the user's groups + their emphasized words). An
+    unrecognized designed component is refused with a clear message rather than
+    rendered with a mismatched layout. The Node-shelling caption module is
+    imported lazily so the classic path has no dependency on it.
     """
     style = getattr(config, "caption_style", "classic") or "classic"
     if style == "classic":
         return None
     from backend.exporters.hyperframes_captions import (
+        CaptionStyleError,
+        _BLOCKS_GENERATORS,
+        _has_designed_layout,
         fit_caption_component,
         inject_transcript,
         install_caption_component,
@@ -545,7 +554,19 @@ def _prepare_caption_style(
 
     rel = install_caption_component(str(project_dir), style)
     component_path = project_dir / rel
-    inject_transcript(component_path, transcript_json, duration)
+
+    generator = _BLOCKS_GENERATORS.get(style)
+    if generator is not None:
+        generator(component_path, groups, duration)  # designed layout from groups
+    elif _has_designed_layout(component_path.read_text(encoding="utf-8")):
+        raise CaptionStyleError(
+            f"The '{style}' caption style uses a fixed designed layout that can't "
+            "yet adapt to your transcript. Try a different native style (e.g. "
+            "Pill Karaoke / Neon Accent) or the Classic caption style."
+        )
+    else:
+        inject_transcript(component_path, transcript_json, duration)
+
     # Native caption components are authored for a fixed (16:9) stage — fit them
     # to CapForge's chosen canvas (portrait/4:5/square/4K) so captions aren't
     # clipped or mis-placed. No-op at the native size.
@@ -592,7 +613,7 @@ def export_hyperframes_project(
     (project_dir / "transcript.json").write_text(transcript_json, encoding="utf-8")
 
     caption_sub_src = _prepare_caption_style(
-        config, project_dir, transcript_json, total_duration
+        config, project_dir, groups, transcript_json, total_duration
     )
 
     font_face = _font_face_block(config, project_dir)

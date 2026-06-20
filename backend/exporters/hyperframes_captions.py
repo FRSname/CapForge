@@ -109,8 +109,13 @@ def install_caption_component(project_dir: str, style: str) -> str:
     Returns its project-relative path. Raises `CaptionStyleError` if npx/Node is
     missing, the install fails, or the style name is unknown.
     """
+    # Resolve to an ABSOLUTE dir: we pass it as both --dir and cwd, so a relative
+    # path (e.g. "output/foo-hyperframes") would double-nest — the CLI resolves
+    # --dir against cwd → output/foo-hyperframes/output/foo-hyperframes — and the
+    # component never lands where we look for it. (This is what failed live.)
+    proj = Path(project_dir).resolve()
     rel = component_rel_path(style)
-    dest = Path(project_dir) / rel
+    dest = proj / rel
     if dest.exists():
         return rel  # cached — `add` already ran for this style in this project
 
@@ -122,11 +127,11 @@ def install_caption_component(project_dir: str, style: str) -> str:
         )
     cmd = [
         npx, "-y", "hyperframes", "add", style,
-        "--json", "--no-clipboard", "--dir", str(project_dir),
+        "--json", "--no-clipboard", "--dir", str(proj),
     ]
     logger.info("Installing caption style: %s", " ".join(cmd))
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(project_dir))
+        proc = subprocess.run(cmd, capture_output=True, text=True, cwd=str(proj))
     except FileNotFoundError as exc:  # npx vanished between which() and exec
         raise CaptionStyleError(f"Failed to run HyperFrames: {exc}") from exc
     if proc.returncode != 0:
@@ -201,27 +206,124 @@ def fit_caption_component(component_path: Path, target_w: int, target_h: int) ->
     component_path.write_text(src, encoding="utf-8")
 
 
+# Registry caption components bake their transcript under one of these names —
+# a flat `[{text,start,end}]` array we swap for ours. (pill-karaoke → TRANSCRIPT,
+# editorial-emphasis → W.)
+_TRANSCRIPT_VARS = ("TRANSCRIPT", "WORDS", "W")
+
+def _has_designed_layout(src: str) -> bool:
+    """True when a component carries a hand-authored `var BLOCKS` layout (tied to
+    word indices) rather than a plain flat transcript. Such a component can't be
+    driven by a simple array swap — it needs a per-style generator, else its
+    layout would point at the wrong words."""
+    return re.search(r"var BLOCKS = \[", src) is not None
+
+
+def _retime(src: str, duration: float) -> str:
+    """Match a component's clock to our composition (DURATION var + every
+    data-duration on its root + background video)."""
+    dur = _format_seconds(duration)
+    src = re.sub(r"var DURATION = [\d.]+;", f"var DURATION = {dur};", src)
+    src = re.sub(r'(data-duration=")[\d.]+(")', rf"\g<1>{dur}\g<2>", src)
+    return src
+
+
 def inject_transcript(component_path: Path, transcript_json: str, duration: float) -> None:
-    """Rewrite a caption component's baked-in TRANSCRIPT + clock in place.
+    """Rewrite a flat-transcript caption component's baked array + clock in place.
 
     `transcript_json` is a JSON array string of `[{"text","start","end"}]` (the
     same payload CapForge writes to transcript.json). Raises `CaptionStyleError`
-    if the component doesn't carry a TRANSCRIPT array to replace.
+    if the component carries no recognized transcript array.
     """
     src = component_path.read_text(encoding="utf-8")
-    src, n = re.subn(
-        r"var TRANSCRIPT = \[[\s\S]*?\];",
-        f"var TRANSCRIPT = {transcript_json};",
-        src,
-        count=1,
-    )
-    if n == 0:
-        raise CaptionStyleError(
-            f"{component_path.name} has no TRANSCRIPT array — unexpected component format."
+    for var in _TRANSCRIPT_VARS:
+        src, n = re.subn(
+            rf"var {var} = \[[\s\S]*?\];",
+            f"var {var} = {transcript_json};",
+            src,
+            count=1,
         )
-    dur = _format_seconds(duration)
-    # Match the component clock to our composition (DURATION var + every
-    # data-duration on the component's root + its background video).
-    src = re.sub(r"var DURATION = [\d.]+;", f"var DURATION = {dur};", src)
-    src = re.sub(r'(data-duration=")[\d.]+(")', rf"\g<1>{dur}\g<2>", src)
-    component_path.write_text(src, encoding="utf-8")
+        if n:
+            break
+    else:
+        raise CaptionStyleError(
+            f"{component_path.name} has no recognized transcript array "
+            "(TRANSCRIPT/WORDS/W) — unexpected component format."
+        )
+    component_path.write_text(_retime(src, duration), encoding="utf-8")
+
+
+# --- Designed (BLOCKS) components: editorial-emphasis ---------------------
+
+_EMPHASIS_SCALE_MIN = 1.05  # font_size_scale above this counts as "emphasized"
+
+
+def _word_is_emphasis(word: dict) -> bool:
+    """A word the user emphasized (bigger or bold) — these become editorial's
+    big serif `e` words. Reads the same per-word overrides the classic renderer
+    uses (snake_case: font_size_scale / bold)."""
+    ov = word.get("overrides") or {}
+    try:
+        if float(ov.get("font_size_scale", 1.0)) > _EMPHASIS_SCALE_MIN:
+            return True
+    except (TypeError, ValueError):
+        pass
+    return bool(ov.get("bold"))
+
+
+def build_editorial_blocks(groups: list[dict]) -> tuple[list[dict], list[dict]]:
+    """Build editorial-emphasis's `W` (flat words) + `BLOCKS` (layout) from
+    CapForge display groups.
+
+    One block per group; each group's words split across up to two lines; words
+    the user emphasized are tagged `e` (big Playfair serif), the rest `n`. BLOCKS
+    entries reference words by their index in `W` — matching the component's own
+    schema (`{line1: [[idx, type], ...], line2: [...] | null}`).
+    """
+    words: list[dict] = []
+    blocks: list[dict] = []
+    idx = 0
+    for group in groups:
+        line: list[list] = []
+        for w in group.get("words") or []:
+            text = str(w.get("word", "")).strip()
+            if not text:
+                continue
+            words.append({
+                "text": text,
+                "start": round(float(w.get("start", 0.0)), 3),
+                "end": round(float(w.get("end", 0.0)), 3),
+            })
+            line.append([idx, "e" if _word_is_emphasis(w) else "n"])
+            idx += 1
+        if not line:
+            continue
+        if len(line) <= 2:
+            blocks.append({"line1": line, "line2": None})
+        else:  # split roughly in half so a block is at most two lines
+            half = (len(line) + 1) // 2
+            blocks.append({"line1": line[:half], "line2": line[half:]})
+    return words, blocks
+
+
+def inject_editorial_blocks(component_path: Path, groups: list[dict], duration: float) -> None:
+    """Drive a designed `W`+`BLOCKS` component (editorial-emphasis) with the
+    user's transcript + emphasis. Replaces both arrays + the clock in place."""
+    src = component_path.read_text(encoding="utf-8")
+    words, blocks = build_editorial_blocks(groups)
+    if not words:
+        raise CaptionStyleError("No caption words to build the editorial layout.")
+    src, nw = re.subn(r"var W = \[[\s\S]*?\];", "var W = " + json.dumps(words) + ";", src, count=1)
+    src, nb = re.subn(
+        r"var BLOCKS = \[[\s\S]*?\];", "var BLOCKS = " + json.dumps(blocks) + ";", src, count=1
+    )
+    if not (nw and nb):
+        raise CaptionStyleError(
+            f"{component_path.name} is not the expected editorial-emphasis layout "
+            "(missing W/BLOCKS) — component format changed."
+        )
+    component_path.write_text(_retime(src, duration), encoding="utf-8")
+
+
+#: style → designed-layout generator (else flat transcript injection is used).
+_BLOCKS_GENERATORS = {"caption-editorial-emphasis": inject_editorial_blocks}

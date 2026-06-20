@@ -4,8 +4,11 @@ import pytest
 
 from backend.exporters.hyperframes_captions import (
     CaptionStyleError,
+    _has_designed_layout,
+    build_editorial_blocks,
     component_rel_path,
     fit_caption_component,
+    inject_editorial_blocks,
     inject_transcript,
     install_caption_component,
 )
@@ -44,6 +47,81 @@ def test_inject_raises_without_transcript(tmp_path):
     f.write_text("<div>no transcript array here</div>")
     with pytest.raises(CaptionStyleError):
         inject_transcript(f, "[]", 1.0)
+
+
+def test_inject_handles_W_variable_name(tmp_path):
+    # editorial-style components name their transcript `var W` (not TRANSCRIPT).
+    f = tmp_path / "c.html"
+    f.write_text("<script>var DURATION = 8;\n  var W = [\n    { text: 'old', start: 0, end: 1 },\n  ];</script>")
+    inject_transcript(f, '[{"text": "new", "start": 0, "end": 1}]', 2.0)
+    out = f.read_text()
+    assert '"text": "new"' in out and "old" not in out
+    assert "var DURATION = 2;" in out
+
+
+# --- Designed (BLOCKS) components: editorial-emphasis ---
+
+
+_EDITORIAL_STUB = (
+    "<div data-composition-id='ee' data-duration='8'></div>\n"
+    "<script>\n  var DURATION = 8;\n"
+    "  var W = [\n    { text: 'Every', start: 0.0, end: 0.3 },\n  ];\n"
+    "  var BLOCKS = [\n    { line1: [[0, 'n']], line2: null },\n  ];\n"
+    "</script>"
+)
+
+
+def test_has_designed_layout_detects_blocks():
+    assert _has_designed_layout(_EDITORIAL_STUB) is True
+    assert _has_designed_layout("<script>var TRANSCRIPT = [];</script>") is False
+
+
+def _groups():
+    return [
+        {"words": [
+            {"word": "Join", "start": 0.0, "end": 0.3},
+            {"word": "Update", "start": 0.3, "end": 0.6, "overrides": {"font_size_scale": 1.4}},
+            {"word": "Conference", "start": 0.6, "end": 1.0, "overrides": {"bold": True}},
+        ]},
+        {"words": [
+            {"word": "now", "start": 1.0, "end": 1.3},
+        ]},
+    ]
+
+
+def test_build_editorial_blocks_flattens_words_and_marks_emphasis():
+    words, blocks = build_editorial_blocks(_groups())
+    assert [w["text"] for w in words] == ["Join", "Update", "Conference", "now"]
+    # one block per group; 3-word group splits into two lines
+    assert len(blocks) == 2
+    assert blocks[0]["line1"] and blocks[0]["line2"]
+    assert blocks[1]["line2"] is None  # single-word group → one line
+    # font_size_scale>1 AND bold both count as emphasis (e)
+    types = {pair[0]: pair[1] for b in blocks for ln in (b["line1"], b["line2"] or []) for pair in ln}
+    assert types[1] == "e" and types[2] == "e"  # Update (scaled), Conference (bold)
+    assert types[0] == "n" and types[3] == "n"  # Join, now
+
+
+def test_build_editorial_blocks_skips_empty_words():
+    words, blocks = build_editorial_blocks([{"words": [{"word": "  ", "start": 0, "end": 1}]}])
+    assert words == [] and blocks == []
+
+
+def test_inject_editorial_blocks_rewrites_W_and_BLOCKS(tmp_path):
+    f = tmp_path / "ee.html"
+    f.write_text(_EDITORIAL_STUB)
+    inject_editorial_blocks(f, _groups(), 1.3)
+    out = f.read_text()
+    assert '"text": "Update"' in out and "Every" not in out  # W replaced
+    assert '[1, "e"]' in out  # BLOCKS replaced with our layout (Update = emphasis)
+    assert "var DURATION = 1.3;" in out  # retimed
+
+
+def test_inject_editorial_blocks_raises_on_wrong_component(tmp_path):
+    f = tmp_path / "flat.html"
+    f.write_text("<script>var TRANSCRIPT = [];</script>")  # no W/BLOCKS
+    with pytest.raises(CaptionStyleError):
+        inject_editorial_blocks(f, _groups(), 1.0)
 
 
 def test_install_is_idempotent_when_component_present(tmp_path):
