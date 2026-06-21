@@ -51,7 +51,12 @@ function sanitizeSettings(obj) {
     if (DANGEROUS_KEYS.includes(key)) continue
     const value = obj[key]
     const t = typeof value
-    if (t === 'string' || t === 'number' || t === 'boolean') {
+    if (t === 'string') {
+      // Drop pathologically long strings — guards against a malicious preset
+      // bloating a single setting value.
+      if (value.length > 4096) continue
+      out[key] = value
+    } else if (t === 'number' || t === 'boolean') {
       out[key] = value
     }
     // Drop nested objects/arrays/functions/null/undefined.
@@ -92,6 +97,9 @@ function parsePresetImport(raw) {
   if (typeof raw.name !== 'string' || raw.name.trim() === '') {
     throw new Error('This preset file is missing a name.')
   }
+  if (raw.name.length > 256) {
+    throw new Error('This preset has an invalid name.')
+  }
   if (!raw.settings || typeof raw.settings !== 'object' || Array.isArray(raw.settings)) {
     throw new Error('This preset file has invalid settings.')
   }
@@ -101,6 +109,18 @@ function parsePresetImport(raw) {
   let font = null
   if (raw.font && typeof raw.font === 'object' && !Array.isArray(raw.font)) {
     font = raw.font
+    // Validate the untrusted font reference fields. fileName/family are
+    // optional, but when present they MUST be strings; fileName length is
+    // capped so a malicious reference can't blow up downstream path handling.
+    if ('fileName' in font && font.fileName !== undefined && typeof font.fileName !== 'string') {
+      throw new Error('This preset file has an invalid font reference.')
+    }
+    if (typeof font.fileName === 'string' && font.fileName.length > 256) {
+      throw new Error('This preset file has an invalid font reference.')
+    }
+    if ('family' in font && font.family !== undefined && typeof font.family !== 'string') {
+      throw new Error('This preset file has an invalid font reference.')
+    }
     if (typeof font.dataB64 === 'string' && font.dataB64 !== '') {
       let decoded
       try {
@@ -116,6 +136,9 @@ function parsePresetImport(raw) {
       if (decoded.length > MAX_FONT_BYTES) {
         throw new Error('This preset has an embedded font that is too large.')
       }
+      // Attach the already-validated buffer so the write site doesn't need to
+      // re-decode (the size guarantee then holds self-evidently at write time).
+      font.dataBuffer = decoded
     }
   }
 

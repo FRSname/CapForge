@@ -747,7 +747,7 @@ app.whenReady().then(async () => {
       localFontPath = ''
       fontStatus = 'none'
     } else if (font.bundled) {
-      const p = path.join(bundledFontsDir, path.basename(font.fileName))
+      const p = path.join(bundledFontsDir, path.basename(font.fileName || 'imported-font'))
       if (fs.existsSync(p)) {
         localFontPath = p
         fontStatus = 'bundled'
@@ -763,7 +763,8 @@ app.whenReady().then(async () => {
       }
       if (!fs.existsSync(fontsDir)) fs.mkdirSync(fontsDir, { recursive: true })
       const dest = path.join(fontsDir, safeName)
-      fs.writeFileSync(dest, Buffer.from(font.dataB64, 'base64'))
+      // Write the buffer parsePresetImport already decoded + size-checked.
+      fs.writeFileSync(dest, font.dataBuffer)
       localFontPath = dest
       fontStatus = 'embedded'
     } else {

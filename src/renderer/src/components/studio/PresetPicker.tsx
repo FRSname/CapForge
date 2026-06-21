@@ -149,6 +149,8 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
           ? `Imported "${res.name}" — its font was missing, using default`
           : `Imported "${res.name}"`
       toast(msg, res.fontStatus === 'missing' ? 'info' : 'success')
+    } catch {
+      toast('Could not import preset — the file may be malformed.', 'error')
     } finally {
       setBusy(false)
     }
