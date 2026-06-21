@@ -58,3 +58,26 @@ def hyperframes_argv() -> list[str] | None:
     if npx:
         return [npx, "-y", "hyperframes"]
     return None
+
+
+def hyperframes_env() -> dict[str, str]:
+    """Environment for HyperFrames CLI subprocesses.
+
+    The CLI encodes/probes video with ffmpeg/ffprobe and resolves them from
+    ``FFMPEG_PATH``/``FFPROBE_PATH`` (and its own ``HYPERFRAMES_FFMPEG_PATH``/
+    ``HYPERFRAMES_FFPROBE_PATH``). CapForge bundles its own ffmpeg and exposes it
+    to the backend via ``CAPFORGE_FFMPEG``/``CAPFORGE_FFPROBE``; map those across
+    so the CLI uses the same binaries instead of needing a system ffmpeg on PATH
+    (it isn't bundled on PATH in a way the CLI reliably finds, notably on Windows).
+    Inherits the rest of the backend env (PATH already carries the managed Node).
+    """
+    env = dict(os.environ)
+    ffmpeg = os.environ.get("CAPFORGE_FFMPEG")
+    if ffmpeg and Path(ffmpeg).exists():
+        env["FFMPEG_PATH"] = ffmpeg
+        env["HYPERFRAMES_FFMPEG_PATH"] = ffmpeg
+    ffprobe = os.environ.get("CAPFORGE_FFPROBE")
+    if ffprobe and Path(ffprobe).exists():
+        env["FFPROBE_PATH"] = ffprobe
+        env["HYPERFRAMES_FFPROBE_PATH"] = ffprobe
+    return env

@@ -81,3 +81,29 @@ def test_argv_none_when_no_node_at_all(monkeypatch) -> None:
     monkeypatch.delenv("CAPFORGE_NPX", raising=False)
     monkeypatch.setattr(node_runtime.shutil, "which", lambda _: None)
     assert node_runtime.hyperframes_argv() is None
+
+
+# --- hyperframes_env -------------------------------------------------------
+
+def test_env_maps_capforge_ffmpeg_to_cli_vars(monkeypatch, tmp_path) -> None:
+    """CapForge's bundled ffmpeg/ffprobe are exposed to the CLI's env vars."""
+    ffmpeg = tmp_path / "ffmpeg"
+    ffmpeg.write_text("#!/bin/sh\n")
+    ffprobe = tmp_path / "ffprobe"
+    ffprobe.write_text("#!/bin/sh\n")
+    monkeypatch.setenv("CAPFORGE_FFMPEG", str(ffmpeg))
+    monkeypatch.setenv("CAPFORGE_FFPROBE", str(ffprobe))
+    env = node_runtime.hyperframes_env()
+    assert env["FFMPEG_PATH"] == str(ffmpeg)
+    assert env["HYPERFRAMES_FFMPEG_PATH"] == str(ffmpeg)
+    assert env["FFPROBE_PATH"] == str(ffprobe)
+    assert env["HYPERFRAMES_FFPROBE_PATH"] == str(ffprobe)
+
+
+def test_env_omits_ffmpeg_vars_when_unbundled(monkeypatch) -> None:
+    """No bundled ffmpeg → don't fabricate paths (let the CLI report it)."""
+    monkeypatch.delenv("CAPFORGE_FFMPEG", raising=False)
+    monkeypatch.delenv("CAPFORGE_FFPROBE", raising=False)
+    env = node_runtime.hyperframes_env()
+    assert "FFMPEG_PATH" not in env
+    assert "HYPERFRAMES_FFMPEG_PATH" not in env

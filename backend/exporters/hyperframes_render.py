@@ -14,7 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
-from .node_runtime import hyperframes_argv
+from .node_runtime import hyperframes_argv, hyperframes_env
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +100,7 @@ def render_hyperframes_project(
         proc = subprocess.Popen(
             cmd,
             cwd=str(project_dir),
+            env=hyperframes_env(),
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
@@ -163,7 +164,9 @@ def snapshot_hyperframes_project(project_dir: str, t: float) -> bytes:
     cmd = [*_hyperframes_cmd(), "snapshot", "--at", f"{float(t):g}", "--describe", "false"]
     logger.info("HyperFrames snapshot: %s (cwd=%s)", " ".join(cmd), project_dir)
     try:
-        proc = subprocess.run(cmd, cwd=str(project_dir), capture_output=True, text=True)
+        proc = subprocess.run(
+            cmd, cwd=str(project_dir), env=hyperframes_env(), capture_output=True, text=True
+        )
     except FileNotFoundError as exc:
         raise HyperframesRenderError(f"Failed to launch HyperFrames: {exc}") from exc
     if proc.returncode != 0:
