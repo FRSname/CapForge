@@ -60,24 +60,37 @@ def hyperframes_argv() -> list[str] | None:
     return None
 
 
+def _resolve_media_tool(env_var: str, exe: str) -> str | None:
+    """A bundled binary (CapForge's ``CAPFORGE_*`` env) first, else one on PATH.
+
+    Mirrors the backend's own ffmpeg discovery (see ``video_render._find_ffmpeg``):
+    the app-bundled copy wins; otherwise fall back to a system install. Unlike
+    npx, ffmpeg/ffprobe are real executables, so a PATH hit is spawnable.
+    """
+    bundled = os.environ.get(env_var)
+    if bundled and Path(bundled).exists():
+        return bundled
+    return shutil.which(exe)
+
+
 def hyperframes_env() -> dict[str, str]:
     """Environment for HyperFrames CLI subprocesses.
 
     The CLI encodes/probes video with ffmpeg/ffprobe and resolves them from
     ``FFMPEG_PATH``/``FFPROBE_PATH`` (and its own ``HYPERFRAMES_FFMPEG_PATH``/
-    ``HYPERFRAMES_FFPROBE_PATH``). CapForge bundles its own ffmpeg and exposes it
-    to the backend via ``CAPFORGE_FFMPEG``/``CAPFORGE_FFPROBE``; map those across
-    so the CLI uses the same binaries instead of needing a system ffmpeg on PATH
-    (it isn't bundled on PATH in a way the CLI reliably finds, notably on Windows).
-    Inherits the rest of the backend env (PATH already carries the managed Node).
+    ``HYPERFRAMES_FFPROBE_PATH``) — it does NOT reliably read PATH. Resolve the
+    same ffmpeg the backend would (CapForge's bundled ``CAPFORGE_FFMPEG`` first,
+    then a system ffmpeg) and pin it onto those vars so the CLI uses it instead
+    of failing with "FFmpeg not found". Inherits the rest of the backend env
+    (PATH already carries the managed Node). No-op when no ffmpeg exists at all.
     """
     env = dict(os.environ)
-    ffmpeg = os.environ.get("CAPFORGE_FFMPEG")
-    if ffmpeg and Path(ffmpeg).exists():
+    ffmpeg = _resolve_media_tool("CAPFORGE_FFMPEG", "ffmpeg")
+    if ffmpeg:
         env["FFMPEG_PATH"] = ffmpeg
         env["HYPERFRAMES_FFMPEG_PATH"] = ffmpeg
-    ffprobe = os.environ.get("CAPFORGE_FFPROBE")
-    if ffprobe and Path(ffprobe).exists():
+    ffprobe = _resolve_media_tool("CAPFORGE_FFPROBE", "ffprobe")
+    if ffprobe:
         env["FFPROBE_PATH"] = ffprobe
         env["HYPERFRAMES_FFPROBE_PATH"] = ffprobe
     return env

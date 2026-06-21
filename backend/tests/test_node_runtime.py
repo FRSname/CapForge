@@ -93,6 +93,8 @@ def test_env_maps_capforge_ffmpeg_to_cli_vars(monkeypatch, tmp_path) -> None:
     ffprobe.write_text("#!/bin/sh\n")
     monkeypatch.setenv("CAPFORGE_FFMPEG", str(ffmpeg))
     monkeypatch.setenv("CAPFORGE_FFPROBE", str(ffprobe))
+    # Bundled wins even if a system ffmpeg is also present.
+    monkeypatch.setattr(node_runtime.shutil, "which", lambda _: "/usr/bin/ffmpeg")
     env = node_runtime.hyperframes_env()
     assert env["FFMPEG_PATH"] == str(ffmpeg)
     assert env["HYPERFRAMES_FFMPEG_PATH"] == str(ffmpeg)
@@ -100,10 +102,29 @@ def test_env_maps_capforge_ffmpeg_to_cli_vars(monkeypatch, tmp_path) -> None:
     assert env["HYPERFRAMES_FFPROBE_PATH"] == str(ffprobe)
 
 
-def test_env_omits_ffmpeg_vars_when_unbundled(monkeypatch) -> None:
-    """No bundled ffmpeg → don't fabricate paths (let the CLI report it)."""
+def test_env_falls_back_to_system_ffmpeg(monkeypatch) -> None:
+    """No bundled ffmpeg → use a system ffmpeg/ffprobe on PATH (CLI ignores PATH)."""
     monkeypatch.delenv("CAPFORGE_FFMPEG", raising=False)
     monkeypatch.delenv("CAPFORGE_FFPROBE", raising=False)
+    monkeypatch.setattr(
+        node_runtime.shutil,
+        "which",
+        lambda exe: f"/usr/bin/{exe}",
+    )
+    env = node_runtime.hyperframes_env()
+    assert env["FFMPEG_PATH"] == "/usr/bin/ffmpeg"
+    assert env["HYPERFRAMES_FFMPEG_PATH"] == "/usr/bin/ffmpeg"
+    assert env["FFPROBE_PATH"] == "/usr/bin/ffprobe"
+    assert env["HYPERFRAMES_FFPROBE_PATH"] == "/usr/bin/ffprobe"
+
+
+def test_env_omits_ffmpeg_vars_when_absent_everywhere(monkeypatch) -> None:
+    """No bundled and none on PATH → don't fabricate paths (let the CLI report it)."""
+    monkeypatch.delenv("CAPFORGE_FFMPEG", raising=False)
+    monkeypatch.delenv("CAPFORGE_FFPROBE", raising=False)
+    monkeypatch.setattr(node_runtime.shutil, "which", lambda _: None)
     env = node_runtime.hyperframes_env()
     assert "FFMPEG_PATH" not in env
     assert "HYPERFRAMES_FFMPEG_PATH" not in env
+    assert "FFPROBE_PATH" not in env
+    assert "HYPERFRAMES_FFPROBE_PATH" not in env

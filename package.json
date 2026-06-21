@@ -18,6 +18,7 @@
     "test": "vitest run",
     "lint": "eslint src",
     "backend": "python -m uvicorn backend.main:app --host 127.0.0.1 --port 53421",
+    "bundle:ffmpeg": "node scripts/bundle-ffmpeg.mjs",
     "dist": "npm run build:react && electron-builder",
     "dist:win": "npm run build:react && electron-builder --win",
     "dist:mac": "npm run build:react && electron-builder --mac",
