@@ -10,7 +10,7 @@ const fs = require('fs')
 const net = require('net')
 
 const { getRuntimePaths, isRuntimeReady } = require('./runtime-setup')
-const { getNodeRuntimePaths, isNodeRuntimeReady, isHyperframesReady } = require('./node-runtime')
+const { getNodeRuntimePaths } = require('./node-runtime')
 const platform = require('./platform')
 
 const PROJECT_ROOT = path.join(__dirname, '..')
@@ -167,21 +167,24 @@ class PythonBackend {
       // WinError 1314; macOS inherits defaults). See electron/platform/win.js.
       Object.assign(env, platform.extraModelDownloadEnv)
 
-      // HyperFrames (`npx hyperframes`) needs Node 22+. If we've provisioned an
-      // app-managed Node, point the backend at it and put its bin dir on PATH so
-      // the CLI — and the node it spawns — resolve without a system install.
-      // Until provisioning lands this is a no-op (the exe won't exist), so the
-      // backend transparently falls back to a system `npx` on PATH.
-      if (isNodeRuntimeReady()) {
-        const node = getNodeRuntimePaths()
-        env.CAPFORGE_NODE_BIN = node.nodeExe
-        env.PATH = node.nodeBinDir + path.delimiter + (env.PATH || '')
-        // Keep the managed chrome-headless-shell app-local + uninstallable.
-        env.PUPPETEER_CACHE_DIR = node.browserCacheDir
-        // Prefer the pinned, offline hyperframes CLI (run via `node <cli.js>`,
-        // never the .cmd shim) over `npx -y hyperframes`.
-        if (isHyperframesReady()) env.CAPFORGE_HYPERFRAMES_CLI = node.hyperframesCli
-      }
+      // HyperFrames (`npx hyperframes`) needs Node 22+. Point the backend at the
+      // app-managed Node + CLI + render-browser cache. We export these paths
+      // *unconditionally* — even before provisioning has created the files — and
+      // the backend resolver (node_runtime.hyperframes_argv) checks existence at
+      // call time. That way, on-demand provisioning that finishes *after* this
+      // backend spawned is picked up on the very next render, with no restart
+      // (restarting would drop the in-memory transcription). The paths are
+      // deterministic (derived from userData), so they're valid in any state.
+      const node = getNodeRuntimePaths()
+      env.CAPFORGE_NODE_BIN = node.nodeExe
+      // The pinned, offline CLI is run as `node <cli.js>` (never the .cmd shim,
+      // which Python subprocess can't spawn without a shell on Windows).
+      env.CAPFORGE_HYPERFRAMES_CLI = node.hyperframesCli
+      // Prepend the managed Node dir so the `node` the CLI sub-spawns resolves;
+      // harmless before provisioning (the dir simply doesn't exist yet).
+      env.PATH = node.nodeBinDir + path.delimiter + (env.PATH || '')
+      // Keep the managed chrome-headless-shell app-local + uninstallable.
+      env.PUPPETEER_CACHE_DIR = node.browserCacheDir
 
       // Open the log file for append (rotating first if it's oversized).
       // Every backend write goes to both the file and the Electron console.

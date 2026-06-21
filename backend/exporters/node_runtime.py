@@ -13,16 +13,30 @@ import shutil
 from pathlib import Path
 
 
+def _is_spawnable(p: str | None) -> bool:
+    """False for Windows shim scripts the backend can't exec without a shell.
+
+    Every HyperFrames call site spawns with ``shell=False`` (see
+    ``hyperframes_render.py``); a ``.cmd``/``.bat`` shim can't be launched that
+    way on Windows, so treating one as "found" only yields a confusing
+    "Failed to launch" later. Reporting it as unavailable lets callers fall
+    through to the app-managed ``[node, cli.js]`` or a clean "set up" message.
+    """
+    return bool(p) and Path(p).suffix.lower() not in {".cmd", ".bat"}
+
+
 def find_npx() -> str | None:
-    """Path to ``npx``, preferring the app-managed Node runtime.
+    """Path to a *spawnable* ``npx``, preferring the app-managed Node runtime.
 
     Order: ``CAPFORGE_NPX`` (set by Electron when a bundled Node 22+ exists) →
-    a system ``npx`` on PATH → ``None`` when neither is available.
+    a system ``npx`` on PATH → ``None``. A Windows ``.cmd``/``.bat`` shim is
+    skipped (the backend spawns ``shell=False`` and can't run it).
     """
     managed = os.environ.get("CAPFORGE_NPX")
-    if managed and Path(managed).exists():
+    if managed and Path(managed).exists() and _is_spawnable(managed):
         return managed
-    return shutil.which("npx")
+    npx = shutil.which("npx")
+    return npx if _is_spawnable(npx) else None
 
 
 def hyperframes_argv() -> list[str] | None:

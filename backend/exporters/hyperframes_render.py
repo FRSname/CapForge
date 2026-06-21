@@ -37,8 +37,9 @@ def _hyperframes_cmd() -> list[str]:
     argv = hyperframes_argv()
     if argv is None:
         raise HyperframesRenderError(
-            "Node.js was not found. HyperFrames rendering needs Node.js 22+. "
-            "Install Node, or use the file-only HyperFrames export."
+            "HyperFrames rendering isn't set up yet. Open the HyperFrames panel and "
+            "run the one-time setup (it downloads the bundled Node 22 engine + render "
+            "browser), or use the file-only HyperFrames export."
         )
     return argv
 

@@ -35,6 +35,22 @@ def test_returns_none_when_no_npx_anywhere(monkeypatch) -> None:
     assert node_runtime.find_npx() is None
 
 
+def test_ignores_windows_cmd_shim(monkeypatch) -> None:
+    """A .cmd shim can't be spawned shell=False — report it as unavailable."""
+    monkeypatch.delenv("CAPFORGE_NPX", raising=False)
+    monkeypatch.setattr(node_runtime.shutil, "which", lambda _: r"C:\\node\\npx.cmd")
+    assert node_runtime.find_npx() is None
+
+
+def test_ignores_managed_cmd_shim(monkeypatch, tmp_path) -> None:
+    """A managed CAPFORGE_NPX pointing at a .cmd shim is also rejected."""
+    shim = tmp_path / "npx.cmd"
+    shim.write_text("@echo off\n")
+    monkeypatch.setenv("CAPFORGE_NPX", str(shim))
+    monkeypatch.setattr(node_runtime.shutil, "which", lambda _: None)
+    assert node_runtime.find_npx() is None
+
+
 # --- hyperframes_argv ------------------------------------------------------
 
 def test_argv_prefers_managed_node_cli_when_present(monkeypatch, tmp_path) -> None:

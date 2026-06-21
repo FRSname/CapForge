@@ -65,8 +65,11 @@ export function HyperFramesPanel({
 
   // Provision the bundled HyperFrames engine (Node + CLI + render browser). This
   // is the heavy, opt-in step; it also covers existing installs. The classic
-  // Pillow path and a system Node still work whether or not this runs.
-  const installExtras = async () => {
+  // Pillow path and a system Node still work whether or not this runs. Returns
+  // true once the engine is ready. The backend resolves the freshly provisioned
+  // Node/CLI on its next call (paths are injected at spawn, checked lazily), so
+  // no app restart is needed.
+  const provision = async (): Promise<boolean> => {
     setInstalling(true)
     setInstallMsg('Starting…')
     const off = window.subforge.hyperframes.onProvisionProgress((p) => setInstallMsg(p.message))
@@ -75,15 +78,26 @@ export function HyperFramesPanel({
       if (res.ok) {
         setHfReady(true)
         toast('HyperFrames is ready.', 'success')
-      } else {
-        toast(res.error || 'HyperFrames setup failed.', 'error')
+        return true
       }
+      toast(res.error || 'HyperFrames setup failed.', 'error')
+      return false
     } catch {
       toast('HyperFrames setup failed.', 'error')
+      return false
     } finally {
       off()
       setInstalling(false)
     }
+  }
+
+  // Render button: if the engine isn't provisioned yet, run the one-time setup
+  // first, then render. Only auto-provisions when we *know* it's missing
+  // (hfReady === false); if status is unknown we attempt the render and let the
+  // backend report what's missing.
+  const renderWithHyperframes = async () => {
+    if (hfReady === false && !(await provision())) return
+    startRender({}, effectiveOutputDir, 'hyperframes')
   }
 
   return (
@@ -104,7 +118,7 @@ export function HyperFramesPanel({
             variant="primary"
             className="w-full justify-center"
             disabled={installing}
-            onClick={installExtras}
+            onClick={provision}
             title="Download and install the bundled HyperFrames engine. ~150 MB, one time."
           >
             {installing ? 'Installing…' : 'Install HyperFrames extras'}
@@ -132,11 +146,11 @@ export function HyperFramesPanel({
       <Button
         variant="ghost"
         className="w-full justify-center mt-1.5"
-        disabled={busy}
-        onClick={() => startRender({}, effectiveOutputDir, 'hyperframes')}
-        title="Render captions + effects with the HyperFrames engine (GSAP animation). Requires Node.js 22+."
+        disabled={busy || installing}
+        onClick={renderWithHyperframes}
+        title="Render captions + effects with the HyperFrames engine (GSAP animation). First use downloads the bundled engine (~150 MB)."
       >
-        Render with HyperFrames ✦
+        {installing ? 'Setting up…' : 'Render with HyperFrames ✦'}
       </Button>
 
       <div className="divider" />
