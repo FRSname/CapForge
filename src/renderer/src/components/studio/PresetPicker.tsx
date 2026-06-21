@@ -15,6 +15,7 @@ import {
   type BuiltinPreset,
   type VanillaPreset,
 } from '../../lib/presets'
+import { useToast } from '../../hooks/useToast'
 
 interface PresetPickerProps {
   settings: StudioSettings
@@ -34,6 +35,7 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
   const [saveName, setSaveName] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const saveInputRef = useRef<HTMLInputElement>(null)
+  const { toast } = useToast()
 
   // ── Load user presets once on mount (and after save/delete) ─────
   const refresh = useCallback(async () => {
@@ -128,6 +130,58 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
     }
   }
 
+  const handleImport = async () => {
+    if (!window.subforge?.importPreset) {
+      toast('Import unavailable — please restart CapForge', 'error')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await window.subforge.importPreset()
+      if (!res) return // cancelled
+      if ('error' in res) {
+        toast(res.error, 'error')
+        return
+      }
+      await refresh()
+      const msg =
+        res.fontStatus === 'missing'
+          ? `Imported "${res.name}" — its font was missing, using default`
+          : `Imported "${res.name}"`
+      toast(msg, res.fontStatus === 'missing' ? 'info' : 'success')
+    } catch {
+      toast('Could not import preset — the file may be malformed.', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const handleExport = async (p: UserPreset, e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!window.subforge?.exportPreset) {
+      toast('Export unavailable — please restart CapForge', 'error')
+      return
+    }
+    try {
+      const res = await window.subforge.exportPreset(p.name)
+      if (!res) {
+        toast('Export cancelled', 'info')
+        return
+      }
+      if ('error' in res) {
+        toast(res.error, 'error')
+        return
+      }
+      const msg =
+        res.fontStatus === 'missing'
+          ? `Exported "${p.name}" — its custom font wasn't included (missing or too large)`
+          : `Exported to ${res.filePath}`
+      toast(msg, res.fontStatus === 'missing' ? 'info' : 'success')
+    } catch {
+      toast('Export failed', 'error')
+    }
+  }
+
   return (
     <div className="relative" ref={rootRef}>
       <button
@@ -176,14 +230,26 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
                 </button>
               </div>
             ) : (
-              <button
-                className="btn-ghost text-2xs py-0.5 px-1.5"
-                onClick={handleSaveClick}
-                disabled={busy}
-                title="Save current settings as a new preset"
-              >
-                + Save current
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  className="btn-ghost text-2xs py-0.5 px-1.5"
+                  onClick={handleImport}
+                  disabled={busy}
+                  title="Import preset from a .cfpreset file"
+                  aria-label="Import preset"
+                >
+                  ↓ Import
+                </button>
+                <button
+                  className="btn-ghost text-2xs py-0.5 px-1.5"
+                  onClick={handleSaveClick}
+                  disabled={busy}
+                  title="Save current settings as a new preset"
+                  aria-label="Save preset"
+                >
+                  + Save current
+                </button>
+              </div>
             )}
           </div>
 
@@ -213,6 +279,7 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
                     name={p.name}
                     colors={extractColors(p.settings)}
                     onClick={() => applyUser(p)}
+                    onExport={(e) => handleExport(p, e)}
                     onDelete={(e) => handleDelete(p, e)}
                   />
                 ))}
@@ -231,14 +298,23 @@ interface PresetRowProps {
   name: string
   colors: { text: string; active: string; bg: string }
   onClick: () => void
+  onExport?: (e: React.MouseEvent) => void
   onDelete?: (e: React.MouseEvent) => void
 }
 
-function PresetRow({ name, colors, onClick, onDelete }: PresetRowProps) {
+function PresetRow({ name, colors, onClick, onExport, onDelete }: PresetRowProps) {
   return (
-    <button
+    <div
       className="group flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-[var(--color-surface-3)] transition-colors"
+      role="option"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
     >
       {/* Mini text preview — preset's bg/text/active colors rendering "Abc" */}
       <span
@@ -250,17 +326,35 @@ function PresetRow({ name, colors, onClick, onDelete }: PresetRowProps) {
         <span style={{ color: colors.active }}>c</span>
       </span>
       <span className="flex-1 min-w-0 truncate text-xs text-[var(--color-text)]">{name}</span>
-      {onDelete && (
-        <span
-          role="button"
+      {onExport && (
+        <button
+          type="button"
           className="opacity-0 group-hover:opacity-70 hover:!opacity-100 shrink-0 text-[var(--color-text-3)] text-xs px-1"
-          onClick={onDelete}
+          onClick={(e) => {
+            e.stopPropagation()
+            onExport(e)
+          }}
+          title="Export preset"
+          aria-label={`Export preset ${name}`}
+        >
+          ↑
+        </button>
+      )}
+      {onDelete && (
+        <button
+          type="button"
+          className="opacity-0 group-hover:opacity-70 hover:!opacity-100 shrink-0 text-[var(--color-text-3)] text-xs px-1"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete(e)
+          }}
           title="Delete preset"
+          aria-label={`Delete preset ${name}`}
         >
           ✕
-        </span>
+        </button>
       )}
-    </button>
+    </div>
   )
 }
 

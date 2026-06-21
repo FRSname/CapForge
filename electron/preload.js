@@ -51,6 +51,12 @@ contextBridge.exposeInMainWorld('subforge', {
   /** Delete a preset by name. */
   deletePreset: (name) => ipcRenderer.invoke('presets:delete', name),
 
+  /** Export a preset to a .cfpreset file. Returns {filePath, fontStatus} | {error} | null. */
+  exportPreset: (name) => ipcRenderer.invoke('presets:export', name),
+
+  /** Import a preset from a .cfpreset file. Returns {name, fontStatus} | {error} | null. */
+  importPreset: () => ipcRenderer.invoke('presets:import'),
+
   /** Save a project file. Returns saved path or null. */
   saveProject: (projectData) => ipcRenderer.invoke('project:save', projectData),
 

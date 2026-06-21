@@ -14,6 +14,14 @@ export interface PresetSettings {
   [key: string]: unknown
 }
 
+export type ExportPresetResult =
+  | { filePath: string; fontStatus: 'embedded' | 'bundled' | 'missing' | 'none' }
+  | { error: string }
+
+export type ImportPresetResult =
+  | { name: string; fontStatus: 'embedded' | 'bundled' | 'missing' | 'none' }
+  | { error: string }
+
 export interface SubforgeApi {
   /** Electron 32+ replacement for File.path (sync). */
   getPathForFile: (file: File) => string
@@ -30,6 +38,8 @@ export interface SubforgeApi {
   loadPreset: (name: string) => Promise<PresetSettings | null>
   savePreset: (name: string, settings: PresetSettings) => Promise<void>
   deletePreset: (name: string) => Promise<void>
+  exportPreset: (name: string) => Promise<ExportPresetResult | null>
+  importPreset: () => Promise<ImportPresetResult | null>
   saveProject: (projectData: unknown) => Promise<string | null>
   openProject: () => Promise<unknown | null>
   getState: <T>(key: string, fallback: T) => Promise<T>
@@ -119,6 +129,8 @@ contextBridge.exposeInMainWorld('subforge', {
   savePreset: (name: string, settings: PresetSettings) =>
     ipcRenderer.invoke('presets:save', name, settings),
   deletePreset: (name: string) => ipcRenderer.invoke('presets:delete', name),
+  exportPreset: (name: string) => ipcRenderer.invoke('presets:export', name),
+  importPreset: () => ipcRenderer.invoke('presets:import'),
   saveProject: (projectData: unknown) => ipcRenderer.invoke('project:save', projectData),
   openProject: () => ipcRenderer.invoke('project:open'),
   getState: <T>(key: string, fallback: T) => ipcRenderer.invoke('state:get', key, fallback),

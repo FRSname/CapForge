@@ -14,6 +14,7 @@ const { isNodeRuntimeReady } = require('./node-runtime')
 const appState = require('./app-state')
 const autosave = require('./autosave')
 const { checkForUpdates } = require('./update-check')
+const presetIO = require('./preset-io')
 
 let mainWindow = null
 let setupWindow = null
@@ -619,6 +620,167 @@ app.whenReady().then(async () => {
     delete data[name]
     writePresets(data)
     return true
+  })
+
+  // IPC: Export a saved preset to a portable .cfpreset file
+  ipcMain.handle('presets:export', async (_event, name) => {
+    const data = readPresets()
+    const preset = data[name]
+    if (!preset) return { error: 'That preset could not be found.' }
+
+    // Classify the preset's custom font and build the embedded `font` block.
+    const kind = presetIO.classifyFont({
+      customFontPath: preset.customFontPath,
+      bundledFontsDir,
+      fs,
+      path,
+    })
+    let font = null
+    let fontStatus = 'none'
+    if (kind === 'bundled') {
+      font = {
+        family: preset.font,
+        fileName: path.basename(preset.customFontPath),
+        bundled: true,
+      }
+      fontStatus = 'bundled'
+    } else if (kind === 'custom') {
+      try {
+        const stat = fs.statSync(preset.customFontPath)
+        if (stat.size > presetIO.MAX_FONT_BYTES) {
+          // Size-gate before reading — never load an over-cap font into memory.
+          font = {
+            family: preset.font,
+            fileName: path.basename(preset.customFontPath),
+            bundled: false,
+            missing: true,
+          }
+          fontStatus = 'missing'
+        } else {
+          const buf = fs.readFileSync(preset.customFontPath)
+          // Belt-and-suspenders: re-check the actual byte length post-read.
+          if (buf.length > presetIO.MAX_FONT_BYTES) {
+            font = {
+              family: preset.font,
+              fileName: path.basename(preset.customFontPath),
+              bundled: false,
+              missing: true,
+            }
+            fontStatus = 'missing'
+          } else {
+            font = {
+              family: preset.font,
+              fileName: path.basename(preset.customFontPath),
+              bundled: false,
+              dataB64: buf.toString('base64'),
+            }
+            fontStatus = 'embedded'
+          }
+        }
+      } catch {
+        return {
+          error: 'Could not read the preset’s font file. It may have been moved or deleted.',
+        }
+      }
+    } else if (kind === 'missing') {
+      font = {
+        family: preset.font,
+        fileName: path.basename(preset.customFontPath),
+        bundled: false,
+        missing: true,
+      }
+      fontStatus = 'missing'
+    }
+
+    const out = presetIO.buildPresetExport({ name, settings: preset, font })
+
+    // Suggest a safe filename; remember the last export directory.
+    const lastExport = appState.get('lastPresetExportPath')
+    const safeName = String(name).replace(/[/\\:*?"<>|]/g, '_')
+    const defaultPath = lastExport
+      ? path.join(path.dirname(lastExport), `${safeName}.${presetIO.PRESET_FILE_EXT}`)
+      : `${safeName}.${presetIO.PRESET_FILE_EXT}`
+    const result = await dialog.showSaveDialog(mainWindow, {
+      title: 'Export Preset',
+      defaultPath,
+      filters: [
+        { name: 'CapForge Preset', extensions: [presetIO.PRESET_FILE_EXT] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+    })
+    if (result.canceled || !result.filePath) return null
+    try {
+      fs.writeFileSync(result.filePath, JSON.stringify(out, null, 2), 'utf-8')
+    } catch {
+      return { error: 'Could not write the preset file.' }
+    }
+    appState.set('lastPresetExportPath', result.filePath)
+    return { filePath: result.filePath, fontStatus }
+  })
+
+  // IPC: Import a .cfpreset file into the local preset library
+  ipcMain.handle('presets:import', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import Preset',
+      defaultPath: appState.get('lastPresetImportPath') || undefined,
+      filters: [
+        { name: 'CapForge Preset', extensions: [presetIO.PRESET_FILE_EXT] },
+        { name: 'All Files', extensions: ['*'] },
+      ],
+      properties: ['openFile'],
+    })
+    if (result.canceled || !result.filePaths[0]) return null
+    const filePath = result.filePaths[0]
+
+    let parsed
+    try {
+      parsed = presetIO.parsePresetImport(JSON.parse(fs.readFileSync(filePath, 'utf-8')))
+    } catch (err) {
+      return { error: err && err.message ? err.message : 'Could not read this preset file.' }
+    }
+
+    // Resolve the embedded/referenced font to a LOCAL path.
+    const font = parsed.font
+    let localFontPath = ''
+    let fontStatus = 'none'
+    if (!font) {
+      localFontPath = ''
+      fontStatus = 'none'
+    } else if (font.bundled) {
+      const p = path.join(bundledFontsDir, path.basename(font.fileName || 'imported-font'))
+      if (fs.existsSync(p)) {
+        localFontPath = p
+        fontStatus = 'bundled'
+      } else {
+        localFontPath = ''
+        fontStatus = 'missing'
+      }
+    } else if (typeof font.dataB64 === 'string' && font.dataB64 !== '') {
+      // Re-embed the font bytes — basename-only write (mirrors fonts:save).
+      const safeName = path.basename(font.fileName || 'imported-font')
+      if (!FONT_EXTS.includes(path.extname(safeName).toLowerCase())) {
+        return { error: 'The preset contains an unsupported font file type.' }
+      }
+      if (!fs.existsSync(fontsDir)) fs.mkdirSync(fontsDir, { recursive: true })
+      const dest = path.join(fontsDir, safeName)
+      // Write the buffer parsePresetImport already decoded + size-checked.
+      fs.writeFileSync(dest, font.dataBuffer)
+      localFontPath = dest
+      fontStatus = 'embedded'
+    } else {
+      // font.missing (or any non-portable font block)
+      localFontPath = ''
+      fontStatus = 'missing'
+    }
+
+    parsed.settings.customFontPath = localFontPath
+
+    const data = readPresets()
+    const finalName = presetIO.uniquePresetName(Object.keys(data), parsed.name)
+    data[finalName] = parsed.settings
+    writePresets(data)
+    appState.set('lastPresetImportPath', filePath)
+    return { name: finalName, fontStatus }
   })
 
   // IPC: Save project file (.capforge)

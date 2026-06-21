@@ -1,5 +1,40 @@
 # Changelog
 
+## CapForge v2.0.0 — Enhanced
+
+The Enhanced release turns CapForge from a caption editor into an AI video director: a second GSAP/HTML render engine, an on-screen effects timeline, agent-authored caption looks, and a Claude agent that can place and style all of it in the running app. Everything is additive — the classic renderer and workflow are unchanged.
+
+### New Features
+
+**AI video director (HyperFrames render engine)**
+A second render path now sits alongside the classic Pillow renderer, rendering captions and on-screen effects through the real HyperFrames engine (GSAP animation, HTML/CSS looks). On this path you can place five kinds of effects on a timeline — an animated **logo**, a **lower-third** name/title bar, a big **kinetic stat** (e.g. "2.4M"), a swept word **highlight**, and timed **b-roll** inserts — composited over the captions and the source video. The classic renderer ignores effects and still needs nothing extra.
+
+**Agent-driven effects & live control**
+A connected Claude agent can find where to place effects — a literal phrase, or semantic moments like spoken numbers (for a kinetic stat), calls to action, or speaker changes (for a lower-third) — and drop them in, with every placement mirrored live into the editor's effects timeline. The agent drives the same app you have open, so its edits, styles, and effects appear in the preview as it works.
+
+**Native & agent-authored caption styles**
+Beyond the default `classic` captions you can choose native HyperFrames caption styles (e.g. a karaoke pill) pulled live from the catalog and fitted to portrait, 4K, or square canvases. An agent can also invent a brand-new caption look from scratch in HTML/CSS/GSAP — validated against a strict contract (transparent overlay, paused timeline, entrance-only, deterministic) and rendered by the genuine engine.
+
+**HyperFrames Studio & reusable effect templates**
+"Open in HyperFrames Studio" launches a live browser preview of the composition for inspection and refinement before you commit to a render. Any effect can be saved as a reusable "look" template and dropped into other projects — for logo and b-roll effects the image is copied into the template store, so the look survives the original project being deleted.
+
+**HyperFrames creative library for the agent**
+The bundled MCP server now serves the genuine HyperFrames creative references — caption craft, motion principles, GSAP timing/easing, typography, palettes, and transitions — to the connected agent on demand, so agent-authored looks draw on real design vocabulary instead of guesswork.
+
+**Works out of the box (bundled Node runtime)**
+The HyperFrames features run on Node.js. CapForge now provisions an app-managed Node 22 runtime plus the HyperFrames CLI and render browser on first run, so render, single-frame preview, native caption styles, and Studio all work without installing anything. Provisioning is opt-in from the UI, resolves the right binaries per platform (including Windows via `node <cli.js>`), and the classic renderer needs none of it.
+
+**Shareable presets**
+A saved style preset can now be exported to a single `.cfpreset` file and imported — including on another machine. Custom (user-uploaded) fonts ride along *inside* the file as embedded data, so a shared preset renders with the right typeface on the recipient's machine; bundled CapForge fonts are referenced by name and re-resolved locally. Export from a preset's row in the **Presets ▾** dropdown (hover to reveal the ↑), and Import from the dropdown header. Imported files are validated as untrusted input (type/version checks, size cap, safe font writes).
+
+### Internal
+
+**Expanded agent toolset over the control bus**
+The MCP control layer introduced in v1.9.0 gains the full effects, caption-style, custom-caption, HyperFrames-render, and creative-library tool families, all driving the running backend over token-guarded `/api/agent/*` endpoints with live `/ws/progress` broadcast. Because delivery rides the bundled server, already-connected users get the new tools with the next app build — no re-connect needed. Preset export/import is handled by a pure, isolated `electron/preset-io.js` format module.
+
+**Tests**
+New backend suites cover HyperFrames project/render/export/caption generation, the effect-template store, and literal + semantic moment detection; the MCP server adds creative-library tests (manifest↔file integrity, path-traversal rejection, no orphan topics); the frontend adds effects-persistence and Claude-connect helper tests.
+
 ## CapForge v1.9.0
 
 ### New Features
