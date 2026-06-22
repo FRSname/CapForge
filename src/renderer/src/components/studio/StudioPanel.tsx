@@ -976,6 +976,7 @@ export function StudioPanel({
               onCaptionStyleChange={(v) => set('captionStyle', v)}
               audioPath={audioPath}
               outputDir={outputDir}
+              onOutputDir={setOutputDir}
               render={render}
             />
           </>

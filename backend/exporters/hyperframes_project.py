@@ -32,6 +32,21 @@ from backend.models.schemas import TranscriptionResult, VideoRenderConfig
 
 GSAP_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
 
+
+def resolve_output_dir(output_dir: Optional[str], source_path: str) -> str:
+    """Return an absolute, user-meaningful output directory for a render.
+
+    The request schemas default ``output_dir`` to the bare string ``"output"``,
+    which resolves against the backend process's CWD (inside the packaged app) —
+    an opaque place the user can't find. So unless the caller supplies an
+    *absolute* path, fall back to the folder that holds the source file, i.e.
+    "next to the original". An empty/relative value is always treated as "use the
+    source's folder" rather than honoured literally.
+    """
+    if output_dir and Path(output_dir).is_absolute():
+        return output_dir
+    return str(Path(source_path).expanduser().resolve().parent)
+
 # Per-group entrance: from-state, duration (s), ease — keyed by config.animation.
 _ENTRANCES = {
     "none": ("{ opacity: 0 }", 0.12, "none"),

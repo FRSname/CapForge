@@ -29,6 +29,7 @@ interface HyperFramesPanelProps {
   onCaptionStyleChange: (style: string) => void
   audioPath: string
   outputDir: string
+  onOutputDir: (dir: string) => void
   render: RenderController
 }
 
@@ -39,10 +40,12 @@ export function HyperFramesPanel({
   onCaptionStyleChange,
   audioPath,
   outputDir,
+  onOutputDir,
   render,
 }: HyperFramesPanelProps) {
-  const { busy, startRender, openStudio } = render
+  const { busy, startRender, openStudio, lastOutputFile } = render
   const { toast } = useToast()
+  // Empty outputDir means "Same as source" — derive the source file's folder.
   const effectiveOutputDir = outputDir || dirname(audioPath)
   const [styles, setStyles] = useState<Array<{ name: string; title: string }>>([])
   // null = status not yet known; we only offer the install once we know it's missing.
@@ -134,6 +137,40 @@ export function HyperFramesPanel({
           )}
         </div>
       )}
+      {/* Output folder — chosen before the render; defaults next to the source. */}
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className="text-2xs text-[var(--color-text-3)] shrink-0">Output:</span>
+        <span
+          className="flex-1 min-w-0 text-[11px] truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
+          style={{ color: 'var(--color-text-2)' }}
+          title={outputDir || `Same as source (${effectiveOutputDir})`}
+        >
+          {outputDir ? outputDir.split(/[\\/]/).pop() || outputDir : 'Same as source'}
+        </span>
+        <Button
+          variant="ghost"
+          className="text-[11px] py-1 px-2 shrink-0"
+          onClick={async () => {
+            const dir = await window.subforge.pickOutputDir()
+            if (dir) onOutputDir(dir)
+          }}
+          disabled={busy}
+        >
+          Browse
+        </Button>
+        {outputDir && (
+          <Button
+            variant="ghost"
+            className="text-[11px] py-1 px-2 shrink-0"
+            onClick={() => onOutputDir('')}
+            disabled={busy}
+            title="Reset to Same as source"
+          >
+            ✕
+          </Button>
+        )}
+      </div>
+
       <Button
         variant="primary"
         className="w-full justify-center"
@@ -152,6 +189,18 @@ export function HyperFramesPanel({
       >
         {installing ? 'Setting up…' : 'Render with HyperFrames ✦'}
       </Button>
+
+      {lastOutputFile && (
+        <button
+          type="button"
+          onClick={() => window.subforge.showInFolder(lastOutputFile)}
+          className="mt-1.5 w-full text-[11px] truncate text-left px-1.5 py-1 rounded hover:bg-[var(--color-surface-2)]"
+          style={{ color: 'var(--color-text-3)' }}
+          title={`Reveal in file browser:\n${lastOutputFile}`}
+        >
+          ✓ Saved to {lastOutputFile.split(/[\\/]/).pop()} — reveal
+        </button>
+      )}
 
       <div className="divider" />
       <div className="flex items-center gap-1.5 min-w-0">

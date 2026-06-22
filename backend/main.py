@@ -6,6 +6,8 @@ import asyncio
 import json
 import logging
 import os
+import shutil
+import tempfile
 from pathlib import Path
 from typing import Optional
 
@@ -28,7 +30,7 @@ from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
 from backend.exporters.hyperframes_export import export_hyperframes
-from backend.exporters.hyperframes_project import export_hyperframes_project
+from backend.exporters.hyperframes_project import export_hyperframes_project, resolve_output_dir
 from backend.exporters.hyperframes_render import (
     HyperframesRenderError,
     render_hyperframes_project,
@@ -618,27 +620,46 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     effects_source = request.effects if request.effects is not None else current_effects
     effects_dicts = [e.model_dump() for e in effects_source] if effects_source else None
 
-    def _work() -> dict:
-        project_dir = export_hyperframes_project(
+    # Resolve where the user actually wants the output: an absolute dir they
+    # chose, or — for an empty/relative value like the schema default "output" —
+    # the folder next to the source file. Never the opaque backend CWD.
+    out_dir = resolve_output_dir(request.output_dir, current_result.audio_path)
+    stem = Path(current_result.audio_path).stem or "capforge"
+    ext = ".webm" if request.video_format == "webm" else ".mp4"
+
+    def _scaffold(into: str) -> str:
+        return export_hyperframes_project(
             current_result,
             config,
-            request.output_dir,
+            into,
             source_video_path=current_result.audio_path,
             custom_groups=custom_groups_dicts,
             effects=effects_dicts,
             caption_html=current_custom_caption_html,
         )
+
+    def _work() -> dict:
         if not request.render:
+            # Open-in-Studio: the project must persist and be openable, so write
+            # it beside the source (in the resolved output dir) as before.
+            project_dir = _scaffold(out_dir)
             return {"project": project_dir, "file": None}
-        stem = Path(current_result.audio_path).stem or "capforge"
-        ext = ".webm" if request.video_format == "webm" else ".mp4"
-        out_path = str(Path(request.output_dir) / f"{stem}_hyperframes{ext}")
-        file = render_hyperframes_project(
-            project_dir, out_path,
-            quality=request.quality, video_format=request.video_format,
-            on_progress=on_progress,
-        )
-        return {"project": project_dir, "file": file}
+
+        # Render-to-file: scaffold into a throwaway temp dir so the user's folder
+        # isn't littered with the intermediate composition — only the finished
+        # video lands in out_dir. The temp dir is removed once rendering is done.
+        scratch = tempfile.mkdtemp(prefix="capforge-hf-")
+        try:
+            project_dir = _scaffold(scratch)
+            out_path = str(Path(out_dir) / f"{stem}_hyperframes{ext}")
+            file = render_hyperframes_project(
+                project_dir, out_path,
+                quality=request.quality, video_format=request.video_format,
+                on_progress=on_progress,
+            )
+            return {"project": None, "file": file}
+        finally:
+            shutil.rmtree(scratch, ignore_errors=True)
 
     try:
         result = await loop.run_in_executor(None, _work)

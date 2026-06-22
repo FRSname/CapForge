@@ -74,7 +74,19 @@ export function ExportFooter({ audioPath, sourceVideoInfo, render, outputDir }: 
       </div>
 
       {render.status === 'done' && (
-        <p className="text-xs text-[var(--color-success)]">✓ Render complete</p>
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="text-xs text-[var(--color-success)] shrink-0">✓ Render complete</span>
+          {render.lastOutputFile && (
+            <button
+              type="button"
+              onClick={() => window.subforge.showInFolder(render.lastOutputFile!)}
+              className="text-xs underline truncate text-left min-w-0 text-[var(--color-text-3)] hover:text-[var(--color-text-2)]"
+              title={`Reveal in file browser:\n${render.lastOutputFile}`}
+            >
+              Reveal {render.lastOutputFile.split(/[\\/]/).pop()}
+            </button>
+          )}
+        </div>
       )}
       {render.status === 'error' && (
         <p className="text-xs text-[var(--color-danger)]">

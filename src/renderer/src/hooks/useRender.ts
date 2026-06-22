@@ -27,6 +27,8 @@ export interface RenderController {
   message: string
   elapsed: string
   busy: boolean
+  /** Absolute path of the most recent successful render, for "Reveal in Finder". */
+  lastOutputFile: string | null
   startRender: (
     overrides?: RenderOverrides,
     outputDir?: string,
@@ -55,6 +57,7 @@ export function useRender({
   const [progress, setProgress] = useState(0)
   const [elapsed, setElapsed] = useState('')
   const [message, setMessage] = useState<string>('')
+  const [lastOutputFile, setLastOutputFile] = useState<string | null>(null)
   const timerRef = useRef<number | null>(null)
   const { toast } = useToast()
 
@@ -72,6 +75,7 @@ export function useRender({
     setProgress(0)
     setMessage('')
     setElapsed('')
+    setLastOutputFile(null)
   }, [stopTimer])
 
   const startRender = useCallback(
@@ -84,6 +88,7 @@ export function useRender({
       setProgress(0)
       setElapsed('00:00')
       setMessage('Starting…')
+      setLastOutputFile(null)
 
       const t0 = Date.now()
       stopTimer()
@@ -114,14 +119,13 @@ export function useRender({
 
       try {
         const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir, effects)
-        if (engine === 'hyperframes') {
-          await api.exportHyperframes(body)
-        } else {
-          await api.renderVideo(body)
-        }
+        const res = (await (engine === 'hyperframes'
+          ? api.exportHyperframes(body)
+          : api.renderVideo(body))) as { file?: string | null }
         // HTTP response only resolves once the render actually finishes.
         stopTimer()
         setProgress(100)
+        setLastOutputFile(res?.file ?? null)
         setStatus('done')
         api.disconnectProgress()
         toast(
@@ -180,6 +184,7 @@ export function useRender({
     message,
     elapsed,
     busy: status === 'rendering',
+    lastOutputFile,
     startRender,
     openStudio,
     cancelRender,
