@@ -30,7 +30,11 @@ from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
 from backend.exporters.hyperframes_export import export_hyperframes
-from backend.exporters.hyperframes_project import export_hyperframes_project, resolve_output_dir
+from backend.exporters.hyperframes_project import (
+    export_hyperframes_project,
+    hyperframes_workspace,
+    resolve_output_dir,
+)
 from backend.exporters.hyperframes_render import (
     HyperframesRenderError,
     render_hyperframes_project,
@@ -640,9 +644,11 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
 
     def _work() -> dict:
         if not request.render:
-            # Open-in-Studio: the project must persist and be openable, so write
-            # it beside the source (in the resolved output dir) as before.
-            project_dir = _scaffold(out_dir)
+            # Open-in-Studio: scaffold into the canonical per-source workspace so
+            # the Studio and the MCP agent's frame preview share ONE project
+            # folder. The Studio serves this dir; the agent re-scaffolds the same
+            # dir, so its edits surface on a Studio refresh instead of diverging.
+            project_dir = _scaffold(hyperframes_workspace(current_result.audio_path))
             return {"project": project_dir, "file": None}
 
         # Render-to-file: scaffold into a throwaway temp dir so the user's folder
@@ -866,10 +872,12 @@ async def preview_hyperframes_frame(req: dict):
     loop = asyncio.get_running_loop()
 
     def _work() -> bytes:
+        # Scaffold into the SAME canonical workspace the Studio serves, so a
+        # preview re-generates the open Studio's project (not a separate copy).
         project_dir = export_hyperframes_project(
             current_result,
             config,
-            "output",
+            hyperframes_workspace(current_result.audio_path),
             source_video_path=current_result.audio_path,
             custom_groups=ui_groups,
             effects=effects_dicts,

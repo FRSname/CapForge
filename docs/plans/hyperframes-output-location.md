@@ -167,3 +167,19 @@ The final video path is `Path(request.output_dir) / "{stem}_hyperframes.{ext}"` 
 - Pillow ↔ Canvas render parity formulas.
 - Adding a file-save (filename) dialog.
 - Changing the `/api/export-hyperframes` response shape.
+
+---
+
+## Follow-up (implemented) — unify the Studio + MCP-agent project folder
+
+**Problem found in use (Windows):** user transcribes → *Open in HyperFrames Studio* → asks the MCP agent to make changes → changes don't appear in the open Studio. Root cause: the Studio is a **static** dev-server over a scaffolded folder, and the two scaffold paths diverged —
+- *Open in Studio* (`render:false`) scaffolded to `dirname(audioPath)/{stem}-hyperframes`.
+- The agent's `preview_hyperframes_frame` (`main.py:869`) scaffolded to the relative `"output"`.
+
+The agent's MCP edits (`set_style`/`emphasize`/`add_effect`/custom-caption) only mutate in-memory state; nothing rewrites the folder the Studio serves, and there is **no MCP tool to refresh/open the Studio**.
+
+**Fix (option #1 — unify the folder):** new `hyperframes_workspace(source_path)` in `hyperframes_project.py` returns a canonical parent dir under the CapForge data home (`$CAPFORGE_HOME` or `~/.capforge`) → `…/studio/<sha1(abs source)[:8]>`, so `export_hyperframes_project` creates one shared `<stem>-hyperframes` for both paths. Wired in `main.py`: the `render:false` scaffold and `preview_hyperframes_frame` both pass `hyperframes_workspace(current_result.audio_path)`. Render-to-file still uses a temp scaffold; the final video still lands next to source / chosen folder. Now the agent's frame preview re-scaffolds the exact folder the Studio serves, so edits surface on a Studio refresh.
+
+Tests: `backend/tests/test_output_location.py` (`hyperframes_workspace` deterministic, under home, collision-free for same stem). Full backend suite 150 green.
+
+**Not done (option #2):** auto-refresh — pushing the agent's edits into the open Studio without a manual browser refresh (would need the preview server to watch files + the agent to re-scaffold after each edit, or an Electron "reload Studio" signal).

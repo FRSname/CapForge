@@ -20,8 +20,10 @@ Invoking `npx hyperframes render` on the folder is a separate concern.
 
 from __future__ import annotations
 
+import hashlib
 import html
 import json
+import os
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -46,6 +48,29 @@ def resolve_output_dir(output_dir: Optional[str], source_path: str) -> str:
     if output_dir and Path(output_dir).is_absolute():
         return output_dir
     return str(Path(source_path).expanduser().resolve().parent)
+
+
+def hyperframes_workspace(source_path: str) -> str:
+    """Canonical *parent* dir for a source file's HyperFrames project scaffold.
+
+    ``export_hyperframes_project`` creates ``<stem>-hyperframes`` inside the dir
+    it's given. Passing this same workspace from BOTH the "Open in Studio" path
+    and the agent's frame-preview path makes them scaffold into one shared
+    project folder, instead of diverging (the Studio served one copy while the
+    MCP agent edited/previewed another under a relative ``output/``). The Studio
+    serves this folder; when the agent re-scaffolds it the changes show up on a
+    Studio refresh.
+
+    Lives under the CapForge data home (honouring ``CAPFORGE_HOME`` for test
+    isolation), NOT next to the source: the scaffold is intermediate working
+    state, while the rendered video still lands next to the source / chosen
+    folder. Keyed by a hash of the absolute source path so same-named files in
+    different folders don't collide onto one workspace.
+    """
+    home = Path(os.environ.get("CAPFORGE_HOME") or Path.home() / ".capforge")
+    src = Path(source_path).expanduser().resolve()
+    tag = hashlib.sha1(str(src).encode("utf-8")).hexdigest()[:8]
+    return str(home / "studio" / tag)
 
 # Per-group entrance: from-state, duration (s), ease — keyed by config.animation.
 _ENTRANCES = {
