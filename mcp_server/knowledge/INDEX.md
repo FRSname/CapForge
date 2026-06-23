@@ -12,6 +12,29 @@ CapForge owns the transcript, the timing, and the render — you operate the
 `auth`, and never scaffold a project in some other folder** — CapForge already owns
 one. There are **two modes**; pick by the task.
 
+### Golden rule — preview first, render only on approval
+
+`render_hyperframes` produces the **final deliverable**; it is slow and it is what
+the user walks away with. It is **not** a way to "check" your work. Never render to
+see how something looks. Instead:
+
+- **Iterate on single frames.** `preview_hyperframes_frame(t)` is cheap — use it at a
+  few representative timestamps (find them with `find_moments` /
+  `find_semantic_moments`) to dial in the effect/animation.
+- **Confirm with the user.** Show them the previews and make sure the look is what
+  they want before you commit.
+- **Render only after explicit approval.** Wait until the user clearly says to render
+  the final video. CapForge also shows the user an Approve/Cancel prompt when you
+  call `render_hyperframes`; a Cancel means "keep iterating", not an error.
+
+### Caption style — match CapForge by default
+
+Whatever caption style/preset the user set in CapForge's panel is the **default**,
+and CapForge's seed already reproduces it faithfully. Keep captions looking exactly
+like the panel **unless the user explicitly asks for a different caption look**.
+Restyling or re-animating captions in HyperFrames is an *opt-in divergence the user
+requests* — not your opening move.
+
 ### Default mode — CapForge composes
 
 For caption styling and the parametric effects, CapForge generates the
@@ -27,8 +50,9 @@ composition and you steer it. Loop:
      HTML/CSS/GSAP that renders through the genuine HyperFrames engine.
 3. **Effects** — `find_moments` / `find_semantic_moments` to locate a spoken beat,
    then `add_effect` (logo, lower_third, kinetic_stat, highlight, b_roll).
-4. **See it** — `preview_hyperframes_frame(t)`; `check_layout(t, platform)`.
-5. **Render** — `render_hyperframes(quality)`.
+4. **See it** — `preview_hyperframes_frame(t)`; `check_layout(t, platform)`. Iterate
+   here with the user until they're happy (see the Golden rule above).
+5. **Render** — only after the user approves: `render_hyperframes(quality)`.
 
 ### Co-author mode — you compose
 
@@ -50,9 +74,11 @@ directly, the way a standalone author would, **but inside CapForge's project**
    then wire it into `index.html` via `data-composition-src`. Each composition
    follows the contract below. Pull `hyperframes_guide` topics for the vocabulary.
 4. **Dev loop** — `run_hyperframes_cli(["lint"])` / `["inspect"]` to validate,
-   `preview_hyperframes_frame(t)` to SEE it. Iterate.
-5. **Render** — `render_hyperframes(quality)` renders YOUR `index.html`.
-   `exit_coauthor_mode` hands control back to CapForge's generated composition.
+   `preview_hyperframes_frame(t)` to SEE it. Iterate with the user until they're
+   happy (see the Golden rule above).
+5. **Render** — only after the user approves: `render_hyperframes(quality)` renders
+   YOUR `index.html`. `exit_coauthor_mode` hands control back to CapForge's generated
+   composition.
 
 ## The caption contract (non-negotiable for `set_custom_caption_style`)
 

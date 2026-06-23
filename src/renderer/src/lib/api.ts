@@ -152,11 +152,22 @@ export interface AgentCommand {
   payload?: Record<string, unknown>
 }
 
+/** An agent-triggered final render awaiting the user's approval. */
+export interface RenderApprovalRequest {
+  id: string
+  quality?: string
+  video_format?: string
+}
+
 /** Handlers for agent-driven control-channel events. */
 export interface ControlHandlers {
   onResultUpdated?: () => void
   onCommand?: (cmd: AgentCommand) => void
   onEffectsUpdated?: () => void
+  /** Agent asked to render the final video — prompt the user to approve/cancel. */
+  onRenderApprovalRequest?: (req: RenderApprovalRequest) => void
+  /** A pending request was resolved elsewhere (timeout/another window) — dismiss. */
+  onRenderApprovalResolved?: (id: string) => void
 }
 
 class CapForgeAPI {
@@ -284,6 +295,11 @@ class CapForgeAPI {
   /** Generate (and optionally render) a HyperFrames composition from the current result. */
   exportHyperframes(params: unknown) {
     return this.post('/api/export-hyperframes', params)
+  }
+
+  /** Approve or cancel an agent-triggered final render (the human-in-the-loop gate). */
+  approveRender(id: string, approved: boolean) {
+    return this.post('/api/render-approval', { id, approved })
   }
 
   /** Read the current effects timeline (agent + user placed), mapped to EffectClip. */
@@ -449,6 +465,14 @@ class CapForgeAPI {
         else if (raw.type === 'effects_updated') this._controlHandlers?.onEffectsUpdated?.()
         else if (raw.type === 'agent_command') {
           this._controlHandlers?.onCommand?.({ op: raw.op, payload: raw.payload })
+        } else if (raw.type === 'render_approval_request') {
+          this._controlHandlers?.onRenderApprovalRequest?.({
+            id: raw.id,
+            quality: raw.quality,
+            video_format: raw.video_format,
+          })
+        } else if (raw.type === 'render_approval_resolved') {
+          this._controlHandlers?.onRenderApprovalResolved?.(raw.id)
         }
       } catch {
         /* ignore malformed */

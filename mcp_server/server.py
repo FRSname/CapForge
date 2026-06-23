@@ -391,7 +391,22 @@ def remove_effect(effect_id: str) -> dict:
 
 @mcp.tool()
 def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dict:
-    """Render the video (captions + placed effects) with the HyperFrames engine.
+    """Render the FINAL full-length video (captions + placed effects) with the
+    HyperFrames engine. This is slow and produces the deliverable — it is NOT a
+    preview. Do NOT call it to "check" how something looks.
+
+    Required workflow before calling this — never skip it:
+      1. Iterate on the look with SINGLE-FRAME previews: `preview_hyperframes_frame`
+         at a few representative timestamps (use find_moments / find_semantic_moments
+         to pick them). Adjust effects / caption style, re-preview, repeat.
+      2. Show the user those previews and confirm the effect/animation is what they
+         want.
+      3. Get the user's EXPLICIT approval to render the final video. If they have
+         not clearly said "render it" (or equivalent), stop and ask — do not render.
+
+    CapForge enforces this too: this call pauses until the user approves the render
+    in the app (an Approve/Cancel prompt). If the user cancels, it returns a
+    cancellation instead of a file — treat that as "keep iterating", not an error.
 
     Uses the effects currently on the timeline (see list_effects/add_effect) and
     returns the output file path. quality: draft|standard|high. May take a while.
@@ -548,8 +563,10 @@ def enter_coauthor_mode() -> dict:
     persist. Workflow: `get_workspace` to see the project → `write_workspace_file`
     / `import_into_workspace` to author compositions under `compositions/` and wire
     them into `index.html` via `data-composition-src` → `run_hyperframes_cli`
-    (lint/inspect) → `preview_hyperframes_frame` → `render_hyperframes`. Call
-    `hyperframes_guide` for the creative vocabulary. Returns `{ coauthor, path }`.
+    (lint/inspect) → iterate with `preview_hyperframes_frame` until the user is
+    happy → get the user's explicit approval → `render_hyperframes`. Always preview
+    and confirm before rendering; the final render is the last step, not a preview.
+    Call `hyperframes_guide` for the creative vocabulary. Returns `{ coauthor, path }`.
     """
     return _client.set_coauthor(True)
 

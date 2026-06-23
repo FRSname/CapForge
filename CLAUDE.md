@@ -59,13 +59,18 @@ No test suite exists yet. The project has no linter or formatter configured.
 
 ### Preview ↔ Render Parity
 
-The Canvas preview (`useSubtitleOverlay.ts`) and the Python renderer (`video_render.py`) must produce visually identical output. Key equivalences:
-- Canvas `measureText().width` ↔ PIL `font.getlength()` (NOT `textbbox` — that strips side bearings)
-- **No bold synthesis**: Pillow cannot fake-bold a regular TTF. The Bold toggle was removed — users pick a font variant directly (e.g. `Inter-Bold.ttf`). Both Canvas and backend always render with `font-weight: normal` / the font file as-is.
-- Both use the same formulas for row gap, background box sizing, word positioning, and animation curves
-- Shared magic numbers live in `lib/renderConstants.ts` — the backend receives them via the render config, so they stay synced automatically
-- When changing any rendering formula (word positioning, background box sizing, animation curves, word-wrap), both renderers must be updated in lockstep
+There are **three** caption renderers that must produce visually identical output, and changing any rendering formula means updating **all three in lockstep**:
+1. Canvas preview — `src/renderer/src/hooks/useSubtitleOverlay.ts` (what the user sees in-app)
+2. Pillow render — `backend/exporters/video_render.py` `_render_frame()` (the classic exported video; the source of truth)
+3. HTML/CSS/GSAP caption layer — `backend/exporters/hyperframes_caption_html.py` (what the HyperFrames engine renders for co-author mode + native captions). It ports the Canvas geometry/animation into a config-driven JS runtime so HyperFrames captions match the panel exactly.
+
+Key equivalences:
+- Canvas `measureText().width` ↔ PIL `font.getlength()` (NOT `textbbox` — that strips side bearings). The HTML runtime measures with the same canvas `measureText('Ayg')` approach.
+- **No bold synthesis**: Pillow cannot fake-bold a regular TTF. The Bold toggle was removed — users pick a font variant directly (e.g. `Inter-Bold.ttf`). All three renderers use `font-weight: normal` / the font file as-is (the HTML layer embeds it via `@font-face`).
+- All three use the same formulas for row gap, background box sizing, word positioning, animation curves, and every `word_transition` mode (highlight/instant/crossfade/karaoke/underline/bounce/scale/reveal).
+- Shared magic numbers live in `lib/renderConstants.ts` — the backend receives them via the render config (e.g. `crossfade_duration`), so they stay synced automatically.
 - **Golden-frame tests**: `backend/tests/test_render_golden.py` pins `_render_frame()` pixel output against PNGs in `backend/tests/golden/` (tolerance-based diff). Regenerate after an intentional formula change with `.venv-dev/bin/python -m backend.tests.gen_golden`, then review the PNGs visually before committing — they define what "correct" looks like.
+- **Caption parity tests**: `backend/tests/test_caption_parity.py` diffs the Pillow render against the live HyperFrames snapshot for every word mode + stroke/shadow/multi-line. Opt-in (needs Node 22 + ffmpeg): `CAPFORGE_PARITY=1 .venv-dev/bin/python -m pytest backend/tests/test_caption_parity.py`.
 
 ### TypeScript Config
 

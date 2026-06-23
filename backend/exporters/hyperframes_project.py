@@ -28,6 +28,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
+from backend.exporters.hyperframes_caption_html import caption_block
 from backend.exporters.hyperframes_export import export_hyperframes
 from backend.exporters.video_render import _build_groups
 from backend.models.schemas import TranscriptionResult, VideoRenderConfig
@@ -71,16 +72,6 @@ def hyperframes_workspace(source_path: str) -> str:
     src = Path(source_path).expanduser().resolve()
     tag = hashlib.sha1(str(src).encode("utf-8")).hexdigest()[:8]
     return str(home / "studio" / tag)
-
-# Per-group entrance: from-state, duration (s), ease — keyed by config.animation.
-_ENTRANCES = {
-    "none": ("{ opacity: 0 }", 0.12, "none"),
-    "fade": ("{ opacity: 0 }", 0.3, "power2.out"),
-    "slide": ("{ opacity: 0, y: 36 }", 0.3, "power3.out"),
-    "pop": ("{ opacity: 0, scale: 0.8 }", 0.35, "back.out(1.7)"),
-}
-
-_EXIT_DUR = 0.12  # caption exit fade (captions.md Caption Exit Guarantee)
 
 _DEFAULT_LOGO_WIDTH_FRAC = 0.18  # logo width as a fraction of canvas width when unset
 _ACCENT = "#D4952A"  # CapForge brand orange — default accent for text effects
@@ -156,35 +147,6 @@ def _resolve_duration(
         if probed and probed > 0:
             return float(probed)
     return (groups[-1]["end"] + 1.0) if groups else 1.0
-
-
-def _groups_html(groups: list[dict]) -> str:
-    """Pre-rendered caption group elements (hidden via CSS; revealed by the timeline)."""
-    blocks: list[str] = []
-    for gi, group in enumerate(groups):
-        spans = [
-            f'<span id="cg-{gi}-w{wj}" class="cw">{html.escape(w["word"].strip())}</span>'
-            for wj, w in enumerate(group["words"])
-        ]
-        blocks.append(
-            f'<div id="cg-{gi}" class="cgroup">'
-            f'<span id="cb-{gi}" class="cbubble">{" ".join(spans)}</span>'
-            f"</div>"
-        )
-    return "\n      ".join(blocks)
-
-
-def _groups_timing_json(groups: list[dict]) -> str:
-    """Compact timing payload the timeline script reads (text already in the DOM)."""
-    payload = [
-        {
-            "s": g["start"],
-            "e": g["end"],
-            "w": [{"s": w["start"], "e": w["end"]} for w in g["words"]],
-        }
-        for g in groups
-    ]
-    return json.dumps(payload, ensure_ascii=False)
 
 
 def _copy_asset(
@@ -380,12 +342,10 @@ def _build_index_html(
     native_captions = caption_sub_src is not None
     width = config.resolution_w
     height = config.resolution_h
-    enter_from, enter_dur, enter_ease = _ENTRANCES.get(
-        config.animation, _ENTRANCES["fade"]
-    )
-    bg_rgba = _css_rgba(config.bg_color, config.bg_opacity)
-    max_width_px = int(config.max_width * width)
-    pos_top_pct = round(config.position_y * 100, 3)
+    # Classic captions are rendered by the faithful CapForge caption generator
+    # (hyperframes_caption_html) so the HyperFrames output matches the panel.
+    cap = None if native_captions else caption_block(config, groups)
+    captions_css = "" if native_captions else cap["css"]
     effects_html = _effects_html(effects)
     # Text-effect sizing, derived from canvas height for resolution independence.
     lt_title_px = max(20, int(height * 0.045))
@@ -393,28 +353,12 @@ def _build_index_html(
     stat_value_px = max(48, int(height * 0.16))
     stat_label_px = max(16, int(height * 0.038))
 
-    # Caption timeline lives only on the classic path; native styles own theirs.
-    caption_setup = "" if native_captions else (
-        f"  var GROUPS = {_groups_timing_json(groups)};\n"
-        f'  var ACTIVE = "{config.active_word_color}";\n'
-        f'  var BASE = "{config.text_color}";\n'
-    )
-    caption_loop = "" if native_captions else (
-        "  GROUPS.forEach(function(g, gi){\n"
-        '    var sel = "#cb-" + gi;\n'
-        '    tl.set(sel, { visibility: "visible" }, g.s);\n'
-        f"    tl.fromTo(sel, {enter_from}, "
-        f'{{ opacity: 1, y: 0, scale: 1, duration: {enter_dur}, ease: "{enter_ease}", overwrite: "auto" }}, g.s);\n'
-        "    g.w.forEach(function(w, wj){\n"
-        '      var wsel = "#cg-" + gi + "-w" + wj;\n'
-        "      tl.set(wsel, { color: ACTIVE }, w.s);\n"
-        "      tl.set(wsel, { color: BASE }, w.e);\n"
-        "    });\n"
-        f"    var exitAt = Math.max(g.s, g.e - {_EXIT_DUR});\n"
-        f'    tl.to(sel, {{ opacity: 0, duration: {_EXIT_DUR}, ease: "power2.in", overwrite: "auto" }}, exitAt);\n'
-        '    tl.set(sel, { opacity: 0, visibility: "hidden" }, g.e);\n'
-        "  });\n"
-    )
+    # Caption layer lives only on the classic path; native styles own theirs. The
+    # faithful CapForge caption renderer (matching the panel) is emitted by
+    # hyperframes_caption_html: a static runtime + a per-render CFG/GROUPS payload.
+    caption_runtime = "" if native_captions else cap["runtime_js"]
+    caption_payload = "" if native_captions else cap["payload_js"]
+    caption_build = "" if native_captions else cap["build_call"]
     effects_and_register = (
         f"  var EFFECTS = {json.dumps([{k: fx[k] for k in ('id', 's', 'e', 'ef', 'et', 'xt', 'ed', 'xd', 'ee')} for fx in effects])};\n"
         "  EFFECTS.forEach(function(fx){\n"
@@ -434,10 +378,11 @@ def _build_index_html(
         "})();"
     )
     timeline_js = (
-        "(function(){\n"
-        + caption_setup
+        caption_runtime
+        + "(function(){\n"
+        + caption_payload
         + "  var tl = gsap.timeline({ paused: true });\n"
-        + caption_loop
+        + caption_build
         + effects_and_register
     )
 
@@ -451,43 +396,7 @@ def _build_index_html(
       overflow: hidden;
     }}
     #src-v {{ position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }}
-    .captions {{
-      position: absolute;
-      left: 0; right: 0;
-      top: {pos_top_pct}%;
-      text-align: center;
-      z-index: 10;
-    }}
-    /* Each group is taken OUT OF FLOW (absolute) so groups don't stack/wrap into
-       a tall block — they all overlap at the same anchor row, one visible at a
-       time. translateY(-50%) centers the row on position_y. */
-    .cgroup {{
-      position: absolute;
-      left: 0; right: 0;
-      top: 0;
-      transform: translateY(-50%);
-      text-align: center;
-      padding: 0 {config.bg_padding_h}px;
-      box-sizing: border-box;
-    }}
-    /* The visible pill. Animated by GSAP (a child, so its transforms never
-       fight .cgroup's centering transform). */
-    .cbubble {{
-      display: inline-block;
-      opacity: 0;
-      visibility: hidden;
-      max-width: {max_width_px}px;
-      text-align: center;
-      background: {bg_rgba};
-      color: {config.text_color};
-      font-family: "{config.font_family}", system-ui, sans-serif;
-      font-size: {config.font_size}px;
-      font-weight: 400;
-      line-height: {config.line_height};
-      padding: {config.bg_padding_v}px {config.bg_padding_h}px;
-      border-radius: {config.bg_corner_radius}px;
-    }}
-    .cw {{ color: {config.text_color}; }}
+    {captions_css}
     /* Effects: outer .fx positions (incl. centering transform), .fx-inner is the
        animation target — position/motion split, same as captions. */
     .fx {{ position: absolute; visibility: hidden; z-index: 5; pointer-events: none; }}
@@ -518,7 +427,7 @@ def _build_index_html(
     else:
         captions_markup = (
             '<div class="captions" id="captions">\n'
-            f"      {_groups_html(groups)}\n"
+            f"      {cap['markup']}\n"
             "    </div>"
         )
 

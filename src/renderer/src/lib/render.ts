@@ -8,7 +8,7 @@
 
 import type { EffectClip, Segment } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
-import { DEFAULT_PAD_V } from './renderConstants'
+import { DEFAULT_PAD_V, CROSSFADE_DUR } from './renderConstants'
 
 /** Cross-platform dirname — strips the last path segment (handles \ and /). */
 export function dirname(filePath: string): string {
@@ -114,6 +114,9 @@ export function buildRenderBody(
     animation: settings.animationType,
     animation_duration: settings.animDuration / 100,
     word_transition: settings.wordStyle,
+    // Pinned crossfade ramp, shared with the HTML caption renderer (HyperFrames)
+    // so the three renderers don't drift. Canvas/Pillow read CROSSFADE_DUR directly.
+    crossfade_duration: CROSSFADE_DUR,
 
     // Per-effect options
     highlight_radius: settings.highlightRadius,

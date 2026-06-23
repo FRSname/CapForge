@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Optional
 
@@ -111,6 +112,14 @@ current_ui_state: Optional[dict] = None
 
 # Commands the agent may relay to the renderer over /ws/control.
 AGENT_COMMAND_OPS = {"set_settings", "apply_preset", "set_word_overrides"}
+
+# Render-approval gate. An agent-triggered final HyperFrames render must be
+# approved by the human in the app before it starts — the agent should preview +
+# iterate first. Maps an approval id -> a Future the UI resolves (True=approve,
+# False=cancel) via POST /api/render-approval. User-initiated panel renders are
+# NOT gated (the user already clicked Render).
+pending_render_approvals: dict[str, "asyncio.Future[bool]"] = {}
+RENDER_APPROVAL_TIMEOUT = 600.0  # seconds the agent waits for the user to decide
 
 # Per-session token gating the agent-only /api/agent/* endpoints. Minted once at
 # import; written to the discovery file on startup so a local MCP server can read it.
@@ -444,6 +453,44 @@ async def agent_command(cmd: dict):
     return {"status": "ok"}
 
 
+async def _await_render_approval(meta: dict) -> bool:
+    """Ask the connected UI to approve an agent-triggered final render and block
+    until the human decides (or we time out). Returns True to proceed, False to
+    cancel. Refuses outright if no UI is connected to approve."""
+    if not ws_clients:
+        raise HTTPException(
+            status_code=409,
+            detail="Open CapForge to approve the render — no UI is connected.",
+        )
+    approval_id = uuid.uuid4().hex
+    loop = asyncio.get_running_loop()
+    fut: "asyncio.Future[bool]" = loop.create_future()
+    pending_render_approvals[approval_id] = fut
+    await broadcast_event({"type": "render_approval_request", "id": approval_id, **meta})
+    try:
+        return await asyncio.wait_for(fut, timeout=RENDER_APPROVAL_TIMEOUT)
+    except asyncio.TimeoutError:
+        return False
+    finally:
+        pending_render_approvals.pop(approval_id, None)
+        await broadcast_event({"type": "render_approval_resolved", "id": approval_id})
+
+
+@app.post("/api/render-approval")
+async def render_approval(body: dict):
+    """The renderer (the human) approves or cancels a pending agent render request.
+
+    Loopback UI endpoint (no token) — mirrors PUT /api/ui-state. `body` carries
+    `{id, approved}` where `id` came from a `render_approval_request` event.
+    """
+    approval_id = body.get("id")
+    approved = bool(body.get("approved", False))
+    fut = pending_render_approvals.get(approval_id) if approval_id else None
+    if fut is not None and not fut.done():
+        fut.set_result(approved)
+    return {"status": "ok"}
+
+
 # --- Vision QA: single-frame render so the agent can SEE its output ---
 
 def _agent_frame_inputs() -> tuple[VideoRenderConfig, Optional[list]]:
@@ -603,6 +650,18 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
         JobStatus.DIARIZING, JobStatus.RENDERING, JobStatus.ENCODING,
     ):
         raise HTTPException(status_code=409, detail="Another job is in progress")
+
+    # Human-in-the-loop gate: an agent-triggered FINAL render (use_ui_config is the
+    # agent path) must be approved in the app first. The user's own panel render
+    # (use_ui_config False) is already a deliberate click and is not gated.
+    if request.render and request.use_ui_config:
+        approved = await _await_render_approval({
+            "quality": request.quality,
+            "video_format": request.video_format,
+        })
+        if not approved:
+            return {"status": "cancelled", "project": None, "file": None,
+                    "message": "Render cancelled — keep iterating with previews."}
 
     # Resolve caption styling + groups. With use_ui_config (the agent's render
     # path) use what the renderer last mirrored so the output matches the live
