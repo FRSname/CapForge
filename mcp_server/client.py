@@ -148,6 +148,42 @@ class CapForgeClient:
     def get_custom_caption_contract(self) -> Any:
         return self._request("GET", "/api/custom-caption-contract")
 
+    # -- co-author workspace ---------------------------------------------
+    def get_workspace(self) -> Any:
+        return self._request("GET", "/api/agent/workspace")
+
+    def read_workspace_file(self, path: str) -> Any:
+        return self._request("GET", f"/api/agent/workspace/file?path={quote(path)}")
+
+    def write_workspace_file(self, path: str, content: str) -> Any:
+        return self._request(
+            "PUT", "/api/agent/workspace/file", json={"path": path, "content": content}
+        )
+
+    def import_into_workspace(self, src: str, dest_subdir: str = "compositions") -> Any:
+        return self._request(
+            "POST", "/api/agent/workspace/import",
+            json={"src": src, "dest_subdir": dest_subdir},
+        )
+
+    def run_hyperframes_cli(self, args: list) -> Any:
+        # lint/inspect can take a few seconds on a heavy project.
+        return self._request(
+            "POST", "/api/agent/hyperframes-cli", json={"args": args}, timeout=_LONG_TIMEOUT
+        )
+
+    def get_coauthor(self) -> Any:
+        return self._request("GET", "/api/agent/coauthor")
+
+    def set_coauthor(self, enable: bool) -> Any:
+        # Entering seeds a starter project (scaffold) — can take a moment.
+        return self._request(
+            "POST", "/api/agent/coauthor", json={"enable": enable}, timeout=_LONG_TIMEOUT
+        )
+
+    def sync_captions(self) -> Any:
+        return self._request("POST", "/api/agent/coauthor/sync-captions", timeout=_LONG_TIMEOUT)
+
     def get_frame(self, t: float, composite: bool = True, _retry: bool = True) -> bytes:
         """Render a QA frame and return raw PNG bytes (not JSON)."""
         self._ensure()

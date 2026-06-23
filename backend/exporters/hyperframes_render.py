@@ -165,10 +165,13 @@ def snapshot_hyperframes_project(project_dir: str, t: float) -> bytes:
     logger.info("HyperFrames snapshot: %s (cwd=%s)", " ".join(cmd), project_dir)
     try:
         proc = subprocess.run(
-            cmd, cwd=str(project_dir), env=hyperframes_env(), capture_output=True, text=True
+            cmd, cwd=str(project_dir), env=hyperframes_env(),
+            capture_output=True, text=True, timeout=120,
         )
     except FileNotFoundError as exc:
         raise HyperframesRenderError(f"Failed to launch HyperFrames: {exc}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise HyperframesRenderError("HyperFrames snapshot timed out.") from exc
     if proc.returncode != 0:
         tail = (proc.stderr or proc.stdout or "").strip()[-600:]
         logger.error("HyperFrames snapshot failed (exit %s):\n%s", proc.returncode, tail)
@@ -177,3 +180,73 @@ def snapshot_hyperframes_project(project_dir: str, t: float) -> bytes:
     if not pngs:
         raise HyperframesRenderError("HyperFrames snapshot produced no PNG.")
     return max(pngs, key=lambda p: p.stat().st_mtime).read_bytes()
+
+
+# Subcommands the co-author agent may run: read-only project dev-loop checks
+# only. Deliberately excludes networked/stateful/costly commands (init, publish,
+# auth, cloud, lambda, tts, transcribe, remove-background) and render/snapshot
+# (those have dedicated endpoints with progress + frame return).
+CLI_ALLOWED_SUBCOMMANDS = frozenset({"lint", "inspect", "compositions", "info", "docs"})
+
+# Flags an agent may pass after the subcommand. Anything else (e.g. --config,
+# --output, --open, or a path) is rejected so a flag value can't redirect the CLI
+# to read/write outside the project. Numeric values (for `inspect --at <t>`) pass.
+_CLI_SAFE_FLAGS = frozenset({"--json", "--quiet", "--at"})
+_CLI_NUMERIC = re.compile(r"-?\d+(\.\d+)?$")
+
+_CLI_TIMEOUT_SECONDS = 120
+
+
+def _validate_cli_args(args: list[str]) -> None:
+    """Allow only safe flags + numeric values after the subcommand — blocks
+    flag/path injection (--config /etc/…, --output /tmp/…, docs --open, …)."""
+    for a in args[1:]:
+        if a in _CLI_SAFE_FLAGS or _CLI_NUMERIC.match(a):
+            continue
+        raise HyperframesRenderError(
+            f"Argument '{a}' isn't allowed for co-author CLI runs — only "
+            f"{', '.join(sorted(_CLI_SAFE_FLAGS))} and numeric values are permitted."
+        )
+
+
+def run_hyperframes_cli(
+    project_dir: str, args: list[str], timeout: float = _CLI_TIMEOUT_SECONDS
+) -> dict:
+    """Run one allowlisted HyperFrames CLI subcommand in ``project_dir``.
+
+    Powers the co-author agent's dev loop (``lint`` / ``inspect`` /
+    ``compositions`` / ``info`` / ``docs``). The subcommand (``args[0]``) is
+    checked against :data:`CLI_ALLOWED_SUBCOMMANDS` *before* anything is launched,
+    so a rejection never depends on Node being present. Returns
+    ``{ ok, exit_code, stdout, stderr, command }`` (output tail-truncated).
+    """
+    if not args:
+        raise HyperframesRenderError("No CLI subcommand given.")
+    sub = args[0]
+    if sub not in CLI_ALLOWED_SUBCOMMANDS:
+        raise HyperframesRenderError(
+            f"Subcommand '{sub}' is not allowed in co-author mode. Allowed: "
+            f"{', '.join(sorted(CLI_ALLOWED_SUBCOMMANDS))}. Use render_hyperframes / "
+            "preview_hyperframes_frame for rendering and previews."
+        )
+    _validate_cli_args(args)
+    cmd = [*_hyperframes_cmd(), *args]
+    logger.info("HyperFrames CLI: %s (cwd=%s)", " ".join(cmd), project_dir)
+    try:
+        proc = subprocess.run(
+            cmd, cwd=str(project_dir), env=hyperframes_env(),
+            capture_output=True, text=True, timeout=timeout,
+        )
+    except FileNotFoundError as exc:
+        raise HyperframesRenderError(f"Failed to launch HyperFrames: {exc}") from exc
+    except subprocess.TimeoutExpired as exc:
+        raise HyperframesRenderError(
+            f"HyperFrames '{sub}' timed out after {timeout}s."
+        ) from exc
+    return {
+        "ok": proc.returncode == 0,
+        "exit_code": proc.returncode,
+        "stdout": (proc.stdout or "")[-8000:],
+        "stderr": (proc.stderr or "")[-4000:],
+        "command": " ".join(["hyperframes", *args]),
+    }

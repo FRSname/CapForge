@@ -57,6 +57,11 @@ export interface VideoInfo {
   fps: number | null
 }
 
+export interface CoauthorStatus {
+  coauthor: boolean
+  path: string | null
+}
+
 /**
  * Map a backend result (snake_case, segments may lack ids) to the app shape.
  * Backend segments carry no stable id, so we mint one per fetch.
@@ -323,6 +328,17 @@ class CapForgeAPI {
     return this.get<{ styles: Array<{ name: string; title: string }> }>('/api/caption-styles').then(
       (r) => r.styles ?? []
     )
+  }
+
+  // ── Co-author mode (agent owns the HyperFrames project) ────────────
+  getCoauthor(): Promise<CoauthorStatus> {
+    return this.get<CoauthorStatus>('/api/coauthor')
+  }
+  setCoauthor(enable: boolean): Promise<CoauthorStatus> {
+    return this.post<CoauthorStatus>('/api/coauthor', { enable })
+  }
+  syncCaptions(): Promise<{ transcript: string; source: string; captions: string | null }> {
+    return this.post('/api/coauthor/sync-captions', {})
   }
 
   getVideoInfo(filePath: string) {

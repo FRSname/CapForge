@@ -26,6 +26,15 @@ def test_index_exists_and_lists_known_topics() -> None:
         assert f"`{tid}`" in index, f"topic '{tid}' missing from INDEX.md"
 
 
+def test_index_documents_coauthor_mode() -> None:
+    """The guide must authorize co-author mode and NOT carry the old blanket
+    prohibition that misled the agent into scaffolding a standalone project."""
+    index = knowledge.read_index()
+    assert "Co-author mode" in index
+    assert "enter_coauthor_mode" in index
+    assert "You do NOT scaffold a HyperFrames project" not in index
+
+
 def test_read_topic_returns_content_for_a_known_id() -> None:
     body = knowledge.read_topic("captions")
     assert len(body) > 100

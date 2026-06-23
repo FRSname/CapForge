@@ -52,6 +52,9 @@ export function HyperFramesPanel({
   const [hfReady, setHfReady] = useState<boolean | null>(null)
   const [installing, setInstalling] = useState(false)
   const [installMsg, setInstallMsg] = useState('')
+  // Co-author mode: null = status not yet known.
+  const [coauthor, setCoauthor] = useState<boolean | null>(null)
+  const [coauthorBusy, setCoauthorBusy] = useState(false)
 
   useEffect(() => {
     api
@@ -64,7 +67,44 @@ export function HyperFramesPanel({
       .status()
       .then((s) => setHfReady(s.hyperframesReady))
       .catch(() => setHfReady(null))
+    api
+      .getCoauthor()
+      .then((s) => setCoauthor(s.coauthor))
+      .catch(() => setCoauthor(null))
   }, [])
+
+  // Enter/exit co-author mode: the connected agent takes ownership of the
+  // HyperFrames project (builds custom effects/animations directly); CapForge
+  // keeps the transcript + captions in sync. Entering seeds a starter project.
+  const toggleCoauthor = async (enable: boolean) => {
+    setCoauthorBusy(true)
+    try {
+      const s = await api.setCoauthor(enable)
+      setCoauthor(s.coauthor)
+      toast(
+        enable
+          ? 'Co-author mode on — the agent now owns this composition.'
+          : 'Co-author mode off — CapForge composes again.',
+        enable ? 'success' : 'info'
+      )
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not change co-author mode.', 'error')
+    } finally {
+      setCoauthorBusy(false)
+    }
+  }
+
+  const syncCaptionsIntoProject = async () => {
+    setCoauthorBusy(true)
+    try {
+      await api.syncCaptions()
+      toast('Captions synced into the co-author project.', 'success')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not sync captions.', 'error')
+    } finally {
+      setCoauthorBusy(false)
+    }
+  }
 
   // Provision the bundled HyperFrames engine (Node + CLI + render browser). This
   // is the heavy, opt-in step; it also covers existing installs. The classic
@@ -200,6 +240,59 @@ export function HyperFramesPanel({
         >
           ✓ Saved to {lastOutputFile.split(/[\\/]/).pop()} — reveal
         </button>
+      )}
+
+      <div className="divider" />
+      <div className="flex items-center justify-between gap-2 mb-1.5">
+        <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
+          Co-author
+        </span>
+        {coauthor && (
+          <span
+            className="text-2xs px-1.5 py-0.5 rounded-full font-medium"
+            style={{ background: 'var(--color-brand-glow)', color: 'var(--color-brand)' }}
+          >
+            Agent owns this ✦
+          </span>
+        )}
+      </div>
+      {coauthor ? (
+        <>
+          <Button
+            variant="ghost"
+            className="w-full justify-center"
+            disabled={coauthorBusy}
+            onClick={syncCaptionsIntoProject}
+            title="Refresh CapForge's transcript + captions into the agent's project. Never touches the agent's index.html."
+          >
+            {coauthorBusy ? 'Working…' : 'Sync captions into project'}
+          </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-center mt-1.5"
+            disabled={coauthorBusy}
+            onClick={() => toggleCoauthor(false)}
+            title="Exit co-author mode — CapForge composes the render from the panel again."
+          >
+            Exit co-author mode
+          </Button>
+        </>
+      ) : (
+        <>
+          <p className="text-2xs mb-1.5" style={{ color: 'var(--color-text-3)' }}>
+            Hand the HyperFrames project to the connected agent to build custom effects and
+            animations directly. CapForge keeps the transcript and captions in sync.
+          </p>
+          <Button
+            variant="ghost"
+            className="w-full justify-center"
+            disabled={coauthorBusy || coauthor === null}
+            onClick={() => toggleCoauthor(true)}
+            title="Seed a starter project and let the connected agent author it freely."
+          >
+            {coauthorBusy ? 'Starting…' : 'Co-author with agent ✦'}
+          </Button>
+        </>
       )}
 
       <div className="divider" />

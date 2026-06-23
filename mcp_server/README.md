@@ -99,6 +99,14 @@ actually reads.
 | `set_caption_style` | Set the caption look (classic / `caption-pill-karaoke` / …) → live UI |
 | `get_custom_caption_contract` | Contract + starter template for authoring your OWN caption style from scratch |
 | `set_custom_caption_style` | Set a brand-new agent-authored caption style (full HTML); validated on the way in → live UI |
+| `enter_coauthor_mode` | Take ownership of the HyperFrames project to author it freely; seeds a working starter, then CapForge stops regenerating index.html |
+| `exit_coauthor_mode` | Hand control back to CapForge's generated composition |
+| `sync_captions` | Refresh the CapForge-owned transcript + captions sub-composition into the co-author project (never touches your index.html) |
+| `get_workspace` | The co-author project path + file tree the agent authors in |
+| `read_workspace_file` | Read a text file from the co-author workspace (sandboxed) |
+| `write_workspace_file` | Write/overwrite a file in the co-author workspace (sandboxed: extension allowlist + size cap) |
+| `import_into_workspace` | Copy an external effect block/folder (HTML + assets + instructions) into the workspace, layout preserved |
+| `run_hyperframes_cli` | Run an allowlisted HyperFrames CLI check (lint/inspect/compositions/info/docs) in the workspace — the dev loop |
 | `hyperframes_guide` | The HyperFrames **creative library** — caption craft, motion, type, the text-highlight vocabulary, transitions, palettes. Call with no topic for the operating model + index, then a topic id to pull on demand |
 
 ## Creative library (`knowledge/`)

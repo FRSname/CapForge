@@ -536,6 +536,103 @@ def set_custom_caption_style(html: str) -> dict:
     return {"status": "ok", **(result if isinstance(result, dict) else {})}
 
 
+# --- Co-author mode: free-form HyperFrames authoring in CapForge's project ---
+
+@mcp.tool()
+def enter_coauthor_mode() -> dict:
+    """Take ownership of the HyperFrames project so you can author it freely — like
+    a standalone HyperFrames session, but inside CapForge's project.
+
+    On first entry CapForge seeds a complete, working starter (captions + video +
+    the current effects) and then STOPS regenerating index.html, so your edits
+    persist. Workflow: `get_workspace` to see the project → `write_workspace_file`
+    / `import_into_workspace` to author compositions under `compositions/` and wire
+    them into `index.html` via `data-composition-src` → `run_hyperframes_cli`
+    (lint/inspect) → `preview_hyperframes_frame` → `render_hyperframes`. Call
+    `hyperframes_guide` for the creative vocabulary. Returns `{ coauthor, path }`.
+    """
+    return _client.set_coauthor(True)
+
+
+@mcp.tool()
+def exit_coauthor_mode() -> dict:
+    """Hand control back to CapForge's generated composition (the panel's caption
+    style + effects timeline drive the render again). Your authored files stay on
+    disk but are unused until you re-enter co-author mode."""
+    return _client.set_coauthor(False)
+
+
+@mcp.tool()
+def sync_captions() -> dict:
+    """Refresh the CapForge-owned caption + transcript companions in your co-author
+    project, so caption-style or grouping changes made in the CapForge UI flow into
+    your composition — without touching your index.html. Reference the captions via
+    `data-composition-src` to pick them up. Returns what was refreshed."""
+    return _client.sync_captions()
+
+
+@mcp.tool()
+def get_workspace() -> dict:
+    """The CapForge-owned HyperFrames project you author in during co-author mode.
+
+    Returns `{ path, coauthor, tree }` — the project folder (the same one the
+    Studio serves), whether co-author mode is on, and a shallow file listing. You
+    own `index.html`, `compositions/`, and `assets/`; CapForge owns
+    `transcript.json`, `source.*`, and the captions sub-composition. Enter the
+    mode first with `enter_coauthor_mode`.
+    """
+    return _client.get_workspace()
+
+
+@mcp.tool()
+def read_workspace_file(path: str) -> dict:
+    """Read a text file (HTML/CSS/JS/JSON/MD) from the co-author workspace. `path`
+    is relative to the project folder returned by `get_workspace`."""
+    return _client.read_workspace_file(path)
+
+
+@mcp.tool()
+def write_workspace_file(path: str, content: str) -> dict:
+    """Write or overwrite a text file in the co-author workspace — e.g.
+    `compositions/code-block.html`, or `index.html` itself to wire a new
+    composition in via `data-composition-src`.
+
+    Sandboxed: the path must stay inside the project and use an allowed web/video
+    extension. Author as a standalone HyperFrames composition (transparent stage,
+    `data-composition-id` + `data-width/height`, a paused `window.__timelines[...]`
+    timeline). Preview with `preview_hyperframes_frame`; render with
+    `render_hyperframes`. Call `hyperframes_guide` for the creative vocabulary.
+    """
+    return _client.write_workspace_file(path, content)
+
+
+@mcp.tool()
+def import_into_workspace(src: str, dest_subdir: str = "compositions") -> dict:
+    """Copy an external file or folder — a custom effect block with its assets and
+    instructions — into the co-author workspace.
+
+    A folder lands under `compositions/<name>/` preserving its internal layout, so
+    its HTML's relative asset references keep working and you can `read_workspace_file`
+    its README to follow the instructions. Returns `{ imported, skipped }`
+    (disallowed file types are skipped, not fatal). Then reference the block from
+    `index.html` via `data-composition-src` and preview it.
+    """
+    return _client.import_into_workspace(src, dest_subdir)
+
+
+@mcp.tool()
+def run_hyperframes_cli(args: list[str]) -> dict:
+    """Run a HyperFrames CLI check in your co-author workspace — your dev loop.
+
+    Allowed subcommands: `lint`, `inspect`, `compositions`, `info`, `docs`
+    (e.g. `args=["lint"]`, `args=["inspect", "--at", "2"]`). Rendering and frame
+    previews have dedicated tools (`render_hyperframes` / `preview_hyperframes_frame`)
+    and project scaffolding is owned by CapForge, so `init`/`publish`/`render`/etc.
+    are rejected. Returns `{ ok, exit_code, stdout, stderr, command }`.
+    """
+    return _client.run_hyperframes_cli(args)
+
+
 def main() -> None:
     mcp.run(transport="stdio")
 

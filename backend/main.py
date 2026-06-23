@@ -31,13 +31,17 @@ from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
 from backend.exporters.hyperframes_export import export_hyperframes
 from backend.exporters.hyperframes_project import (
+    coauthor_project_dir,
     export_hyperframes_project,
     hyperframes_workspace,
     resolve_output_dir,
+    seed_coauthor_project,
+    sync_companions,
 )
 from backend.exporters.hyperframes_render import (
     HyperframesRenderError,
     render_hyperframes_project,
+    run_hyperframes_cli,
     snapshot_hyperframes_project,
 )
 from backend.exporters.json_export import export_json
@@ -66,6 +70,7 @@ from backend.effect_templates import (
     list_templates,
     save_template,
 )
+from backend import workspace_fs
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -91,6 +96,12 @@ current_effects: list[EffectClip] = []
 
 # Agent-authored caption component (HTML). Used when caption_style == "custom".
 current_custom_caption_html: Optional[str] = None
+
+# Co-author mode: when True the connected agent owns the HyperFrames project's
+# index.html + compositions/ + assets/. CapForge stops regenerating index.html
+# (preview/render target the stable workspace as-is) and only refreshes the
+# companion files it owns via sync_companions. See docs/plans/hyperframes-open-coauthor.md.
+current_coauthor: bool = False
 ws_clients: list[WebSocket] = []
 
 # Renderer-owned UI state (StudioSettings + groups), mirrored here so the agent
@@ -642,7 +653,37 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             caption_html=current_custom_caption_html,
         )
 
+    def _coauthor_project() -> str:
+        """Resolve the agent-owned project in the stable workspace, refreshing the
+        CapForge-owned companions (transcript/captions) WITHOUT regenerating the
+        agent's index.html. Seeds a starter project if the agent hasn't one yet."""
+        workspace = hyperframes_workspace(current_result.audio_path)
+        project_dir = coauthor_project_dir(current_result, workspace)
+        if (project_dir / "index.html").exists():
+            sync_companions(
+                current_result, config, str(project_dir),
+                source_video_path=current_result.audio_path,
+                custom_groups=custom_groups_dicts,
+                caption_html=current_custom_caption_html,
+            )
+            return str(project_dir)
+        return _scaffold(workspace)
+
     def _work() -> dict:
+        # Co-author mode: the agent owns index.html, so render/preview the project
+        # as-authored in the stable workspace — never re-scaffold or rmtree it.
+        if current_coauthor:
+            project_dir = _coauthor_project()
+            if not request.render:
+                return {"project": project_dir, "file": None}
+            out_path = str(Path(out_dir) / f"{stem}_hyperframes{ext}")
+            file = render_hyperframes_project(
+                project_dir, out_path,
+                quality=request.quality, video_format=request.video_format,
+                on_progress=on_progress,
+            )
+            return {"project": None, "file": file}
+
         if not request.render:
             # Open-in-Studio: scaffold into the canonical per-source workspace so
             # the Studio and the MCP agent's frame preview share ONE project
@@ -872,18 +913,30 @@ async def preview_hyperframes_frame(req: dict):
     loop = asyncio.get_running_loop()
 
     def _work() -> bytes:
-        # Scaffold into the SAME canonical workspace the Studio serves, so a
-        # preview re-generates the open Studio's project (not a separate copy).
-        project_dir = export_hyperframes_project(
+        workspace = hyperframes_workspace(current_result.audio_path)
+        project_dir = coauthor_project_dir(current_result, workspace)
+        # Co-author mode: preview the agent's OWN index.html — refresh only the
+        # companions, never regenerate the composition the agent authored.
+        if current_coauthor and (project_dir / "index.html").exists():
+            sync_companions(
+                current_result, config, str(project_dir),
+                source_video_path=current_result.audio_path,
+                custom_groups=ui_groups,
+                caption_html=current_custom_caption_html,
+            )
+            return snapshot_hyperframes_project(str(project_dir), t)
+        # Default: scaffold into the SAME canonical workspace the Studio serves, so
+        # a preview re-generates the open Studio's project (not a separate copy).
+        scaffolded = export_hyperframes_project(
             current_result,
             config,
-            hyperframes_workspace(current_result.audio_path),
+            workspace,
             source_video_path=current_result.audio_path,
             custom_groups=ui_groups,
             effects=effects_dicts,
             caption_html=current_custom_caption_html,
         )
-        return snapshot_hyperframes_project(project_dir, t)
+        return snapshot_hyperframes_project(scaffolded, t)
 
     try:
         png = await loop.run_in_executor(None, _work)
@@ -894,6 +947,174 @@ async def preview_hyperframes_frame(req: dict):
             detail={"title": "HyperFrames preview failed", "hint": str(e), "raw": str(e)},
         )
     return Response(content=png, media_type="image/png")
+
+
+# --- Co-author workspace: sandboxed filesystem for the agent ---
+
+def _coauthor_root() -> Path:
+    """The current project's co-author folder — the one the Studio serves and the
+    agent authors in. Computed (not required to exist): writes create it."""
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    return coauthor_project_dir(
+        current_result, hyperframes_workspace(current_result.audio_path)
+    )
+
+
+@app.get("/api/agent/workspace", dependencies=[Depends(require_agent_token)])
+async def agent_workspace():
+    """The co-author project path + a shallow listing of the files the agent owns."""
+    root = _coauthor_root()
+    return {
+        "path": str(root),
+        "coauthor": current_coauthor,
+        "tree": workspace_fs.list_tree(root),
+    }
+
+
+@app.get("/api/agent/workspace/file", dependencies=[Depends(require_agent_token)])
+async def agent_workspace_read(path: str):
+    """Read a workspace file as text (sandboxed)."""
+    try:
+        return {"path": path, "content": workspace_fs.read_file(_coauthor_root(), path)}
+    except workspace_fs.WorkspaceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.put("/api/agent/workspace/file", dependencies=[Depends(require_agent_token)])
+async def agent_workspace_write(body: dict):
+    """Write a workspace file (sandboxed: extension allowlist + size cap)."""
+    try:
+        return workspace_fs.write_file(
+            _coauthor_root(), body.get("path", ""), body.get("content", "")
+        )
+    except workspace_fs.WorkspaceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/agent/workspace/import", dependencies=[Depends(require_agent_token)])
+async def agent_workspace_import(body: dict):
+    """Copy an external file/folder (a custom effect block + assets) into the
+    workspace under compositions/ (sandboxed, filtered, size-capped)."""
+    try:
+        return workspace_fs.import_path(
+            _coauthor_root(), body.get("src", ""), body.get("dest_subdir", "compositions")
+        )
+    except workspace_fs.WorkspaceError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/agent/hyperframes-cli", dependencies=[Depends(require_agent_token)])
+async def agent_hyperframes_cli(body: dict):
+    """Run an allowlisted HyperFrames CLI subcommand (lint/inspect/compositions/
+    info/docs) in the co-author workspace — the agent's dev loop."""
+    args = body.get("args") or []
+    if not isinstance(args, list) or not all(isinstance(a, str) for a in args):
+        raise HTTPException(status_code=400, detail="args must be a list of strings")
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(
+            None, lambda: run_hyperframes_cli(str(_coauthor_root()), args)
+        )
+    except HyperframesRenderError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# Shared co-author logic, called by BOTH the agent-gated `/api/agent/coauthor*`
+# endpoints (MCP) and the ungated `/api/coauthor*` endpoints (the trusted local
+# renderer, which only holds the backend port — not the agent token).
+
+def _coauthor_status() -> dict:
+    path = str(_coauthor_root()) if current_result is not None else None
+    return {"coauthor": current_coauthor, "path": path}
+
+
+async def _coauthor_enter() -> dict:
+    """Seed a starter project (if none) the caller then owns, and flip mode on."""
+    global current_coauthor
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    config, ui_groups = _agent_frame_inputs()
+    effects_dicts = [e.model_dump() for e in current_effects] if current_effects else None
+    workspace = hyperframes_workspace(current_result.audio_path)
+    project_dir = coauthor_project_dir(current_result, workspace)
+    if not (project_dir / "index.html").exists():
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(None, lambda: seed_coauthor_project(
+            current_result, config, workspace,
+            source_video_path=current_result.audio_path,
+            custom_groups=ui_groups, effects=effects_dicts,
+            caption_html=current_custom_caption_html,
+        ))
+    current_coauthor = True
+    return {"coauthor": True, "path": str(project_dir)}
+
+
+async def _coauthor_set(enable: bool) -> dict:
+    global current_coauthor
+    if not enable:
+        current_coauthor = False
+        return {"coauthor": False}
+    return await _coauthor_enter()
+
+
+async def _coauthor_sync_captions() -> dict:
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    config, ui_groups = _agent_frame_inputs()
+    project_dir = coauthor_project_dir(
+        current_result, hyperframes_workspace(current_result.audio_path)
+    )
+    loop = asyncio.get_running_loop()
+    try:
+        return await loop.run_in_executor(None, lambda: sync_companions(
+            current_result, config, str(project_dir),
+            source_video_path=current_result.audio_path,
+            custom_groups=ui_groups, caption_html=current_custom_caption_html,
+        ))
+    except (FileNotFoundError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/agent/coauthor", dependencies=[Depends(require_agent_token)])
+async def get_coauthor():
+    """Whether co-author mode is on, plus the project path the agent owns."""
+    return _coauthor_status()
+
+
+@app.post("/api/agent/coauthor", dependencies=[Depends(require_agent_token)])
+async def set_coauthor(body: dict):
+    """Enter or exit co-author mode (agent). Entering seeds a complete, working
+    starter project the agent then OWNS; CapForge then stops regenerating
+    index.html and only refreshes companions. Exiting hands control back."""
+    return await _coauthor_set(bool(body.get("enable", True)))
+
+
+@app.post("/api/agent/coauthor/sync-captions", dependencies=[Depends(require_agent_token)])
+async def coauthor_sync_captions():
+    """Refresh ONLY the CapForge-owned companions (transcript + the captions
+    sub-composition) in the co-author project — never the agent's index.html."""
+    return await _coauthor_sync_captions()
+
+
+# Ungated UI mirrors — the local renderer (no agent token) drives co-author mode
+# from the HyperFrames panel. Same loopback trust level as /api/export-hyperframes.
+
+@app.get("/api/coauthor")
+async def ui_get_coauthor():
+    return _coauthor_status()
+
+
+@app.post("/api/coauthor")
+async def ui_set_coauthor(body: dict):
+    """Enter/exit co-author mode from the CapForge UI (see set_coauthor)."""
+    return await _coauthor_set(bool(body.get("enable", True)))
+
+
+@app.post("/api/coauthor/sync-captions")
+async def ui_coauthor_sync_captions():
+    """Refresh the CapForge-owned caption + transcript companions from the UI."""
+    return await _coauthor_sync_captions()
 
 
 # --- Export helpers ---

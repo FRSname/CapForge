@@ -631,6 +631,118 @@ def _prepare_caption_style(
     return rel
 
 
+def _write_companions(
+    result: TranscriptionResult,
+    config: VideoRenderConfig,
+    project_dir: Path,
+    groups: list[dict],
+    source_video_path: Optional[str],
+    caption_html: Optional[str],
+    duration: Optional[float],
+) -> tuple[str, str, float, Optional[str]]:
+    """Write the CapForge-owned companion files into ``project_dir`` and return
+    ``(source_src, transcript_json, total_duration, caption_sub_src)``.
+
+    "Companions" are everything the agent should never hand-maintain: the copied
+    source media, ``transcript.json``, and (for a non-classic style) the caption
+    sub-composition. Deliberately does NOT write ``index.html`` — both the full
+    export and the co-author ``sync_companions`` path share this so caption/
+    transcript regeneration can never diverge between them.
+    """
+    # Source media — copy in so the project is self-contained.
+    if source_video_path and Path(source_video_path).exists():
+        ext = Path(source_video_path).suffix or ".mp4"
+        source_src = f"source{ext}"
+        # copy (not copy2): copy2's copystat fails on files with special flags.
+        shutil.copy(source_video_path, project_dir / source_src)
+    else:
+        source_src = "source.mp4"
+
+    total_duration = _resolve_duration(result, groups, source_video_path, duration)
+
+    transcript_json = export_hyperframes(result)
+    (project_dir / "transcript.json").write_text(transcript_json, encoding="utf-8")
+
+    caption_sub_src = _prepare_caption_style(
+        config, project_dir, groups, transcript_json, total_duration, caption_html
+    )
+    return source_src, transcript_json, total_duration, caption_sub_src
+
+
+def coauthor_project_dir(result: TranscriptionResult, output_dir: str) -> Path:
+    """The project folder ``export_hyperframes_project`` creates inside ``output_dir``.
+
+    Co-author mode resolves this so it can target the agent's actual project (the
+    one the Studio serves) for sync/preview/render, instead of re-scaffolding.
+    """
+    stem = Path(result.audio_path).stem or "capforge"
+    return Path(output_dir) / f"{stem}-hyperframes"
+
+
+def seed_coauthor_project(
+    result: TranscriptionResult,
+    config: VideoRenderConfig,
+    workspace: str,
+    *,
+    source_video_path: Optional[str] = None,
+    custom_groups: Optional[list[dict]] = None,
+    effects: Optional[list[dict]] = None,
+    caption_html: Optional[str] = None,
+    duration: Optional[float] = None,
+) -> str:
+    """One-time scaffold for co-author mode: a complete, working starter project
+    the agent then owns.
+
+    Identical output to a normal export — the only difference is the contract
+    around it: once seeded, CapForge stops regenerating ``index.html`` and only
+    refreshes companions via ``sync_companions``, so the agent's edits survive.
+    """
+    return export_hyperframes_project(
+        result, config, workspace,
+        source_video_path=source_video_path,
+        custom_groups=custom_groups,
+        effects=effects,
+        caption_html=caption_html,
+        duration=duration,
+    )
+
+
+def sync_companions(
+    result: TranscriptionResult,
+    config: VideoRenderConfig,
+    project_dir: str,
+    *,
+    source_video_path: Optional[str] = None,
+    custom_groups: Optional[list[dict]] = None,
+    caption_html: Optional[str] = None,
+    duration: Optional[float] = None,
+) -> dict:
+    """Refresh ONLY the CapForge-owned files in a co-author project — never
+    ``index.html``.
+
+    Rewrites ``transcript.json``, re-copies the source, and (when the caption
+    style uses a sub-composition) regenerates ``compositions/captions...`` so
+    caption-style/grouping edits made in the CapForge UI flow into the agent's
+    project on a Studio refresh. Classic captions live inline in the agent-owned
+    ``index.html`` and are intentionally not touched. Returns what was refreshed.
+    """
+    project = Path(project_dir)
+    if not project.is_dir():
+        raise FileNotFoundError(f"Co-author project not found: {project}")
+    groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    if not groups:
+        raise ValueError("No subtitle data to refresh")
+    source_src, _transcript_json, _total, caption_sub_src = _write_companions(
+        result, config, project, groups, source_video_path, caption_html, duration
+    )
+    return {
+        "transcript": "transcript.json",
+        "source": source_src,
+        # None for classic: captions live in the agent-owned index.html.
+        "captions": caption_sub_src,
+    }
+
+
 def export_hyperframes_project(
     result: TranscriptionResult,
     config: VideoRenderConfig,
@@ -653,26 +765,11 @@ def export_hyperframes_project(
     if not groups:
         raise ValueError("No subtitle data to build a HyperFrames composition")
 
-    stem = Path(result.audio_path).stem or "capforge"
-    project_dir = Path(output_dir) / f"{stem}-hyperframes"
+    project_dir = coauthor_project_dir(result, output_dir)
     project_dir.mkdir(parents=True, exist_ok=True)
 
-    # Source media — copy in so the project is self-contained.
-    if source_video_path and Path(source_video_path).exists():
-        ext = Path(source_video_path).suffix or ".mp4"
-        source_src = f"source{ext}"
-        # copy (not copy2): copy2's copystat fails on files with special flags.
-        shutil.copy(source_video_path, project_dir / source_src)
-    else:
-        source_src = "source.mp4"
-
-    total_duration = _resolve_duration(result, groups, source_video_path, duration)
-
-    transcript_json = export_hyperframes(result)
-    (project_dir / "transcript.json").write_text(transcript_json, encoding="utf-8")
-
-    caption_sub_src = _prepare_caption_style(
-        config, project_dir, groups, transcript_json, total_duration, caption_html
+    source_src, transcript_json, total_duration, caption_sub_src = _write_companions(
+        result, config, project_dir, groups, source_video_path, caption_html, duration
     )
 
     font_face = _font_face_block(config, project_dir)

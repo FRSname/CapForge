@@ -7,14 +7,15 @@ surface, not the standalone CLI.
 
 ## Operating model (read this first)
 
-**You do NOT scaffold a HyperFrames project or run the `hyperframes` CLI.** CapForge
-owns the project, the transcript, the timing, and the render. You operate it through
-the MCP tools. The standalone-skill steps about `design.md`, `hf init`, prompt
-expansion, multi-scene composition, narration/TTS, and `hf render` **do not apply** —
-CapForge already did the transcription and owns the timeline. Use this library only
-for the *creative* decisions: how a caption looks and moves, where an effect lands.
+CapForge owns the transcript, the timing, and the render — you operate the
+*running app* through the MCP tools. **Never run `hyperframes init`, `publish`, or
+`auth`, and never scaffold a project in some other folder** — CapForge already owns
+one. There are **two modes**; pick by the task.
 
-Your loop:
+### Default mode — CapForge composes
+
+For caption styling and the parametric effects, CapForge generates the
+composition and you steer it. Loop:
 
 1. **Read state** — `get_ui_state` (current style, display groups, presets),
    `get_transcript` (words + timing). Captions render from the *words*.
@@ -22,16 +23,36 @@ Your loop:
    - **Native style** — `set_caption_style(name)` from `list_caption_styles`
      (registry components like `caption-pill-karaoke`). Fast, brings its own motion.
    - **Custom style (your canvas)** — `get_custom_caption_contract` →
-     `set_custom_caption_style(html)`. This is where this library pays off: author a
-     brand-new look in HTML/CSS/GSAP. **It renders through the genuine HyperFrames
-     engine**, so anything in this library is fair game.
+     `set_custom_caption_style(html)`: author a brand-new caption look in
+     HTML/CSS/GSAP that renders through the genuine HyperFrames engine.
 3. **Effects** — `find_moments` / `find_semantic_moments` to locate a spoken beat,
-   then `add_effect` (logo, lower_third, kinetic_stat, highlight, b_roll). Use the
-   motion/transition topics below to choose enter/exit feel.
-4. **See it** — `preview_hyperframes_frame(t)` (one frame, fast) to judge a custom
-   style or effect placement; `check_layout(t, platform)` for mechanical bounds.
-   Iterate before committing.
+   then `add_effect` (logo, lower_third, kinetic_stat, highlight, b_roll).
+4. **See it** — `preview_hyperframes_frame(t)`; `check_layout(t, platform)`.
 5. **Render** — `render_hyperframes(quality)`.
+
+### Co-author mode — you compose
+
+When the task needs something the parametric effects can't express — a bespoke
+animation (a code-block reveal, a branded lower-third), or implementing a custom
+effect **block or folder a user hands you** — author the HyperFrames project
+directly, the way a standalone author would, **but inside CapForge's project**
+(this mode is exactly how you do that; do not reach for the standalone CLI):
+
+1. **`enter_coauthor_mode`** — CapForge seeds a complete, working starter
+   (captions + video + current effects) you then OWN; it stops regenerating
+   `index.html`, so your edits persist.
+2. **`get_workspace`** — the project folder + file tree. You own `index.html`,
+   `compositions/`, and `assets/`. CapForge owns `transcript.json`, `source.*`, and
+   the captions sub-composition — pull caption/grouping changes in with
+   `sync_captions` (it never touches your `index.html`).
+3. **Author** — `write_workspace_file` (e.g. `compositions/code-block.html`)
+   and/or `import_into_workspace(path)` for a block plus its assets + instructions;
+   then wire it into `index.html` via `data-composition-src`. Each composition
+   follows the contract below. Pull `hyperframes_guide` topics for the vocabulary.
+4. **Dev loop** — `run_hyperframes_cli(["lint"])` / `["inspect"]` to validate,
+   `preview_hyperframes_frame(t)` to SEE it. Iterate.
+5. **Render** — `render_hyperframes(quality)` renders YOUR `index.html`.
+   `exit_coauthor_mode` hands control back to CapForge's generated composition.
 
 ## The caption contract (non-negotiable for `set_custom_caption_style`)
 
