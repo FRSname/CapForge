@@ -201,6 +201,34 @@ CAPTION_RUNTIME_JS = r"""
 function __capHexToRgb(hex){ var n=parseInt((hex||'').replace('#',''),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
 function __capRgb(c){ return 'rgb('+c[0]+','+c[1]+','+c[2]+')'; }
 
+// Run `cb` only after the caption font is loaded, so the canvas measureText()
+// inside __capBuild reports REAL glyph widths — not a fallback font's. Measuring
+// before the @font-face decodes (the headless render's cold-cache case) bakes
+// wrong word positions → captions look correctly fonted but mis-spaced ("words
+// connected"). The live preview escapes this only because the font is warm.
+// Raced against a timeout so a missing/never-loading font never hangs the render.
+function __capWhenFontsReady(CFG, cb){
+  var done = false;
+  function run(){ if(done) return; done = true; try { cb(); } catch(e){ if(window.console) console.error('[caption] build failed', e); } }
+  try {
+    var fam = CFG.fontFamily || '';
+    var fonts = document.fonts;
+    if(fam && fonts && typeof fonts.load === 'function'){
+      var spec = 'normal ' + (CFG.fontSize || 40) + 'px "' + fam + '"';
+      var loaded = fonts.load(spec).catch(function(){});
+      var ready = fonts.ready || Promise.resolve();
+      Promise.race([
+        Promise.all([loaded, ready]),
+        new Promise(function(r){ setTimeout(r, 3000); })
+      ]).then(run, run);
+    } else if(fonts && fonts.ready){
+      Promise.race([ fonts.ready, new Promise(function(r){ setTimeout(r, 3000); }) ]).then(run, run);
+    } else {
+      run();
+    }
+  } catch(e){ run(); }
+}
+
 function __capBuild(tl, CFG, GROUPS){
   var layer = document.getElementById('captions');
   if(!layer) return;

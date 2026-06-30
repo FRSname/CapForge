@@ -209,6 +209,28 @@ def _get_font(family: str, size: int, custom_path: str | None = None, bold: bool
     return ImageFont.load_default()
 
 
+def resolve_font_file(
+    family: str, custom_path: str | None = None, bold: bool = True
+) -> str | None:
+    """The on-disk font file :func:`_get_font` would load for this family.
+
+    Mirrors ``_get_font``'s lookup order (custom upload first, then the
+    per-platform system candidates) but returns the file path instead of a loaded
+    ``FreeTypeFont`` — so other renderers can embed the *exact same file* Pillow
+    rasterizes. The HyperFrames ``@font-face`` block uses this so its headless
+    browser measures and renders the identical font, keeping word spacing in
+    parity (a family referenced by name only is absent on the render machine and
+    silently falls back, mis-spacing captions). Returns ``None`` only when no
+    file is found — the same case where ``_get_font`` falls back to its built-in.
+    """
+    if custom_path and os.path.isfile(custom_path):
+        return custom_path
+    for path in _find_font_candidates(family, bold):
+        if os.path.isfile(path):
+            return path
+    return None
+
+
 def _find_ffmpeg() -> str:
     """Find ffmpeg executable.
 

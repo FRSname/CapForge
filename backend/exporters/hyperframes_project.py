@@ -30,7 +30,7 @@ from typing import Optional
 
 from backend.exporters.hyperframes_caption_html import caption_block
 from backend.exporters.hyperframes_export import export_hyperframes
-from backend.exporters.video_render import _build_groups
+from backend.exporters.video_render import _build_groups, resolve_font_file
 from backend.models.schemas import TranscriptionResult, VideoRenderConfig
 
 GSAP_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
@@ -359,7 +359,7 @@ def _build_index_html(
     caption_runtime = "" if native_captions else cap["runtime_js"]
     caption_payload = "" if native_captions else cap["payload_js"]
     caption_build = "" if native_captions else cap["build_call"]
-    effects_and_register = (
+    effects_js = (
         f"  var EFFECTS = {json.dumps([{k: fx[k] for k in ('id', 's', 'e', 'ef', 'et', 'xt', 'ed', 'xd', 'ee')} for fx in effects])};\n"
         "  EFFECTS.forEach(function(fx){\n"
         '    var outer = "#" + fx.id;\n'
@@ -373,18 +373,47 @@ def _build_index_html(
         '    tl.set(outer, { visibility: "hidden" }, fx.e);\n'
         "    tl.set(inner, { opacity: 0 }, fx.e);\n"
         "  });\n"
+    )
+    # Register the timeline for the HyperFrames CLI to drive, and flag the
+    # composition render-ready (the CLI's snapshot waits on __renderReady; render
+    # polls for __timelines["root"] before capturing).
+    register_js = (
         "  window.__timelines = window.__timelines || {};\n"
         '  window.__timelines["root"] = tl;\n'
-        "})();"
+        "  window.__renderReady = true;\n"
     )
-    timeline_js = (
-        caption_runtime
-        + "(function(){\n"
-        + caption_payload
-        + "  var tl = gsap.timeline({ paused: true });\n"
-        + caption_build
-        + effects_and_register
-    )
+    if native_captions:
+        # Native captions own their own sub-composition (and font loading); there
+        # is no hand-rolled caption measurement here, so build synchronously.
+        timeline_js = (
+            "(function(){\n"
+            "  var tl = gsap.timeline({ paused: true });\n"
+            + effects_js
+            + register_js
+            + "})();"
+        )
+    else:
+        # Classic captions: DEFER all DOM measurement + timeline registration
+        # until the caption font has loaded. __capBuild measures glyph advances
+        # with canvas measureText(); if it runs before the @font-face decodes
+        # (the headless render's cold-cache reality) it bakes fallback-font
+        # widths → captions render in the right font but with wrong spacing
+        # ("connected words"). The CLI polls for __timelines["root"] before
+        # capturing and reads frame count from #root's data-duration, so gating
+        # registration on font-ready is safe. See hyperframes_caption_html.py.
+        timeline_js = (
+            caption_runtime
+            + "(function(){\n"
+            + caption_payload
+            + "  function __capStart(){\n"
+            + "    var tl = gsap.timeline({ paused: true });\n"
+            + caption_build
+            + effects_js
+            + register_js
+            + "  }\n"
+            + "  __capWhenFontsReady(CAP_CFG, __capStart);\n"
+            + "})();"
+        )
 
     css = f"""
     {font_face}
@@ -453,17 +482,28 @@ def _build_index_html(
 
 
 def _font_face_block(config: VideoRenderConfig, project_dir: Path) -> str:
-    """Copy a custom font into fonts/ and return an @font-face block, or ''."""
-    if not config.custom_font_path:
+    """Copy the render font into fonts/ and return an @font-face block, or ''.
+
+    Embeds the SAME file the Pillow renderer rasterizes — resolved via
+    ``resolve_font_file`` (custom upload first, else the system file for the
+    family). A bundled/system font referenced only by family name is absent on
+    the headless render machine and silently falls back, so its glyph advances
+    (and thus word spacing) diverge from the preview. Embedding the actual file
+    keeps the three renderers measuring one font."""
+    resolved = resolve_font_file(
+        config.font_family, config.custom_font_path, getattr(config, "bold", True)
+    )
+    if not resolved:
         return ""
-    src = Path(config.custom_font_path)
+    src = Path(resolved)
     if not src.exists():
         return ""
     fonts_dir = project_dir / "fonts"
     fonts_dir.mkdir(parents=True, exist_ok=True)
     dest = fonts_dir / src.name
     shutil.copy(src, dest)  # not copy2 — copystat fails on flagged files (system fonts)
-    fmt = "opentype" if src.suffix.lower() == ".otf" else "truetype"
+    suffix = src.suffix.lower()
+    fmt = {".otf": "opentype", ".ttc": "collection"}.get(suffix, "truetype")
     return (
         f'@font-face {{ font-family: "{config.font_family}"; '
         f'src: url("fonts/{src.name}") format("{fmt}"); font-weight: 400; '

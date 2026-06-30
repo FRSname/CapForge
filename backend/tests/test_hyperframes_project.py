@@ -6,8 +6,13 @@ from pathlib import Path
 import pytest
 from PIL import Image
 
+from backend.exporters import hyperframes_project as hp
 from backend.exporters.hyperframes_project import export_hyperframes_project
+from backend.exporters.video_render import _get_font, resolve_font_file
 from backend.models.schemas import TranscriptionResult, VideoRenderConfig
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+REPO_FONT = REPO_ROOT / "Fonts" / "CaviarDreams.ttf"
 
 
 def _generate(result, tmp_path, **kwargs) -> Path:
@@ -249,6 +254,69 @@ def test_custom_caption_style_without_html_raises(transcription_result, tmp_path
     cfg = VideoRenderConfig(caption_style="custom")
     with pytest.raises(CaptionStyleError, match="No custom caption style"):
         export_hyperframes_project(transcription_result, cfg, str(tmp_path))
+
+
+# --- Caption word-spacing parity: font embedding (RC2) + load-gate (RC1) ---
+#
+# The HyperFrames caption layer positions every word by canvas measureText(). If
+# the render browser measures with the wrong font (a name-only family it lacks,
+# or an @font-face that hasn't decoded yet), word advances are wrong → captions
+# render in the right glyphs but mis-spaced ("connected words"). Two guards:
+#   RC2 — embed the SAME file Pillow rasterizes, even without a custom upload.
+#   RC1 — defer measurement until the font is loaded.
+
+
+def test_resolve_font_file_prefers_custom_path():
+    assert resolve_font_file("Whatever", str(REPO_FONT), True) == str(REPO_FONT)
+
+
+def test_resolve_font_file_matches_pillow_get_font():
+    # The HyperFrames @font-face must embed exactly the file Pillow loads.
+    for custom in (str(REPO_FONT), None):
+        resolved = resolve_font_file("Arial", custom, True)
+        font = _get_font("Arial", 40, custom, True)
+        font_path = getattr(font, "path", None)
+        if resolved is None or font_path is None:
+            continue  # no system font on this host (e.g. headless Linux) — skip
+        assert resolved == font_path
+
+
+def test_classic_captions_embed_resolved_font_without_custom_upload(
+    transcription_result, tmp_path, monkeypatch
+):
+    # RC2: a bundled/system font is referenced by name only (custom_font_path is
+    # None). Previously _font_face_block early-returned "" → the render machine
+    # fell back to a different font. It must now embed the resolved file.
+    monkeypatch.setattr(hp, "resolve_font_file", lambda *a, **k: str(REPO_FONT))
+    cfg = VideoRenderConfig(font_family="Caviar Dreams", custom_font_path=None)
+    project = Path(export_hyperframes_project(transcription_result, cfg, str(tmp_path)))
+    html = (project / "index.html").read_text()
+    assert '@font-face { font-family: "Caviar Dreams";' in html
+    assert 'src: url("fonts/CaviarDreams.ttf")' in html
+    assert (project / "fonts" / "CaviarDreams.ttf").exists()
+
+
+def test_classic_captions_no_font_when_unresolvable(
+    transcription_result, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(hp, "resolve_font_file", lambda *a, **k: None)
+    cfg = VideoRenderConfig(custom_font_path=None)
+    html = (Path(export_hyperframes_project(transcription_result, cfg, str(tmp_path))) / "index.html").read_text()
+    # The CSS @font-face *rule* (not the word in a code comment) must be absent.
+    assert "@font-face { font-family:" not in html
+
+
+def test_classic_captions_defer_build_until_fonts_ready(transcription_result, tmp_path):
+    # RC1: measurement + timeline registration are gated on the font loading.
+    html = (_generate(transcription_result, tmp_path) / "index.html").read_text()
+    assert "__capWhenFontsReady(CAP_CFG" in html  # the font-ready gate is wired
+    assert "document.fonts" in html               # ...and actually awaits fonts
+    assert "function __capStart()" in html         # build deferred into a callback
+    # __capBuild must run INSIDE the gated callback, not at parse time.
+    gate = html.index("__capWhenFontsReady(CAP_CFG")
+    build = html.index("__capBuild(tl")
+    assert build < gate, "caption build must be defined before the gate invokes it"
+    assert "window.__renderReady = true;" in html  # signals the CLI we're ready
 
 
 def test_native_caption_style_references_subcomposition(transcription_result, tmp_path):
