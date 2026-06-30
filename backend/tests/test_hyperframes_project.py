@@ -44,6 +44,21 @@ def test_composition_has_root_and_video_audio_tracks(transcription_result, tmp_p
     assert "<audio" in html and 'data-track-index="2"' in html
 
 
+def test_root_carries_source_fps(transcription_result, tmp_path):
+    # data-fps lets the HyperFrames render honor the source rate (25fps stays 25,
+    # not the CLI's 30 default). config.fps flows onto the composition root.
+    out = export_hyperframes_project(
+        transcription_result, VideoRenderConfig(fps=25), str(tmp_path)
+    )
+    html = (Path(out) / "index.html").read_text()
+    assert 'data-fps="25"' in html
+
+
+def test_root_fps_defaults_to_config(transcription_result, tmp_path):
+    html = (_generate(transcription_result, tmp_path) / "index.html").read_text()
+    assert 'data-fps="30"' in html  # VideoRenderConfig default
+
+
 def test_registers_single_root_timeline(transcription_result, tmp_path):
     html = (_generate(transcription_result, tmp_path) / "index.html").read_text()
     assert 'window.__timelines["root"]' in html

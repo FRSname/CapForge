@@ -739,6 +739,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             file = render_hyperframes_project(
                 project_dir, out_path,
                 quality=request.quality, video_format=request.video_format,
+                fps=config.fps,
                 on_progress=on_progress,
             )
             return {"project": None, "file": file}
@@ -761,6 +762,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             file = render_hyperframes_project(
                 project_dir, out_path,
                 quality=request.quality, video_format=request.video_format,
+                fps=config.fps,
                 on_progress=on_progress,
             )
             return {"project": None, "file": file}

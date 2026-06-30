@@ -31,6 +31,23 @@ _FRAME_RE = re.compile(r"Capturing frame (\d+)\s*/\s*(\d+)")
 # Frame capture is the long pole; reserve the last slice for encode/assemble.
 _CAPTURE_PCT_CEILING = 95.0
 
+# The HyperFrames CLI's --fps accepts integers in this range (render --help,
+# v0.7.21: "Accepts integer (24, 25, 30, 50, 60, 120, 240) … Range 1-240").
+_HYPERFRAMES_FPS_MIN = 1
+_HYPERFRAMES_FPS_MAX = 240
+
+
+def _render_fps(fps: int) -> int:
+    """Clamp a requested fps to the HyperFrames CLI's supported 1-240 range.
+
+    The CLI renders the output container at exactly this rate (verified: a 25fps
+    request yields ``r_frame_rate=25/1``), so the source video's fps passes
+    straight through — no snapping to a fixed {24,30,60} set is needed on
+    v0.7.21+. ``config.fps`` is already Pydantic-validated to 1-120; clamping
+    here too means a stray value can never form an out-of-range CLI argument.
+    """
+    return max(_HYPERFRAMES_FPS_MIN, min(_HYPERFRAMES_FPS_MAX, int(fps)))
+
 
 def _hyperframes_cmd() -> list[str]:
     """Argv prefix to run the HyperFrames CLI, or raise if Node is unavailable."""
@@ -75,6 +92,7 @@ def render_hyperframes_project(
     output_path: str,
     quality: str = "draft",
     video_format: str = "mp4",
+    fps: int = 30,
     on_progress: Optional[Callable[[float, str], None]] = None,
 ) -> str:
     """Render the composition at `project_dir` to `output_path`; return the path.
@@ -90,6 +108,7 @@ def render_hyperframes_project(
         *hf, "render",
         "--quality", quality,
         "--format", video_format,
+        "--fps", str(_render_fps(fps)),
         "--output", str(out),
     ]
     logger.info("HyperFrames render: %s (cwd=%s)", " ".join(cmd), project_dir)
