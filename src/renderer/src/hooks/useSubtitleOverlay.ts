@@ -126,6 +126,12 @@ export function useSubtitleOverlay({
     const descent    = aygMetrics.actualBoundingBoxDescent || sf * 0.2
     const textH      = ascent + descent
     const baselineShift = (ascent - descent) / 2  // y-add to put baseline so visual centre = wordY
+    // Ascender→ink gap of 'Ayg'. Pillow anchors words on the font ASCENDER line
+    // (y = center_y - text_h/2 - bbox[1]), so a font-size-scaled override word
+    // lands at rowCenter + (scaled gap - base gap) — NOT baseline-aligned. The
+    // per-word draw below mirrors that (HyperFrames does the same).
+    const gapBase = (aygMetrics.fontBoundingBoxAscent ?? ascent) - ascent
+    const baseFontStr = ctx.font
     const rowLineGap = textH * ((settings.lineHeight ?? DEFAULT_LINE_HEIGHT) - 1)
 
     const trk = settings.tracking ?? 0
@@ -255,8 +261,24 @@ export function useSubtitleOverlay({
         const ov = m.overrides
         const wTransActive = ov?.word_transition ?? wordTransition
         if (wTransActive === 'highlight') {
-          const hlX = wordXPos[ai] + (ov?.pos_offset_x ?? 0)
-          const hlY = wordYPos[ai] + (ov?.pos_offset_y ?? 0)
+          const targetX = wordXPos[ai] + (ov?.pos_offset_x ?? 0)
+          const hlY     = wordYPos[ai] + (ov?.pos_offset_y ?? 0)
+          let hlX = targetX
+          let hlW = m.width
+          // Slide: lerp the pill from the previous word's raw rect (its x/width,
+          // no prev offsets) to the active word's rect — mirrors the backend's
+          // _draw_word_list. The backend computes active_idx per wrapped row, so
+          // only slide when the previous word sits on the SAME row.
+          if (settings.highlightAnim === 'slide' && ai > 0 && wordYPos[ai - 1] === wordYPos[ai]) {
+            const wordDur = Math.max(m.end - m.start, 0.001)
+            const rawT    = (currentTime - m.start) / wordDur
+            // fast ease-out: most of the slide happens in first 40% of the word
+            const tEase   = 1 - (1 - Math.min(Math.max(rawT * 2.5, 0), 1)) ** 2
+            const prevX   = wordXPos[ai - 1]
+            const prevW   = wm[ai - 1].width
+            hlX = prevX + (targetX - prevX) * tEase
+            hlW = prevW + (m.width - prevW) * tEase
+          }
           // Backend enforces min pad = stroke + 2 so the pill always clears the
           // stroke; mirror that here so the preview matches.
           const wHlPadX   = Math.max(ov?.highlight_padding_x ?? hlPadX, sStroke + 2)
@@ -266,7 +288,7 @@ export function useSubtitleOverlay({
           ctx.save()
           ctx.globalAlpha = animAlpha * wHlOpac
           ctx.fillStyle   = activeColor
-          roundRect(ctx, hlX - wHlPadX, hlY - textH / 2 - wHlPadY, m.width + wHlPadX * 2, textH + wHlPadY * 2, wHlRadius)
+          roundRect(ctx, hlX - wHlPadX, hlY - textH / 2 - wHlPadY, hlW + wHlPadX * 2, textH + wHlPadY * 2, wHlRadius)
           ctx.fill()
           ctx.restore()
         }
@@ -305,6 +327,20 @@ export function useSubtitleOverlay({
       const wWeight = wBold ? 'bold' : 'normal'
       ctx.font = `${wWeight} ${wSize}px "${wFontFamily || '-apple-system'}", sans-serif`
 
+      // Per-word vertical metrics — Pillow's ascender-anchored draw places
+      // override-font words at rowCenter + (word gap - base gap) + (a-d)/2;
+      // for the base font this reduces to baselineShift exactly.
+      let wBaselineShift = baselineShift
+      let wTextH = textH
+      if (ctx.font !== baseFontStr) {
+        const am    = ctx.measureText('Ayg')
+        const wAsc  = am.actualBoundingBoxAscent  || wSize * 0.8
+        const wDesc = am.actualBoundingBoxDescent || wSize * 0.2
+        const wGap  = (am.fontBoundingBoxAscent ?? wAsc) - wAsc
+        wBaselineShift = (wGap - gapBase) + (wAsc - wDesc) / 2
+        wTextH = wAsc + wDesc
+      }
+
       // Drop shadow — text only (set per-word so it doesn't affect bg/highlight)
       if (settings.shadowEnabled) {
         const sOpacity = settings.shadowOpacity ?? 0.8
@@ -327,7 +363,7 @@ export function useSubtitleOverlay({
       // wy2 is the visual centre (matches backend's center_y for the row).
       // Convert to alphabetic baseline so text glyphs sit centred on wy2.
       const drawW = (word: string, wx: number, wy2: number) => {
-        const by = wy2 + baselineShift
+        const by = wy2 + wBaselineShift
         if (trk === 0) {
           if (sStroke > 0) ctx.strokeText(word, wx, by)
           ctx.fillText(word, wx, by)
@@ -365,7 +401,7 @@ export function useSubtitleOverlay({
             ctx.fillStyle = wUlColor || wActiveColor
             const ulW = wUlWidth > 0 ? wUlWidth : m.width
             const ulX = wUlWidth > 0 ? x + (m.width - ulW) / 2 : x
-            ctx.fillRect(ulX, wy + textH / 2 + wUlOffsetY, ulW, wUlThick)
+            ctx.fillRect(ulX, wy + wTextH / 2 + wUlOffsetY, ulW, wUlThick)
           }
           break
         case 'bounce': {
@@ -392,7 +428,7 @@ export function useSubtitleOverlay({
           drawW(m.word, x, wy)
           if (isActive && wordProg > 0) {
             ctx.save()
-            ctx.beginPath(); ctx.rect(x, wy - textH, m.width * wordProg, textH * 2); ctx.clip()
+            ctx.beginPath(); ctx.rect(x, wy - wTextH, m.width * wordProg, wTextH * 2); ctx.clip()
             ctx.fillStyle = wActiveColor
             drawW(m.word, x, wy)
             ctx.restore()

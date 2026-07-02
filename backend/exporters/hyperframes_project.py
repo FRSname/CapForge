@@ -411,7 +411,7 @@ def _build_index_html(
             + effects_js
             + register_js
             + "  }\n"
-            + "  __capWhenFontsReady(CAP_CFG, __capStart);\n"
+            + "  __capWhenFontsReady(CAP_CFG, CAP_GROUPS, __capStart);\n"
             + "})();"
         )
 
@@ -509,6 +509,62 @@ def _font_face_block(config: VideoRenderConfig, project_dir: Path) -> str:
         f'src: url("fonts/{src.name}") format("{fmt}"); font-weight: 400; '
         f"font-display: block; }}"
     )
+
+
+def _word_font_face_blocks(
+    config: VideoRenderConfig, groups: list[dict], project_dir: Path
+) -> str:
+    """@font-face blocks for per-word font overrides, or ''.
+
+    Same mechanism as :func:`_font_face_block`: each distinct per-word
+    ``font_family`` / ``bold`` / ``custom_font_path`` override is resolved via
+    ``resolve_font_file`` to the exact file Pillow rasterizes for that word and
+    embedded so the render browser measures identical glyphs. A per-word
+    ``bold: true`` is declared as the SAME family at ``font-weight: 700`` — the
+    caption runtime styles those spans weight-700, so this is real face
+    matching, never synthetic bold. The ``(main family, 400)`` slot always
+    belongs to the main face and is skipped. Resolve/copy failures skip the
+    face (the word falls back, like Pillow's own font fallback) — never crash
+    the render.
+    """
+    seen: set[tuple[str, int]] = set()
+    blocks: list[str] = []
+    for group in groups:
+        for w in group.get("words", []):
+            ov = w.get("overrides") or {}
+            if not any(k in ov for k in ("font_family", "bold", "custom_font_path")):
+                continue
+            family = ov.get("font_family") or config.font_family
+            weight = 700 if ov.get("bold") else 400
+            if family == config.font_family and weight == 400:
+                continue  # covered by (and must not clobber) the main face
+            key = (family, weight)
+            if key in seen:
+                continue
+            seen.add(key)
+            custom = ov.get("custom_font_path") or config.custom_font_path
+            bold = bool(ov["bold"]) if "bold" in ov else bool(getattr(config, "bold", True))
+            resolved = resolve_font_file(family, custom, bold)
+            if not resolved:
+                continue
+            src = Path(resolved)
+            if not src.exists():
+                continue
+            fonts_dir = project_dir / "fonts"
+            fonts_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                # not copy2 — copystat fails on flagged files (system fonts)
+                shutil.copy(src, fonts_dir / src.name)
+            except OSError:
+                continue
+            suffix = src.suffix.lower()
+            fmt = {".otf": "opentype", ".ttc": "collection"}.get(suffix, "truetype")
+            blocks.append(
+                f'@font-face {{ font-family: "{family}"; '
+                f'src: url("fonts/{src.name}") format("{fmt}"); font-weight: {weight}; '
+                f"font-display: block; }}"
+            )
+    return "\n    ".join(blocks)
 
 
 def _prepare_caption_style(
@@ -722,6 +778,9 @@ def export_hyperframes_project(
     )
 
     font_face = _font_face_block(config, project_dir)
+    word_faces = _word_font_face_blocks(config, groups, project_dir)
+    if word_faces:
+        font_face = f"{font_face}\n    {word_faces}" if font_face else word_faces
     effects_render = _prepare_effects(
         effects, project_dir, config.resolution_w, config.resolution_h
     )

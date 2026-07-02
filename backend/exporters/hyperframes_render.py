@@ -198,6 +198,18 @@ def snapshot_hyperframes_project(project_dir: str, t: float) -> bytes:
     pngs = [p for p in snaps.glob("*.png") if p.is_file()] if snaps.is_dir() else []
     if not pngs:
         raise HyperframesRenderError("HyperFrames snapshot produced no PNG.")
+    # The CLI (>= 0.7.25) may save extra frames beyond the requested one (an
+    # auto-added end-of-timeline frame), and it writes them AFTER the requested
+    # frame — so "newest mtime" can return the wrong (often caption-less) frame.
+    # Prefer the snapshot whose filename timestamp (frame-NN-at-<t>s.png) is
+    # closest to the requested time; fall back to mtime for older CLI names.
+    def _at_time(p: Path) -> Optional[float]:
+        m = re.search(r"-at-([0-9]+(?:\.[0-9]+)?)s\.png$", p.name)
+        return float(m.group(1)) if m else None
+
+    timed = [(p, at) for p in pngs if (at := _at_time(p)) is not None]
+    if timed:
+        return min(timed, key=lambda pa: abs(pa[1] - float(t)))[0].read_bytes()
     return max(pngs, key=lambda p: p.stat().st_mtime).read_bytes()
 
 

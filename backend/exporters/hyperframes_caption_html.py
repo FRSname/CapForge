@@ -91,6 +91,8 @@ def caption_cfg(config: VideoRenderConfig) -> dict:
         "hlPadY": config.highlight_padding_y,
         "hlRadius": config.highlight_radius,
         "hlOpacity": config.highlight_opacity,
+        # Same getattr default as Pillow (video_render.py highlight_anim).
+        "hlAnim": getattr(config, "highlight_animation", "jump"),
         "ulThickness": config.underline_thickness,
         "ulColor": config.underline_color or "",
         "ulOffsetY": config.underline_offset_y,
@@ -118,13 +120,37 @@ def caption_markup(groups: list[dict]) -> str:
     return "\n      ".join(blocks)
 
 
+# Per-word override keys forwarded to the JS runtime — exactly the set Pillow
+# honors (video_render.py _draw_word_list / _render_frame). ``custom_font_path``
+# is deliberately absent: local paths must never leak into the HTML; the file
+# itself is embedded server-side via a per-word @font-face
+# (hyperframes_project._word_font_face_blocks), same mechanism as the main font.
+_WORD_OVERRIDE_KEYS = (
+    "text_color", "active_word_color", "font_size_scale", "bold", "font_family",
+    "word_transition", "pos_offset_x", "pos_offset_y", "bounce_strength",
+    "scale_factor", "underline_thickness", "underline_color", "underline_offset_y",
+    "underline_width", "highlight_padding_x", "highlight_padding_y",
+    "highlight_radius", "highlight_opacity",
+)
+
+
+def _word_entry(w: dict) -> dict:
+    """One word's payload: timings plus a compact ``"o"`` object carrying only
+    the override keys actually present (omitted entirely for plain words)."""
+    ov = w.get("overrides") or {}
+    o = {k: ov[k] for k in _WORD_OVERRIDE_KEYS if ov.get(k) is not None}
+    if o:
+        return {"s": w["start"], "e": w["end"], "o": o}
+    return {"s": w["start"], "e": w["end"]}
+
+
 def caption_groups_json(groups: list[dict]) -> str:
     """Compact word-timing payload aligned by index with the DOM spans."""
     payload = [
         {
             "s": g["start"],
             "e": g["end"],
-            "w": [{"s": w["start"], "e": w["end"]} for w in g["words"]],
+            "w": [_word_entry(w) for w in g["words"]],
         }
         for g in groups
     ]
@@ -206,21 +232,39 @@ function __capRgb(c){ return 'rgb('+c[0]+','+c[1]+','+c[2]+')'; }
 // before the @font-face decodes (the headless render's cold-cache case) bakes
 // wrong word positions → captions look correctly fonted but mis-spaced ("words
 // connected"). The live preview escapes this only because the font is warm.
+// GROUPS (optional) lets the gate also await every distinct per-word face
+// (font_family / bold overrides) — those spans are styled from JS, so nothing
+// in the DOM would otherwise trigger their load before measurement.
 // Raced against a timeout so a missing/never-loading font never hangs the render.
-function __capWhenFontsReady(CFG, cb){
+function __capWhenFontsReady(CFG, GROUPS, cb){
+  if(typeof GROUPS === 'function'){ cb = GROUPS; GROUPS = null; }
   var done = false;
   function run(){ if(done) return; done = true; try { cb(); } catch(e){ if(window.console) console.error('[caption] build failed', e); } }
   try {
     var fam = CFG.fontFamily || '';
     var fonts = document.fonts;
-    if(fam && fonts && typeof fonts.load === 'function'){
-      var spec = 'normal ' + (CFG.fontSize || 40) + 'px "' + fam + '"';
-      var loaded = fonts.load(spec).catch(function(){});
-      var ready = fonts.ready || Promise.resolve();
-      Promise.race([
-        Promise.all([loaded, ready]),
-        new Promise(function(r){ setTimeout(r, 3000); })
-      ]).then(run, run);
+    if(fonts && typeof fonts.load === 'function'){
+      var specs = {};
+      if(fam) specs['normal ' + (CFG.fontSize || 40) + 'px "' + fam + '"'] = 1;
+      (GROUPS || []).forEach(function(g){ (g.w || []).forEach(function(wd){
+        var o = wd.o; if(!o) return;
+        var wfam = o.font_family || fam; if(!wfam) return;
+        var size = Math.round((CFG.fontSize || 40) * (o.font_size_scale != null ? o.font_size_scale : 1));
+        specs[(o.bold ? '700 ' : 'normal ') + size + 'px "' + wfam + '"'] = 1;
+      }); });
+      var keys = Object.keys(specs);
+      if(keys.length){
+        var loads = keys.map(function(s){ return fonts.load(s).catch(function(){}); });
+        var ready = fonts.ready || Promise.resolve();
+        Promise.race([
+          Promise.all(loads.concat([ready])),
+          new Promise(function(r){ setTimeout(r, 3000); })
+        ]).then(run, run);
+      } else if(fonts.ready){
+        Promise.race([ fonts.ready, new Promise(function(r){ setTimeout(r, 3000); }) ]).then(run, run);
+      } else {
+        run();
+      }
     } else if(fonts && fonts.ready){
       Promise.race([ fonts.ready, new Promise(function(r){ setTimeout(r, 3000); }) ]).then(run, run);
     } else {
@@ -243,6 +287,23 @@ function __capBuild(tl, CFG, GROUPS){
   var descent = ayg.actualBoundingBoxDescent || CFG.fontSize * 0.2;
   var textH = ascent + descent;
   var baselineShift = (ascent - descent) / 2;
+  // Where the browser puts the baseline INSIDE a line-height:1 absolute span:
+  // half-leading + FONT ascent (the hhea/OS2 metrics inline layout uses —
+  // exposed by canvas fontBoundingBox*), NOT the ink ascent of 'Ayg'. Fonts
+  // whose ascent+descent != 1em (CaviarDreams: 106px @ 90px em) otherwise
+  // render the whole text ~8px off the Canvas/Pillow position. Falls back to
+  // the ink ascent when fontBoundingBox* is unsupported.
+  function spanBaseline(size, fm, inkAscent){
+    var fa = fm.fontBoundingBoxAscent, fd = fm.fontBoundingBoxDescent;
+    return (fa != null && fd != null) ? (size - fa - fd) / 2 + fa : inkAscent;
+  }
+  var spanBase = spanBaseline(CFG.fontSize, ayg, ascent);
+  // Ascender→ink gap ('Ayg'). Pillow anchors words on the font ASCENDER line
+  // (PIL 'la' anchor: y = center_y - text_h/2 - bbox[1]), so a font_size_scale
+  // override word lands at center_y + (w_bbox[1] - bbox[1]) — ink-centred PLUS
+  // the scaled-vs-base gap delta. Canvas fontBoundingBoxAscent - ink ascent is
+  // that same gap; the delta term below reproduces Pillow exactly (0 for base).
+  var gapBase = (ayg.fontBoundingBoxAscent != null ? ayg.fontBoundingBoxAscent : ascent) - ascent;
   var rowLineGap = textH * ((CFG.lineHeight || 1.2) - 1);
   var trk = CFG.tracking || 0;
   function measureWord(t){ if(!trk) return mc.measureText(t).width; var w=0; for(var i=0;i<t.length;i++){ w+=mc.measureText(t[i]).width; if(i<t.length-1) w+=trk; } return w; }
@@ -260,7 +321,31 @@ function __capBuild(tl, CFG, GROUPS){
     var spans = Array.prototype.slice.call(gEl.querySelectorAll('.cw'));
 
     // Measure each word (canvas advance widths — match the rendered DOM glyphs).
-    var wm = spans.map(function(sp, i){ return { el: sp, width: measureWord(sp.textContent), s: g.w[i].s, e: g.w[i].e }; });
+    // Per-word overrides (payload "o") resolve with the same fallback chain the
+    // Canvas preview uses (useSubtitleOverlay.ts): size scale, family, weight.
+    // Each word is measured with ITS OWN font so cursor advance + wrapping match
+    // Pillow's per-word measurement; the inter-word space stays base-font.
+    var wm = spans.map(function(sp, i){
+      var wd = g.w[i], o = wd.o || {};
+      var wSize = Math.round(CFG.fontSize * (o.font_size_scale != null ? o.font_size_scale : 1));
+      var wFam = o.font_family || CFG.fontFamily || '-apple-system';
+      var wStr = (o.bold ? '700 ' : 'normal ') + wSize + 'px "' + wFam + '", sans-serif';
+      mc.font = wStr;
+      var m = { el: sp, width: measureWord(sp.textContent), s: wd.s, e: wd.e, o: o,
+                size: wSize, fam: wFam, weight: o.bold ? '700' : '400', fstr: wStr,
+                ascent: ascent, descent: descent, textH: textH, spanBase: spanBase,
+                gap: gapBase };
+      if(wStr !== fontStr){
+        var a2 = mc.measureText('Ayg');
+        m.ascent = a2.actualBoundingBoxAscent || wSize * 0.8;
+        m.descent = a2.actualBoundingBoxDescent || wSize * 0.2;
+        m.textH = m.ascent + m.descent;
+        m.spanBase = spanBaseline(wSize, a2, m.ascent);
+        m.gap = (a2.fontBoundingBoxAscent != null ? a2.fontBoundingBoxAscent : m.ascent) - m.ascent;
+      }
+      return m;
+    });
+    mc.font = fontStr;
 
     // Rows — greedy wrap for lines<=1, equal-slice for lines>1 (mirrors Canvas).
     var rows = [];
@@ -323,38 +408,66 @@ function __capBuild(tl, CFG, GROUPS){
     rows.forEach(function(row, ri){
       var rowY = cy + alignShiftY + tyOff - totalTextH/2 + textH/2 + ri*(textH + rowLineGap);
       var wx = cx + alignShiftX + txOff - rowWidths[ri]/2;
+      var prevInRow = null;
       row.forEach(function(m){
-        // DOM span top so the glyph visual-centre lands on rowY.
-        m.el.style.left = wx + 'px';
-        m.el.style.top = (rowY - ascent + baselineShift) + 'px';
-        m.cxc = wx + m.width/2; m.cyc = rowY; m.x = wx;
+        // DOM span top: the browser puts the word's baseline spanBase below the
+        // span top (half-leading + FONT ascent — spanBaseline above), so
+        // top = desired baseline (rowY + (ascent-descent)/2, the Canvas/Pillow
+        // formula) - spanBase. Using the ink ascent here instead lands the text
+        // ~8px off for fonts whose ascent+descent != 1em (CaviarDreams).
+        // Override words use their OWN metrics — equivalent to Pillow's
+        // scaled-word centering word_y = y - (w_text_h - text_h)/2.
+        // pos_offset_x/y is additive per word; must NOT shift the cursor.
+        var ox = m.o.pos_offset_x || 0, oy = m.o.pos_offset_y || 0;
+        m.el.style.left = (wx + ox) + 'px';
+        m.el.style.top = (rowY + (m.gap - gapBase) + (m.ascent - m.descent)/2 - m.spanBase + oy) + 'px';
+        if(m.fstr !== fontStr){
+          m.el.style.fontSize = m.size + 'px';
+          m.el.style.fontFamily = '"' + m.fam + '", system-ui, sans-serif';
+          m.el.style.fontWeight = m.weight;
+        }
+        if(m.o.text_color) m.el.style.color = m.o.text_color;
+        m.cxc = wx + m.width/2; m.cyc = rowY; m.x = wx; m.ox = ox; m.oy = oy;
+        // Row-local previous word: Pillow's highlight slide gates on
+        // active_idx > 0 WITHIN the wrapped row (_draw_word_list runs per row),
+        // so the pill never slides across a line break.
+        m.prev = prevInRow; prevInRow = m;
         wx += m.width + spaceW;
       });
     });
 
-    // Helper makers (appended to bubble; absolute, resolution coords).
+    // Helper makers (appended to bubble; absolute, resolution coords). Each
+    // reads the word's own overrides with CFG fallbacks — mirroring Pillow's
+    // active-word pill/underline semantics (video_render.py _draw_word_list).
     function mkPill(m){
-      var wHlPadX = Math.max(CFG.hlPadX, sStroke + 2), wHlPadY = Math.max(CFG.hlPadY, sStroke + 2);
+      var o = m.o;
+      var wHlPadX = Math.max(o.highlight_padding_x != null ? o.highlight_padding_x : CFG.hlPadX, sStroke + 2);
+      var wHlPadY = Math.max(o.highlight_padding_y != null ? o.highlight_padding_y : CFG.hlPadY, sStroke + 2);
+      m.hlPadX = wHlPadX;  // slide tween re-derives the padded rect from this
       var p = document.createElement('div'); p.className='cw-pill';
-      p.style.left = (m.x - wHlPadX) + 'px';
-      p.style.top = (m.cyc - textH/2 - wHlPadY) + 'px';
+      p.style.left = (m.x + m.ox - wHlPadX) + 'px';
+      // Pill height stays BASE textH even for scaled words (Pillow uses text_h).
+      p.style.top = (m.cyc + m.oy - textH/2 - wHlPadY) + 'px';
       p.style.width = (m.width + wHlPadX*2) + 'px';
       p.style.height = (textH + wHlPadY*2) + 'px';
-      p.style.background = CFG.activeColor;
-      p.style.borderRadius = CFG.hlRadius + 'px';
+      p.style.background = CFG.activeColor;  // global — Pillow never recolors the pill per word
+      p.style.borderRadius = (o.highlight_radius != null ? o.highlight_radius : CFG.hlRadius) + 'px';
       p.style.opacity = '0';
       bubble.insertBefore(p, bubble.querySelector('.cw'));
       return p;
     }
     function mkUnderline(m){
+      var o = m.o;
       var u = document.createElement('div'); u.className='cw-underline';
-      var ulW = CFG.ulWidth > 0 ? CFG.ulWidth : m.width;
-      var ulX = CFG.ulWidth > 0 ? m.x + (m.width - ulW)/2 : m.x;
+      var ulWCfg = o.underline_width != null ? o.underline_width : CFG.ulWidth;
+      var ulW = ulWCfg > 0 ? ulWCfg : m.width;
+      var ulX = ulWCfg > 0 ? m.x + m.ox + (m.width - ulW)/2 : m.x + m.ox;
       u.style.left = ulX + 'px';
-      u.style.top = (m.cyc + textH/2 + CFG.ulOffsetY) + 'px';
+      // Bar sits under the word's OWN text height (Pillow: center_y + w_text_h/2).
+      u.style.top = (m.cyc + m.textH/2 + (o.underline_offset_y != null ? o.underline_offset_y : CFG.ulOffsetY) + m.oy) + 'px';
       u.style.width = ulW + 'px';
-      u.style.height = CFG.ulThickness + 'px';
-      u.style.background = CFG.ulColor || CFG.activeColor;
+      u.style.height = (o.underline_thickness != null ? o.underline_thickness : CFG.ulThickness) + 'px';
+      u.style.background = o.underline_color || CFG.ulColor || CFG.activeColor;
       u.style.opacity = '0';
       bubble.appendChild(u);
       return u;
@@ -364,18 +477,24 @@ function __capBuild(tl, CFG, GROUPS){
       k.textContent = m.el.textContent;
       k.style.left = m.el.style.left; k.style.top = m.el.style.top;
       k.style.fontFamily = getComputedStyle(m.el).fontFamily;
-      k.style.fontSize = CFG.fontSize + 'px';
+      k.style.fontSize = m.size + 'px';
+      k.style.fontWeight = m.weight;
       k.style.letterSpacing = trk + 'px';
-      k.style.color = CFG.activeColor;
+      k.style.color = m.o.active_word_color || CFG.activeColor;
       k.style.width = '0px';
       bubble.appendChild(k);
       return k;
     }
 
+    // Per-word effective transition (Pillow: w_word_trans) picks the overlay —
+    // pill only for effective-'highlight' words, underline for 'underline',
+    // karaoke fill for 'karaoke'. Pillow's pill gating on the ACTIVE word's
+    // transition falls out naturally: only the active word's own overlay shows.
     wm.forEach(function(m){
-      if(mode === 'highlight') m.pill = mkPill(m);
-      if(mode === 'underline') m.underline = mkUnderline(m);
-      if(mode === 'karaoke') m.kfill = mkKFill(m);
+      m.mode = m.o.word_transition || mode;
+      if(m.mode === 'highlight') m.pill = mkPill(m);
+      if(m.mode === 'underline') m.underline = mkUnderline(m);
+      if(m.mode === 'karaoke') m.kfill = mkKFill(m);
     });
 
     // ── Timeline: group entrance/exit + per-word behavior ──
@@ -383,63 +502,87 @@ function __capBuild(tl, CFG, GROUPS){
     var animDur = CFG.animDur || 0;
     var sel = '#cg-' + gi;
     tl.set(sel, { visibility: 'visible' }, g.s);
+    // Entry/exit ease is QUADRATIC: Canvas easeOut (useSubtitleOverlay.ts) and
+    // Pillow _ease_out are both 1-(1-t)^2, and GSAP 'power1' IS that quad —
+    // 'power2' is cubic (the same naming trap as the highlight slide below).
+    // Exit: Canvas alpha = easeOut(remaining/dur) = 1-p^2 in tween progress p,
+    // and a GSAP to-opacity-0 tween gives alpha = 1-E(p), so E = 'power1.in' (p^2).
     if(anim === 'none' || animDur <= 0){
       tl.set(sel, { opacity: 1, y: 0, scale: 1 }, g.s);
     } else if(anim === 'fade'){
-      tl.fromTo(sel, { opacity: 0 }, { opacity: 1, duration: animDur, ease: 'power2.out', overwrite: 'auto' }, g.s);
+      tl.fromTo(sel, { opacity: 0 }, { opacity: 1, duration: animDur, ease: 'power1.out', overwrite: 'auto' }, g.s);
     } else if(anim === 'slide'){
       var slidePx = resH * 0.04;
-      tl.fromTo(sel, { opacity: 0, y: slidePx }, { opacity: 1, y: 0, duration: animDur, ease: 'power2.out', overwrite: 'auto' }, g.s);
+      tl.fromTo(sel, { opacity: 0, y: slidePx }, { opacity: 1, y: 0, duration: animDur, ease: 'power1.out', overwrite: 'auto' }, g.s);
     } else if(anim === 'pop'){
       gEl.style.transformOrigin = (cx) + 'px ' + (cy) + 'px';
-      tl.fromTo(sel, { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: animDur, ease: 'power2.out', overwrite: 'auto' }, g.s);
+      tl.fromTo(sel, { opacity: 0, scale: 0.85 }, { opacity: 1, scale: 1, duration: animDur, ease: 'power1.out', overwrite: 'auto' }, g.s);
     }
 
-    // Per-word color / effects.
+    // Per-word color / effects. Each word animates under its EFFECTIVE
+    // transition (m.mode) with per-word colors/params falling back to CFG —
+    // the same chain Pillow resolves in _draw_word_list.
     var base = CFG.textColor, active = CFG.activeColor;
     var hlText = CFG.highlightTextColor || CFG.bgColor;
     wm.forEach(function(m){
-      var w = m.el;
-      if(mode === 'instant'){
-        tl.set(w, { color: active }, m.s);
-        tl.set(w, { color: base }, m.e);
-      } else if(mode === 'crossfade'){
+      var w = m.el, o = m.o;
+      var wBase = o.text_color || base, wActive = o.active_word_color || active;
+      if(m.mode === 'instant'){
+        tl.set(w, { color: wActive }, m.s);
+        tl.set(w, { color: wBase }, m.e);
+      } else if(m.mode === 'crossfade'){
         var cdur = CFG.crossfadeDur || 0.06;
-        tl.fromTo(w, { color: base }, { color: active, duration: cdur, ease: 'none', overwrite: 'auto' }, m.s);
-        tl.to(w, { color: base, duration: cdur, ease: 'none', overwrite: 'auto' }, Math.max(m.s, m.e - cdur));
-      } else if(mode === 'highlight'){
-        tl.set(m.pill, { opacity: CFG.hlOpacity }, m.s);
+        tl.fromTo(w, { color: wBase }, { color: wActive, duration: cdur, ease: 'none', overwrite: 'auto' }, m.s);
+        tl.to(w, { color: wBase, duration: cdur, ease: 'none', overwrite: 'auto' }, Math.max(m.s, m.e - cdur));
+      } else if(m.mode === 'highlight'){
+        tl.set(m.pill, { opacity: (o.highlight_opacity != null ? o.highlight_opacity : CFG.hlOpacity) }, m.s);
+        if(CFG.hlAnim === 'slide' && m.prev){
+          // Pillow slide (video_render.py _draw_word_list): pill lerps from the
+          // PREVIOUS word's raw rect (prev x/width — no prev offsets) to the
+          // active word's rect, BOTH padded with the ACTIVE word's padding,
+          // with t_ease = 1 - (1 - clamp(raw_t*2.5, 0, 1))^2 — a quadratic
+          // ease-out finishing at 40% of the word duration. GSAP 'power1.out'
+          // IS that quad curve (power2.out would be cubic); duration dur/2.5
+          // makes tween progress == clamp(raw_t*2.5). First word of a row and
+          // jump mode keep the static mkPill rect (m.prev is row-local).
+          tl.fromTo(m.pill,
+            { left: (m.prev.x - m.hlPadX) + 'px', width: (m.prev.width + m.hlPadX*2) + 'px' },
+            { left: (m.x + m.ox - m.hlPadX) + 'px', width: (m.width + m.hlPadX*2) + 'px',
+              duration: Math.max((m.e - m.s) / 2.5, 0.001), ease: 'power1.out', overwrite: 'auto' }, m.s);
+        }
         tl.set(w, { color: hlText }, m.s);
         tl.set(m.pill, { opacity: 0 }, m.e);
-        tl.set(w, { color: base }, m.e);
-      } else if(mode === 'underline'){
-        tl.set(w, { color: active }, m.s);
+        tl.set(w, { color: wBase }, m.e);
+      } else if(m.mode === 'underline'){
+        tl.set(w, { color: wActive }, m.s);
         tl.set(m.underline, { opacity: 1 }, m.s);
-        tl.set(w, { color: base }, m.e);
+        tl.set(w, { color: wBase }, m.e);
         tl.set(m.underline, { opacity: 0 }, m.e);
-      } else if(mode === 'bounce'){
-        var BO = textH * (CFG.bounceStrength || 0.18);
+      } else if(m.mode === 'bounce'){
+        // Amplitude uses BASE textH even for scaled words (Pillow: text_h * w_bounce).
+        var BO = textH * ((o.bounce_strength != null ? o.bounce_strength : CFG.bounceStrength) || 0.18);
         var half = Math.max((m.e - m.s) / 2, 0.001);
-        tl.set(w, { color: active }, m.s);
+        tl.set(w, { color: wActive }, m.s);
         tl.to(w, { y: -BO, duration: half, ease: 'sine.out', overwrite: 'auto' }, m.s);
         tl.to(w, { y: 0, duration: half, ease: 'sine.in', overwrite: 'auto' }, m.s + half);
-        tl.set(w, { color: base }, m.e);
-      } else if(mode === 'scale'){
+        tl.set(w, { color: wBase }, m.e);
+      } else if(m.mode === 'scale'){
         // Scale about the word's OWN centre (Canvas scales about the word centre).
-        tl.set(w, { color: active, scale: CFG.scaleFactor, transformOrigin: '50% 50%' }, m.s);
-        tl.set(w, { color: base, scale: 1, transformOrigin: '50% 50%' }, m.e);
-      } else if(mode === 'karaoke'){
+        var sf = (o.scale_factor != null ? o.scale_factor : CFG.scaleFactor);
+        tl.set(w, { color: wActive, scale: sf, transformOrigin: '50% 50%' }, m.s);
+        tl.set(w, { color: wBase, scale: 1, transformOrigin: '50% 50%' }, m.e);
+      } else if(m.mode === 'karaoke'){
         // Base word stays in text color until spoken, then active (past). The
         // fill clone wipes left→right over the word's duration.
         tl.fromTo(m.kfill, { width: 0 }, { width: m.width, duration: Math.max(m.e - m.s, 0.001), ease: 'none', overwrite: 'auto' }, m.s);
-        tl.set(w, { color: active }, m.e);
-      } else if(mode === 'reveal'){
+        tl.set(w, { color: wActive }, m.e);
+      } else if(m.mode === 'reveal'){
         w.style.opacity = '0';
-        tl.set(w, { opacity: 1, color: active }, m.s);
-        tl.set(w, { color: base }, m.e);
+        tl.set(w, { opacity: 1, color: wActive }, m.s);
+        tl.set(w, { color: wBase }, m.e);
       } else {
-        tl.set(w, { color: active }, m.s);
-        tl.set(w, { color: base }, m.e);
+        tl.set(w, { color: wActive }, m.s);
+        tl.set(w, { color: wBase }, m.e);
       }
     });
 
@@ -447,7 +590,7 @@ function __capBuild(tl, CFG, GROUPS){
     var exitDur = (anim === 'none' || animDur <= 0) ? 0 : animDur;
     if(exitDur > 0){
       var exitAt = Math.max(g.s, g.e - exitDur);
-      tl.to(sel, { opacity: 0, duration: exitDur, ease: 'power2.in', overwrite: 'auto' }, exitAt);
+      tl.to(sel, { opacity: 0, duration: exitDur, ease: 'power1.in', overwrite: 'auto' }, exitAt);  // quad — see the entry-ease note above
     }
     tl.set(sel, { opacity: 0, visibility: 'hidden' }, g.e);
   });
