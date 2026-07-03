@@ -8,7 +8,7 @@
  * Settings come from StudioSettings (props) instead of DOM references.
  */
 
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { Segment } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import { DEFAULT_PAD_V, CROSSFADE_DUR, DEFAULT_LINE_HEIGHT } from '../lib/renderConstants'
@@ -28,8 +28,12 @@ export function useSubtitleOverlay({
   settings,
   resolution,
 }: OverlayOptions) {
+  // Last drawn time, so a resize can repaint the same frame while paused.
+  const lastTimeRef = useRef(0)
+
   const draw = useCallback(
     (currentTime: number) => {
+      lastTimeRef.current = currentTime
       const canvas = canvasRef.current
       if (!canvas) return
 
@@ -504,6 +508,16 @@ export function useSubtitleOverlay({
     },
     [canvasRef, anchorRef, segments, settings, resolution]
   ) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Re-fit the letterbox transform when the anchor resizes (flex layout /
+  // window changes) — otherwise a paused video keeps a stale canvas scale.
+  useEffect(() => {
+    const anchor = anchorRef.current
+    if (!anchor) return
+    const observer = new ResizeObserver(() => draw(lastTimeRef.current))
+    observer.observe(anchor)
+    return () => observer.disconnect()
+  }, [draw, anchorRef])
 
   return { draw }
 }

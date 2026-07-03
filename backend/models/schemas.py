@@ -99,6 +99,18 @@ class TranscriptionResult(BaseModel):
     duration: Optional[float] = None
 
 
+class RealignRequest(BaseModel):
+    """Re-run forced alignment on edited segments to recover word timings."""
+    segments: list[Segment] = Field(..., min_length=1)
+    language: Optional[str] = Field(
+        None, description="ISO language code; defaults to the transcription language"
+    )
+
+
+class RealignResponse(BaseModel):
+    segments: list[Segment] = Field(default_factory=list)
+
+
 # --- Progress ---
 
 class ProgressUpdate(BaseModel):

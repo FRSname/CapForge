@@ -25,12 +25,19 @@ interface SubtitleEditorProps {
   focusSegmentId?: string | null
   /** Called once focus has been applied so the parent can clear the request. */
   onFocusConsumed?: () => void
+  /** Re-run forced alignment on one segment (fixes word timings after text edits). */
+  onRealign?: (segId: string) => void
+  /** Segment id currently re-aligning — disables that row's button. */
+  realigningSegId?: string | null
 }
 
 interface WordTimingEdit {
   segIdx: number
   wordIdx: number
 }
+
+/** Minimum word duration when snapping an edge to the playhead (matches timeline). */
+const MIN_WORD_DUR = 0.04
 
 export function SubtitleEditor({
   segments,
@@ -41,6 +48,8 @@ export function SubtitleEditor({
   onAddSegment,
   focusSegmentId,
   onFocusConsumed,
+  onRealign,
+  realigningSegId,
 }: SubtitleEditorProps) {
   const [editingSegId, setEditingSegId] = useState<string | null>(null)
   const [wordTimingEdit, setWordTimingEdit] = useState<WordTimingEdit | null>(null)
@@ -101,6 +110,32 @@ export function SubtitleEditor({
           : {
               ...s,
               words: s.words.map((w, wi) => (wi !== wordIdx ? w : { ...w, [field]: parsed })),
+            }
+      )
+    )
+  }
+
+  // One-click timing: set a word edge to the current playhead position.
+  // Clamped to sibling words and to MIN_WORD_DUR so the word can't invert.
+  function handleWordSetToPlayhead(segIdx: number, wordIdx: number, field: 'start' | 'end') {
+    const seg = segments[segIdx]
+    const w = seg?.words[wordIdx]
+    if (!w) return
+    const prevEnd = wordIdx > 0 ? seg.words[wordIdx - 1].end : 0
+    const nextStart = wordIdx < seg.words.length - 1 ? seg.words[wordIdx + 1].start : Infinity
+    const t =
+      field === 'start'
+        ? Math.min(Math.max(currentTime, prevEnd), w.end - MIN_WORD_DUR)
+        : Math.max(Math.min(currentTime, nextStart), w.start + MIN_WORD_DUR)
+    if (t === w[field]) return
+    onBeforeEdit?.()
+    onChange(
+      segments.map((s, si) =>
+        si !== segIdx
+          ? s
+          : {
+              ...s,
+              words: s.words.map((word, wi) => (wi !== wordIdx ? word : { ...word, [field]: t })),
             }
       )
     )
@@ -220,6 +255,7 @@ export function SubtitleEditor({
               wordTimingEdit={wordTimingEdit}
               onWordTimingEditToggle={setWordTimingEdit}
               onWordTimingChange={handleWordTimingChange}
+              onWordSetPlayhead={handleWordSetToPlayhead}
               onDelete={handleDeleteSegment}
               onStartEdit={() => setEditingSegId(seg.id)}
               onStopEdit={() => setEditingSegId(null)}
@@ -229,6 +265,8 @@ export function SubtitleEditor({
               onFocusPrev={si > 0 ? () => setEditingSegId(segments[si - 1].id) : undefined}
               onSplit={handleSplitSegment}
               onMerge={handleMergeSegment}
+              onRealign={onRealign}
+              isRealigning={seg.id === realigningSegId}
               isFirst={si === 0}
               isLast={si === segments.length - 1}
             />
@@ -253,6 +291,7 @@ interface SegmentRowProps {
   wordTimingEdit: WordTimingEdit | null
   onWordTimingEditToggle: (edit: WordTimingEdit | null) => void
   onWordTimingChange: (si: number, wi: number, field: 'start' | 'end', value: string) => void
+  onWordSetPlayhead: (si: number, wi: number, field: 'start' | 'end') => void
   onDelete: (si: number) => void
   onStartEdit: () => void
   onStopEdit: () => void
@@ -260,6 +299,8 @@ interface SegmentRowProps {
   onFocusPrev?: () => void
   onSplit?: (si: number, currentText: string, charOffset: number) => void
   onMerge?: (si: number, direction: 'prev' | 'next') => void
+  onRealign?: (segId: string) => void
+  isRealigning: boolean
   isFirst: boolean
   isLast: boolean
 }
@@ -276,6 +317,7 @@ function SegmentRow({
   wordTimingEdit,
   onWordTimingEditToggle,
   onWordTimingChange,
+  onWordSetPlayhead,
   onDelete,
   onStartEdit,
   onStopEdit,
@@ -283,6 +325,8 @@ function SegmentRow({
   onFocusPrev,
   onSplit,
   onMerge,
+  onRealign,
+  isRealigning,
   isFirst,
   isLast,
 }: SegmentRowProps) {
@@ -426,10 +470,18 @@ function SegmentRow({
                             value={w.start}
                             onChange={(v) => onWordTimingChange(segIdx, wi, 'start', v)}
                           />
+                          <PlayheadButton
+                            title="Set start to playhead"
+                            onClick={() => onWordSetPlayhead(segIdx, wi, 'start')}
+                          />
                           <TimingField
                             label="E"
                             value={w.end}
                             onChange={(v) => onWordTimingChange(segIdx, wi, 'end', v)}
+                          />
+                          <PlayheadButton
+                            title="Set end to playhead"
+                            onClick={() => onWordSetPlayhead(segIdx, wi, 'end')}
                           />
                         </div>
                       )}
@@ -509,6 +561,16 @@ function SegmentRow({
             onChange={(v) => onTimingChange(segIdx, 'end', v)}
           />
           <div className="ml-auto flex items-center gap-1.5">
+            {onRealign && seg.text.trim() !== '' && (
+              <button
+                className="text-xs px-2 py-0.5 rounded border border-[var(--color-accent)]/40 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                onClick={() => onRealign(seg.id)}
+                disabled={isRealigning}
+                title="Re-fit word timings to the audio with forced alignment"
+              >
+                {isRealigning ? 'Aligning…' : '⟳ Re-align'}
+              </button>
+            )}
             {!isFirst && (
               <button
                 className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-white/[0.06] hover:text-[var(--color-text)] transition-colors"
@@ -540,6 +602,25 @@ function SegmentRow({
   )
 }
 
+// ── PlayheadButton ──────────────────────────────────────────────
+
+/** Tiny "grab the playhead time" button rendered beside a TimingField. */
+function PlayheadButton({ title, onClick }: { title: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      className="shrink-0 p-0.5 rounded text-[var(--color-text-subtle)] hover:text-[var(--color-accent)] hover:bg-white/[0.06] transition-colors"
+      onClick={onClick}
+      title={title}
+    >
+      <svg width="10" height="10" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M4 1h8v4.5L8 9.5 4 5.5Z" />
+        <rect x="7.25" y="8.5" width="1.5" height="6.5" rx="0.75" />
+      </svg>
+    </button>
+  )
+}
+
 // ── TimingField ─────────────────────────────────────────────────
 
 function TimingField({
@@ -553,6 +634,16 @@ function TimingField({
 }) {
   const [raw, setRaw] = useState(formatTimePrecise(value))
   const [invalid, setInvalid] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  // Sync from props when the value changes externally (e.g. playhead-set button),
+  // but never while the user is typing in this field.
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setRaw(formatTimePrecise(value))
+      setInvalid(false)
+    }
+  }, [value])
 
   function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
     const v = e.target.value
@@ -568,6 +659,7 @@ function TimingField({
         {label}
       </label>
       <input
+        ref={inputRef}
         type="text"
         value={raw}
         onChange={handleChange}

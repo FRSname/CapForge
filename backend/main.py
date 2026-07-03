@@ -58,6 +58,8 @@ from backend.models.schemas import (
     HyperframesRenderRequest,
     JobStatus,
     ProgressUpdate,
+    RealignRequest,
+    RealignResponse,
     SaveTemplateRequest,
     SystemInfo,
     TranscribeRequest,
@@ -399,6 +401,41 @@ async def update_result(updated: TranscriptionResult):
     global current_result
     current_result = updated
     return {"status": "ok", "segments": len(updated.segments)}
+
+
+@app.post("/api/realign")
+async def realign_segments(request: RealignRequest) -> RealignResponse:
+    """Re-run WhisperX forced alignment on edited segments.
+
+    Stateless: returns re-timed segments without touching the stored result —
+    the renderer owns applying them. The audio path always comes from the
+    current transcription (never the client), so this adds no file-read surface.
+    """
+    if current_status.status not in (JobStatus.IDLE, JobStatus.DONE, JobStatus.ERROR):
+        raise HTTPException(status_code=409, detail="A transcription is already in progress")
+    if current_result is None or not current_result.audio_path:
+        raise HTTPException(status_code=400, detail="No transcription loaded — nothing to align against")
+    audio_path = current_result.audio_path
+    if not Path(audio_path).is_file():
+        raise HTTPException(status_code=400, detail=f"Original media file not found: {audio_path}")
+    language = request.language or current_result.language
+    if not language:
+        raise HTTPException(status_code=400, detail="No language available for alignment")
+
+    loop = asyncio.get_running_loop()
+    try:
+        segments = await loop.run_in_executor(
+            None,
+            lambda: transcriber.realign_segments(request.segments, audio_path, language),
+        )
+    except Exception as e:
+        logger.exception("Realign failed")
+        friendly = explain(e)
+        raise HTTPException(
+            status_code=500,
+            detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
+        )
+    return RealignResponse(segments=segments)
 
 
 # --- Agent endpoints (token-guarded; drive the live UI) ---

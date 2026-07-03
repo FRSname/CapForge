@@ -1,0 +1,371 @@
+"""Tests for Transcriber.realign_segments and POST /api/realign.
+
+whisperx is not installed in the dev venv — a fake module is injected into
+sys.modules before importing the transcriber, and each test drives the fake's
+align() return value. Real-audio alignment is exercised manually in the app.
+"""
+
+import sys
+import types
+
+import pytest
+
+
+def _install_fake_whisperx() -> types.ModuleType:
+    fake = sys.modules.get("whisperx")
+    if fake is None:
+        fake = types.ModuleType("whisperx")
+        sys.modules["whisperx"] = fake
+    fake.load_audio = lambda path, sr=16000: "AUDIO"
+    fake.load_align_model = lambda language_code, device, **kw: (
+        f"MODEL:{language_code}",
+        {"language": language_code},
+    )
+    fake.align = lambda *a, **kw: {"segments": []}
+    return fake
+
+
+FAKE_WX = _install_fake_whisperx()
+
+from backend.engine.transcriber import Transcriber  # noqa: E402
+from backend.models.schemas import (  # noqa: E402
+    JobStatus,
+    ProgressUpdate,
+    Segment,
+    TranscriptionResult,
+    WordSegment,
+)
+
+
+# --- _fill_word_timings (pure interpolation logic) ---
+
+
+def test_fill_word_timings_passthrough_when_all_timed():
+    words = Transcriber._fill_word_timings(
+        [
+            {"word": "Hello", "start": 0.0, "end": 0.5, "score": 0.9},
+            {"word": "world", "start": 0.5, "end": 1.0, "score": 0.8},
+        ],
+        seg_start=0.0,
+        seg_end=1.2,
+    )
+    assert [w.word for w in words] == ["Hello", "world"]
+    assert words[0].start == 0.0 and words[0].end == 0.5
+    assert words[1].start == 0.5 and words[1].end == 1.0
+    assert words[0].score == 0.9
+
+
+def test_fill_word_timings_interpolates_untimed_run():
+    words = Transcriber._fill_word_timings(
+        [
+            {"word": "at", "start": 1.0, "end": 1.5},
+            {"word": "10"},  # digits: not in the phoneme dictionary
+            {"word": "45"},
+            {"word": "sharp", "start": 3.5, "end": 4.0},
+        ],
+        seg_start=0.0,
+        seg_end=5.0,
+    )
+    # The 1.5 → 3.5 gap is split evenly between the two untimed words.
+    assert words[1].start == pytest.approx(1.5)
+    assert words[1].end == pytest.approx(2.5)
+    assert words[2].start == pytest.approx(2.5)
+    assert words[2].end == pytest.approx(3.5)
+
+
+def test_fill_word_timings_all_untimed_distributes_evenly():
+    words = Transcriber._fill_word_timings(
+        [{"word": "a"}, {"word": "b"}, {"word": "c"}, {"word": "d"}],
+        seg_start=2.0,
+        seg_end=4.0,
+    )
+    assert words[0].start == pytest.approx(2.0)
+    assert words[1].start == pytest.approx(2.5)
+    assert words[3].end == pytest.approx(4.0)
+    # Contiguous coverage
+    for prev, nxt in zip(words, words[1:]):
+        assert prev.end == pytest.approx(nxt.start)
+
+
+def test_fill_word_timings_degenerate_gap_gets_min_duration():
+    # Neighbors leave no room: prev ends where next starts.
+    words = Transcriber._fill_word_timings(
+        [
+            {"word": "x", "start": 1.0, "end": 2.0},
+            {"word": "new"},
+            {"word": "y", "start": 2.0, "end": 3.0},
+        ],
+        seg_start=1.0,
+        seg_end=3.0,
+    )
+    assert words[1].start == pytest.approx(2.0)
+    assert words[1].end == pytest.approx(2.04)
+
+
+def test_fill_word_timings_empty_input():
+    assert Transcriber._fill_word_timings([], 0.0, 1.0) == []
+
+
+# --- realign_segments orchestration (fake whisperx) ---
+
+
+@pytest.fixture
+def audio_file(tmp_path):
+    p = tmp_path / "audio.wav"
+    p.write_bytes(b"\x00" * 64)
+    return str(p)
+
+
+def test_realign_merges_subsegments_into_one(monkeypatch, audio_file):
+    # align() sentence-splits one input segment into two subsegments —
+    # realign must merge the words back into a single Segment.
+    monkeypatch.setattr(
+        FAKE_WX,
+        "align",
+        lambda transcript, *a, **kw: {
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 1.0,
+                    "text": "Hello there.",
+                    "words": [
+                        {"word": "Hello", "start": 0.0, "end": 0.4, "score": 0.9},
+                        {"word": "there.", "start": 0.4, "end": 1.0, "score": 0.8},
+                    ],
+                },
+                {
+                    "start": 1.2,
+                    "end": 2.0,
+                    "text": "Bye.",
+                    "words": [{"word": "Bye.", "start": 1.2, "end": 2.0, "score": 0.7}],
+                },
+            ]
+        },
+    )
+    t = Transcriber()
+    seg = Segment(start=0.0, end=2.0, text="Hello there. Bye.", speaker="SPEAKER_00")
+    out = t.realign_segments([seg], audio_file, "en")
+
+    assert len(out) == 1
+    assert out[0].text == "Hello there. Bye."
+    assert out[0].speaker == "SPEAKER_00"
+    assert [w.word for w in out[0].words] == ["Hello", "there.", "Bye."]
+    assert out[0].start == 0.0 and out[0].end == 2.0
+
+
+def test_realign_failed_alignment_falls_back_to_even_spacing(monkeypatch, audio_file):
+    monkeypatch.setattr(
+        FAKE_WX,
+        "align",
+        lambda *a, **kw: {
+            "segments": [{"start": 0.0, "end": 2.0, "text": "10 45", "words": []}]
+        },
+    )
+    t = Transcriber()
+    seg = Segment(start=0.0, end=2.0, text="10 45")
+    out = t.realign_segments([seg], audio_file, "en")
+
+    assert [w.word for w in out[0].words] == ["10", "45"]
+    assert out[0].words[0].start == pytest.approx(0.0)
+    assert out[0].words[0].end == pytest.approx(1.0)
+    assert out[0].words[1].end == pytest.approx(2.0)
+
+
+def test_realign_empty_text_returns_segment_unchanged(monkeypatch, audio_file):
+    def _boom(*a, **kw):
+        raise AssertionError("align must not be called for empty text")
+
+    monkeypatch.setattr(FAKE_WX, "align", _boom)
+    t = Transcriber()
+    seg = Segment(start=1.0, end=2.0, text="   ")
+    out = t.realign_segments([seg], audio_file, "en")
+    assert out[0] is seg
+
+
+def test_realign_missing_audio_raises():
+    t = Transcriber()
+    with pytest.raises(FileNotFoundError):
+        t.realign_segments(
+            [Segment(start=0.0, end=1.0, text="hi")], "/nope/missing.wav", "en"
+        )
+
+
+def test_align_model_cached_per_language(monkeypatch, audio_file):
+    loads: list[str] = []
+
+    def fake_load(language_code, device, **kw):
+        loads.append(language_code)
+        return (f"MODEL:{language_code}", {"language": language_code})
+
+    monkeypatch.setattr(FAKE_WX, "load_align_model", fake_load)
+    monkeypatch.setattr(
+        FAKE_WX,
+        "align",
+        lambda *a, **kw: {
+            "segments": [
+                {
+                    "start": 0.0,
+                    "end": 1.0,
+                    "text": "hi",
+                    "words": [{"word": "hi", "start": 0.0, "end": 1.0}],
+                }
+            ]
+        },
+    )
+    t = Transcriber()
+    seg = Segment(start=0.0, end=1.0, text="hi")
+    t.realign_segments([seg], audio_file, "en")
+    t.realign_segments([seg], audio_file, "en")
+    assert loads == ["en"]  # second call reuses the cache
+
+    t.realign_segments([seg], audio_file, "de")
+    assert loads == ["en", "de"]
+
+    t.unload_model()
+    t.realign_segments([seg], audio_file, "de")
+    assert loads == ["en", "de", "de"]  # unload cleared the cache
+
+
+# --- POST /api/realign endpoint ---
+
+
+@pytest.fixture
+def client():
+    from fastapi.testclient import TestClient
+
+    import backend.main as main_module
+
+    # No context manager: skip startup/shutdown (agent discovery file IO).
+    return TestClient(main_module.app), main_module
+
+
+def _loaded_result(audio_file: str) -> TranscriptionResult:
+    return TranscriptionResult(
+        segments=[
+            Segment(
+                start=0.0,
+                end=1.0,
+                text="hello",
+                words=[WordSegment(word="hello", start=0.0, end=1.0)],
+            )
+        ],
+        language="en",
+        audio_path=audio_file,
+    )
+
+
+def test_endpoint_400_when_no_result(client, monkeypatch):
+    tc, main_module = client
+    monkeypatch.setattr(main_module, "current_result", None)
+    resp = tc.post(
+        "/api/realign",
+        json={"segments": [{"start": 0.0, "end": 1.0, "text": "hi", "words": []}]},
+    )
+    assert resp.status_code == 400
+
+
+def test_endpoint_400_when_audio_missing(client, monkeypatch):
+    tc, main_module = client
+    monkeypatch.setattr(
+        main_module, "current_result", _loaded_result("/nope/gone.wav")
+    )
+    resp = tc.post(
+        "/api/realign",
+        json={"segments": [{"start": 0.0, "end": 1.0, "text": "hi", "words": []}]},
+    )
+    assert resp.status_code == 400
+
+
+def test_endpoint_409_while_job_running(client, monkeypatch, audio_file):
+    tc, main_module = client
+    monkeypatch.setattr(main_module, "current_result", _loaded_result(audio_file))
+    monkeypatch.setattr(
+        main_module,
+        "current_status",
+        ProgressUpdate(status=JobStatus.TRANSCRIBING, progress=50, message="busy"),
+    )
+    resp = tc.post(
+        "/api/realign",
+        json={"segments": [{"start": 0.0, "end": 1.0, "text": "hi", "words": []}]},
+    )
+    assert resp.status_code == 409
+
+
+def test_endpoint_422_on_empty_segments(client, monkeypatch, audio_file):
+    tc, main_module = client
+    monkeypatch.setattr(main_module, "current_result", _loaded_result(audio_file))
+    resp = tc.post("/api/realign", json={"segments": []})
+    assert resp.status_code == 422
+
+
+def test_endpoint_400_when_no_language(client, monkeypatch, audio_file):
+    tc, main_module = client
+    result = _loaded_result(audio_file)
+    result.language = None
+    monkeypatch.setattr(main_module, "current_result", result)
+    resp = tc.post(
+        "/api/realign",
+        json={"segments": [{"start": 0.0, "end": 1.0, "text": "hi", "words": []}]},
+    )
+    assert resp.status_code == 400
+
+
+def test_endpoint_success_is_stateless(client, monkeypatch, audio_file):
+    tc, main_module = client
+    stored = _loaded_result(audio_file)
+    monkeypatch.setattr(main_module, "current_result", stored)
+
+    realigned = [
+        Segment(
+            start=0.1,
+            end=0.9,
+            text="hi there",
+            words=[
+                WordSegment(word="hi", start=0.1, end=0.5),
+                WordSegment(word="there", start=0.5, end=0.9),
+            ],
+        )
+    ]
+    calls: list[tuple] = []
+
+    def fake_realign(segments, audio_path, language):
+        calls.append((len(segments), audio_path, language))
+        return realigned
+
+    monkeypatch.setattr(main_module.transcriber, "realign_segments", fake_realign)
+
+    resp = tc.post(
+        "/api/realign",
+        json={
+            "segments": [{"start": 0.0, "end": 1.0, "text": "hi there", "words": []}]
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [w["word"] for w in body["segments"][0]["words"]] == ["hi", "there"]
+    # Audio path came from the stored result, not the request.
+    assert calls == [(1, audio_file, "en")]
+    # Stateless: the stored result was not replaced.
+    assert main_module.current_result is stored
+    assert main_module.current_result.segments[0].text == "hello"
+
+
+def test_endpoint_language_override(client, monkeypatch, audio_file):
+    tc, main_module = client
+    monkeypatch.setattr(main_module, "current_result", _loaded_result(audio_file))
+    seen: list[str] = []
+
+    def fake_realign(segments, audio_path, language):
+        seen.append(language)
+        return segments
+
+    monkeypatch.setattr(main_module.transcriber, "realign_segments", fake_realign)
+    resp = tc.post(
+        "/api/realign",
+        json={
+            "segments": [{"start": 0.0, "end": 1.0, "text": "hi", "words": []}],
+            "language": "de",
+        },
+    )
+    assert resp.status_code == 200
+    assert seen == ["de"]

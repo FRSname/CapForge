@@ -42,6 +42,11 @@ class Transcriber:
         self._device: Optional[str] = None
         self._compute_type: Optional[str] = None
         self._cancelled = False
+        # Alignment model cached per language for realign_segments — cheap to
+        # keep resident vs. reloading on every word-timing edit.
+        self._align_model = None
+        self._align_metadata: Optional[dict] = None
+        self._align_lang: Optional[str] = None
 
     def cancel(self) -> None:
         """Signal the running transcription to stop."""
@@ -128,13 +133,69 @@ class Transcriber:
         return transcription
 
     def unload_model(self) -> None:
-        """Free the loaded model from memory."""
+        """Free the loaded models (transcription + cached alignment) from memory."""
+        freed = False
         if self._model is not None:
             del self._model
             self._model = None
             self._model_size = None
+            freed = True
+        if self._align_model is not None:
+            del self._align_model
+            self._align_model = None
+            self._align_metadata = None
+            self._align_lang = None
+            freed = True
+        if freed:
             gc.collect()
             self._try_cuda_empty_cache()
+
+    def realign_segments(
+        self, segments: list[Segment], audio_path: str, language: str
+    ) -> list[Segment]:
+        """Re-run WhisperX forced alignment on edited segments.
+
+        Used after the user edits a segment's text so every word gets a real
+        timestamp instead of one inherited from its neighbor. Returns new
+        Segment objects (1:1 with the input) and never touches the stored
+        transcription result.
+        """
+        if not Path(audio_path).is_file():
+            raise FileNotFoundError(f"Audio file not found: {audio_path}")
+
+        device = self._device or detect_hardware().recommended_device.value
+        self._load_align_model(language, device)
+        audio = whisperx.load_audio(audio_path)
+        return [self._realign_one(seg, audio, device) for seg in segments]
+
+    def _realign_one(self, seg: Segment, audio: Any, device: str) -> Segment:
+        text = seg.text.strip()
+        if not text or seg.end <= seg.start:
+            return seg
+
+        result = whisperx.align(
+            [{"start": seg.start, "end": seg.end, "text": text}],
+            self._align_model, self._align_metadata, audio, device,
+            return_char_alignments=False,
+        )
+        # align() may split one segment into sentence-level subsegments —
+        # merge the words back so the caller keeps a 1:1 segment mapping.
+        raw_words: list[dict] = []
+        for sub in result.get("segments", []):
+            raw_words.extend(sub.get("words", []))
+        if not raw_words:
+            # Alignment failed outright (e.g. no dictionary characters) —
+            # distribute the words evenly across the original window.
+            raw_words = [{"word": w} for w in text.split()]
+
+        words = self._fill_word_timings(raw_words, seg.start, seg.end)
+        return Segment(
+            start=words[0].start if words else seg.start,
+            end=words[-1].end if words else seg.end,
+            text=seg.text,
+            words=words,
+            speaker=seg.speaker,
+        )
 
     # --- Private helpers ---
 
@@ -193,6 +254,65 @@ class Transcriber:
             self._model = whisperx.load_model(model_size, device, **kwargs)
 
         self._model_size = model_size
+
+    def _load_align_model(self, language: str, device: str) -> None:
+        if self._align_model is not None and self._align_lang == language:
+            return
+        if self._align_model is not None:
+            del self._align_model
+            self._align_model = None
+            self._align_metadata = None
+            self._align_lang = None
+            gc.collect()
+            self._try_cuda_empty_cache()
+        model_a, metadata = whisperx.load_align_model(
+            language_code=language, device=device
+        )
+        self._align_model = model_a
+        self._align_metadata = metadata
+        self._align_lang = language
+
+    @staticmethod
+    def _fill_word_timings(
+        raw_words: list[dict], seg_start: float, seg_end: float
+    ) -> list[WordSegment]:
+        """Convert whisperx word dicts to WordSegments, interpolating timings
+        for words the aligner couldn't place (e.g. digits — absent from the
+        phoneme dictionary). Runs of untimed words share their surrounding
+        gap evenly."""
+        n = len(raw_words)
+        starts: list[Optional[float]] = [w.get("start") for w in raw_words]
+        ends: list[Optional[float]] = [w.get("end") for w in raw_words]
+
+        i = 0
+        while i < n:
+            if starts[i] is not None and ends[i] is not None:
+                i += 1
+                continue
+            run_start = i
+            while i < n and (starts[i] is None or ends[i] is None):
+                i += 1
+            prev_end = ends[run_start - 1] if run_start > 0 else seg_start
+            next_start = starts[i] if i < n else seg_end
+            run_len = i - run_start
+            if next_start <= prev_end:
+                # Degenerate gap — give each word a minimal audible duration.
+                next_start = prev_end + 0.04 * run_len
+            step = (next_start - prev_end) / run_len
+            for k in range(run_start, i):
+                starts[k] = prev_end + step * (k - run_start)
+                ends[k] = prev_end + step * (k - run_start + 1)
+
+        return [
+            WordSegment(
+                word=w.get("word", ""),
+                start=float(starts[idx]),
+                end=float(ends[idx]),
+                score=w.get("score"),
+                speaker=w.get("speaker"),
+            )
+            for idx, w in enumerate(raw_words)
+        ]
 
     @staticmethod
     def _pick_batch_size(vram_mb: Optional[int]) -> int:

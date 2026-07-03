@@ -17,6 +17,8 @@ import { buildStudioGroups } from '../../lib/groups'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
 import { useUndoRedo } from '../../hooks/useUndoRedo'
+import { useToast } from '../../hooks/useToast'
+import { api, type RealignSegmentPayload } from '../../lib/api'
 import { AudioPlayer, type AudioPlayerHandle } from '../player/AudioPlayer'
 import { SubtitleEditor } from '../editor/SubtitleEditor'
 import { GroupEditor } from '../editor/GroupEditor'
@@ -72,8 +74,11 @@ export function ResultsScreen({
   // field (used right after a manual "+ Add subtitle" so the user can type).
   const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null)
   const [editorWidth, setEditorWidth] = useState(420)
+  // Segment id currently being re-aligned via /api/realign (null = idle).
+  const [realigningSegId, setRealigningSegId] = useState<string | null>(null)
 
   const playerRef = useRef<AudioPlayerHandle>(null)
+  const { toast } = useToast()
 
   // ── Undo/redo for segment + group edits ───────────────────────
   const { pushUndo, undo, redo, canUndo, canRedo, isRestoringRef } = useUndoRedo(
@@ -390,6 +395,83 @@ export function ResultsScreen({
     pushUndo()
   }, [pushUndo])
 
+  // Word-lane drag: retime one word inside a group. The group's own bounds
+  // widen if the first/last word is pushed past them (never into a neighbour —
+  // the timeline clamps to adjacent groups before calling this).
+  const handleWordEdge = useCallback(
+    (segId: string, wordIdx: number, patch: { start: number; end: number }) => {
+      setGroups((prev) =>
+        prev.map((g) => {
+          if (g.id !== segId) return g
+          const words = g.words.map((w, i) =>
+            i === wordIdx ? { ...w, start: patch.start, end: patch.end } : w
+          )
+          return {
+            ...g,
+            words,
+            start: Math.min(g.start, patch.start),
+            end: Math.max(g.end, patch.end),
+          }
+        })
+      )
+      setGroupsEdited(true)
+    },
+    []
+  )
+
+  const handleWordEdgeDragStart = useCallback(() => {
+    pushUndo()
+  }, [pushUndo])
+
+  // Re-run WhisperX forced alignment on one segment. The backend re-fits word
+  // timings to the audio; per-word style overrides are re-attached by index
+  // (the backend preserves word count).
+  const handleRealignSegment = useCallback(
+    async (segId: string) => {
+      const seg = segments.find((s) => s.id === segId)
+      if (!seg || realigningSegId) return
+      setRealigningSegId(segId)
+      try {
+        const payload: RealignSegmentPayload = {
+          start: seg.start,
+          end: seg.end,
+          text: seg.text,
+          words: seg.words.map(({ word, start, end, score }) => ({ word, start, end, score })),
+          speaker: seg.speaker,
+        }
+        const res = await api.realignSegments([payload], result.language)
+        const aligned = res.segments[0]
+        if (!aligned) throw new Error('Backend returned no segments')
+        // Snapshot only after the backend succeeded — a failed request leaves
+        // both the segments and the undo stack untouched.
+        pushUndo()
+        setSegments((prev) =>
+          prev.map((s) => {
+            if (s.id !== segId) return s
+            return {
+              ...s,
+              start: aligned.start,
+              end: aligned.end,
+              text: aligned.text,
+              words: aligned.words.map((w, i) => {
+                const overrides = s.words[i]?.overrides
+                return overrides ? { ...w, overrides } : { ...w }
+              }),
+            }
+          })
+        )
+        setSegmentsEdited(true)
+        toast('Word timings re-aligned', 'success')
+      } catch (err) {
+        const detail = err instanceof Error ? err.message : 'Unknown error'
+        toast(`Re-align failed: ${detail}`, 'error')
+      } finally {
+        setRealigningSegId(null)
+      }
+    },
+    [segments, realigningSegId, result.language, pushUndo, toast]
+  )
+
   const handleResizeMouseDown = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault()
@@ -486,6 +568,8 @@ export function ResultsScreen({
             onAddSegment={handleAddSegment}
             focusSegmentId={focusSegmentId}
             onFocusConsumed={() => setFocusSegmentId(null)}
+            onRealign={handleRealignSegment}
+            realigningSegId={realigningSegId}
           />
         ) : (
           <GroupEditor
@@ -518,6 +602,8 @@ export function ResultsScreen({
           seekTo={seekTarget}
           onSegmentEdge={handleSegmentEdge}
           onSegmentEdgeDragStart={handleSegmentEdgeDragStart}
+          onWordEdge={handleWordEdge}
+          onWordEdgeDragStart={handleWordEdgeDragStart}
         />
       </div>
     </div>

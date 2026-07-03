@@ -44,6 +44,15 @@ export interface SegmentResult {
   speaker?: string
 }
 
+/** Wire shape for /api/realign — the backend Segment model has no frontend `id`. */
+export interface RealignSegmentPayload {
+  start: number
+  end: number
+  text: string
+  words: WordResult[]
+  speaker?: string
+}
+
 export interface TranscriptionResult {
   segments: SegmentResult[]
   language: string
@@ -277,6 +286,11 @@ class CapForgeAPI {
 
   updateResult(result: TranscriptionResult) {
     return this.put('/api/result', result)
+  }
+
+  /** Re-run WhisperX forced alignment on edited segments (audio stays server-side). */
+  realignSegments(segments: RealignSegmentPayload[], language?: string) {
+    return this.post<{ segments: RealignSegmentPayload[] }>('/api/realign', { segments, language })
   }
 
   /** Mirror the renderer's UI state (settings + groups) so the agent can read it. */

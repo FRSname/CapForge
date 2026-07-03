@@ -10,7 +10,7 @@ import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useSta
 import type { SegmentBodyMove } from '../../hooks/useTimeline'
 import { api } from '../../lib/api'
 import { useWaveSurfer } from '../../hooks/useWaveSurfer'
-import { useTimeline, TIMELINE_HEIGHT } from '../../hooks/useTimeline'
+import { useTimeline, TIMELINE_HEIGHT, TIMELINE_HEIGHT_EXPANDED } from '../../hooks/useTimeline'
 import { useSubtitleOverlay } from '../../hooks/useSubtitleOverlay'
 import { useVideoZoom } from '../../hooks/useVideoZoom'
 import { SafeZoneOverlay } from './SafeZoneOverlay'
@@ -43,6 +43,10 @@ interface AudioPlayerProps {
   ) => void
   /** Called once when the drag begins (before any movement). */
   onSegmentEdgeDragStart?: (segId: string, edge: 'start' | 'end' | 'body') => void
+  /** Called when user drags a word block/edge in the expanded word lane. */
+  onWordEdge?: (segId: string, wordIdx: number, patch: { start: number; end: number }) => void
+  /** Called once when a word drag begins (before any movement). */
+  onWordEdgeDragStart?: (segId: string, wordIdx: number) => void
 }
 
 export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer(
@@ -56,6 +60,8 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     seekTo,
     onSegmentEdge,
     onSegmentEdgeDragStart,
+    onWordEdge,
+    onWordEdgeDragStart,
   },
   ref
 ) {
@@ -79,6 +85,16 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     x: number
     y: number
   } | null>(null)
+
+  // Phase 4: selected group opens the word lane below the segment track
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+
+  // Deselect if the selected group vanishes (merge/split/regroup)
+  useEffect(() => {
+    if (selectedGroupId && !segments.some((s) => s.id === selectedGroupId)) {
+      setSelectedGroupId(null)
+    }
+  }, [segments, selectedGroupId])
 
   // ── Subtitle overlay ────────────────────────────────────────────
   const { draw: overlayDraw } = useSubtitleOverlay({
@@ -178,6 +194,10 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onSeek: wsSeekTo,
     onSegmentEdge,
     onSegmentEdgeDragStart,
+    selectedSegId: selectedGroupId,
+    onSelectSegment: setSelectedGroupId,
+    onWordEdge,
+    onWordEdgeDragStart,
     onHover: useCallback((segId, time, x, y) => {
       setHoverState(segId !== null || time > 0 ? { segId, time, x, y } : null)
     }, []),
@@ -269,6 +289,8 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
         e.preventDefault()
         const next = segments.find((s) => s.start > currentTime + 0.05)
         if (next) wsSeekTo(next.start)
+      } else if (e.key === 'Escape') {
+        setSelectedGroupId(null)
       }
     }
     window.addEventListener('keydown', handler)
@@ -276,10 +298,18 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentTime, duration, segments, zoom])
 
+  const tlHeight = selectedGroupId ? TIMELINE_HEIGHT_EXPANDED : TIMELINE_HEIGHT
+
   return (
-    <div className="flex flex-col border-b border-[var(--color-border)] bg-[var(--color-surface)] select-none">
+    <div className="flex flex-col flex-1 min-h-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] select-none">
       {/* ── Video / audio preview area ──────────────────────────── */}
-      <div className="relative flex-1 min-h-0">
+      {/* container-type: size lets the aspect wrapper letterbox-fit via cqw/cqh
+          units — the wrapper keeps the exact video aspect (SafeZoneOverlay
+          relies on wrapper box == video box) while using all available space. */}
+      <div
+        className="relative flex-1 min-h-0 flex items-center justify-center"
+        style={{ containerType: 'size' }}
+      >
         {/* Video zoom toolbar */}
         <div
           className="absolute top-1 right-1 z-10 flex items-center gap-1 rounded px-1.5 py-0.5"
@@ -309,18 +339,17 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
               ;(previewAreaRef as React.MutableRefObject<HTMLDivElement | null>).current = el
               ;(vz.wrapRef as React.MutableRefObject<HTMLDivElement | null>).current = el
             }}
-            className="relative w-full mx-auto overflow-hidden"
+            className="relative overflow-hidden"
             style={{
               // When zoomed, drop the aspect-ratio constraint so the wrapper
-              // can use the full available main-area width — otherwise the
-              // 55vh × aspect maxWidth clips the scaled content on the sides.
-              // Video stays correct aspect via object-contain inside.
+              // can use the full preview area — otherwise the letterbox width
+              // clips the scaled content on the sides. Video stays correct
+              // aspect via object-contain inside.
               ...(vz.isZoomed
-                ? { height: '55vh' }
+                ? { width: '100%', height: '100%' }
                 : {
                     aspectRatio: `${resolution[0]} / ${resolution[1]}`,
-                    maxHeight: '55vh',
-                    maxWidth: `calc(55vh * ${resolution[0] / resolution[1]})`,
+                    width: `min(100cqw, ${(resolution[0] / resolution[1]) * 100}cqh)`,
                   }),
               cursor: vz.isZoomed ? 'grab' : 'default',
             }}
@@ -340,13 +369,12 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
         ) : (
           <div
             ref={previewAreaRef}
-            className="relative w-full mx-auto overflow-hidden bg-[var(--color-bg)] flex items-center justify-center"
+            className="relative overflow-hidden bg-[var(--color-bg)] flex items-center justify-center"
             style={{
               // Audio-only: use the configured resolution so captions still preview
               // at the correct aspect ratio against a neutral backdrop.
               aspectRatio: `${resolution[0]} / ${resolution[1]}`,
-              maxHeight: '40vh',
-              maxWidth: `calc(40vh * ${resolution[0] / resolution[1]})`,
+              width: `min(100cqw, ${(resolution[0] / resolution[1]) * 100}cqh)`,
             }}
           >
             <span className="text-xs opacity-60" style={{ color: 'var(--color-text-3)' }}>
@@ -378,11 +406,14 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
       </div>
 
       {/* ── Canvas timeline ─────────────────────────────────────── */}
-      <div className="w-full relative" style={{ height: TIMELINE_HEIGHT }}>
+      <div
+        className="w-full relative"
+        style={{ height: tlHeight, transition: 'height 150ms ease' }}
+      >
         <canvas
           ref={canvasRef}
           className="block w-full cursor-pointer"
-          style={{ height: TIMELINE_HEIGHT }}
+          style={{ height: tlHeight }}
           onMouseDown={onMouseDown}
           onMouseMove={onMouseMove}
           onMouseUp={onMouseUp}
