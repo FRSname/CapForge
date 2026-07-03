@@ -63,3 +63,4 @@ Thumbs.db
 *.spec
 *.tsbuildinfo
 CLAUDE.md
+docs/plans/hyperframes-integration-hardening.md
