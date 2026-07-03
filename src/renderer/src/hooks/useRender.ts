@@ -121,9 +121,21 @@ export function useRender({
         const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir, effects)
         const res = (await (engine === 'hyperframes'
           ? api.exportHyperframes(body)
-          : api.renderVideo(body))) as { file?: string | null }
+          : api.renderVideo(body))) as { file?: string | null; status?: string }
         // HTTP response only resolves once the render actually finishes.
         stopTimer()
+        // A HyperFrames render cancelled mid-flight resolves 200 with
+        // status:"cancelled" — the backend treats a user stop as success, not
+        // an error, so it never reaches the catch below. Reset to idle like
+        // the catch's cancellation path instead of reporting a phantom
+        // "render complete".
+        if (res?.status === 'cancelled') {
+          setProgress(0)
+          setMessage('Cancelled.')
+          setStatus('idle')
+          api.disconnectProgress()
+          return
+        }
         setProgress(100)
         setLastOutputFile(res?.file ?? null)
         setStatus('done')

@@ -8,9 +8,14 @@ CLI and streams its frame-capture progress back to a callback.
 from __future__ import annotations
 
 import logging
+import os
+import queue
 import re
 import shutil
+import signal
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -23,7 +28,55 @@ _VIDEO_EXTS = {".mp4", ".webm", ".mov"}
 
 
 class HyperframesRenderError(RuntimeError):
-    """Raised when the HyperFrames CLI is unavailable or the render fails."""
+    """Base error for a failed/unavailable HyperFrames CLI run.
+
+    Kept as the base of the taxonomy so every existing
+    ``except HyperframesRenderError`` handler keeps catching all variants.
+    Subclasses set a machine-readable :attr:`code` and a human :attr:`remedy`;
+    the constructor also carries an optional :attr:`detail` (stderr/stdout tail).
+    """
+
+    code: str = "render_failed"
+    remedy: str = ""
+
+    def __init__(self, message: str, *, detail: str = "", remedy: Optional[str] = None):
+        super().__init__(message)
+        self.detail = detail
+        if remedy is not None:
+            self.remedy = remedy
+
+
+class HyperframesUnavailableError(HyperframesRenderError):
+    """The CLI/Node runtime isn't installed or couldn't be launched."""
+
+    code = "cli_unavailable"
+    remedy = (
+        "Open the HyperFrames panel and run the one-time setup (it downloads the "
+        "bundled Node 22 engine + render browser), or use the file-only export."
+    )
+
+
+class HyperframesVersionError(HyperframesRenderError):
+    """The installed CLI is older than the minimum supported version."""
+
+    code = "cli_incompatible"
+    remedy = "Open Settings → HyperFrames → Reinstall to update the engine."
+
+
+class HyperframesTimeoutError(HyperframesRenderError):
+    """The CLI ran past its wall-clock budget and was killed."""
+
+    code = "timeout"
+    remedy = (
+        "Try a lower quality/resolution, or raise the limit via "
+        "CAPFORGE_HYPERFRAMES_RENDER_TIMEOUT / CAPFORGE_HYPERFRAMES_SNAPSHOT_TIMEOUT."
+    )
+
+
+class HyperframesCancelledError(HyperframesRenderError):
+    """The render was cancelled by the user."""
+
+    code = "cancelled"
 
 
 # CLI prints lines like "Capturing frame 30/120 (4 workers)".
@@ -31,6 +84,75 @@ _FRAME_RE = re.compile(r"Capturing frame (\d+)\s*/\s*(\d+)")
 
 # Frame capture is the long pole; reserve the last slice for encode/assemble.
 _CAPTURE_PCT_CEILING = 95.0
+
+
+def _env_timeout(var: str, default: int) -> int:
+    """Read a positive-int timeout override from ``var``; fall back on anything odd."""
+    raw = os.environ.get(var)
+    if raw is None:
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        logger.warning("Ignoring non-integer %s=%r; using %ss", var, raw, default)
+        return default
+    return value if value > 0 else default
+
+
+# Wall-clock budgets. Module-level so a test can monkeypatch them; read at call
+# time so an env override applied before import takes effect.
+SNAPSHOT_TIMEOUT_S = _env_timeout("CAPFORGE_HYPERFRAMES_SNAPSHOT_TIMEOUT", 120)
+RENDER_TIMEOUT_S = _env_timeout("CAPFORGE_HYPERFRAMES_RENDER_TIMEOUT", 3600)
+
+# How often the snapshot heartbeat emits a "still working" tick.
+_SNAPSHOT_HEARTBEAT_S = 5.0
+
+
+def _popen_session_kwargs() -> dict:
+    """Popen kwargs that let us kill the whole process tree later.
+
+    HyperFrames spawns a headless Chrome; ``proc.kill()`` alone leaves those
+    children alive. On POSIX ``start_new_session=True`` puts the child in its own
+    process group so ``os.killpg`` reaps the tree; on Windows a new process group
+    lets ``taskkill /T`` walk the tree.
+    """
+    if os.name == "nt":
+        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP}
+    return {"start_new_session": True}
+
+
+def _kill_process_tree(proc: "subprocess.Popen") -> None:
+    """Force-kill ``proc`` and every child it spawned (Chrome workers included)."""
+    if proc.poll() is not None:
+        return
+    try:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/T", "/F", "/PID", str(proc.pid)],
+                capture_output=True,
+                check=False,
+            )
+        else:
+            os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+    except (ProcessLookupError, PermissionError, OSError):
+        # Already gone / race with natural exit — fall back to a direct kill.
+        try:
+            proc.kill()
+        except OSError:
+            pass
+    try:
+        proc.wait(timeout=5)
+    except Exception:  # noqa: BLE001 - never let cleanup mask the original failure
+        pass
+
+
+def _remove_quietly(path: Path) -> None:
+    """Delete ``path`` if present; log but don't raise on failure."""
+    try:
+        if path.exists():
+            path.unlink()
+    except OSError:
+        logger.warning("Could not remove %s", path, exc_info=True)
 
 # The HyperFrames CLI's --fps accepts integers in this range (render --help,
 # v0.7.21: "Accepts integer (24, 25, 30, 50, 60, 120, 240) … Range 1-240").
@@ -54,7 +176,7 @@ def _hyperframes_cmd() -> list[str]:
     """Argv prefix to run the HyperFrames CLI, or raise if Node is unavailable."""
     argv = hyperframes_argv()
     if argv is None:
-        raise HyperframesRenderError(
+        raise HyperframesUnavailableError(
             "HyperFrames rendering isn't set up yet. Open the HyperFrames panel and "
             "run the one-time setup (it downloads the bundled Node 22 engine + render "
             "browser), or use the file-only HyperFrames export."
@@ -76,7 +198,7 @@ def _gate_cli_compat(project_dir: str | None = None) -> None:
             f"HyperFrames CLI is older than {MIN_SUPPORTED}; "
             "open Settings → HyperFrames → Reinstall"
         )
-        raise HyperframesRenderError(reason)
+        raise HyperframesVersionError(reason)
     if compat["ok"] is None:
         logger.warning(
             "HyperFrames CLI version unknown (probe failed); proceeding without a "
@@ -110,6 +232,20 @@ def _discover_output(project_dir: str, out: Path, video_format: str) -> Optional
     return max(candidates, key=lambda p: p.stat().st_mtime)
 
 
+def _clear_stale_partials(final: Path) -> None:
+    """Remove leftover ``<stem>.partial.*`` from a previous crashed run.
+
+    Scoped to THIS render's stem so a concurrent/unrelated file in the same
+    directory is never touched — and it only ever removes our own partial names,
+    never a real output the CLI produced under ``renders/``.
+    """
+    parent = final.parent
+    if not parent.is_dir():
+        return
+    for stale in parent.glob(f"{final.stem}.partial.*"):
+        _remove_quietly(stale)
+
+
 def render_hyperframes_project(
     project_dir: str,
     output_path: str,
@@ -117,23 +253,34 @@ def render_hyperframes_project(
     video_format: str = "mp4",
     fps: int = 30,
     on_progress: Optional[Callable[[float, str], None]] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> str:
     """Render the composition at `project_dir` to `output_path`; return the path.
 
     Streams the CLI's "Capturing frame X/Y" lines into `on_progress` (capped at
     95%); the final encode/assemble completes the bar.
+
+    The CLI writes to a sibling ``<stem>.partial<ext>`` first and we ``os.replace``
+    it into place only on success, so a reader never sees a half-written file. A
+    set ``cancel_event`` (polled while streaming) or the ``RENDER_TIMEOUT_S`` budget
+    kills the whole process tree and removes the partial before raising.
     """
     _gate_cli_compat(project_dir)
     hf = _hyperframes_cmd()
-    out = Path(output_path)
-    out.parent.mkdir(parents=True, exist_ok=True)
+    final = Path(output_path)
+    final.parent.mkdir(parents=True, exist_ok=True)
+
+    # Stage to a sibling partial in the SAME directory so the final os.replace is
+    # atomic (same filesystem). Clear any leftover partial from an earlier crash.
+    partial = final.with_name(f"{final.stem}.partial{final.suffix}")
+    _clear_stale_partials(final)
 
     cmd = [
         *hf, "render",
         "--quality", quality,
         "--format", video_format,
         "--fps", str(_render_fps(fps)),
-        "--output", str(out),
+        "--output", str(partial),
     ]
     logger.info("HyperFrames render: %s (cwd=%s)", " ".join(cmd), project_dir)
     if on_progress:
@@ -148,78 +295,169 @@ def render_hyperframes_project(
             stderr=subprocess.STDOUT,
             text=True,
             bufsize=1,
+            **_popen_session_kwargs(),
         )
     except FileNotFoundError as exc:  # npx vanished between which() and exec
-        raise HyperframesRenderError(f"Failed to launch HyperFrames: {exc}") from exc
+        _remove_quietly(partial)
+        raise HyperframesUnavailableError(f"Failed to launch HyperFrames: {exc}") from exc
+
+    # Read stdout on a background thread so the main loop can poll the cancel
+    # event and the wall-clock deadline even while the CLI is silent (startup /
+    # final encode) — a blocking `for line in proc.stdout` couldn't do either.
+    line_q: "queue.Queue[Optional[str]]" = queue.Queue()
+
+    def _pump() -> None:
+        try:
+            assert proc.stdout is not None
+            for line in proc.stdout:
+                line_q.put(line)
+        finally:
+            line_q.put(None)  # EOF sentinel
+
+    reader = threading.Thread(target=_pump, daemon=True)
+    reader.start()
 
     lines: list[str] = []
-    assert proc.stdout is not None
-    for line in proc.stdout:
-        lines.append(line.rstrip())
-        match = _FRAME_RE.search(line)
-        if match and on_progress:
-            current, total = int(match.group(1)), int(match.group(2))
-            pct = (current / total * _CAPTURE_PCT_CEILING) if total else 0.0
-            on_progress(min(_CAPTURE_PCT_CEILING, pct), f"Rendering frame {current}/{total}")
-    proc.wait()
+    deadline = time.monotonic() + RENDER_TIMEOUT_S
+    try:
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("HyperFrames render cancelled — killing process tree.")
+                _kill_process_tree(proc)
+                raise HyperframesCancelledError("HyperFrames render cancelled.")
+            if time.monotonic() > deadline:
+                logger.error("HyperFrames render exceeded %ss — killing.", RENDER_TIMEOUT_S)
+                _kill_process_tree(proc)
+                raise HyperframesTimeoutError(
+                    f"HyperFrames render timed out after {RENDER_TIMEOUT_S}s."
+                )
+            try:
+                line = line_q.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            if line is None:
+                break
+            lines.append(line.rstrip())
+            match = _FRAME_RE.search(line)
+            if match and on_progress:
+                current, total = int(match.group(1)), int(match.group(2))
+                pct = (current / total * _CAPTURE_PCT_CEILING) if total else 0.0
+                on_progress(min(_CAPTURE_PCT_CEILING, pct), f"Rendering frame {current}/{total}")
+        proc.wait()
 
-    tail = "\n".join(lines[-15:])
-    if proc.returncode != 0:
-        logger.error(
-            "HyperFrames render failed (exit %s):\n%s", proc.returncode, "\n".join(lines)
-        )
-        raise HyperframesRenderError(
-            f"HyperFrames render failed (exit {proc.returncode}):\n{tail}"
-        )
+        tail = "\n".join(lines[-15:])
+        if proc.returncode != 0:
+            logger.error(
+                "HyperFrames render failed (exit %s):\n%s", proc.returncode, "\n".join(lines)
+            )
+            raise HyperframesRenderError(
+                f"HyperFrames render failed (exit {proc.returncode}):\n{tail}",
+                detail=tail,
+            )
 
-    # Exit 0 but no file at the requested path: relocate from the default
-    # `renders/` dir if the CLI wrote there (some versions ignore --output).
-    if not out.exists():
-        produced = _discover_output(project_dir, out, video_format)
-        if produced is not None:
-            logger.warning("HyperFrames wrote %s instead of %s — relocating.", produced, out)
-            shutil.move(str(produced), str(out))
+        # Exit 0 but no partial at the requested path: relocate from the default
+        # `renders/` dir if the CLI wrote there (some versions ignore --output).
+        if not partial.exists():
+            produced = _discover_output(project_dir, partial, video_format)
+            if produced is not None and produced.resolve() != partial.resolve():
+                logger.warning(
+                    "HyperFrames wrote %s instead of %s — relocating.", produced, partial
+                )
+                shutil.move(str(produced), str(partial))
 
-    if not out.exists():
-        logger.error(
-            "HyperFrames exited 0 but produced no file at %s.\nCLI output:\n%s",
-            out, "\n".join(lines),
-        )
-        raise HyperframesRenderError(
-            f"HyperFrames render finished but produced no output file at {out}.\n"
-            f"CLI output (tail):\n{tail}"
-        )
+        if not partial.exists():
+            logger.error(
+                "HyperFrames exited 0 but produced no file at %s.\nCLI output:\n%s",
+                partial, "\n".join(lines),
+            )
+            raise HyperframesRenderError(
+                f"HyperFrames render finished but produced no output file at {final}.\n"
+                f"CLI output (tail):\n{tail}",
+                detail=tail,
+            )
+
+        # Atomic publish: the reader only ever sees a complete file.
+        os.replace(str(partial), str(final))
+    except BaseException:
+        # Any failure/cancel/timeout: never leave a half-written partial behind.
+        _remove_quietly(partial)
+        raise
 
     if on_progress:
         on_progress(100.0, "HyperFrames render complete")
-    return str(out)
+    return str(final)
 
 
-def snapshot_hyperframes_project(project_dir: str, t: float) -> bytes:
+def snapshot_hyperframes_project(
+    project_dir: str,
+    t: float,
+    on_progress: Optional[Callable[[str], None]] = None,
+) -> bytes:
     """Capture a SINGLE frame of the composition at time `t` as PNG bytes.
 
     Uses `npx hyperframes snapshot --at <t>` — one frame instead of the whole
     video, so the agent can preview a caption style / effect placement fast
     (seconds, not minutes). `--describe false` skips the optional Gemini vision
     pass. Returns the PNG bytes for the agent to view.
+
+    Old PNGs in ``snapshots/`` are cleared first so the frame-time picker (and its
+    mtime fallback) can never return a stale frame from a previous preview. If
+    ``on_progress`` is given it receives a coarse heartbeat (~every 5s) while the
+    CLI is still running, so a long capture doesn't look hung.
     """
     _gate_cli_compat(project_dir)
     snaps = Path(project_dir) / "snapshots"
+    # Stale-artifact hygiene: a leftover PNG from a prior run would poison the
+    # closest-to-`t` picker (and especially the mtime fallback).
+    if snaps.is_dir():
+        for stale in snaps.glob("*.png"):
+            _remove_quietly(stale)
+
     cmd = [*_hyperframes_cmd(), "snapshot", "--at", f"{float(t):g}", "--describe", "false"]
     logger.info("HyperFrames snapshot: %s (cwd=%s)", " ".join(cmd), project_dir)
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             cmd, cwd=str(project_dir), env=hyperframes_env(),
-            capture_output=True, text=True, timeout=120,
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            **_popen_session_kwargs(),
         )
     except FileNotFoundError as exc:
-        raise HyperframesRenderError(f"Failed to launch HyperFrames: {exc}") from exc
-    except subprocess.TimeoutExpired as exc:
-        raise HyperframesRenderError("HyperFrames snapshot timed out.") from exc
+        raise HyperframesUnavailableError(f"Failed to launch HyperFrames: {exc}") from exc
+
+    # Drain stdout on a thread so a chatty CLI can't deadlock on a full pipe while
+    # we poll for the deadline / heartbeat.
+    captured: list[str] = []
+
+    def _drain() -> None:
+        assert proc.stdout is not None
+        for line in proc.stdout:
+            captured.append(line)
+
+    reader = threading.Thread(target=_drain, daemon=True)
+    reader.start()
+
+    deadline = time.monotonic() + SNAPSHOT_TIMEOUT_S
+    next_beat = time.monotonic() + _SNAPSHOT_HEARTBEAT_S
+    while proc.poll() is None:
+        now = time.monotonic()
+        if now > deadline:
+            logger.error("HyperFrames snapshot exceeded %ss — killing.", SNAPSHOT_TIMEOUT_S)
+            _kill_process_tree(proc)
+            raise HyperframesTimeoutError(
+                f"HyperFrames snapshot timed out after {SNAPSHOT_TIMEOUT_S}s."
+            )
+        if on_progress and now >= next_beat:
+            on_progress("Still capturing preview…")
+            next_beat = now + _SNAPSHOT_HEARTBEAT_S
+        time.sleep(0.2)
+    reader.join(timeout=2)
+
     if proc.returncode != 0:
-        tail = (proc.stderr or proc.stdout or "").strip()[-600:]
+        tail = "".join(captured).strip()[-600:]
         logger.error("HyperFrames snapshot failed (exit %s):\n%s", proc.returncode, tail)
-        raise HyperframesRenderError(f"HyperFrames snapshot failed (exit {proc.returncode}):\n{tail}")
+        raise HyperframesRenderError(
+            f"HyperFrames snapshot failed (exit {proc.returncode}):\n{tail}", detail=tail
+        )
     pngs = [p for p in snaps.glob("*.png") if p.is_file()] if snaps.is_dir() else []
     if not pngs:
         raise HyperframesRenderError("HyperFrames snapshot produced no PNG.")
@@ -294,9 +532,9 @@ def run_hyperframes_cli(
             capture_output=True, text=True, timeout=timeout,
         )
     except FileNotFoundError as exc:
-        raise HyperframesRenderError(f"Failed to launch HyperFrames: {exc}") from exc
+        raise HyperframesUnavailableError(f"Failed to launch HyperFrames: {exc}") from exc
     except subprocess.TimeoutExpired as exc:
-        raise HyperframesRenderError(
+        raise HyperframesTimeoutError(
             f"HyperFrames '{sub}' timed out after {timeout}s."
         ) from exc
     return {

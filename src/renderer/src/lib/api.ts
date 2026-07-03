@@ -287,6 +287,12 @@ class CapForgeAPI {
     return this.post('/api/cancel', {})
   }
 
+  /** Cancel the in-flight HyperFrames render (kills the CLI process tree) without
+   * signalling the transcriber. No-op server-side when nothing is rendering. */
+  renderCancel() {
+    return this.post('/api/render-cancel', {})
+  }
+
   startTranscription(params: TranscribeParams) {
     return this.post('/api/transcribe', params)
   }

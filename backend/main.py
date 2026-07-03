@@ -8,6 +8,7 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -40,6 +41,7 @@ from backend.exporters.hyperframes_project import (
     sync_companions,
 )
 from backend.exporters.hyperframes_render import (
+    HyperframesCancelledError,
     HyperframesRenderError,
     render_hyperframes_project,
     run_hyperframes_cli,
@@ -110,6 +112,11 @@ current_custom_caption_html: Optional[str] = None
 # companion files it owns via sync_companions. See docs/plans/hyperframes-open-coauthor.md.
 current_coauthor: bool = False
 ws_clients: list[WebSocket] = []
+
+# Cancellation signal for the single in-flight HyperFrames render. Set by
+# POST /api/render-cancel; the executor thread polls it and kills the CLI's
+# process tree. None between renders. See render_hyperframes_project(cancel_event=).
+current_hf_cancel: Optional[threading.Event] = None
 
 # Renderer-owned UI state (StudioSettings + groups), mirrored here so the agent
 # can read what to change. Style/groups live in the renderer, not the backend —
@@ -270,8 +277,23 @@ async def cancel_job():
         return {"status": "no_job"}
     transcriber.cancel()
     cancel_render()
+    if current_hf_cancel is not None:
+        current_hf_cancel.set()
     await broadcast_progress(ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Cancelled"))
     return {"status": "cancelled"}
+
+
+@app.post("/api/render-cancel")
+async def render_cancel():
+    """Cancel the in-flight HyperFrames render (kills the CLI process tree).
+
+    Distinct from /api/cancel so the renderer can stop a long HyperFrames render
+    without also signalling the transcriber. No-op when nothing is rendering.
+    """
+    if current_hf_cancel is None:
+        return {"status": "no_job"}
+    current_hf_cancel.set()
+    return {"status": "cancelling"}
 
 
 @app.get("/api/serve-audio")
@@ -743,6 +765,12 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
         status=JobStatus.RENDERING, progress=0, message="Building HyperFrames composition…"
     ))
 
+    # Publish a cancel signal for this render so POST /api/render-cancel can stop
+    # the CLI's process tree mid-flight. Cleared in the finally below.
+    global current_hf_cancel
+    cancel_event = threading.Event()
+    current_hf_cancel = cancel_event
+
     loop = asyncio.get_running_loop()
     sync_progress = make_sync_progress_callback(loop)
 
@@ -805,6 +833,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
                 quality=request.quality, video_format=request.video_format,
                 fps=config.fps,
                 on_progress=on_progress,
+                cancel_event=cancel_event,
             )
             return {"project": None, "file": file}
 
@@ -828,6 +857,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
                 quality=request.quality, video_format=request.video_format,
                 fps=config.fps,
                 on_progress=on_progress,
+                cancel_event=cancel_event,
             )
             return {"project": None, "file": file}
         finally:
@@ -841,15 +871,32 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
         ))
         return {"status": "ok", **result}
 
+    except HyperframesCancelledError as e:
+        # User-initiated stop — not an error. Return IDLE so the panel resets.
+        logger.info("HyperFrames render cancelled by user.")
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.IDLE, progress=0, message="Render cancelled",
+            code=e.code,
+        ))
+        return {"status": "cancelled", "code": e.code, "project": None, "file": None,
+                "message": "Render cancelled."}
     except HyperframesRenderError as e:
-        logger.warning("HyperFrames render unavailable/failed: %s", e)
+        # Machine-readable classifier (cli_unavailable/cli_incompatible/timeout/…)
+        # rides alongside the existing title/hint/raw fields — additive, not a rename.
+        logger.warning("HyperFrames render unavailable/failed [%s]: %s", e.code, e)
         await broadcast_progress(ProgressUpdate(
             status=JobStatus.ERROR, progress=0,
-            message="HyperFrames render failed", detail=str(e),
+            message="HyperFrames render failed", detail=str(e), code=e.code,
         ))
         raise HTTPException(
             status_code=400,
-            detail={"title": "HyperFrames render failed", "hint": str(e), "raw": str(e)},
+            detail={
+                "title": "HyperFrames render failed",
+                "hint": str(e),
+                "raw": str(e),
+                "code": e.code,
+                "remedy": e.remedy,
+            },
         )
     except Exception as e:
         logger.exception("HyperFrames export failed")
@@ -862,6 +909,10 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             status_code=500,
             detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
         )
+    finally:
+        # Drop the cancel signal so a stale event can't abort the next render.
+        if current_hf_cancel is cancel_event:
+            current_hf_cancel = None
 
 
 # --- Agent effects endpoints ---
@@ -1037,6 +1088,13 @@ async def preview_hyperframes_frame(req: dict):
     effects_dicts = [e.model_dump() for e in current_effects] if current_effects else None
     loop = asyncio.get_running_loop()
 
+    def heartbeat(message: str) -> None:
+        # Coarse "still capturing" tick from the snapshot subprocess. Sent as a
+        # type-discriminated event so it never overwrites current_status.
+        asyncio.run_coroutine_threadsafe(
+            broadcast_event({"type": "hyperframes_progress", "message": message}), loop
+        )
+
     def _work() -> bytes:
         workspace = hyperframes_workspace(current_result.audio_path)
         project_dir = coauthor_project_dir(current_result, workspace)
@@ -1049,7 +1107,7 @@ async def preview_hyperframes_frame(req: dict):
                 custom_groups=ui_groups,
                 caption_html=current_custom_caption_html,
             )
-            return snapshot_hyperframes_project(str(project_dir), t)
+            return snapshot_hyperframes_project(str(project_dir), t, on_progress=heartbeat)
         # Default: scaffold into the SAME canonical workspace the Studio serves, so
         # a preview re-generates the open Studio's project (not a separate copy).
         scaffolded = export_hyperframes_project(
@@ -1061,15 +1119,21 @@ async def preview_hyperframes_frame(req: dict):
             effects=effects_dicts,
             caption_html=current_custom_caption_html,
         )
-        return snapshot_hyperframes_project(scaffolded, t)
+        return snapshot_hyperframes_project(scaffolded, t, on_progress=heartbeat)
 
     try:
         png = await loop.run_in_executor(None, _work)
     except HyperframesRenderError as e:
-        logger.warning("HyperFrames preview failed: %s", e)
+        logger.warning("HyperFrames preview failed [%s]: %s", e.code, e)
         raise HTTPException(
             status_code=400,
-            detail={"title": "HyperFrames preview failed", "hint": str(e), "raw": str(e)},
+            detail={
+                "title": "HyperFrames preview failed",
+                "hint": str(e),
+                "raw": str(e),
+                "code": e.code,
+                "remedy": e.remedy,
+            },
         )
     return Response(content=png, media_type="image/png")
 
