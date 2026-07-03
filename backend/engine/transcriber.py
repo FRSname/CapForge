@@ -25,6 +25,12 @@ from backend.models.schemas import (
 
 logger = logging.getLogger(__name__)
 
+# Speaker-diarization model (gated on HuggingFace — the user's HF token must have
+# accepted its conditions at https://huggingface.co/pyannote/speaker-diarization-community-1).
+# This is whisperx 3.8.6's default; we pin it explicitly so a library default change
+# can't silently swap the model.
+DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
+
 # Callback type for progress reporting
 ProgressCallback = Optional[Callable[[ProgressUpdate], Any]]
 
@@ -114,8 +120,11 @@ class Transcriber:
         if request.enable_diarization and request.hf_token:
             self._report(on_progress, JobStatus.DIARIZING, 78, "Running speaker diarization…")
             from whisperx.diarize import DiarizationPipeline
+            # whisperx 3.8.6 renamed `use_auth_token` -> `token`.
             diarize_model = DiarizationPipeline(
-                use_auth_token=request.hf_token, device=device
+                model_name=DIARIZATION_MODEL,
+                token=request.hf_token,
+                device=device,
             )
             diarize_segments = diarize_model(audio)
             result = whisperx.assign_word_speakers(diarize_segments, result)

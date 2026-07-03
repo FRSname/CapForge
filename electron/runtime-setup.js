@@ -41,7 +41,9 @@ const platform = require('./platform')
 const RUNTIME_VERSION = 10
 
 const BACKEND_PACKAGES = [
-  'whisperx',
+  // Pinned: 3.8.6 renamed DiarizationPipeline's `use_auth_token` kwarg -> `token`.
+  // An unpinned install drifts to whatever's latest and can re-break the diarize call.
+  'whisperx==3.8.6',
   'fastapi[standard]',
   'uvicorn[standard]',
   'websockets',

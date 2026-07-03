@@ -1,4 +1,4 @@
-whisperx
+whisperx==3.8.6
 fastapi[standard]
 uvicorn[standard]
 websockets

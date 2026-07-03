@@ -69,6 +69,16 @@ _RULES: list[tuple[tuple[str, ...], FriendlyError]] = [
     ),
 
     # --- Models / downloads ---
+    # Gated pyannote diarization model: the HF token is valid but hasn't accepted the
+    # model's license. Must come before the generic 401/403 rule below (first match wins).
+    (
+        ("gated repo", "access to model", "awaiting a review", "is restricted and you are not in the authorized list", "you must be authenticated"),
+        FriendlyError(
+            "Diarization model needs license approval",
+            "Open https://huggingface.co/pyannote/speaker-diarization-community-1, accept the "
+            "conditions with your HuggingFace account, then retry with the same token.",
+        ),
+    ),
     (
         ("connection error", "max retries exceeded", "temporary failure in name resolution", "failed to establish a new connection"),
         FriendlyError(
