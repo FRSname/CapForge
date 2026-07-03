@@ -33,7 +33,9 @@ from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
 from backend.exporters.hyperframes_export import export_hyperframes
 from backend.exporters.hyperframes_project import (
+    clear_scaffold_fingerprint,
     coauthor_project_dir,
+    ensure_hyperframes_project,
     export_hyperframes_project,
     hyperframes_workspace,
     read_coauthor_marker,
@@ -1138,7 +1140,10 @@ async def preview_hyperframes_frame(req: dict):
             return snapshot_hyperframes_project(str(project_dir), t, on_progress=heartbeat)
         # Default: scaffold into the SAME canonical workspace the Studio serves, so
         # a preview re-generates the open Studio's project (not a separate copy).
-        scaffolded = export_hyperframes_project(
+        # ``ensure_`` skips the full scaffold when config+groups+transcript+source+
+        # effects are unchanged (the preview→tweak→preview fast path), and always
+        # falls back to a full scaffold on any change.
+        scaffolded = ensure_hyperframes_project(
             current_result,
             config,
             workspace,
@@ -1273,6 +1278,11 @@ async def _coauthor_enter() -> dict:
             caption_html=current_custom_caption_html,
             force_scaffold=True,
         ))
+    # The agent now owns index.html and will diverge it. Drop the scaffold
+    # fingerprint (including any the seed just wrote) so a later non-co-author
+    # preview can never serve a stale cache hit against the agent's edits — it
+    # will re-scaffold cleanly instead.
+    clear_scaffold_fingerprint(project_dir)
     return {"coauthor": True, "path": str(project_dir)}
 
 
