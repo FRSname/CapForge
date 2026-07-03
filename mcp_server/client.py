@@ -72,6 +72,9 @@ class CapForgeClient:
     def get_status(self) -> Any:
         return self._request("GET", "/api/status")
 
+    def get_hyperframes_status(self) -> Any:
+        return self._request("GET", "/api/hyperframes/status")
+
     def get_result(self) -> Any:
         return self._request("GET", "/api/agent/result")
 

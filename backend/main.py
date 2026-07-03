@@ -45,6 +45,10 @@ from backend.exporters.hyperframes_render import (
     run_hyperframes_cli,
     snapshot_hyperframes_project,
 )
+from backend.exporters.hyperframes_version import (
+    check_cli_compat,
+    reset_version_cache,
+)
 from backend.exporters.json_export import export_json
 from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
@@ -671,6 +675,29 @@ async def render_video(request: VideoRenderRequest):
 
 
 # --- HyperFrames composition endpoint ---
+
+@app.get("/api/hyperframes/status")
+async def hyperframes_status(probe: bool = False):
+    """Preflight the HyperFrames CLI the backend would drive.
+
+    Reports the detected CLI version and whether it is compatible, so the panel
+    can refuse a render up front instead of failing mid-CLI. ``compat_ok`` is a
+    tri-state: ``true`` (compatible), ``false`` (too old — ``compat_reasons[0]``
+    carries the remediation message), or ``null`` (version unknown / probe failed
+    — the render still proceeds, degrading gracefully). Pass ``?probe=1`` to force
+    a fresh probe (e.g. right after a re-provision); otherwise the cached read is
+    reused. Runs the probe in an executor so the event loop isn't blocked.
+    """
+    if probe:
+        reset_version_cache()
+    loop = asyncio.get_running_loop()
+    compat = await loop.run_in_executor(None, check_cli_compat)
+    return {
+        "cli_version": compat["version"],
+        "compat_ok": compat["ok"],
+        "compat_reasons": compat["reasons"],
+    }
+
 
 @app.post("/api/export-hyperframes")
 async def export_hyperframes_endpoint(request: HyperframesRenderRequest):

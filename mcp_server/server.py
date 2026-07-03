@@ -52,6 +52,21 @@ def get_status() -> dict:
 
 
 @mcp.tool()
+def get_hyperframes_status() -> dict:
+    """Preflight the HyperFrames CLI before rendering.
+
+    Returns `{ cli_version, compat_ok, compat_reasons }`. `compat_ok` is
+    tri-state: `true` (compatible), `false` (too old), or `null` (version unknown
+    / probe failed — a render still proceeds, degrading gracefully).
+    `compat_reasons[0]` is the user-facing remediation message ONLY when
+    `compat_ok` is `false`; when `compat_ok` is `null` the reasons list is empty,
+    so do not treat it as guidance. Check this before a co-author render so a
+    stale CLI surfaces as a clear message instead of a mid-render failure.
+    """
+    return _client.get_hyperframes_status()
+
+
+@mcp.tool()
 def get_transcript() -> dict:
     """Return the current transcript with segment + word indices.
 

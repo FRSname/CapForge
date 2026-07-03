@@ -20,6 +20,13 @@ export interface TranscribeParams {
   export_formats?: string[]
 }
 
+/** Backend HyperFrames CLI preflight (`GET /api/hyperframes/status`, snake_case wire). */
+export interface HyperframesStatus {
+  cli_version: string | null
+  compat_ok: boolean | null
+  compat_reasons: string[]
+}
+
 export interface ProgressUpdate {
   step: 'loading_model' | 'transcribing' | 'aligning' | 'diarizing' | 'exporting' | 'done' | 'error'
   pct: number
@@ -309,6 +316,17 @@ class CapForgeAPI {
   /** Generate (and optionally render) a HyperFrames composition from the current result. */
   exportHyperframes(params: unknown) {
     return this.post('/api/export-hyperframes', params)
+  }
+
+  /**
+   * Preflight the HyperFrames CLI the backend would drive. `compat_ok` is
+   * tri-state: `true` (compatible), `false` (too old — `compat_reasons[0]` is the
+   * remediation message), or `null` (probe failed / unknown — render still runs).
+   * Pass `probe` to force a fresh probe (e.g. right after a re-provision).
+   */
+  getHyperframesStatus(probe = false) {
+    const query = probe ? '?probe=1' : ''
+    return this.get<HyperframesStatus>(`/api/hyperframes/status${query}`)
   }
 
   /** Approve or cancel an agent-triggered final render (the human-in-the-loop gate). */

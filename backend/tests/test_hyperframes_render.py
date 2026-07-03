@@ -4,8 +4,14 @@ and the fps passthrough to the CLI ``--fps`` flag."""
 import subprocess
 from pathlib import Path
 
-from backend.exporters import hyperframes_render
-from backend.exporters.hyperframes_render import _discover_output, _render_fps
+import pytest
+
+from backend.exporters import hyperframes_render, hyperframes_version
+from backend.exporters.hyperframes_render import (
+    HyperframesRenderError,
+    _discover_output,
+    _render_fps,
+)
 
 
 def _vid(p: Path) -> Path:
@@ -79,6 +85,13 @@ class _FakeProc:
 def _patch_cli(monkeypatch, captured: dict):
     monkeypatch.setattr(hyperframes_render, "_hyperframes_cmd", lambda: ["node", "cli.js"])
     monkeypatch.setattr(hyperframes_render, "hyperframes_env", lambda: {})
+    # Neutralize the version gate so these tests never shell out to a real CLI
+    # probe (offline/CI safe). Compat behavior is covered in its own suite.
+    monkeypatch.setattr(
+        hyperframes_render,
+        "check_cli_compat",
+        lambda *a, **k: {"version": "0.7.26", "ok": True, "reasons": []},
+    )
 
     def fake_popen(cmd, **_kwargs):
         captured["cmd"] = cmd
@@ -116,3 +129,42 @@ def test_render_cmd_defaults_fps_to_30(tmp_path, monkeypatch):
 
     cmd = captured["cmd"]
     assert cmd[cmd.index("--fps") + 1] == "30"
+
+
+# --- version gate ----------------------------------------------------------
+
+def test_render_refuses_too_old_cli(tmp_path, monkeypatch):
+    """An explicitly-detected old CLI blocks the render up front with a clear,
+    actionable message — before any subprocess is launched."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    # Drive the REAL compat check via a mocked version probe (0.7.20 < MIN 0.7.21).
+    hyperframes_version.reset_version_cache()
+    monkeypatch.setattr(hyperframes_version, "get_cli_version", lambda *a, **k: "0.7.20")
+
+    with pytest.raises(HyperframesRenderError, match=r"older than 0\.7\.21"):
+        hyperframes_render.render_hyperframes_project(str(proj), str(tmp_path / "out.mp4"))
+
+
+def test_render_proceeds_when_probe_fails(tmp_path, monkeypatch):
+    """A failed probe (unknown version) must NOT brick a render — it degrades to
+    a warning and runs, so version-gating can never break what worked before."""
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    out = tmp_path / "out.mp4"
+    captured: dict = {}
+    # Real gate, but the probe returns None (unknown) → compat_ok is None → proceed.
+    monkeypatch.setattr(hyperframes_render, "_hyperframes_cmd", lambda: ["node", "cli.js"])
+    monkeypatch.setattr(hyperframes_render, "hyperframes_env", lambda: {})
+    hyperframes_version.reset_version_cache()
+    monkeypatch.setattr(hyperframes_version, "get_cli_version", lambda *a, **k: None)
+
+    def fake_popen(cmd, **_kwargs):
+        captured["cmd"] = cmd
+        return _FakeProc(cmd[cmd.index("--output") + 1])
+
+    monkeypatch.setattr(subprocess, "Popen", fake_popen)
+
+    result = hyperframes_render.render_hyperframes_project(str(proj), str(out))
+    assert result == str(out)
+    assert "cmd" in captured  # the render actually launched

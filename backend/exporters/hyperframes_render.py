@@ -14,6 +14,7 @@ import subprocess
 from pathlib import Path
 from typing import Callable, Optional
 
+from .hyperframes_version import MIN_SUPPORTED, check_cli_compat
 from .node_runtime import hyperframes_argv, hyperframes_env
 
 logger = logging.getLogger(__name__)
@@ -61,6 +62,28 @@ def _hyperframes_cmd() -> list[str]:
     return argv
 
 
+def _gate_cli_compat(project_dir: str | None = None) -> None:
+    """Refuse a too-old HyperFrames CLI early, with a clear remediation message.
+
+    Only an explicitly-detected old version blocks (``ok is False``). A failed
+    probe (``ok is None`` — no Node, launch/timeout error, unknown output) DEGRADES
+    to a warning and proceeds: version-gating must never brick a render that worked
+    before this shipped. See docs/plans/hyperframes-integration-hardening.md Phase 1.
+    """
+    compat = check_cli_compat(project_dir)
+    if compat["ok"] is False:
+        reason = compat["reasons"][0] if compat["reasons"] else (
+            f"HyperFrames CLI is older than {MIN_SUPPORTED}; "
+            "open Settings → HyperFrames → Reinstall"
+        )
+        raise HyperframesRenderError(reason)
+    if compat["ok"] is None:
+        logger.warning(
+            "HyperFrames CLI version unknown (probe failed); proceeding without a "
+            "compatibility check"
+        )
+
+
 def _discover_output(project_dir: str, out: Path, video_format: str) -> Optional[Path]:
     """Find the rendered video when the CLI wrote it somewhere other than `out`.
 
@@ -100,6 +123,7 @@ def render_hyperframes_project(
     Streams the CLI's "Capturing frame X/Y" lines into `on_progress` (capped at
     95%); the final encode/assemble completes the bar.
     """
+    _gate_cli_compat(project_dir)
     hf = _hyperframes_cmd()
     out = Path(output_path)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -179,6 +203,7 @@ def snapshot_hyperframes_project(project_dir: str, t: float) -> bytes:
     (seconds, not minutes). `--describe false` skips the optional Gemini vision
     pass. Returns the PNG bytes for the agent to view.
     """
+    _gate_cli_compat(project_dir)
     snaps = Path(project_dir) / "snapshots"
     cmd = [*_hyperframes_cmd(), "snapshot", "--at", f"{float(t):g}", "--describe", "false"]
     logger.info("HyperFrames snapshot: %s (cwd=%s)", " ".join(cmd), project_dir)

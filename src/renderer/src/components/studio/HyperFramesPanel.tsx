@@ -140,6 +140,19 @@ export function HyperFramesPanel({
   // backend report what's missing.
   const renderWithHyperframes = async () => {
     if (hfReady === false && !(await provision())) return
+    // Preflight the CLI version: refuse up front on a known-incompatible CLI so
+    // the user gets a clear remediation toast instead of a cryptic mid-render
+    // failure. A compatible CLI (compat_ok true) or an unknown one (compat_ok
+    // null — probe failed) both proceed; status is best-effort and never blocks.
+    try {
+      const status = await api.getHyperframesStatus()
+      if (status.compat_ok === false) {
+        toast(status.compat_reasons[0] || 'HyperFrames CLI is out of date.', 'error')
+        return
+      }
+    } catch {
+      /* preflight is advisory — a status hiccup must not block a valid render */
+    }
     startRender({}, effectiveOutputDir, 'hyperframes')
   }
 
