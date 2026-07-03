@@ -74,9 +74,10 @@ _RULES: list[tuple[tuple[str, ...], FriendlyError]] = [
     (
         ("gated repo", "access to model", "awaiting a review", "is restricted and you are not in the authorized list", "you must be authenticated"),
         FriendlyError(
-            "Diarization model needs license approval",
-            "Open https://huggingface.co/pyannote/speaker-diarization-community-1, accept the "
-            "conditions with your HuggingFace account, then retry with the same token.",
+            "Diarization couldn't authenticate with HuggingFace",
+            "Check your HF token is valid and pasted correctly (no missing characters), and "
+            "that you've accepted the model license at "
+            "https://huggingface.co/pyannote/speaker-diarization-community-1 — then retry.",
         ),
     ),
     (
