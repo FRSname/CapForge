@@ -25,6 +25,7 @@ import html
 import json
 import os
 import shutil
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -32,8 +33,96 @@ from backend.exporters.hyperframes_caption_html import caption_block
 from backend.exporters.hyperframes_export import export_hyperframes
 from backend.exporters.video_render import _build_groups, resolve_font_file
 from backend.models.schemas import TranscriptionResult, VideoRenderConfig
+from backend.workspace_fs import resolve_in_workspace
 
 GSAP_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
+
+# Durable co-author marker written INSIDE the per-source workspace. It is the
+# source of truth for "is this project in co-author mode?" so the mode survives a
+# backend crash/restart — the in-memory ``current_coauthor`` global is only a fast
+# path. Kept as history (rewritten to ``active: false``) on exit, never deleted.
+COAUTHOR_MARKER = ".capforge-coauthor.json"
+
+
+class CoauthorClobberError(RuntimeError):
+    """Raised when scaffolding would overwrite an agent-authored ``index.html``
+    in a project the co-author marker says is active. Defense in depth: the normal
+    control flow never scaffolds over an active co-author project."""
+
+
+def _marker_path(project_dir) -> Path:
+    """Resolve the marker path THROUGH the workspace sandbox — same rules as every
+    other write in the co-author workspace, so it can never land outside it."""
+    return resolve_in_workspace(Path(project_dir), COAUTHOR_MARKER)
+
+
+def read_coauthor_marker(project_dir) -> Optional[dict]:
+    """Return the parsed co-author marker for ``project_dir``, or ``None`` when it
+    is missing or corrupt. Never raises — a missing/unreadable marker just means
+    "no durable co-author state here"."""
+    try:
+        target = _marker_path(project_dir)
+    except ValueError:
+        return None
+    if not target.is_file():
+        return None
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def write_coauthor_marker(
+    project_dir, active: bool, *, source: Optional[str] = None
+) -> None:
+    """Write/overwrite the co-author marker for ``project_dir`` *atomically*.
+
+    ``active`` records whether the project is currently co-authored. On exit
+    (``active=False``) the file is REWRITTEN (kept as history), never deleted.
+    ``source`` is the absolute source media path; when omitted it is carried over
+    from any existing marker so exit doesn't lose provenance.
+
+    ``updated_at`` is stamped on every call. ``entered_at`` is set only when
+    *entering* (``active=True``); on exit the prior ``entered_at`` is preserved
+    from the existing marker (or omitted when there was none) so a history file
+    never reports the exit time as the enter time.
+
+    The write is atomic: the payload is written to a sibling ``.tmp`` file in the
+    SAME directory (so ``os.replace`` is atomic on the same filesystem), then
+    swapped into place. A crash mid-write therefore leaves either the previous
+    valid marker or no marker — never a truncated/corrupt JSON that
+    ``read_coauthor_marker`` would degrade to ``None`` (which silently DISABLES
+    the clobber guard, the opposite of crash-safe).
+    """
+    existing = read_coauthor_marker(project_dir)
+    if source is None and existing:
+        source = existing.get("source")
+    now = datetime.now(timezone.utc).isoformat()
+    payload = {
+        "active": bool(active),
+        "updated_at": now,
+        "source": str(source) if source else "",
+    }
+    if active:
+        payload["entered_at"] = now
+    elif existing and existing.get("entered_at"):
+        payload["entered_at"] = existing["entered_at"]
+
+    target = _marker_path(project_dir)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Temp sibling resolved THROUGH the same workspace sandbox as the marker, so
+    # it can never land outside the project dir.
+    tmp = resolve_in_workspace(Path(project_dir), COAUTHOR_MARKER + ".tmp")
+    try:
+        tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        os.replace(tmp, target)
+    except OSError:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass  # best-effort cleanup; re-raise the original failure
+        raise
 
 
 def resolve_output_dir(output_dir: Optional[str], source_path: str) -> str:
@@ -694,6 +783,7 @@ def seed_coauthor_project(
     effects: Optional[list[dict]] = None,
     caption_html: Optional[str] = None,
     duration: Optional[float] = None,
+    force_scaffold: bool = False,
 ) -> str:
     """One-time scaffold for co-author mode: a complete, working starter project
     the agent then owns.
@@ -701,6 +791,8 @@ def seed_coauthor_project(
     Identical output to a normal export — the only difference is the contract
     around it: once seeded, CapForge stops regenerating ``index.html`` and only
     refreshes companions via ``sync_companions``, so the agent's edits survive.
+    ``force_scaffold`` is forwarded so the intentional initial seed can (re)write
+    the starter ``index.html`` even under an active co-author marker.
     """
     return export_hyperframes_project(
         result, config, workspace,
@@ -709,6 +801,7 @@ def seed_coauthor_project(
         effects=effects,
         caption_html=caption_html,
         duration=duration,
+        force_scaffold=force_scaffold,
     )
 
 
@@ -757,6 +850,7 @@ def export_hyperframes_project(
     effects: Optional[list[dict]] = None,
     duration: Optional[float] = None,
     caption_html: Optional[str] = None,
+    force_scaffold: bool = False,
 ) -> str:
     """Write a HyperFrames project folder and return its path.
 
@@ -765,6 +859,12 @@ def export_hyperframes_project(
     project so the composition is self-contained; when omitted, the composition
     still references `source.mp4` for later wiring. `caption_html` is the
     agent-authored component used when `config.caption_style == "custom"`.
+
+    `force_scaffold` must be True to (re)scaffold over a project whose co-author
+    marker is active — the ONE legitimate case is the intentional initial seed in
+    the co-author enter path. Without it, an existing `index.html` under an active
+    marker raises :class:`CoauthorClobberError` rather than clobbering the agent's
+    authored composition.
     """
     groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
     if not groups:
@@ -772,6 +872,16 @@ def export_hyperframes_project(
 
     project_dir = coauthor_project_dir(result, output_dir)
     project_dir.mkdir(parents=True, exist_ok=True)
+
+    # Clobber guard: never silently overwrite an agent-authored index.html when
+    # the durable marker says the project is being co-authored.
+    if not force_scaffold and (project_dir / "index.html").exists():
+        marker = read_coauthor_marker(project_dir)
+        if marker is not None and marker.get("active") is True:
+            raise CoauthorClobberError(
+                "Co-author project detected; scaffolding would overwrite "
+                "agent-authored index.html. Exit co-author mode first or pass force."
+            )
 
     source_src, transcript_json, total_duration, caption_sub_src = _write_companions(
         result, config, project_dir, groups, source_video_path, caption_html, duration

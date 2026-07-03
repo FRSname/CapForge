@@ -123,6 +123,33 @@ export function App() {
     return () => clearTimeout(t)
   }, [screen, settings, groups, groupsEdited])
 
+  // Resync-after-reconnect: give the API layer a snapshot of the live result +
+  // UI state so that if the backend crashes/restarts, the control socket's reopen
+  // handler can re-push what the backend lost (mirrors the two effects above).
+  useEffect(() => {
+    if (screen !== 'results') {
+      api.registerResync(null)
+      return
+    }
+    api.registerResync(() => ({
+      result: result
+        ? {
+            segments: result.segments,
+            language: result.language,
+            duration: result.duration,
+            audio_path: result.audioPath,
+          }
+        : undefined,
+      uiState: {
+        settings,
+        groups,
+        presets: builtinPresetNames(),
+        render: buildRenderBody(settings, groups, groupsEdited),
+      },
+    }))
+    return () => api.registerResync(null)
+  }, [screen, result, settings, groups, groupsEdited])
+
   // ── Source video info probe ─────────────────────────────────────
   // Runs once per result.audioPath — auto-sets resolution + fps.
   useEffect(() => {

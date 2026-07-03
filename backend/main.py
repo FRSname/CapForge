@@ -36,9 +36,11 @@ from backend.exporters.hyperframes_project import (
     coauthor_project_dir,
     export_hyperframes_project,
     hyperframes_workspace,
+    read_coauthor_marker,
     resolve_output_dir,
     seed_coauthor_project,
     sync_companions,
+    write_coauthor_marker,
 )
 from backend.exporters.hyperframes_render import (
     HyperframesCancelledError,
@@ -112,6 +114,26 @@ current_custom_caption_html: Optional[str] = None
 # companion files it owns via sync_companions. See docs/plans/hyperframes-open-coauthor.md.
 current_coauthor: bool = False
 ws_clients: list[WebSocket] = []
+
+
+def coauthor_active(project_dir) -> bool:
+    """Durable check for "is co-author mode on for this project?".
+
+    ``current_coauthor`` is the in-memory fast path but is lost on a backend
+    crash/restart. The per-workspace marker written by ``write_coauthor_marker`` is
+    the durable truth: if it says active while the global is stale-False, self-heal
+    the global so the rest of the request (and later ones) take the co-author path
+    and never re-scaffold over the agent's index.html. Rehydration is lazy and
+    per-source — there is deliberately no startup scan of all workspaces.
+    """
+    global current_coauthor
+    if current_coauthor:
+        return True
+    marker = read_coauthor_marker(project_dir)
+    if marker is not None and marker.get("active") is True:
+        current_coauthor = True  # self-heal the fast path
+        return True
+    return False
 
 # Cancellation signal for the single in-flight HyperFrames render. Set by
 # POST /api/render-cancel; the executor thread polls it and kills the CLI's
@@ -823,7 +845,12 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     def _work() -> dict:
         # Co-author mode: the agent owns index.html, so render/preview the project
         # as-authored in the stable workspace — never re-scaffold or rmtree it.
-        if current_coauthor:
+        # coauthor_active() consults the durable marker so a backend restart can't
+        # silently drop mode and re-scaffold over the agent's work.
+        coauthor_dir = coauthor_project_dir(
+            current_result, hyperframes_workspace(current_result.audio_path)
+        )
+        if coauthor_active(coauthor_dir):
             project_dir = _coauthor_project()
             if not request.render:
                 return {"project": project_dir, "file": None}
@@ -1100,7 +1127,8 @@ async def preview_hyperframes_frame(req: dict):
         project_dir = coauthor_project_dir(current_result, workspace)
         # Co-author mode: preview the agent's OWN index.html — refresh only the
         # companions, never regenerate the composition the agent authored.
-        if current_coauthor and (project_dir / "index.html").exists():
+        # Durable marker check survives a backend restart mid-session.
+        if coauthor_active(project_dir) and (project_dir / "index.html").exists():
             sync_companions(
                 current_result, config, str(project_dir),
                 source_video_path=current_result.audio_path,
@@ -1156,7 +1184,7 @@ async def agent_workspace():
     root = _coauthor_root()
     return {
         "path": str(root),
-        "coauthor": current_coauthor,
+        "coauthor": coauthor_active(root),
         "tree": workspace_fs.list_tree(root),
     }
 
@@ -1214,8 +1242,10 @@ async def agent_hyperframes_cli(body: dict):
 # renderer, which only holds the backend port — not the agent token).
 
 def _coauthor_status() -> dict:
-    path = str(_coauthor_root()) if current_result is not None else None
-    return {"coauthor": current_coauthor, "path": path}
+    if current_result is None:
+        return {"coauthor": current_coauthor, "path": None}
+    root = _coauthor_root()
+    return {"coauthor": coauthor_active(root), "path": str(root)}
 
 
 async def _coauthor_enter() -> dict:
@@ -1227,15 +1257,22 @@ async def _coauthor_enter() -> dict:
     effects_dicts = [e.model_dump() for e in current_effects] if current_effects else None
     workspace = hyperframes_workspace(current_result.audio_path)
     project_dir = coauthor_project_dir(current_result, workspace)
+    # Write the durable marker BEFORE the resource it protects. If we crash after
+    # this line but before/within the scaffold, a restart still reports co-author
+    # active (coauthor_active() rehydrates from the marker) and _coauthor_project()
+    # then sees no index.html and scaffolds cleanly — nothing to clobber.
+    write_coauthor_marker(project_dir, True, source=current_result.audio_path)
+    current_coauthor = True
     if not (project_dir / "index.html").exists():
         loop = asyncio.get_running_loop()
+        # force_scaffold=True: this is the ONE intentional initial scaffold.
         await loop.run_in_executor(None, lambda: seed_coauthor_project(
             current_result, config, workspace,
             source_video_path=current_result.audio_path,
             custom_groups=ui_groups, effects=effects_dicts,
             caption_html=current_custom_caption_html,
+            force_scaffold=True,
         ))
-    current_coauthor = True
     return {"coauthor": True, "path": str(project_dir)}
 
 
@@ -1243,6 +1280,13 @@ async def _coauthor_set(enable: bool) -> dict:
     global current_coauthor
     if not enable:
         current_coauthor = False
+        # Flip the durable marker to inactive (kept as history — never delete it,
+        # and never touch the agent's index.html).
+        if current_result is not None:
+            project_dir = coauthor_project_dir(
+                current_result, hyperframes_workspace(current_result.audio_path)
+            )
+            write_coauthor_marker(project_dir, False, source=current_result.audio_path)
         return {"coauthor": False}
     return await _coauthor_enter()
 

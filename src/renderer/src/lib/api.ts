@@ -175,6 +175,17 @@ export interface RenderApprovalRequest {
   video_format?: string
 }
 
+/**
+ * Live snapshot re-pushed to the backend after the control socket reconnects.
+ * A backend crash/restart loses in-memory `current_result` + UI state; this
+ * lets the renderer restore them so the agent stays in sync. Both are optional —
+ * only what the app currently holds is sent.
+ */
+export interface ResyncSnapshot {
+  result?: TranscriptionResult
+  uiState?: unknown
+}
+
 /** Handlers for agent-driven control-channel events. */
 export interface ControlHandlers {
   onResultUpdated?: () => void
@@ -199,6 +210,12 @@ class CapForgeAPI {
   private _controlHandlers: ControlHandlers | null = null
   private _controlReconnectDelay = 1000
   private _controlReconnectTimer: ReturnType<typeof setTimeout> | null = null
+  // Resync-after-reconnect: a snapshot provider the app registers so that when
+  // the control socket reopens (e.g. the backend crashed/restarted) we re-push
+  // the live result + UI state the backend lost. Guarded by a "has connected
+  // before" flag so the very first connect doesn't trigger a redundant push.
+  private _resyncProvider: (() => ResyncSnapshot | null) | null = null
+  private _controlHasConnected = false
 
   constructor(port = 53421) {
     this.base = `http://127.0.0.1:${port}`
@@ -493,6 +510,10 @@ class CapForgeAPI {
 
     this.controlWs.onopen = () => {
       this._controlReconnectDelay = 1000
+      // A reopen (not the first connect) means the backend may have restarted and
+      // dropped the live result/UI state — re-push the app's snapshot to restore it.
+      if (this._controlHasConnected) void this.resyncAfterReconnect()
+      this._controlHasConnected = true
     }
 
     this.controlWs.onmessage = (event: MessageEvent) => {
@@ -535,6 +556,7 @@ class CapForgeAPI {
   disconnectControl() {
     this._controlHandlers = null
     this._controlReconnectDelay = 1000
+    this._controlHasConnected = false
     if (this._controlReconnectTimer) {
       clearTimeout(this._controlReconnectTimer)
       this._controlReconnectTimer = null
@@ -543,6 +565,31 @@ class CapForgeAPI {
       this.controlWs.onclose = null
       this.controlWs.close()
       this.controlWs = null
+    }
+  }
+
+  /**
+   * Register a provider that returns the app's current result + UI state. Called
+   * on control-socket reopen to restore state a restarted backend would have lost.
+   * Pass `null` to clear it.
+   */
+  registerResync(provider: (() => ResyncSnapshot | null) | null) {
+    this._resyncProvider = provider
+  }
+
+  /**
+   * Re-push the live result + UI state to the backend. Best-effort: a failed PUT
+   * (backend still coming up) is swallowed — the next reconnect retries. Safe to
+   * call with no registered provider (no-op).
+   */
+  async resyncAfterReconnect(): Promise<void> {
+    const snapshot = this._resyncProvider?.()
+    if (!snapshot) return
+    try {
+      if (snapshot.result) await this.updateResult(snapshot.result)
+      if (snapshot.uiState !== undefined) await this.putUiState(snapshot.uiState)
+    } catch {
+      /* backend not ready yet — the next reconnect will retry */
     }
   }
 }

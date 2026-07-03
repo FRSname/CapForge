@@ -425,6 +425,12 @@ def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dic
 
     Uses the effects currently on the timeline (see list_effects/add_effect) and
     returns the output file path. quality: draft|standard|high. May take a while.
+
+    Co-author durability: co-author mode is persisted in the project workspace and
+    survives a CapForge backend restart/crash — you do not need to re-enter it after
+    a reconnect. While a co-author project is active, CapForge refuses to re-scaffold
+    over your authored index.html, so a render (or any panel refresh) can never
+    silently overwrite your work.
     """
     return _client.render_hyperframes(
         {"render": True, "quality": quality, "video_format": video_format, "use_ui_config": True}
@@ -582,6 +588,12 @@ def enter_coauthor_mode() -> dict:
     happy → get the user's explicit approval → `render_hyperframes`. Always preview
     and confirm before rendering; the final render is the last step, not a preview.
     Call `hyperframes_guide` for the creative vocabulary. Returns `{ coauthor, path }`.
+
+    Durability: once you enter co-author mode CapForge persists that state in the
+    project workspace, so it survives a backend restart/crash — after a reconnect
+    you are still in co-author mode and do NOT need to re-enter. As long as the mode
+    is active, CapForge refuses to re-scaffold over your `index.html`; scaffolding a
+    co-author project is rejected rather than silently overwriting your work.
     """
     return _client.set_coauthor(True)
 
