@@ -1,5 +1,7 @@
 # Plan: HyperFrames render output location — next to original, or a chosen folder
 
+> **Hardened by the HyperFrames Integration Hardening work** (see **[CLAUDE.md → HyperFrames Integration](../../CLAUDE.md)**) — Phase 2 made the render write atomic (`.partial` staging + rename, stale-partial cleanup) and added the `_discover_output` fallback for CLI versions that ignore an absolute `--output`.
+
 ## Problem (user report)
 
 > "Now it renders, but when rendered with HyperFrames it saves the video to an

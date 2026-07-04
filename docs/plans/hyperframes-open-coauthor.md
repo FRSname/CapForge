@@ -1,5 +1,7 @@
 # Plan: HyperFrames "Open Co-Author" mode
 
+> **Hardened by the HyperFrames Integration Hardening work** (see **[CLAUDE.md → HyperFrames Integration](../../CLAUDE.md)**) — Phase 3 made co-author state crash-durable (the `.capforge-coauthor.json` marker + `CoauthorClobberError` scaffold guard) and Phase 6 gated the local file-read endpoints.
+
 > **Status (2026-06-23, branch `feat/hyperframes-open-coauthor`, uncommitted):**
 > Phases 1–5 + 7 implemented. 210 backend/mcp tests pass (+43), renderer typecheck
 > clean, anti-pattern guards green, security-reviewer pass with CRITICAL/HIGH fixes

@@ -1,5 +1,7 @@
 # Plan: Co-Author Preview Loop + Caption-Style Parity
 
+> **Hardened by the HyperFrames Integration Hardening work** (see **[CLAUDE.md → HyperFrames Integration](../../CLAUDE.md)**) — Phase 4 made the preview loop cache scaffolds via the `.capforge-scaffold.json` fingerprint (`SCAFFOLD_VERSION`), and Phase 5 added the config-key-drop contract test guarding the lossy-`_build_index_html` regression this plan's parity work fixed.
+
 **Status:** IMPLEMENTED on branch `feat/coauthor-preview-loop-and-parity` (2026-06-23).
 Decisions taken: (1) parity mechanism **C** (faithful editable HTML); (2) **both** gates
 (tool contract + in-app approval dialog); (3) all word modes ported. Caption parity
