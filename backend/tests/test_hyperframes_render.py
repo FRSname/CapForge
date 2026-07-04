@@ -474,3 +474,48 @@ def test_export_endpoint_returns_cancelled_envelope(hf_client, tmp_path, monkeyp
     body = resp.json()
     assert body["status"] == "cancelled"
     assert body["code"] == "cancelled"
+
+
+class _FakeWS:
+    """A connected-UI stand-in so the approval gate doesn't 409 on 'no UI'."""
+
+    async def send_text(self, _data: str) -> None:  # broadcast_event target
+        return None
+
+
+def test_export_endpoint_approval_timeout_returns_cancelled_and_resets_status(
+    hf_client, tmp_path, monkeypatch
+):
+    """An agent render (use_ui_config) that no human approves must TIME OUT into a
+    clean cancelled envelope — and, crucially, must NOT leave the job status stuck
+    in RENDERING (the gate runs before any RENDERING broadcast, so IDLE is preserved
+    and the app can start another job)."""
+    from backend.models.schemas import JobStatus, ProgressUpdate
+
+    tc, main_module = hf_client
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"\x00" * 32)
+    monkeypatch.setattr(main_module, "current_result", _loaded_result(main_module, str(audio)))
+    # Fresh IDLE status so a prior test's broadcast can't make us 409 or hide a leak.
+    monkeypatch.setattr(
+        main_module, "current_status",
+        ProgressUpdate(status=JobStatus.IDLE, progress=0, message=""),
+    )
+    # A UI is "connected" (else the gate 409s) and approval never arrives → timeout.
+    monkeypatch.setattr(main_module, "ws_clients", [_FakeWS()])
+    monkeypatch.setattr(main_module, "RENDER_APPROVAL_TIMEOUT", 0.05)
+    # If the gate ever fell through, this would blow up loudly instead of silently
+    # rendering — proving the cancel short-circuits before scaffold/render.
+    _stub_scaffold_and_render(
+        main_module, monkeypatch, AssertionError("must not render after a timed-out gate")
+    )
+
+    resp = tc.post("/api/export-hyperframes", json={"render": True, "use_ui_config": True})
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "cancelled"
+    assert body["project"] is None and body["file"] is None
+    assert body["message"].strip()
+    # Status was never advanced to RENDERING — no stuck-job residue.
+    assert main_module.current_status.status == JobStatus.IDLE

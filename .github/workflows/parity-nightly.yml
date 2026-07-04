@@ -1,0 +1,69 @@
+name: Caption parity (nightly @latest)
+
+# Weekly drift sentinel: runs the SAME opt-in caption-parity suite as ci.yml, but
+# against `hyperframes@latest` instead of the pinned MIN_SUPPORTED version. Its
+# only job is to catch an upstream HyperFrames CLI change that breaks
+# Pillow↔HTML parity BEFORE we bump the pin. It is advisory only.
+#
+# NEVER make this a required check: it depends on whatever upstream shipped this
+# week, so a red run here means "investigate upstream", not "block CapForge".
+# That is enforced by `continue-on-error: true` below.
+
+on:
+  schedule:
+    # Mondays 06:00 UTC — a quiet window; weekly is enough to spot drift early.
+    - cron: '0 6 * * 1'
+  workflow_dispatch: {}
+
+jobs:
+  caption-parity-latest:
+    name: Caption parity vs hyperframes@latest
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute weekly cache bucket
+        # Bucket the Chromium cache by ISO week so it refreshes on the cron
+        # cadence. Without this the key is immortal, and a Puppeteer/Chromium
+        # revision bump in a fresh hyperframes@latest would silently reuse a
+        # stale binary — defeating the whole point of the @latest sentinel.
+        run: echo "CACHE_WEEK=$(date -u +%G-W%V)" >> "$GITHUB_ENV"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Cache Chromium download
+        uses: actions/cache@v4
+        with:
+          # Only cache Chromium — NOT the npm dir: @latest must resolve fresh each
+          # run so we actually test the newest published CLI.
+          path: ~/.cache/puppeteer
+          key: parity-nightly-${{ runner.os }}-chromium-${{ env.CACHE_WEEK }}
+
+      - name: Install latest HyperFrames CLI
+        run: npm install -g hyperframes@latest
+
+      - name: Record resolved CLI version
+        run: hyperframes --version || true
+
+      - name: Resolve CLI + Node paths for CapForge
+        run: |
+          echo "CAPFORGE_NODE_BIN=$(command -v node)" >> "$GITHUB_ENV"
+          echo "CAPFORGE_HYPERFRAMES_CLI=$(readlink -f "$(command -v hyperframes)")" >> "$GITHUB_ENV"
+
+      - name: Install test dependencies
+        run: pip install pytest pydantic pillow==12.2.0
+
+      - name: Run caption parity suite
+        env:
+          CAPFORGE_PARITY: '1'
+        run: python -m pytest backend/tests/test_caption_parity.py -x

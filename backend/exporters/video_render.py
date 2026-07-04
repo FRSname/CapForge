@@ -473,6 +473,11 @@ def _draw_word_list(
         word_prog = min(max((current_time - wm["start"]) / word_dur, 0.0), 1.0) if is_active else 0.0
 
         # --- per-word overrides ---
+        # CONTRACT: the override keys read below are the authoritative set Pillow
+        # honors. They are mirrored (minus ``custom_font_path`` — paths must not
+        # leak into HTML) by ``_WORD_OVERRIDE_KEYS`` in hyperframes_caption_html.py
+        # and pinned by PILLOW_HONORED_OVERRIDE_KEYS in tests/test_caption_cfg_contract.py.
+        # Add/remove an ``ov[...]`` read here → update BOTH of those.
         ov = wm.get("overrides") or {}
         w_text_color    = _hex_to_rgba(ov["text_color"],        anim_alpha) if "text_color"        in ov else text_color_base
         w_active_color  = _hex_to_rgba(ov["active_word_color"], anim_alpha) if "active_word_color"  in ov else active_color_base

@@ -227,3 +227,83 @@ def test_simulated_crash_endpoint_rehydrates_and_never_clobbers(
 
     # The agent's index.html is untouched by the rehydration path.
     assert (project_dir / "index.html").read_text() == agent_html
+
+
+# ── 6. preview transitions: enter → sync path, exit → re-scaffold ────────────
+
+def _preview_setup(m, transcription_result, tmp_path, monkeypatch):
+    """Shared wiring for the preview-frame transition tests.
+
+    Returns ``(client, project_dir, calls)`` where ``calls`` records which of the
+    two composition paths the preview took. The token gate is overridden and the
+    two heavy composition calls (sync vs scaffold) plus the snapshot are stubbed,
+    so the test isolates ONLY the sync-vs-rescaffold DECISION."""
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setenv("CAPFORGE_HOME", str(tmp_path))
+    workspace = m.hyperframes_workspace(transcription_result.audio_path)
+    project_dir = coauthor_project_dir(transcription_result, workspace)
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "index.html").write_text("<!-- agent owns this -->", encoding="utf-8")
+
+    monkeypatch.setattr(m, "current_result", transcription_result)
+    monkeypatch.setattr(
+        m, "current_ui_state", {"render": {"config": VideoRenderConfig().model_dump()}}
+    )
+
+    calls: list[str] = []
+    monkeypatch.setattr(m, "sync_companions", lambda *a, **k: calls.append("sync"))
+
+    def _scaffold(*_a, **_k):
+        calls.append("scaffold")
+        return str(project_dir)
+
+    monkeypatch.setattr(m, "ensure_hyperframes_project", _scaffold)
+    monkeypatch.setattr(m, "snapshot_hyperframes_project", lambda *a, **k: b"PNG")
+
+    m.app.dependency_overrides[m.require_agent_token] = lambda: None
+    client = TestClient(m.app)
+    return client, project_dir, calls
+
+
+def test_preview_after_enter_uses_sync_path_not_rescaffold(
+    main_module, transcription_result, tmp_path, monkeypatch
+):
+    """In co-author mode (active marker + agent index.html) a preview must REFRESH
+    companions only — never regenerate the composition the agent authored."""
+    m = main_module
+    try:
+        client, project_dir, calls = _preview_setup(
+            m, transcription_result, tmp_path, monkeypatch
+        )
+        write_coauthor_marker(project_dir, True, source=transcription_result.audio_path)
+        m.current_coauthor = False  # force the durable-marker consult
+
+        resp = client.post("/api/agent/preview-hyperframes-frame", json={"t": 0.5})
+
+        assert resp.status_code == 200
+        assert calls == ["sync"]  # synced, did NOT re-scaffold
+    finally:
+        m.app.dependency_overrides.clear()
+
+
+def test_preview_after_exit_rescaffolds_not_sync(
+    main_module, transcription_result, tmp_path, monkeypatch
+):
+    """Once co-author mode is exited (marker inactive) a preview re-scaffolds the
+    Studio project — even though a stale index.html is still on disk — so the
+    preview reflects live UI config again instead of the abandoned authored file."""
+    m = main_module
+    try:
+        client, project_dir, calls = _preview_setup(
+            m, transcription_result, tmp_path, monkeypatch
+        )
+        write_coauthor_marker(project_dir, False, source=transcription_result.audio_path)
+        m.current_coauthor = False
+
+        resp = client.post("/api/agent/preview-hyperframes-frame", json={"t": 0.5})
+
+        assert resp.status_code == 200
+        assert calls == ["scaffold"]  # re-scaffolded, did NOT sync the stale index
+    finally:
+        m.app.dependency_overrides.clear()

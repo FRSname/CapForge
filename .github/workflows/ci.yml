@@ -47,3 +47,59 @@ jobs:
 
       - name: Run pytest
         run: python -m pytest
+
+  caption-parity:
+    name: Caption parity (Pillow ↔ HyperFrames HTML)
+    runs-on: ubuntu-latest
+    # NON-BLOCKING for a one-week observation window. Unlike the always-on pure-
+    # Python key-coverage contract (backend/tests/test_caption_cfg_contract.py, run
+    # in the `backend` job), this spins up a headless browser + ffmpeg and does a
+    # LIVE cross-renderer pixel diff — inherently flakier. Watch it for ~1 week,
+    # then make it a required check by deleting the `continue-on-error` line below.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Cache Chromium + npm downloads
+        uses: actions/cache@v4
+        with:
+          # Puppeteer's Chromium (~150MB) is the expensive fetch; ~/.npm speeds the
+          # CLI reinstall. Keyed on the pinned version so a bump busts the cache.
+          path: |
+            ~/.cache/puppeteer
+            ~/.npm
+          key: parity-${{ runner.os }}-hyperframes-0.7.21
+          restore-keys: |
+            parity-${{ runner.os }}-hyperframes-
+
+      - name: Install pinned HyperFrames CLI (MIN_SUPPORTED)
+        # Pin to MIN_SUPPORTED from backend/exporters/hyperframes_version.py so CI
+        # exercises the OLDEST CLI the app claims to support. Upstream drift against
+        # @latest is covered separately by .github/workflows/parity-nightly.yml.
+        run: npm install -g hyperframes@0.7.21
+
+      - name: Resolve pinned CLI + Node paths for CapForge
+        # Point node_runtime.hyperframes_argv() at the [node, cli.js] pair (avoids
+        # the npx / .cmd fallback). readlink resolves the bin shim to the real JS.
+        run: |
+          echo "CAPFORGE_NODE_BIN=$(command -v node)" >> "$GITHUB_ENV"
+          echo "CAPFORGE_HYPERFRAMES_CLI=$(readlink -f "$(command -v hyperframes)")" >> "$GITHUB_ENV"
+
+      - name: Install test dependencies
+        run: pip install pytest pydantic pillow==12.2.0
+
+      - name: Run caption parity suite
+        env:
+          CAPFORGE_PARITY: '1'
+        run: python -m pytest backend/tests/test_caption_parity.py -x
