@@ -217,6 +217,12 @@ class CapForgeAPI {
   private _resyncProvider: (() => ResyncSnapshot | null) | null = null
   private _controlHasConnected = false
 
+  // Per-launch token that gates the local media endpoints (serve-audio,
+  // video-info). Sent as a query param because <audio>/<video> src loads and
+  // WaveSurfer cannot attach request headers. Set via setLocalToken() right
+  // after the port is learned over IPC.
+  private localToken = ''
+
   constructor(port = 53421) {
     this.base = `http://127.0.0.1:${port}`
     this.wsBase = `ws://127.0.0.1:${port}`
@@ -225,6 +231,10 @@ class CapForgeAPI {
   setPort(port: number) {
     this.base = `http://127.0.0.1:${port}`
     this.wsBase = `ws://127.0.0.1:${port}`
+  }
+
+  setLocalToken(token: string) {
+    this.localToken = token
   }
 
   private async handleError(res: Response): Promise<ApiError> {
@@ -260,9 +270,14 @@ class CapForgeAPI {
   }
 
   private async put<T>(path: string, body: unknown): Promise<T> {
+    // PUT /api/result is auth-gated (it sets the media-allowlist anchor), so
+    // send the per-launch local token. Unlike media <src> loads, a fetch() can
+    // set a header — cleaner than a query param. Harmless on PUTs that ignore it.
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
     const res = await fetch(`${this.base}${path}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     })
     if (!res.ok) throw await this.handleError(res)
@@ -413,11 +428,15 @@ class CapForgeAPI {
   }
 
   getVideoInfo(filePath: string) {
-    return this.get<VideoInfo>(`/api/video-info?path=${encodeURIComponent(filePath)}`)
+    const token = encodeURIComponent(this.localToken)
+    return this.get<VideoInfo>(
+      `/api/video-info?path=${encodeURIComponent(filePath)}&token=${token}`
+    )
   }
 
   audioUrl(filePath: string) {
-    return `${this.base}/api/serve-audio?path=${encodeURIComponent(filePath)}`
+    const token = encodeURIComponent(this.localToken)
+    return `${this.base}/api/serve-audio?path=${encodeURIComponent(filePath)}&token=${token}`
   }
 
   // ── WebSocket progress stream ──────────────────────────────────────

@@ -29,6 +29,7 @@ export interface SubforgeApi {
   pickOutputDir: () => Promise<string | null>
   pickImageFile: () => Promise<string | null>
   getBackendPort: () => Promise<number>
+  getLocalToken: () => Promise<string>
   saveFont: (fileName: string, data: ArrayBuffer) => Promise<string>
   listFonts: () => Promise<FontInfo[]>
   listBundledFonts: () => Promise<FontInfo[]>
@@ -118,6 +119,7 @@ contextBridge.exposeInMainWorld('subforge', {
   pickOutputDir: () => ipcRenderer.invoke('dialog:openDir'),
   pickImageFile: () => ipcRenderer.invoke('dialog:openImageFile'),
   getBackendPort: () => ipcRenderer.invoke('backend:port'),
+  getLocalToken: () => ipcRenderer.invoke('backend:local-token'),
   saveFont: (fileName: string, data: ArrayBuffer) =>
     ipcRenderer.invoke('fonts:save', fileName, data),
   listFonts: () => ipcRenderer.invoke('fonts:list'),

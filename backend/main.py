@@ -13,13 +13,23 @@ import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.responses import FileResponse
 
 from backend.agent_bridge import (
     remove_discovery,
+    resolve_local_token,
     resolve_port,
     resolve_token,
     token_matches,
@@ -90,7 +100,14 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CapForge", version="0.1.0")
 
-# Allow Electron renderer to call us
+# Allow Electron renderer to call us.
+#
+# allow_origins stays "*" deliberately: the two file-reading endpoints are gated
+# by a per-launch token (see LOCAL_TOKEN / require_local_token), not by origin,
+# and NO route uses cookies or credentialed CORS (allow_credentials is left at its
+# default False). CORS "*" is only unsafe when paired with credentials — which we
+# never do. Tightening origins would break the packaged renderer, whose requests
+# come from a file:// context (Origin: null) and, in dev, from localhost:5173.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -161,6 +178,15 @@ RENDER_APPROVAL_TIMEOUT = 600.0  # seconds the agent waits for the user to decid
 # Per-session token gating the agent-only /api/agent/* endpoints. Minted once at
 # import; written to the discovery file on startup so a local MCP server can read it.
 AGENT_TOKEN = resolve_token()
+
+# Per-launch token gating the *local media* endpoints (/api/serve-audio,
+# /api/video-info). Those stream arbitrary local files to the player, so without
+# a gate any local process (or a stray browser page) hitting 127.0.0.1 could read
+# them. The Electron launcher mints CAPFORGE_LOCAL_TOKEN per spawn and hands it to
+# the renderer over IPC; the renderer passes it as a ?token= query param because
+# media elements (<video src>, WaveSurfer url) cannot set request headers. Never
+# persisted, never logged. See require_local_token / _is_servable_path below.
+LOCAL_TOKEN = resolve_local_token()
 
 # Supported languages (ISO 639-1 codes supported by Whisper)
 WHISPER_LANGUAGES = {
@@ -233,6 +259,17 @@ async def broadcast_event(payload: dict) -> None:
 @app.on_event("startup")
 async def _write_agent_discovery() -> None:
     """Publish {port, token} so a local MCP server can find and authenticate."""
+    # The local media token must always be present (resolve_local_token mints one
+    # if the launcher didn't). Warn loudly if we're clearly Electron-spawned
+    # (CAPFORGE_PORT is set) yet the launcher didn't inject CAPFORGE_LOCAL_TOKEN —
+    # that means a wiring bug and the renderer would 401 on every media request.
+    if not LOCAL_TOKEN:
+        raise RuntimeError("CAPFORGE local media token is empty; refusing to start")
+    if os.environ.get("CAPFORGE_PORT") and not os.environ.get("CAPFORGE_LOCAL_TOKEN"):
+        logger.warning(
+            "CAPFORGE_LOCAL_TOKEN missing though launched by Electron; "
+            "the renderer will be unable to authenticate media requests"
+        )
     try:
         path = write_discovery(resolve_port(), AGENT_TOKEN)
         logger.info("Agent discovery file written: %s (port %s)", path, resolve_port())
@@ -251,6 +288,62 @@ async def require_agent_token(
     """FastAPI dependency: reject requests without a valid agent token."""
     if not token_matches(x_capforge_agent_token, AGENT_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid or missing agent token")
+
+
+async def require_local_token(
+    token: Optional[str] = Query(None),
+    x_capforge_local_token: Optional[str] = Header(None),
+) -> None:
+    """FastAPI dependency gating the local media endpoints.
+
+    The token arrives as a ``?token=`` query param (media elements can't set
+    headers) or, for ``fetch`` callers, the ``X-CapForge-Local-Token`` header.
+    The agent token is also accepted so an authorised MCP client isn't locked
+    out. Constant-time compare; a missing token never matches.
+    """
+    provided = token or x_capforge_local_token
+    if token_matches(provided, LOCAL_TOKEN) or token_matches(provided, AGENT_TOKEN):
+        return
+    raise HTTPException(status_code=401, detail="Invalid or missing local token")
+
+
+def _resolve_real(path) -> Optional[Path]:
+    """Fully resolve ``path`` (expanduser + realpath, following symlinks) or
+    return None if it can't be resolved. Resolving before the allowlist check is
+    what stops a symlink inside the workspace from escaping it."""
+    try:
+        return Path(path).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _is_servable_path(path: str) -> bool:
+    """Allowlist gate for the media endpoints.
+
+    Returns True only when ``path`` is a file the renderer legitimately needs:
+      1. the current transcription source (``current_result.audio_path``), or
+      2. a file inside that source's HyperFrames workspace.
+    Everything else — i.e. an arbitrary filesystem path — is refused. Both sides
+    are realpath-resolved so symlinks can't be used to climb out of the
+    workspace. This mirrors the containment idea in
+    ``workspace_fs.resolve_in_workspace``; that helper takes *relative* paths
+    while these endpoints receive *absolute* ones, hence the explicit
+    realpath-match / parent-containment check here rather than a direct reuse.
+    """
+    if current_result is None or not current_result.audio_path:
+        return False
+    target = _resolve_real(path)
+    if target is None:
+        return False
+    # 1) exact current source file
+    source = _resolve_real(current_result.audio_path)
+    if source is not None and target == source:
+        return True
+    # 2) inside the source's HyperFrames workspace
+    workspace = _resolve_real(hyperframes_workspace(current_result.audio_path))
+    if workspace is not None and (target == workspace or workspace in target.parents):
+        return True
+    return False
 
 
 def make_sync_progress_callback(loop: asyncio.AbstractEventLoop):
@@ -320,20 +413,31 @@ async def render_cancel():
     return {"status": "cancelling"}
 
 
-@app.get("/api/serve-audio")
+@app.get("/api/serve-audio", dependencies=[Depends(require_local_token)])
 async def serve_audio(path: str):
-    """Serve an audio file for the frontend player. Only serves files that exist."""
+    """Serve the current source media to the frontend player.
+
+    Auth + path-allowlisted: the caller must present a valid local token and the
+    path must be the active transcription source (or a file in its workspace) —
+    arbitrary filesystem reads are refused. ``FileResponse`` preserves HTTP Range
+    support, which WaveSurfer / the <video> element rely on for seeking."""
+    if not _is_servable_path(path):
+        raise HTTPException(status_code=403, detail="Path not permitted")
     p = Path(path)
     if not p.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(p)
 
 
-@app.get("/api/video-info")
+@app.get("/api/video-info", dependencies=[Depends(require_local_token)])
 async def get_video_info(path: str):
     """Return display width, height, and fps for a video file using ffprobe.
-    Accounts for rotation metadata so portrait videos are reported correctly."""
+    Accounts for rotation metadata so portrait videos are reported correctly.
+
+    Auth + path-allowlisted identically to /api/serve-audio."""
     import json, subprocess
+    if not _is_servable_path(path):
+        raise HTTPException(status_code=403, detail="Path not permitted")
     p = Path(path)
     if not p.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -378,7 +482,7 @@ async def get_video_info(path: str):
         logger.info("video-info %s → %dx%d rotation=%d fps=%.3f", p.name, width, height, rotation, fps)
         return {"width": width, "height": height, "fps": fps}
     except Exception as e:
-        logger.warning("video-info failed for %s: %s", path, e)
+        logger.warning("video-info failed for %s: %s", p.name, e)
         return {"width": None, "height": None, "fps": None}
 
 
@@ -445,9 +549,16 @@ async def get_result():
     return current_result
 
 
-@app.put("/api/result")
+@app.put("/api/result", dependencies=[Depends(require_local_token)])
 async def update_result(updated: TranscriptionResult):
-    """Save edited transcription result (subtitle corrections)."""
+    """Save edited transcription result (subtitle corrections).
+
+    Auth-gated identically to the media endpoints: ``current_result`` is the
+    allowlist anchor for /api/serve-audio, so an unauthenticated PUT here would
+    let an attacker repoint that anchor at any file (then read it) or wipe the
+    user's transcription. The renderer sends the local token via the
+    ``X-CapForge-Local-Token`` header; an authorised agent's token is also
+    accepted (see require_local_token)."""
     global current_result
     current_result = updated
     return {"status": "ok", "segments": len(updated.segments)}
