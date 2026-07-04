@@ -77,6 +77,26 @@ def resolve_token() -> str:
     return token
 
 
+def resolve_local_token() -> str:
+    """Resolve the per-launch *local* token that gates the media endpoints
+    (``/api/serve-audio`` and ``/api/video-info``).
+
+    Priority: ``CAPFORGE_LOCAL_TOKEN`` env (set by the Electron launcher, which
+    mints a fresh random value per spawn and hands it to the renderer over IPC) →
+    a freshly minted in-memory value for standalone dev.
+
+    Unlike ``resolve_token`` this is intentionally **NOT persisted**: the renderer
+    receives it in-process each launch, so a brand-new secret per run is strictly
+    safer — nothing on disk to leak and no cross-launch reuse. In standalone dev
+    (no Electron) the self-minted token simply isn't shared with any client, which
+    is fine since there is no renderer to authenticate.
+    """
+    env = os.environ.get("CAPFORGE_LOCAL_TOKEN")
+    if env:
+        return env
+    return secrets.token_urlsafe(32)
+
+
 def resolve_port() -> int:
     """The port the backend is actually bound to.
 

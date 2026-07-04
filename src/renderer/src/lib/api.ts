@@ -20,6 +20,13 @@ export interface TranscribeParams {
   export_formats?: string[]
 }
 
+/** Backend HyperFrames CLI preflight (`GET /api/hyperframes/status`, snake_case wire). */
+export interface HyperframesStatus {
+  cli_version: string | null
+  compat_ok: boolean | null
+  compat_reasons: string[]
+}
+
 export interface ProgressUpdate {
   step: 'loading_model' | 'transcribing' | 'aligning' | 'diarizing' | 'exporting' | 'done' | 'error'
   pct: number
@@ -168,6 +175,17 @@ export interface RenderApprovalRequest {
   video_format?: string
 }
 
+/**
+ * Live snapshot re-pushed to the backend after the control socket reconnects.
+ * A backend crash/restart loses in-memory `current_result` + UI state; this
+ * lets the renderer restore them so the agent stays in sync. Both are optional —
+ * only what the app currently holds is sent.
+ */
+export interface ResyncSnapshot {
+  result?: TranscriptionResult
+  uiState?: unknown
+}
+
 /** Handlers for agent-driven control-channel events. */
 export interface ControlHandlers {
   onResultUpdated?: () => void
@@ -192,6 +210,18 @@ class CapForgeAPI {
   private _controlHandlers: ControlHandlers | null = null
   private _controlReconnectDelay = 1000
   private _controlReconnectTimer: ReturnType<typeof setTimeout> | null = null
+  // Resync-after-reconnect: a snapshot provider the app registers so that when
+  // the control socket reopens (e.g. the backend crashed/restarted) we re-push
+  // the live result + UI state the backend lost. Guarded by a "has connected
+  // before" flag so the very first connect doesn't trigger a redundant push.
+  private _resyncProvider: (() => ResyncSnapshot | null) | null = null
+  private _controlHasConnected = false
+
+  // Per-launch token that gates the local media endpoints (serve-audio,
+  // video-info). Sent as a query param because <audio>/<video> src loads and
+  // WaveSurfer cannot attach request headers. Set via setLocalToken() right
+  // after the port is learned over IPC.
+  private localToken = ''
 
   constructor(port = 53421) {
     this.base = `http://127.0.0.1:${port}`
@@ -201,6 +231,10 @@ class CapForgeAPI {
   setPort(port: number) {
     this.base = `http://127.0.0.1:${port}`
     this.wsBase = `ws://127.0.0.1:${port}`
+  }
+
+  setLocalToken(token: string) {
+    this.localToken = token
   }
 
   private async handleError(res: Response): Promise<ApiError> {
@@ -236,9 +270,14 @@ class CapForgeAPI {
   }
 
   private async put<T>(path: string, body: unknown): Promise<T> {
+    // PUT /api/result is auth-gated (it sets the media-allowlist anchor), so
+    // send the per-launch local token. Unlike media <src> loads, a fetch() can
+    // set a header — cleaner than a query param. Harmless on PUTs that ignore it.
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
     const res = await fetch(`${this.base}${path}`, {
       method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     })
     if (!res.ok) throw await this.handleError(res)
@@ -280,6 +319,12 @@ class CapForgeAPI {
     return this.post('/api/cancel', {})
   }
 
+  /** Cancel the in-flight HyperFrames render (kills the CLI process tree) without
+   * signalling the transcriber. No-op server-side when nothing is rendering. */
+  renderCancel() {
+    return this.post('/api/render-cancel', {})
+  }
+
   startTranscription(params: TranscribeParams) {
     return this.post('/api/transcribe', params)
   }
@@ -309,6 +354,17 @@ class CapForgeAPI {
   /** Generate (and optionally render) a HyperFrames composition from the current result. */
   exportHyperframes(params: unknown) {
     return this.post('/api/export-hyperframes', params)
+  }
+
+  /**
+   * Preflight the HyperFrames CLI the backend would drive. `compat_ok` is
+   * tri-state: `true` (compatible), `false` (too old — `compat_reasons[0]` is the
+   * remediation message), or `null` (probe failed / unknown — render still runs).
+   * Pass `probe` to force a fresh probe (e.g. right after a re-provision).
+   */
+  getHyperframesStatus(probe = false) {
+    const query = probe ? '?probe=1' : ''
+    return this.get<HyperframesStatus>(`/api/hyperframes/status${query}`)
   }
 
   /** Approve or cancel an agent-triggered final render (the human-in-the-loop gate). */
@@ -372,11 +428,15 @@ class CapForgeAPI {
   }
 
   getVideoInfo(filePath: string) {
-    return this.get<VideoInfo>(`/api/video-info?path=${encodeURIComponent(filePath)}`)
+    const token = encodeURIComponent(this.localToken)
+    return this.get<VideoInfo>(
+      `/api/video-info?path=${encodeURIComponent(filePath)}&token=${token}`
+    )
   }
 
   audioUrl(filePath: string) {
-    return `${this.base}/api/serve-audio?path=${encodeURIComponent(filePath)}`
+    const token = encodeURIComponent(this.localToken)
+    return `${this.base}/api/serve-audio?path=${encodeURIComponent(filePath)}&token=${token}`
   }
 
   // ── WebSocket progress stream ──────────────────────────────────────
@@ -469,6 +529,10 @@ class CapForgeAPI {
 
     this.controlWs.onopen = () => {
       this._controlReconnectDelay = 1000
+      // A reopen (not the first connect) means the backend may have restarted and
+      // dropped the live result/UI state — re-push the app's snapshot to restore it.
+      if (this._controlHasConnected) void this.resyncAfterReconnect()
+      this._controlHasConnected = true
     }
 
     this.controlWs.onmessage = (event: MessageEvent) => {
@@ -511,6 +575,7 @@ class CapForgeAPI {
   disconnectControl() {
     this._controlHandlers = null
     this._controlReconnectDelay = 1000
+    this._controlHasConnected = false
     if (this._controlReconnectTimer) {
       clearTimeout(this._controlReconnectTimer)
       this._controlReconnectTimer = null
@@ -519,6 +584,31 @@ class CapForgeAPI {
       this.controlWs.onclose = null
       this.controlWs.close()
       this.controlWs = null
+    }
+  }
+
+  /**
+   * Register a provider that returns the app's current result + UI state. Called
+   * on control-socket reopen to restore state a restarted backend would have lost.
+   * Pass `null` to clear it.
+   */
+  registerResync(provider: (() => ResyncSnapshot | null) | null) {
+    this._resyncProvider = provider
+  }
+
+  /**
+   * Re-push the live result + UI state to the backend. Best-effort: a failed PUT
+   * (backend still coming up) is swallowed — the next reconnect retries. Safe to
+   * call with no registered provider (no-op).
+   */
+  async resyncAfterReconnect(): Promise<void> {
+    const snapshot = this._resyncProvider?.()
+    if (!snapshot) return
+    try {
+      if (snapshot.result) await this.updateResult(snapshot.result)
+      if (snapshot.uiState !== undefined) await this.putUiState(snapshot.uiState)
+    } catch {
+      /* backend not ready yet — the next reconnect will retry */
     }
   }
 }

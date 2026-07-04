@@ -42,6 +42,7 @@ export function useTranscription(): UseTranscriptionReturn {
       // Ensure API knows the current port
       const port = await window.subforge.getBackendPort()
       api.setPort(port)
+      api.setLocalToken(await window.subforge.getLocalToken())
 
       // Subscribe to progress BEFORE posting — backend's HTTP POST is synchronous
       // (it only returns 200 when the job is fully done), so we must be listening

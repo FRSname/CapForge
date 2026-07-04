@@ -48,6 +48,12 @@ export function HyperFramesPanel({
   // Empty outputDir means "Same as source" — derive the source file's folder.
   const effectiveOutputDir = outputDir || dirname(audioPath)
   const [styles, setStyles] = useState<Array<{ name: string; title: string }>>([])
+  // Tracks that THIS panel started a HyperFrames render, so the Cancel button
+  // shows only for our render — never during a classic Pillow render triggered
+  // from another panel (which /api/render-cancel wouldn't stop anyway). `busy`
+  // is the shared render flag; `hfRendering` narrows it to our engine.
+  const [hfRendering, setHfRendering] = useState(false)
+  const [cancelling, setCancelling] = useState(false)
   // null = status not yet known; we only offer the install once we know it's missing.
   const [hfReady, setHfReady] = useState<boolean | null>(null)
   const [installing, setInstalling] = useState(false)
@@ -72,6 +78,16 @@ export function HyperFramesPanel({
       .then((s) => setCoauthor(s.coauthor))
       .catch(() => setCoauthor(null))
   }, [])
+
+  // The shared controller flips busy=false on every terminal state (done /
+  // error / idle-after-cancel). Mirror how the panel's other buttons re-enable
+  // off `busy` and drop our local in-flight flags there too.
+  useEffect(() => {
+    if (!busy) {
+      setHfRendering(false)
+      setCancelling(false)
+    }
+  }, [busy])
 
   // Enter/exit co-author mode: the connected agent takes ownership of the
   // HyperFrames project (builds custom effects/animations directly); CapForge
@@ -140,7 +156,36 @@ export function HyperFramesPanel({
   // backend report what's missing.
   const renderWithHyperframes = async () => {
     if (hfReady === false && !(await provision())) return
+    // Preflight the CLI version: refuse up front on a known-incompatible CLI so
+    // the user gets a clear remediation toast instead of a cryptic mid-render
+    // failure. A compatible CLI (compat_ok true) or an unknown one (compat_ok
+    // null — probe failed) both proceed; status is best-effort and never blocks.
+    try {
+      const status = await api.getHyperframesStatus()
+      if (status.compat_ok === false) {
+        toast(status.compat_reasons[0] || 'HyperFrames CLI is out of date.', 'error')
+        return
+      }
+    } catch {
+      /* preflight is advisory — a status hiccup must not block a valid render */
+    }
+    setHfRendering(true)
     startRender({}, effectiveOutputDir, 'hyperframes')
+  }
+
+  // Stop the in-progress HyperFrames render. The backend kills the CLI process
+  // tree; the export request then resolves with status:"cancelled", which
+  // resets the shared controller to idle (busy=false) — clearing our flags via
+  // the effect above. Best-effort: a transport hiccup here must not strand the
+  // button, since the render's own resolution still resets us.
+  const cancelHyperframesRender = async () => {
+    setCancelling(true)
+    toast('Cancelling render…', 'info')
+    try {
+      await api.renderCancel()
+    } catch {
+      /* the backend polls the cancel signal server-side; ignore transport errors */
+    }
   }
 
   return (
@@ -229,6 +274,17 @@ export function HyperFramesPanel({
       >
         {installing ? 'Setting up…' : 'Render with HyperFrames ✦'}
       </Button>
+      {hfRendering && busy && (
+        <Button
+          variant="ghost"
+          className="w-full justify-center mt-1.5"
+          disabled={cancelling}
+          onClick={cancelHyperframesRender}
+          title="Stop the in-progress HyperFrames render. The engine's process is terminated and no file is written."
+        >
+          {cancelling ? 'Cancelling…' : 'Cancel render ✕'}
+        </Button>
+      )}
 
       {lastOutputFile && (
         <button

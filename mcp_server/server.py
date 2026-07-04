@@ -52,6 +52,21 @@ def get_status() -> dict:
 
 
 @mcp.tool()
+def get_hyperframes_status() -> dict:
+    """Preflight the HyperFrames CLI before rendering.
+
+    Returns `{ cli_version, compat_ok, compat_reasons }`. `compat_ok` is
+    tri-state: `true` (compatible), `false` (too old), or `null` (version unknown
+    / probe failed — a render still proceeds, degrading gracefully).
+    `compat_reasons[0]` is the user-facing remediation message ONLY when
+    `compat_ok` is `false`; when `compat_ok` is `null` the reasons list is empty,
+    so do not treat it as guidance. Check this before a co-author render so a
+    stale CLI surfaces as a clear message instead of a mid-render failure.
+    """
+    return _client.get_hyperframes_status()
+
+
+@mcp.tool()
 def get_transcript() -> dict:
     """Return the current transcript with segment + word indices.
 
@@ -410,6 +425,12 @@ def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dic
 
     Uses the effects currently on the timeline (see list_effects/add_effect) and
     returns the output file path. quality: draft|standard|high. May take a while.
+
+    Co-author durability: co-author mode is persisted in the project workspace and
+    survives a CapForge backend restart/crash — you do not need to re-enter it after
+    a reconnect. While a co-author project is active, CapForge refuses to re-scaffold
+    over your authored index.html, so a render (or any panel refresh) can never
+    silently overwrite your work.
     """
     return _client.render_hyperframes(
         {"render": True, "quality": quality, "video_format": video_format, "use_ui_config": True}
@@ -567,6 +588,12 @@ def enter_coauthor_mode() -> dict:
     happy → get the user's explicit approval → `render_hyperframes`. Always preview
     and confirm before rendering; the final render is the last step, not a preview.
     Call `hyperframes_guide` for the creative vocabulary. Returns `{ coauthor, path }`.
+
+    Durability: once you enter co-author mode CapForge persists that state in the
+    project workspace, so it survives a backend restart/crash — after a reconnect
+    you are still in co-author mode and do NOT need to re-enter. As long as the mode
+    is active, CapForge refuses to re-scaffold over your `index.html`; scaffolding a
+    co-author project is rejected rather than silently overwriting your work.
     """
     return _client.set_coauthor(True)
 

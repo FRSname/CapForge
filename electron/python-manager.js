@@ -8,6 +8,7 @@ const path = require('path')
 const http = require('http')
 const fs = require('fs')
 const net = require('net')
+const crypto = require('crypto')
 
 const { getRuntimePaths, isRuntimeReady } = require('./runtime-setup')
 const { getNodeRuntimePaths } = require('./node-runtime')
@@ -121,6 +122,11 @@ class PythonBackend {
     this.port = PREFERRED_PORT
     this._output = []
     this._logStream = null
+    // Per-launch random secret gating the backend's local media endpoints
+    // (/api/serve-audio, /api/video-info). Minted here, injected into the
+    // backend env as CAPFORGE_LOCAL_TOKEN, and handed to the renderer via the
+    // `backend:local-token` IPC handler. Never persisted, never logged.
+    this.localToken = crypto.randomBytes(32).toString('hex')
   }
 
   /** Path to the current backend log file. Exposed so the UI can open it. */
@@ -163,6 +169,8 @@ class PythonBackend {
       // Tell the backend the port we chose so it can publish the agent discovery
       // file (~/.capforge/backend.json) the local MCP control server reads.
       env.CAPFORGE_PORT = String(this.port)
+      // Secret the renderer must echo back on media requests (see constructor).
+      env.CAPFORGE_LOCAL_TOKEN = this.localToken
       // Platform-specific HF Hub tweaks (Windows disables symlinks to avoid
       // WinError 1314; macOS inherits defaults). See electron/platform/win.js.
       Object.assign(env, platform.extraModelDownloadEnv)
@@ -219,9 +227,22 @@ class PythonBackend {
       const cwd =
         unpacked && fs.existsSync(path.join(unpacked, 'backend')) ? unpacked : PROJECT_ROOT
 
+      // --no-access-log: the local media endpoints carry the auth token as a
+      // ?token= query param (media elements can't send headers), and uvicorn's
+      // access log would otherwise write that query string to backend.log. The
+      // token must never be logged, so access logging is disabled here.
       this.process = spawn(
         python,
-        ['-m', 'uvicorn', 'backend.main:app', '--host', '127.0.0.1', '--port', String(this.port)],
+        [
+          '-m',
+          'uvicorn',
+          'backend.main:app',
+          '--host',
+          '127.0.0.1',
+          '--port',
+          String(this.port),
+          '--no-access-log',
+        ],
         { cwd, windowsHide: true, env }
       )
 

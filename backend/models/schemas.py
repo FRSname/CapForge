@@ -118,6 +118,9 @@ class ProgressUpdate(BaseModel):
     progress: float = Field(0.0, ge=0.0, le=100.0)
     message: str = ""
     detail: Optional[str] = None
+    # Machine-readable failure classifier (e.g. "cli_unavailable", "timeout",
+    # "cancelled"). Only set on ERROR updates; None keeps existing payloads intact.
+    code: Optional[str] = None
 
 
 # --- Export ---

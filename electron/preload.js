@@ -23,6 +23,9 @@ contextBridge.exposeInMainWorld('subforge', {
   /** Get backend port number. */
   getBackendPort: () => ipcRenderer.invoke('backend:port'),
 
+  /** Per-launch token the renderer must send on the local media endpoints. */
+  getLocalToken: () => ipcRenderer.invoke('backend:local-token'),
+
   /** Save a font file to persistent storage. Returns saved path. */
   /** Save a font file to persistent storage. Accepts filename + ArrayBuffer. Returns saved path. */
   saveFont: (fileName, data) => ipcRenderer.invoke('fonts:save', fileName, data),

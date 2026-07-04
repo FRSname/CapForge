@@ -141,6 +141,7 @@ export function AgentLiveSync({
     void (async () => {
       try {
         api.setPort(await window.subforge.getBackendPort())
+        api.setLocalToken(await window.subforge.getLocalToken())
       } catch {
         /* fall back to the default port */
       }

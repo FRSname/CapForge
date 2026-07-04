@@ -8,17 +8,28 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 from typing import Optional
 
-from fastapi import Depends, FastAPI, Header, HTTPException, Response, WebSocket, WebSocketDisconnect
+from fastapi import (
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Response,
+    WebSocket,
+    WebSocketDisconnect,
+)
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.responses import FileResponse
 
 from backend.agent_bridge import (
     remove_discovery,
+    resolve_local_token,
     resolve_port,
     resolve_token,
     token_matches,
@@ -32,18 +43,27 @@ from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
 from backend.exporters.hyperframes_export import export_hyperframes
 from backend.exporters.hyperframes_project import (
+    clear_scaffold_fingerprint,
     coauthor_project_dir,
+    ensure_hyperframes_project,
     export_hyperframes_project,
     hyperframes_workspace,
+    read_coauthor_marker,
     resolve_output_dir,
     seed_coauthor_project,
     sync_companions,
+    write_coauthor_marker,
 )
 from backend.exporters.hyperframes_render import (
+    HyperframesCancelledError,
     HyperframesRenderError,
     render_hyperframes_project,
     run_hyperframes_cli,
     snapshot_hyperframes_project,
+)
+from backend.exporters.hyperframes_version import (
+    check_cli_compat,
+    reset_version_cache,
 )
 from backend.exporters.json_export import export_json
 from backend.exporters.premiere_export import export_subforge
@@ -80,7 +100,14 @@ logger = logging.getLogger(__name__)
 
 app = FastAPI(title="CapForge", version="0.1.0")
 
-# Allow Electron renderer to call us
+# Allow Electron renderer to call us.
+#
+# allow_origins stays "*" deliberately: the two file-reading endpoints are gated
+# by a per-launch token (see LOCAL_TOKEN / require_local_token), not by origin,
+# and NO route uses cookies or credentialed CORS (allow_credentials is left at its
+# default False). CORS "*" is only unsafe when paired with credentials — which we
+# never do. Tightening origins would break the packaged renderer, whose requests
+# come from a file:// context (Origin: null) and, in dev, from localhost:5173.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -107,6 +134,31 @@ current_custom_caption_html: Optional[str] = None
 current_coauthor: bool = False
 ws_clients: list[WebSocket] = []
 
+
+def coauthor_active(project_dir) -> bool:
+    """Durable check for "is co-author mode on for this project?".
+
+    ``current_coauthor`` is the in-memory fast path but is lost on a backend
+    crash/restart. The per-workspace marker written by ``write_coauthor_marker`` is
+    the durable truth: if it says active while the global is stale-False, self-heal
+    the global so the rest of the request (and later ones) take the co-author path
+    and never re-scaffold over the agent's index.html. Rehydration is lazy and
+    per-source — there is deliberately no startup scan of all workspaces.
+    """
+    global current_coauthor
+    if current_coauthor:
+        return True
+    marker = read_coauthor_marker(project_dir)
+    if marker is not None and marker.get("active") is True:
+        current_coauthor = True  # self-heal the fast path
+        return True
+    return False
+
+# Cancellation signal for the single in-flight HyperFrames render. Set by
+# POST /api/render-cancel; the executor thread polls it and kills the CLI's
+# process tree. None between renders. See render_hyperframes_project(cancel_event=).
+current_hf_cancel: Optional[threading.Event] = None
+
 # Renderer-owned UI state (StudioSettings + groups), mirrored here so the agent
 # can read what to change. Style/groups live in the renderer, not the backend —
 # this is just a cache the renderer pushes to via PUT /api/ui-state.
@@ -126,6 +178,15 @@ RENDER_APPROVAL_TIMEOUT = 600.0  # seconds the agent waits for the user to decid
 # Per-session token gating the agent-only /api/agent/* endpoints. Minted once at
 # import; written to the discovery file on startup so a local MCP server can read it.
 AGENT_TOKEN = resolve_token()
+
+# Per-launch token gating the *local media* endpoints (/api/serve-audio,
+# /api/video-info). Those stream arbitrary local files to the player, so without
+# a gate any local process (or a stray browser page) hitting 127.0.0.1 could read
+# them. The Electron launcher mints CAPFORGE_LOCAL_TOKEN per spawn and hands it to
+# the renderer over IPC; the renderer passes it as a ?token= query param because
+# media elements (<video src>, WaveSurfer url) cannot set request headers. Never
+# persisted, never logged. See require_local_token / _is_servable_path below.
+LOCAL_TOKEN = resolve_local_token()
 
 # Supported languages (ISO 639-1 codes supported by Whisper)
 WHISPER_LANGUAGES = {
@@ -198,6 +259,17 @@ async def broadcast_event(payload: dict) -> None:
 @app.on_event("startup")
 async def _write_agent_discovery() -> None:
     """Publish {port, token} so a local MCP server can find and authenticate."""
+    # The local media token must always be present (resolve_local_token mints one
+    # if the launcher didn't). Warn loudly if we're clearly Electron-spawned
+    # (CAPFORGE_PORT is set) yet the launcher didn't inject CAPFORGE_LOCAL_TOKEN —
+    # that means a wiring bug and the renderer would 401 on every media request.
+    if not LOCAL_TOKEN:
+        raise RuntimeError("CAPFORGE local media token is empty; refusing to start")
+    if os.environ.get("CAPFORGE_PORT") and not os.environ.get("CAPFORGE_LOCAL_TOKEN"):
+        logger.warning(
+            "CAPFORGE_LOCAL_TOKEN missing though launched by Electron; "
+            "the renderer will be unable to authenticate media requests"
+        )
     try:
         path = write_discovery(resolve_port(), AGENT_TOKEN)
         logger.info("Agent discovery file written: %s (port %s)", path, resolve_port())
@@ -216,6 +288,62 @@ async def require_agent_token(
     """FastAPI dependency: reject requests without a valid agent token."""
     if not token_matches(x_capforge_agent_token, AGENT_TOKEN):
         raise HTTPException(status_code=401, detail="Invalid or missing agent token")
+
+
+async def require_local_token(
+    token: Optional[str] = Query(None),
+    x_capforge_local_token: Optional[str] = Header(None),
+) -> None:
+    """FastAPI dependency gating the local media endpoints.
+
+    The token arrives as a ``?token=`` query param (media elements can't set
+    headers) or, for ``fetch`` callers, the ``X-CapForge-Local-Token`` header.
+    The agent token is also accepted so an authorised MCP client isn't locked
+    out. Constant-time compare; a missing token never matches.
+    """
+    provided = token or x_capforge_local_token
+    if token_matches(provided, LOCAL_TOKEN) or token_matches(provided, AGENT_TOKEN):
+        return
+    raise HTTPException(status_code=401, detail="Invalid or missing local token")
+
+
+def _resolve_real(path) -> Optional[Path]:
+    """Fully resolve ``path`` (expanduser + realpath, following symlinks) or
+    return None if it can't be resolved. Resolving before the allowlist check is
+    what stops a symlink inside the workspace from escaping it."""
+    try:
+        return Path(path).expanduser().resolve()
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
+def _is_servable_path(path: str) -> bool:
+    """Allowlist gate for the media endpoints.
+
+    Returns True only when ``path`` is a file the renderer legitimately needs:
+      1. the current transcription source (``current_result.audio_path``), or
+      2. a file inside that source's HyperFrames workspace.
+    Everything else — i.e. an arbitrary filesystem path — is refused. Both sides
+    are realpath-resolved so symlinks can't be used to climb out of the
+    workspace. This mirrors the containment idea in
+    ``workspace_fs.resolve_in_workspace``; that helper takes *relative* paths
+    while these endpoints receive *absolute* ones, hence the explicit
+    realpath-match / parent-containment check here rather than a direct reuse.
+    """
+    if current_result is None or not current_result.audio_path:
+        return False
+    target = _resolve_real(path)
+    if target is None:
+        return False
+    # 1) exact current source file
+    source = _resolve_real(current_result.audio_path)
+    if source is not None and target == source:
+        return True
+    # 2) inside the source's HyperFrames workspace
+    workspace = _resolve_real(hyperframes_workspace(current_result.audio_path))
+    if workspace is not None and (target == workspace or workspace in target.parents):
+        return True
+    return False
 
 
 def make_sync_progress_callback(loop: asyncio.AbstractEventLoop):
@@ -266,24 +394,50 @@ async def cancel_job():
         return {"status": "no_job"}
     transcriber.cancel()
     cancel_render()
+    if current_hf_cancel is not None:
+        current_hf_cancel.set()
     await broadcast_progress(ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Cancelled"))
     return {"status": "cancelled"}
 
 
-@app.get("/api/serve-audio")
+@app.post("/api/render-cancel")
+async def render_cancel():
+    """Cancel the in-flight HyperFrames render (kills the CLI process tree).
+
+    Distinct from /api/cancel so the renderer can stop a long HyperFrames render
+    without also signalling the transcriber. No-op when nothing is rendering.
+    """
+    if current_hf_cancel is None:
+        return {"status": "no_job"}
+    current_hf_cancel.set()
+    return {"status": "cancelling"}
+
+
+@app.get("/api/serve-audio", dependencies=[Depends(require_local_token)])
 async def serve_audio(path: str):
-    """Serve an audio file for the frontend player. Only serves files that exist."""
+    """Serve the current source media to the frontend player.
+
+    Auth + path-allowlisted: the caller must present a valid local token and the
+    path must be the active transcription source (or a file in its workspace) —
+    arbitrary filesystem reads are refused. ``FileResponse`` preserves HTTP Range
+    support, which WaveSurfer / the <video> element rely on for seeking."""
+    if not _is_servable_path(path):
+        raise HTTPException(status_code=403, detail="Path not permitted")
     p = Path(path)
     if not p.is_file():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(p)
 
 
-@app.get("/api/video-info")
+@app.get("/api/video-info", dependencies=[Depends(require_local_token)])
 async def get_video_info(path: str):
     """Return display width, height, and fps for a video file using ffprobe.
-    Accounts for rotation metadata so portrait videos are reported correctly."""
+    Accounts for rotation metadata so portrait videos are reported correctly.
+
+    Auth + path-allowlisted identically to /api/serve-audio."""
     import json, subprocess
+    if not _is_servable_path(path):
+        raise HTTPException(status_code=403, detail="Path not permitted")
     p = Path(path)
     if not p.is_file():
         raise HTTPException(status_code=404, detail="File not found")
@@ -328,7 +482,7 @@ async def get_video_info(path: str):
         logger.info("video-info %s → %dx%d rotation=%d fps=%.3f", p.name, width, height, rotation, fps)
         return {"width": width, "height": height, "fps": fps}
     except Exception as e:
-        logger.warning("video-info failed for %s: %s", path, e)
+        logger.warning("video-info failed for %s: %s", p.name, e)
         return {"width": None, "height": None, "fps": None}
 
 
@@ -395,9 +549,16 @@ async def get_result():
     return current_result
 
 
-@app.put("/api/result")
+@app.put("/api/result", dependencies=[Depends(require_local_token)])
 async def update_result(updated: TranscriptionResult):
-    """Save edited transcription result (subtitle corrections)."""
+    """Save edited transcription result (subtitle corrections).
+
+    Auth-gated identically to the media endpoints: ``current_result`` is the
+    allowlist anchor for /api/serve-audio, so an unauthenticated PUT here would
+    let an attacker repoint that anchor at any file (then read it) or wipe the
+    user's transcription. The renderer sends the local token via the
+    ``X-CapForge-Local-Token`` header; an authorised agent's token is also
+    accepted (see require_local_token)."""
     global current_result
     current_result = updated
     return {"status": "ok", "segments": len(updated.segments)}
@@ -672,6 +833,29 @@ async def render_video(request: VideoRenderRequest):
 
 # --- HyperFrames composition endpoint ---
 
+@app.get("/api/hyperframes/status")
+async def hyperframes_status(probe: bool = False):
+    """Preflight the HyperFrames CLI the backend would drive.
+
+    Reports the detected CLI version and whether it is compatible, so the panel
+    can refuse a render up front instead of failing mid-CLI. ``compat_ok`` is a
+    tri-state: ``true`` (compatible), ``false`` (too old — ``compat_reasons[0]``
+    carries the remediation message), or ``null`` (version unknown / probe failed
+    — the render still proceeds, degrading gracefully). Pass ``?probe=1`` to force
+    a fresh probe (e.g. right after a re-provision); otherwise the cached read is
+    reused. Runs the probe in an executor so the event loop isn't blocked.
+    """
+    if probe:
+        reset_version_cache()
+    loop = asyncio.get_running_loop()
+    compat = await loop.run_in_executor(None, check_cli_compat)
+    return {
+        "cli_version": compat["version"],
+        "compat_ok": compat["ok"],
+        "compat_reasons": compat["reasons"],
+    }
+
+
 @app.post("/api/export-hyperframes")
 async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     """Generate a HyperFrames composition from the current result; optionally render it.
@@ -715,6 +899,12 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     await broadcast_progress(ProgressUpdate(
         status=JobStatus.RENDERING, progress=0, message="Building HyperFrames composition…"
     ))
+
+    # Publish a cancel signal for this render so POST /api/render-cancel can stop
+    # the CLI's process tree mid-flight. Cleared in the finally below.
+    global current_hf_cancel
+    cancel_event = threading.Event()
+    current_hf_cancel = cancel_event
 
     loop = asyncio.get_running_loop()
     sync_progress = make_sync_progress_callback(loop)
@@ -768,7 +958,12 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     def _work() -> dict:
         # Co-author mode: the agent owns index.html, so render/preview the project
         # as-authored in the stable workspace — never re-scaffold or rmtree it.
-        if current_coauthor:
+        # coauthor_active() consults the durable marker so a backend restart can't
+        # silently drop mode and re-scaffold over the agent's work.
+        coauthor_dir = coauthor_project_dir(
+            current_result, hyperframes_workspace(current_result.audio_path)
+        )
+        if coauthor_active(coauthor_dir):
             project_dir = _coauthor_project()
             if not request.render:
                 return {"project": project_dir, "file": None}
@@ -778,6 +973,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
                 quality=request.quality, video_format=request.video_format,
                 fps=config.fps,
                 on_progress=on_progress,
+                cancel_event=cancel_event,
             )
             return {"project": None, "file": file}
 
@@ -801,6 +997,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
                 quality=request.quality, video_format=request.video_format,
                 fps=config.fps,
                 on_progress=on_progress,
+                cancel_event=cancel_event,
             )
             return {"project": None, "file": file}
         finally:
@@ -814,15 +1011,32 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
         ))
         return {"status": "ok", **result}
 
+    except HyperframesCancelledError as e:
+        # User-initiated stop — not an error. Return IDLE so the panel resets.
+        logger.info("HyperFrames render cancelled by user.")
+        await broadcast_progress(ProgressUpdate(
+            status=JobStatus.IDLE, progress=0, message="Render cancelled",
+            code=e.code,
+        ))
+        return {"status": "cancelled", "code": e.code, "project": None, "file": None,
+                "message": "Render cancelled."}
     except HyperframesRenderError as e:
-        logger.warning("HyperFrames render unavailable/failed: %s", e)
+        # Machine-readable classifier (cli_unavailable/cli_incompatible/timeout/…)
+        # rides alongside the existing title/hint/raw fields — additive, not a rename.
+        logger.warning("HyperFrames render unavailable/failed [%s]: %s", e.code, e)
         await broadcast_progress(ProgressUpdate(
             status=JobStatus.ERROR, progress=0,
-            message="HyperFrames render failed", detail=str(e),
+            message="HyperFrames render failed", detail=str(e), code=e.code,
         ))
         raise HTTPException(
             status_code=400,
-            detail={"title": "HyperFrames render failed", "hint": str(e), "raw": str(e)},
+            detail={
+                "title": "HyperFrames render failed",
+                "hint": str(e),
+                "raw": str(e),
+                "code": e.code,
+                "remedy": e.remedy,
+            },
         )
     except Exception as e:
         logger.exception("HyperFrames export failed")
@@ -835,6 +1049,10 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             status_code=500,
             detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
         )
+    finally:
+        # Drop the cancel signal so a stale event can't abort the next render.
+        if current_hf_cancel is cancel_event:
+            current_hf_cancel = None
 
 
 # --- Agent effects endpoints ---
@@ -1010,22 +1228,33 @@ async def preview_hyperframes_frame(req: dict):
     effects_dicts = [e.model_dump() for e in current_effects] if current_effects else None
     loop = asyncio.get_running_loop()
 
+    def heartbeat(message: str) -> None:
+        # Coarse "still capturing" tick from the snapshot subprocess. Sent as a
+        # type-discriminated event so it never overwrites current_status.
+        asyncio.run_coroutine_threadsafe(
+            broadcast_event({"type": "hyperframes_progress", "message": message}), loop
+        )
+
     def _work() -> bytes:
         workspace = hyperframes_workspace(current_result.audio_path)
         project_dir = coauthor_project_dir(current_result, workspace)
         # Co-author mode: preview the agent's OWN index.html — refresh only the
         # companions, never regenerate the composition the agent authored.
-        if current_coauthor and (project_dir / "index.html").exists():
+        # Durable marker check survives a backend restart mid-session.
+        if coauthor_active(project_dir) and (project_dir / "index.html").exists():
             sync_companions(
                 current_result, config, str(project_dir),
                 source_video_path=current_result.audio_path,
                 custom_groups=ui_groups,
                 caption_html=current_custom_caption_html,
             )
-            return snapshot_hyperframes_project(str(project_dir), t)
+            return snapshot_hyperframes_project(str(project_dir), t, on_progress=heartbeat)
         # Default: scaffold into the SAME canonical workspace the Studio serves, so
         # a preview re-generates the open Studio's project (not a separate copy).
-        scaffolded = export_hyperframes_project(
+        # ``ensure_`` skips the full scaffold when config+groups+transcript+source+
+        # effects are unchanged (the preview→tweak→preview fast path), and always
+        # falls back to a full scaffold on any change.
+        scaffolded = ensure_hyperframes_project(
             current_result,
             config,
             workspace,
@@ -1034,15 +1263,21 @@ async def preview_hyperframes_frame(req: dict):
             effects=effects_dicts,
             caption_html=current_custom_caption_html,
         )
-        return snapshot_hyperframes_project(scaffolded, t)
+        return snapshot_hyperframes_project(scaffolded, t, on_progress=heartbeat)
 
     try:
         png = await loop.run_in_executor(None, _work)
     except HyperframesRenderError as e:
-        logger.warning("HyperFrames preview failed: %s", e)
+        logger.warning("HyperFrames preview failed [%s]: %s", e.code, e)
         raise HTTPException(
             status_code=400,
-            detail={"title": "HyperFrames preview failed", "hint": str(e), "raw": str(e)},
+            detail={
+                "title": "HyperFrames preview failed",
+                "hint": str(e),
+                "raw": str(e),
+                "code": e.code,
+                "remedy": e.remedy,
+            },
         )
     return Response(content=png, media_type="image/png")
 
@@ -1065,7 +1300,7 @@ async def agent_workspace():
     root = _coauthor_root()
     return {
         "path": str(root),
-        "coauthor": current_coauthor,
+        "coauthor": coauthor_active(root),
         "tree": workspace_fs.list_tree(root),
     }
 
@@ -1123,8 +1358,10 @@ async def agent_hyperframes_cli(body: dict):
 # renderer, which only holds the backend port — not the agent token).
 
 def _coauthor_status() -> dict:
-    path = str(_coauthor_root()) if current_result is not None else None
-    return {"coauthor": current_coauthor, "path": path}
+    if current_result is None:
+        return {"coauthor": current_coauthor, "path": None}
+    root = _coauthor_root()
+    return {"coauthor": coauthor_active(root), "path": str(root)}
 
 
 async def _coauthor_enter() -> dict:
@@ -1136,15 +1373,27 @@ async def _coauthor_enter() -> dict:
     effects_dicts = [e.model_dump() for e in current_effects] if current_effects else None
     workspace = hyperframes_workspace(current_result.audio_path)
     project_dir = coauthor_project_dir(current_result, workspace)
+    # Write the durable marker BEFORE the resource it protects. If we crash after
+    # this line but before/within the scaffold, a restart still reports co-author
+    # active (coauthor_active() rehydrates from the marker) and _coauthor_project()
+    # then sees no index.html and scaffolds cleanly — nothing to clobber.
+    write_coauthor_marker(project_dir, True, source=current_result.audio_path)
+    current_coauthor = True
     if not (project_dir / "index.html").exists():
         loop = asyncio.get_running_loop()
+        # force_scaffold=True: this is the ONE intentional initial scaffold.
         await loop.run_in_executor(None, lambda: seed_coauthor_project(
             current_result, config, workspace,
             source_video_path=current_result.audio_path,
             custom_groups=ui_groups, effects=effects_dicts,
             caption_html=current_custom_caption_html,
+            force_scaffold=True,
         ))
-    current_coauthor = True
+    # The agent now owns index.html and will diverge it. Drop the scaffold
+    # fingerprint (including any the seed just wrote) so a later non-co-author
+    # preview can never serve a stale cache hit against the agent's edits — it
+    # will re-scaffold cleanly instead.
+    clear_scaffold_fingerprint(project_dir)
     return {"coauthor": True, "path": str(project_dir)}
 
 
@@ -1152,6 +1401,13 @@ async def _coauthor_set(enable: bool) -> dict:
     global current_coauthor
     if not enable:
         current_coauthor = False
+        # Flip the durable marker to inactive (kept as history — never delete it,
+        # and never touch the agent's index.html).
+        if current_result is not None:
+            project_dir = coauthor_project_dir(
+                current_result, hyperframes_workspace(current_result.audio_path)
+            )
+            write_coauthor_marker(project_dir, False, source=current_result.audio_path)
         return {"coauthor": False}
     return await _coauthor_enter()
 

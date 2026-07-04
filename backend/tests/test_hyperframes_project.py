@@ -7,7 +7,10 @@ import pytest
 from PIL import Image
 
 from backend.exporters import hyperframes_project as hp
-from backend.exporters.hyperframes_project import export_hyperframes_project
+from backend.exporters.hyperframes_project import (
+    export_hyperframes_project,
+    sync_companions,
+)
 from backend.exporters.video_render import _get_font, resolve_font_file
 from backend.models.schemas import TranscriptionResult, VideoRenderConfig
 
@@ -107,6 +110,60 @@ def test_custom_groups_override_autogrouping(transcription_result, tmp_path):
 def test_empty_result_raises(empty_result, tmp_path):
     with pytest.raises(ValueError):
         export_hyperframes_project(empty_result, VideoRenderConfig(), str(tmp_path))
+
+
+# --- sync_companions error paths: clear errors, never a partial write ---
+
+
+def test_sync_companions_missing_project_dir_raises_clear_error(
+    transcription_result, tmp_path
+):
+    """A co-author sync against a non-existent project must fail loudly with the
+    offending path — never silently scaffold a fresh (agent-clobbering) project."""
+    missing = tmp_path / "does-not-exist-hyperframes"
+    with pytest.raises(FileNotFoundError) as exc:
+        sync_companions(transcription_result, VideoRenderConfig(), str(missing))
+    assert str(missing) in str(exc.value)
+    # Nothing was created as a side effect of the failed sync.
+    assert not missing.exists()
+
+
+def test_sync_companions_empty_result_raises_without_partial_write(
+    empty_result, transcription_result, tmp_path
+):
+    """With no subtitle data, sync must raise BEFORE touching companion files, so a
+    pre-existing (even corrupt) transcript.json is left byte-for-byte intact — no
+    half-written state the agent could later render from."""
+    project = Path(
+        export_hyperframes_project(transcription_result, VideoRenderConfig(), str(tmp_path))
+    )
+    # Simulate a corrupt companion already on disk.
+    corrupt = "{ this is not valid json"
+    (project / "transcript.json").write_text(corrupt, encoding="utf-8")
+    index_before = (project / "index.html").read_text()
+
+    with pytest.raises(ValueError):
+        sync_companions(empty_result, VideoRenderConfig(), str(project))
+
+    # The raise happened before any write: corrupt transcript + agent index untouched.
+    assert (project / "transcript.json").read_text() == corrupt
+    assert (project / "index.html").read_text() == index_before
+
+
+def test_sync_companions_overwrites_corrupt_transcript_on_success(
+    transcription_result, tmp_path
+):
+    """sync never trusts prior companion state: a corrupt transcript.json is fully
+    regenerated (not merged/appended) from the live result on a successful sync."""
+    project = Path(
+        export_hyperframes_project(transcription_result, VideoRenderConfig(), str(tmp_path))
+    )
+    (project / "transcript.json").write_text("{ corrupt", encoding="utf-8")
+
+    sync_companions(transcription_result, VideoRenderConfig(), str(project))
+
+    words = json.loads((project / "transcript.json").read_text())
+    assert len(words) == 6  # fixture has 6 words — regenerated wholesale
 
 
 # --- Phase B: effect clips ---

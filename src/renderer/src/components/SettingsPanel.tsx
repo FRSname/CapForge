@@ -72,6 +72,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       try {
         const port = await window.subforge.getBackendPort()
         api.setPort(port)
+        api.setLocalToken(await window.subforge.getLocalToken())
         const [langs, info, savedLang, savedDiarize, savedToken] = await Promise.all([
           api.getLanguages(),
           api.getSystemInfo() as Promise<SystemInfo>,
