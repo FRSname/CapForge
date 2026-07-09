@@ -39,7 +39,9 @@ def _normalize(word: str) -> str:
 
 
 def _rebuild_text(words: list[dict]) -> str:
-    return " ".join(w["word"] for w in words).strip()
+    # Skip empty/whitespace-only tokens so a blank slot (e.g. a legacy edit that
+    # replaced a word with "") can never join into a double space.
+    return " ".join(w["word"] for w in words if w["word"].strip()).strip()
 
 
 def _segment_bounds(seg: dict, words: list[dict]) -> tuple[float, float]:
@@ -79,26 +81,93 @@ def remove_fillers(
 
 
 def apply_word_edits(result: dict, edits: list[dict]) -> tuple[dict, int]:
-    """Apply ``[{segment, word, new}]`` token replacements. Returns (new_result, count).
+    """Apply ``[{segment, word, new, op}]`` token edits. Returns (new_result, count).
 
-    Each edit replaces ``segments[segment].words[word].word`` with ``new`` and
-    rebuilds that segment's ``text``. Captions render from words, so this is what
-    makes a spelling fix actually appear on screen. Raises IndexError/KeyError on
-    out-of-range indices so mistakes fail loudly rather than silently no-op.
+    Each edit locates ``segments[segment].words[word]`` and applies an ``op``:
+
+    - ``op="replace"`` (default): swaps that token's text with ``new`` and rebuilds
+      the segment's ``text``. Captions render from words, so this is what makes a
+      spelling fix actually appear on screen.
+    - ``op="delete"``: removes the token from ``words[]`` (``new`` ignored). The
+      deleted token's ``[start, end]`` span is absorbed into the adjacent surviving
+      word so no caption gap opens: the PREVIOUS survivor's ``end`` grows to cover
+      the deleted ``end``; if the deleted token has no previous survivor (it was at
+      the very start), the NEXT survivor's ``start`` is pulled back to the deleted
+      ``start`` instead. Runs of consecutive deletions accumulate into the running
+      survivor.
+
+    A **merge** is a ``replace`` on the survivor + a ``delete`` on the neighbor in
+    the same ``edits`` list — e.g. merging "chat GPT" -> "ChatGPT" is
+    ``[{seg,w:3,new:"ChatGPT"}, {seg,w:4,op:"delete"}]``. The survivor keeps its
+    own ``start`` and absorbs the neighbor's ``end``, so the merged word covers
+    ``[first.start, second.end]``.
+
+    No surviving word's START is ever resynced/shifted — captions stay locked to the
+    original audio (the invariant documented at the top of this module); the survivor
+    simply stays on screen through the deleted span. Segments left wordless are
+    dropped (mirrors ``remove_fillers``). See
+    docs/plans/mcp-transcript-editing-ux.md (Phase 1) for the full rationale.
+
+    Raises IndexError/KeyError on out-of-range indices so mistakes fail loudly
+    rather than silently no-op.
     """
     out = copy.deepcopy(result)
     segments = out.get("segments", [])
+    # Per-segment set of ORIGINAL word indices flagged for deletion.
+    deletions: dict[int, set[int]] = {}
     touched_segments: set[int] = set()
 
+    # Pass A: apply replaces in place; record deletions (don't remove yet, so every
+    # edit's word index stays valid against the original word list — no index shift).
     for edit in edits:
         si = int(edit["segment"])
         wi = int(edit["word"])
-        new_word = str(edit["new"])
+        op = str(edit.get("op", "replace"))
         words = segments[si]["words"]
-        words[wi] = {**words[wi], "word": new_word}
+        # Index into words[wi] up front to preserve the loud IndexError contract.
+        target = words[wi]
         touched_segments.add(si)
+        if op == "delete":
+            deletions.setdefault(si, set()).add(wi)
+        else:  # "replace"
+            words[wi] = {**target, "word": str(edit.get("new", ""))}
 
-    for si in touched_segments:
-        segments[si]["text"] = _rebuild_text(segments[si]["words"])
+    # Pass B: rebuild each touched segment — drop deleted tokens (absorbing their time
+    # into an adjacent survivor), recompute text + bounds, drop wordless segments.
+    new_segments: list[dict] = []
+    for si, seg in enumerate(segments):
+        if si not in touched_segments:
+            new_segments.append(seg)
+            continue
 
+        drop = deletions.get(si, set())
+        original_words = seg["words"]
+        kept: list[dict] = []
+        pending_start: Optional[float] = None  # earliest deleted start with no prior survivor
+        for wi, w in enumerate(original_words):
+            if wi in drop:
+                if kept:
+                    # Absorb into the previous survivor: extend its end to cover the gap.
+                    prev = kept[-1]
+                    prev["end"] = max(prev["end"], w["end"])
+                else:
+                    # No previous survivor yet — remember to pull the next survivor's
+                    # start back (take the earliest deleted start across a leading run).
+                    pending_start = w["start"] if pending_start is None else min(pending_start, w["start"])
+                continue
+            if pending_start is not None:
+                w = {**w, "start": min(w["start"], pending_start)}
+                pending_start = None
+            kept.append(w)
+
+        if not kept and original_words:
+            continue  # every word deleted → drop the now-empty segment
+
+        seg["words"] = kept
+        if kept:
+            seg["text"] = _rebuild_text(kept)
+            seg["start"], seg["end"] = _segment_bounds(seg, kept)
+        new_segments.append(seg)
+
+    out["segments"] = new_segments
     return out, len(edits)

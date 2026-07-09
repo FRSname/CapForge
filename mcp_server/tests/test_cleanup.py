@@ -113,3 +113,146 @@ def test_apply_word_edits_is_pure() -> None:
 def test_apply_word_edits_raises_on_bad_index() -> None:
     with pytest.raises(IndexError):
         apply_word_edits(_result(), [{"segment": 0, "word": 99, "new": "x"}])
+
+
+# --- apply_word_edits: empty-token + delete/merge (Phase 1) ---------------
+
+def test_replacing_token_with_empty_string_yields_no_double_space() -> None:
+    # Legacy shape: a "replace with ''" edit must not leave a double space.
+    out, _ = apply_word_edits(_result(), [{"segment": 0, "word": 0, "new": ""}])
+    text = out["segments"][0]["text"]
+    assert "  " not in text
+    assert text == "hello their"
+
+
+def test_delete_op_removes_token_and_rebuilds_text() -> None:
+    out, count = apply_word_edits(
+        _result(), [{"segment": 0, "word": 0, "op": "delete"}]
+    )
+    assert count == 1
+    seg = out["segments"][0]
+    assert [w["word"] for w in seg["words"]] == ["hello", "their"]
+    assert seg["text"] == "hello their"
+
+
+def test_delete_edge_word_recomputes_bounds_from_kept_set() -> None:
+    # Delete the LAST word ("their"). It gets absorbed into the previous survivor
+    # ("hello"), whose end grows to cover the deleted end. The segment end therefore
+    # reflects the kept set: max(kept ends) == the absorbed 1.5, and the survivor
+    # count drops from 3 to 2.
+    out, _ = apply_word_edits(
+        _result(), [{"segment": 0, "word": 2, "op": "delete"}]
+    )
+    seg = out["segments"][0]
+    assert [w["word"] for w in seg["words"]] == ["um", "hello"]
+    # "hello" (0.4–0.9) absorbed "their"'s end (1.5) so no caption gap opens.
+    assert seg["words"][-1]["end"] == 1.5
+    assert seg["end"] == 1.5
+
+    # Delete the FIRST word instead → the next survivor's start is pulled back and
+    # the segment start shrinks to that survivor's (now-earlier) start.
+    out2, _ = apply_word_edits(
+        _result(), [{"segment": 0, "word": 0, "op": "delete"}]
+    )
+    seg2 = out2["segments"][0]
+    assert [w["word"] for w in seg2["words"]] == ["hello", "their"]
+    # "hello" started at 0.4; "um" started at 0.0 → pulled back to 0.0.
+    assert seg2["words"][0]["start"] == 0.0
+    assert seg2["start"] == 0.0
+
+
+def test_delete_only_word_drops_segment() -> None:
+    out, _ = apply_word_edits(
+        _result(), [{"segment": 1, "word": 0, "op": "delete"}]
+    )
+    # Segment 1 held only "uh" → deleting it drops the whole segment.
+    assert len(out["segments"]) == 1
+    assert out["segments"][0]["text"] == "um hello their"
+
+
+def _merge_result(words: list[str]) -> dict:
+    ws = []
+    for i, word in enumerate(words):
+        ws.append({"word": word, "start": float(i), "end": float(i) + 0.5,
+                   "score": 0.9, "speaker": None})
+    return {
+        "language": "en", "audio_path": "/clip.mp4", "duration": float(len(words)),
+        "segments": [{
+            "start": ws[0]["start"], "end": ws[-1]["end"],
+            "text": " ".join(words), "speaker": None, "words": ws,
+        }],
+    }
+
+
+def test_merge_two_adjacent_tokens_into_one() -> None:
+    # "chat GPT" -> replace survivor with "ChatGPT" + delete neighbor, one call.
+    r = _merge_result(["chat", "GPT"])
+    out, count = apply_word_edits(r, [
+        {"segment": 0, "word": 0, "new": "ChatGPT"},
+        {"segment": 0, "word": 1, "op": "delete"},
+    ])
+    assert count == 2
+    seg = out["segments"][0]
+    assert [w["word"] for w in seg["words"]] == ["ChatGPT"]
+    assert seg["text"] == "ChatGPT"
+    # Survivor spans [first.start, second.end] = [0.0, 1.5].
+    survivor = seg["words"][0]
+    assert (survivor["start"], survivor["end"]) == (0.0, 1.5)
+    assert (seg["start"], seg["end"]) == (0.0, 1.5)
+
+
+def test_replay_cowork_chatgpt_merge_is_single_spaced() -> None:
+    r = _merge_result(["said", "to", "chat", "GPT", "hey"])
+    out, _ = apply_word_edits(r, [
+        {"segment": 0, "word": 2, "new": "ChatGPT"},
+        {"segment": 0, "word": 3, "op": "delete"},
+    ])
+    text = out["segments"][0]["text"]
+    assert text == "said to ChatGPT hey"
+    assert "  " not in text
+    assert not text.endswith(" ")
+
+
+def test_replay_cowork_bluesky_merge_is_single_spaced() -> None:
+    r = _merge_result(["trying", "with", "the", "blue", "sky"])
+    # Merge "blue sky" -> "Bluesky" and delete "the" too (three-word → one).
+    out, _ = apply_word_edits(r, [
+        {"segment": 0, "word": 3, "new": "Bluesky"},
+        {"segment": 0, "word": 4, "op": "delete"},
+        {"segment": 0, "word": 2, "op": "delete"},
+    ])
+    text = out["segments"][0]["text"]
+    assert text == "trying with Bluesky"
+    assert "  " not in text
+    seg = out["segments"][0]
+    assert [w["word"] for w in seg["words"]] == ["trying", "with", "Bluesky"]
+
+
+def test_delete_op_raises_on_bad_index() -> None:
+    with pytest.raises(IndexError):
+        apply_word_edits(_result(), [{"segment": 0, "word": 99, "op": "delete"}])
+
+
+def test_delete_merge_is_pure() -> None:
+    original = _result()
+    snapshot = copy.deepcopy(original)
+    apply_word_edits(original, [
+        {"segment": 0, "word": 1, "new": "HELLO"},
+        {"segment": 0, "word": 2, "op": "delete"},
+    ])
+    assert original == snapshot  # input dict untouched after a delete/merge
+
+
+def test_consecutive_deletions_accumulate_into_survivor() -> None:
+    # Delete a run of two middle words; both spans absorbed into the previous survivor.
+    r = _merge_result(["a", "b", "c", "d"])  # ends: 0.5,1.5,2.5,3.5
+    out, _ = apply_word_edits(r, [
+        {"segment": 0, "word": 1, "op": "delete"},
+        {"segment": 0, "word": 2, "op": "delete"},
+    ])
+    seg = out["segments"][0]
+    assert [w["word"] for w in seg["words"]] == ["a", "d"]
+    # "a" (0.0–0.5) absorbs "b"(→1.5) then "c"(→2.5) → end 2.5.
+    assert seg["words"][0]["end"] == 2.5
+    # "d" start untouched (2.0), no resync of survivor starts.
+    assert seg["words"][1]["start"] == 3.0

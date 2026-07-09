@@ -10,7 +10,7 @@ The agent operates the *running* CapForge app: edits go through the token-guarde
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Literal, Optional
 
 from mcp.server.fastmcp import FastMCP, Image
 from pydantic import BaseModel, Field
@@ -24,10 +24,17 @@ _client = CapForgeClient()
 
 
 class WordEdit(BaseModel):
-    """A single token replacement located by segment + word index."""
+    """A single token edit located by segment + word index."""
     segment: int = Field(description="Segment index (from get_transcript)")
     word: int = Field(description="Word index within that segment")
-    new: str = Field(description="Replacement word")
+    new: str = Field(default="", description="Replacement word (ignored for op='delete')")
+    op: Literal["replace", "delete"] = Field(
+        default="replace",
+        description=(
+            "'replace' swaps the word text; 'delete' removes the token. A merge = a "
+            "'replace' on the survivor + a 'delete' on the neighbor in the same edits list."
+        ),
+    )
 
 
 class WordEmphasis(BaseModel):
@@ -94,10 +101,15 @@ def get_transcript() -> dict:
 
 @mcp.tool()
 def update_words(edits: list[WordEdit]) -> dict:
-    """Replace specific words (e.g. spelling/homophone fixes). Updates live UI.
+    """Replace, delete, or merge words (spelling/homophone fixes, cleanup). Updates live UI.
 
-    Locate words with `get_transcript`, then pass edits like
-    `[{"segment": 0, "word": 3, "new": "their"}]`.
+    Locate words with `get_transcript`, then pass edits:
+      - replace: `[{"segment": 0, "word": 3, "new": "their"}]` (op defaults to "replace").
+      - delete:  `[{"segment": 0, "word": 4, "op": "delete"}]` — removes the token; its
+        time span is absorbed into the adjacent surviving word (no caption gap).
+      - merge:   replace the survivor + delete the neighbor in ONE call, e.g.
+        `[{"segment": 0, "word": 3, "new": "ChatGPT"}, {"segment": 0, "word": 4, "op": "delete"}]`
+        merges "chat GPT" -> "ChatGPT" spanning [first.start, second.end].
     """
     result = _client.get_result()
     updated, count = apply_word_edits(result, [e.model_dump() for e in edits])
