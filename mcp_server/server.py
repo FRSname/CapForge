@@ -641,7 +641,11 @@ def sync_captions() -> dict:
     """Refresh the CapForge-owned caption + transcript companions in your co-author
     project, so caption-style or grouping changes made in the CapForge UI flow into
     your composition — without touching your index.html. Reference the captions via
-    `data-composition-src` to pick them up. Returns what was refreshed."""
+    `data-composition-src` to pick them up. Returns what was refreshed.
+
+    Co-author mode ONLY — enter with `enter_coauthor_mode` first. You do NOT need
+    this after `update_words`: transcript edits already update the live CapForge UI
+    on their own. Calling it outside co-author mode returns a clear 409, not a fix."""
     return _client.sync_captions()
 
 

@@ -1429,10 +1429,23 @@ async def _coauthor_set(enable: bool) -> dict:
 async def _coauthor_sync_captions() -> dict:
     if current_result is None:
         raise HTTPException(status_code=404, detail="No transcription result available")
-    config, ui_groups = _agent_frame_inputs()
     project_dir = coauthor_project_dir(
         current_result, hyperframes_workspace(current_result.audio_path)
     )
+    # Guard up front, before any filesystem work: sync_captions only makes sense
+    # for a co-author project. Without this, a non-co-author call falls through to
+    # sync_companions and dies with a generic FileNotFoundError→400 that reads like
+    # a bug. Transcript edits already reach the live UI via update_words' own
+    # result_updated broadcast — see docs/plans/mcp-transcript-editing-ux.md Phase 3.
+    if not coauthor_active(project_dir):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Not in co-author mode — transcript edits already updated the live "
+                "UI via update_words; sync_captions is only for co-author projects."
+            ),
+        )
+    config, ui_groups = _agent_frame_inputs()
     loop = asyncio.get_running_loop()
     try:
         return await loop.run_in_executor(None, lambda: sync_companions(
