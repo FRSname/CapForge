@@ -75,8 +75,11 @@ class CapForgeClient:
     def get_hyperframes_status(self) -> Any:
         return self._request("GET", "/api/hyperframes/status")
 
-    def get_result(self) -> Any:
-        return self._request("GET", "/api/agent/result")
+    def get_result(self, words: bool = True) -> Any:
+        # Bare path when words=True keeps existing callers byte-identical; the
+        # segments-only path drops per-word timing to fit the LLM token budget.
+        path = "/api/agent/result" if words else "/api/agent/result?include_words=false"
+        return self._request("GET", path)
 
     def put_result(self, result: dict) -> Any:
         return self._request("PUT", "/api/agent/result", json=result)

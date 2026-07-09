@@ -11,7 +11,7 @@ import tempfile
 import threading
 import uuid
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import (
     Depends,
@@ -601,12 +601,26 @@ async def realign_segments(request: RealignRequest) -> RealignResponse:
 
 # --- Agent endpoints (token-guarded; drive the live UI) ---
 
-@app.get("/api/agent/result", dependencies=[Depends(require_agent_token)])
-async def agent_get_result():
-    """Agent read of the current transcript (same source as the UI)."""
+# response_model=None: FastAPI otherwise treats the return annotation as the
+# response_model and re-coerces the segments-only dict back through
+# TranscriptionResult, re-adding the stripped `words`. We return the value verbatim.
+@app.get("/api/agent/result", response_model=None, dependencies=[Depends(require_agent_token)])
+async def agent_get_result(include_words: bool = True) -> TranscriptionResult | dict[str, Any]:
+    """Agent read of the current transcript (same source as the UI).
+
+    ``include_words=false`` returns a segments-only shape (each segment keeps
+    ``text``/``start``/``end``/``speaker`` but drops its per-word timing array),
+    which kills the LLM token blowout on review/grammar passes over long
+    transcripts — see docs/plans/mcp-transcript-editing-ux.md Phase 2.
+    """
     if current_result is None:
         raise HTTPException(status_code=404, detail="No transcription result available")
-    return current_result
+    if include_words:
+        return current_result
+    data = current_result.model_dump()
+    for seg in data.get("segments", []):
+        seg.pop("words", None)
+    return data
 
 
 @app.put("/api/agent/result", dependencies=[Depends(require_agent_token)])

@@ -74,12 +74,30 @@ def get_hyperframes_status() -> dict:
 
 
 @mcp.tool()
-def get_transcript() -> dict:
+def get_transcript(segments_only: bool = False) -> dict:
     """Return the current transcript with segment + word indices.
 
     Captions render from the *words*, so use these indices with `update_words`
     to make a fix that actually appears on screen.
+
+    Pass `segments_only=True` for a review/grammar/spell pass — it returns just
+    `{index, start, end, text, speaker}` per segment (no `words[]`), which is far
+    cheaper on long transcripts. Then re-read with the default (full) form only
+    when you need word indices to call `update_words`.
     """
+    if segments_only:
+        result = _client.get_result(words=False)
+        segments = [
+            {
+                "index": si,
+                "start": seg["start"],
+                "end": seg["end"],
+                "text": seg["text"],
+                "speaker": seg.get("speaker"),
+            }
+            for si, seg in enumerate(result.get("segments", []))
+        ]
+        return {"language": result.get("language"), "segments": segments}
     result = _client.get_result()
     segments = []
     for si, seg in enumerate(result.get("segments", [])):
