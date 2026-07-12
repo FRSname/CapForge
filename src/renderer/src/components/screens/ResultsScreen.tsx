@@ -202,6 +202,14 @@ export function ResultsScreen({
     setGroupsEdited(true)
   }, [])
 
+  // Position-only updates (per-group position override) — deliberately do NOT
+  // flip groupsEdited: boundaries are untouched, so re-grouping must keep
+  // working and the backend only needs custom_groups because of the override
+  // (render.ts widens the send condition on positionOverride presence).
+  const handleGroupsPositionChange = useCallback((next: Segment[]) => {
+    setGroups(next)
+  }, [])
+
   // ── Undo/redo keyboard shortcuts ────────────────────────────────
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -603,8 +611,10 @@ export function ResultsScreen({
             currentTime={currentTime}
             onSeek={handleSeek}
             onChange={handleGroupsChange}
+            onPositionChange={handleGroupsPositionChange}
             onBeforeEdit={pushUndo}
             defaults={wordStyleDefaults}
+            positionDefaults={{ posX: settings.posX, posY: settings.posY }}
           />
         )}
       </div>

@@ -13,9 +13,10 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { Segment, WordOverrides } from '../../types/app'
+import type { GroupPositionOverride, Segment, WordOverrides } from '../../types/app'
 import { mergeGroups, splitGroup, moveWord, reorderGroup } from '../../lib/groups'
 import { WordStylePopup, type WordStyleDefaults } from './WordStylePopup'
+import { GroupPositionPopup, type GroupPositionDefaults } from './GroupPositionPopup'
 import { useToast } from '../../hooks/useToast'
 
 interface GroupEditorProps {
@@ -23,10 +24,17 @@ interface GroupEditorProps {
   currentTime: number
   onSeek: (t: number) => void
   onChange: (groups: Segment[]) => void
+  /**
+   * Position-only group updates. Separate from onChange because a position
+   * override doesn't change group boundaries and must NOT flip groupsEdited.
+   */
+  onPositionChange: (groups: Segment[]) => void
   /** Called before an edit to snapshot state for undo. */
   onBeforeEdit?: () => void
   /** Global style defaults — popup uses these to compute "hasOverride". */
   defaults: WordStyleDefaults
+  /** Global caption position (percent) — seeds the group position popup. */
+  positionDefaults: GroupPositionDefaults
 }
 
 type DragSource =
@@ -44,14 +52,17 @@ export function GroupEditor({
   currentTime,
   onSeek,
   onChange,
+  onPositionChange,
   onBeforeEdit,
   defaults,
+  positionDefaults,
 }: GroupEditorProps) {
   const { toast } = useToast()
 
   const [drag, setDrag] = useState<DragSource | null>(null)
   const [hoverIdx, setHoverIdx] = useState<number | null>(null)
   const [popup, setPopup] = useState<PopupState | null>(null)
+  const [posPopup, setPosPopup] = useState<{ groupIdx: number; anchorRect: DOMRect } | null>(null)
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null)
 
   // Speaker inline-edit state
@@ -169,6 +180,31 @@ export function GroupEditor({
   )
 
   const activePopupWord = popup ? groups[popup.groupIdx]?.words[popup.wordIdx] : null
+
+  // ── Group position override ───────────────────────────────────
+  const handleGroupContextMenu = useCallback((e: React.MouseEvent, gi: number) => {
+    e.preventDefault()
+    setPosPopup({
+      groupIdx: gi,
+      anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect(),
+    })
+  }, [])
+
+  const applyPositionOverride = useCallback(
+    (gi: number, override: GroupPositionOverride) => {
+      onBeforeEdit?.()
+      onPositionChange(
+        groups.map((g, idx) =>
+          idx !== gi
+            ? g
+            : { ...g, positionOverride: Object.keys(override).length ? override : undefined }
+        )
+      )
+    },
+    [groups, onPositionChange, onBeforeEdit]
+  )
+
+  const posPopupGroup = posPopup ? groups[posPopup.groupIdx] : null
 
   // ── Active-group highlight ─────────────────────────────────────
   const activeIdx = groups.findIndex((g) => g.start <= currentTime && currentTime < g.end)
@@ -293,6 +329,8 @@ export function GroupEditor({
                 isWordDragTarget ? 'ring-2 ring-[var(--color-accent)]' : '',
               ].join(' ')}
               onClick={() => setFocusedIdx(gi)}
+              onContextMenu={(e) => handleGroupContextMenu(e, gi)}
+              title="Right-click to set caption position for this group"
               onDragOver={(e) => {
                 if (drag) {
                   e.preventDefault()
@@ -340,6 +378,23 @@ export function GroupEditor({
               >
                 {formatTime(group.start)}→{formatTime(group.end)}
               </button>
+
+              {/* Position-override indicator — click to edit */}
+              {group.positionOverride && (
+                <button
+                  className="text-2xs shrink-0 pt-0.5 text-[var(--color-accent)] hover:opacity-70 transition-opacity"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    setPosPopup({
+                      groupIdx: gi,
+                      anchorRect: (e.currentTarget as HTMLElement).getBoundingClientRect(),
+                    })
+                  }}
+                  title="Custom caption position — click to edit"
+                >
+                  ⌖
+                </button>
+              )}
 
               {/* Speaker badge — shown when set; or as +spk prompt when row is focused */}
               {editingSpeakerIdx === gi ? (
@@ -470,6 +525,18 @@ export function GroupEditor({
           onApply={(ov) => applyWordOverride(popup.groupIdx, popup.wordIdx, ov)}
           onReset={() => resetWordOverride(popup.groupIdx, popup.wordIdx)}
           onClose={() => setPopup(null)}
+        />
+      )}
+
+      {posPopup && posPopupGroup && (
+        <GroupPositionPopup
+          groupLabel={`#${posPopup.groupIdx + 1} ${posPopupGroup.text}`}
+          override={posPopupGroup.positionOverride ?? {}}
+          anchorRect={posPopup.anchorRect}
+          defaults={positionDefaults}
+          onApply={(ov) => applyPositionOverride(posPopup.groupIdx, ov)}
+          onReset={() => applyPositionOverride(posPopup.groupIdx, {})}
+          onClose={() => setPosPopup(null)}
         />
       )}
     </div>
