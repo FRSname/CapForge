@@ -50,6 +50,12 @@ export function App() {
     canRedo: boolean
   } | null>(null)
 
+  // Identity of the loaded transcription/project — bumped whenever a new result
+  // replaces the current one. Used as ResultsScreen's `key` so it remounts with
+  // fresh editor state (segments, groups, undo stack, edit flags) instead of
+  // keeping the previous video's when a project is opened over an existing one.
+  const [resultsSessionId, setResultsSessionId] = useState(0)
+
   // Settings undo — wraps setSettings so every UI change is undoable.
   const settingsUndo = useSettingsUndo(settings, setSettings)
   const handleSettingsChange = useCallback(
@@ -71,6 +77,7 @@ export function App() {
 
   function handleTranscribeDone(data: TranscriptionResult) {
     setResult(data)
+    setResultsSessionId((n) => n + 1)
     setScreen('results')
   }
 
@@ -208,6 +215,7 @@ export function App() {
 
     setFilePath(file.selectedFilePath)
     setResult(file.transcriptionResult)
+    setResultsSessionId((n) => n + 1)
     setSettings(file.studioSettings)
     setEffects(file.effects ?? []) // back-compat: pre-effects projects have none
     setScreen('results')
@@ -364,6 +372,7 @@ export function App() {
           {screen === 'results' && result && (
             <div className="screen-in flex-1 flex min-h-0 min-w-0 overflow-hidden">
               <ResultsScreen
+                key={resultsSessionId}
                 result={result}
                 settings={settings}
                 onGroupsUpdate={handleGroupsUpdate}

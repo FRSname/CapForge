@@ -294,6 +294,10 @@ export function ResultsScreen({
         }
       },
       restore: (file: ProjectFile) => {
+        // Assumes a freshly-mounted instance: App keys ResultsScreen by
+        // resultsSessionId, so segments/groups state already initialized from
+        // the new `result` prop — only manually-edited groups need restoring.
+        // Do NOT add a setSegments mirror here.
         if (file.customGroupsEdited && file.studioGroups) {
           setGroups(file.studioGroups)
           setGroupsEdited(true)
