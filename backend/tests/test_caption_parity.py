@@ -229,6 +229,36 @@ def test_word_override_parity(source_video):
 
 
 @_run
+def test_group_position_parity(source_video):
+    """Phase 5 (per-group position): position_x/position_y on the GROUP dict
+    (the sparse CustomGroup override) must move the caption anchor identically
+    in Pillow and the HyperFrames runtime. The config keeps its default bottom
+    anchor (0.82) while the group pins itself near the top (0.15) — a runtime
+    that ignored the group-level fields would leave the caption ~480px away
+    and blow the extent assertion. The bbox-top sanity check guards the
+    complementary failure: BOTH renderers ignoring the override would still
+    agree with each other."""
+    groups = [{
+        "text": "Hello brave world", "start": 0.0, "end": 3.0,
+        "position_x": 0.5, "position_y": 0.15,
+        "words": [
+            {"word": "Hello", "start": 0.0, "end": 0.75},
+            {"word": "brave", "start": 0.75, "end": 1.5},
+            {"word": "world", "start": 1.5, "end": 2.5},
+        ],
+    }]
+    pillow_png, hf_png = _render_both(
+        _result(), _config(word_transition="highlight"), source_video,
+        custom_groups=groups,
+    )
+    top = _content_bbox(Image.open(io.BytesIO(pillow_png)).convert("RGB"))[1]
+    assert top < H * 0.4, f"group position override ignored: caption top at y={top}"
+    mean, notable = _diff(pillow_png, hf_png)
+    assert mean < MEAN_MAX, f"group position: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, f"group position: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+
+
+@_run
 def test_group_entry_ease_parity(source_video):
     """Phase 3 ease lock: group entrance easing must be QUADRATIC — Canvas
     easeOut (useSubtitleOverlay.ts) / Pillow _ease_out / GSAP power1.out are

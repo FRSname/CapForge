@@ -131,6 +131,17 @@ SCENARIOS: dict[str, tuple[dict, list[str], float]] = {
     "pop_mid_entry": ({"animation": "pop", "bg_opacity": 0.85}, GROUP_WORDS, 1.05),
     # Greedy word-wrap: long group + small max_width → 2+ rows.
     "word_wrap": ({"max_width": 0.5}, WRAP_WORDS, 2.0),
+    # Per-group position override: anchor moved to the top of the frame.
+    # The override lives on the GROUP dict (CustomGroup.position_x/y), not on
+    # the config — see GROUP_OVERRIDES below.
+    "group_pos_top": ({}, GROUP_WORDS, 2.25),
+}
+
+# Scenario name -> extra keys merged into the group dict (per-group overrides).
+# Mirrors how backend/main.py hands CustomGroup.model_dump() dicts to the
+# renderer: position_x/position_y are group-level, absent/None = use config.
+GROUP_OVERRIDES: dict[str, dict] = {
+    "group_pos_top": {"position_x": 0.5, "position_y": 0.15},
 }
 
 
@@ -141,6 +152,7 @@ def render_scenario(name: str) -> Image.Image:
     overrides, words, t = SCENARIOS[name]
     config = build_config(**overrides)
     group = build_group(words)
+    group.update(GROUP_OVERRIDES.get(name, {}))
     font = _get_font(config.font_family, config.font_size,
                      config.custom_font_path, bold=config.bold)
     # Guard: never bake goldens with Pillow's bitmap fallback font.
@@ -211,3 +223,20 @@ def test_word_wrap_scenario_actually_wraps() -> None:
     unwrapped = _render_frame(config, font, build_group(words), t)
     mean_diff, _ = diff_stats(wrapped, unwrapped)
     assert mean_diff > 0.1, "expected word_wrap scenario to produce multiple rows"
+
+
+def test_group_position_override_moves_caption() -> None:
+    """Sanity: the group-level position override must actually move the anchor.
+
+    Renders the same group with and without the override — if _render_frame
+    ignored the group's position_x/y, the frames would be identical and the
+    golden would silently pin the fallback path instead of the override.
+    """
+    with_override = render_scenario("group_pos_top")
+    overrides, words, t = SCENARIOS["group_pos_top"]
+    config = build_config(**overrides)
+    font = _get_font(config.font_family, config.font_size,
+                     config.custom_font_path, bold=config.bold)
+    without_override = _render_frame(config, font, build_group(words), t)
+    mean_diff, _ = diff_stats(with_override, without_override)
+    assert mean_diff > 0.1, "expected the position override to move the caption"
