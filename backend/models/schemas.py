@@ -203,6 +203,10 @@ class CustomGroup(BaseModel):
     start: float
     end: float
     words: list[dict] = Field(default_factory=list)
+    # Per-group caption position override (fractions of output resolution).
+    # None = use the global VideoRenderConfig.position_x/position_y.
+    position_x: float | None = Field(None, ge=0.0, le=1.0, description="Per-group horizontal center override (0-1)")
+    position_y: float | None = Field(None, ge=0.0, le=1.0, description="Per-group vertical center override (0-1)")
 
 
 class VideoRenderRequest(BaseModel):

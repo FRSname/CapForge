@@ -39,6 +39,16 @@ export type WordTransition =
   | 'scale'
   | 'karaoke'
 
+/**
+ * Per-group caption position override — fractions of output resolution (0–1),
+ * same units as VideoRenderConfig.position_x/position_y. Sparse: absent = use
+ * the global StudioSettings position.
+ */
+export interface GroupPositionOverride {
+  position_x?: number
+  position_y?: number
+}
+
 /** A single transcribed word with timing. */
 export interface Word {
   word: string
@@ -56,6 +66,9 @@ export interface Segment {
   text: string
   words: Word[]
   speaker?: string
+  /** Group-only: set when the user pins this group's caption position away
+   *  from the global StudioSettings position. Never set on source segments. */
+  positionOverride?: GroupPositionOverride
 }
 
 /** Effect types the HyperFrames generator can composite (see backend `_FX_ANIM`). */

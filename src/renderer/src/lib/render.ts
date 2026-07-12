@@ -38,13 +38,17 @@ export interface RenderBody {
     start: number
     end: number
     words: Array<Record<string, unknown>>
+    /** Per-group position override (0–1 fractions) — omitted when the group
+     *  follows the global position. */
+    position_x?: number
+    position_y?: number
   }>
   effects?: Array<Record<string, unknown>>
 }
 
 /**
  * @param settings      Current studio settings (typography, colors, layout, animation).
- * @param groups        Current display groups — sent as `custom_groups` only if `groupsEdited` is true.
+ * @param groups        Current display groups — sent as `custom_groups` when `groupsEdited` is true or any group has a `positionOverride`.
  * @param groupsEdited  True once the user has manually merged/split/reordered groups.
  * @param overrides     Quick-render toggles (renderMode/format/resolution).
  * @param outputDir     Directory the backend should write the rendered file to.
@@ -144,10 +148,12 @@ export function buildRenderBody(
   const body: RenderBody = { config }
   if (outputDir) body.output_dir = outputDir
 
-  // Only send custom_groups if the user edited them manually. Otherwise the
-  // backend re-chunks from the stored transcription, which is cheaper and
-  // guarantees timing integrity.
-  if (groupsEdited && groups.length > 0) {
+  // Only send custom_groups if the user edited them manually OR any group
+  // carries a position override (which lives on the group, so the backend
+  // must receive the groups verbatim). Otherwise the backend re-chunks from
+  // the stored transcription, which is cheaper and guarantees timing integrity.
+  const hasGroupOverrides = groups.some((g) => g.positionOverride)
+  if ((groupsEdited || hasGroupOverrides) && groups.length > 0) {
     body.custom_groups = groups.map((g) => ({
       text: g.text,
       start: g.start,
@@ -155,6 +161,10 @@ export function buildRenderBody(
       // Pass words through as-is so per-word `overrides` (text_color, bold,
       // font_family, word_transition, etc.) reach the backend verbatim.
       words: g.words.map((w) => ({ ...w })),
+      // Sparse per-group position override — 0–1 fractions, same units as
+      // config.position_x/position_y
+      ...(g.positionOverride?.position_x != null && { position_x: g.positionOverride.position_x }),
+      ...(g.positionOverride?.position_y != null && { position_y: g.positionOverride.position_y }),
     }))
   }
 

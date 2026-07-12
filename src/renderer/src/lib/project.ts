@@ -24,7 +24,8 @@ export interface ProjectFile {
   studioSettings: StudioSettings
   /** True when the user manually merged/split/reordered groups. */
   customGroupsEdited: boolean
-  /** Manually-edited groups — only populated when customGroupsEdited is true. */
+  /** Groups snapshot — populated when customGroupsEdited is true OR any group
+   *  carries a positionOverride (which doesn't flip the edited flag). */
   studioGroups: Segment[] | null
   /** Placed HyperFrames effects (logos, lower-thirds, …). Optional for back-compat
    *  with projects saved before effects were persisted. */

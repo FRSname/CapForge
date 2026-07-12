@@ -177,6 +177,34 @@ describe('buildRenderBody — custom groups', () => {
     })
   })
 
+  test('sends groups when only a position override exists, even with groupsEdited=false', () => {
+    const overridden: Segment[] = [
+      { ...groups[0], positionOverride: { position_x: 0.5, position_y: 0.15 } },
+      groups[1],
+    ]
+    const body = buildRenderBody(STUDIO_DEFAULTS, overridden, false)
+    expect(body.custom_groups).toHaveLength(2)
+    expect(body.custom_groups![0]).toMatchObject({ position_x: 0.5, position_y: 0.15 })
+    // Sparse contract: untouched groups carry no position keys at all
+    expect('position_x' in body.custom_groups![1]).toBe(false)
+    expect('position_y' in body.custom_groups![1]).toBe(false)
+  })
+
+  test('partial override emits only the axis that was set', () => {
+    const overridden: Segment[] = [{ ...groups[0], positionOverride: { position_y: 0.2 } }]
+    const body = buildRenderBody(STUDIO_DEFAULTS, overridden, false)
+    expect(body.custom_groups![0].position_y).toBe(0.2)
+    expect('position_x' in body.custom_groups![0]).toBe(false)
+  })
+
+  test('edited groups without overrides never gain position keys', () => {
+    const body = buildRenderBody(STUDIO_DEFAULTS, groups, true)
+    for (const g of body.custom_groups!) {
+      expect('position_x' in g).toBe(false)
+      expect('position_y' in g).toBe(false)
+    }
+  })
+
   test('includes output_dir only when provided', () => {
     expect(buildRenderBody(STUDIO_DEFAULTS, [], false, {}, '/tmp/out').output_dir).toBe('/tmp/out')
     expect(buildRenderBody(STUDIO_DEFAULTS, [], false).output_dir).toBeUndefined()

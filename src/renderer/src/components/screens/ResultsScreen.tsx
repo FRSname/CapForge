@@ -153,13 +153,15 @@ export function ResultsScreen({
         return buildStudioGroups(segments, settings.wordsPerGroup).map((g) => {
           const saved = oldById.get(g.id)
           if (!saved) return g
-          // Restore manual timing AND per-word overrides for any group whose ID
-          // survived the segment change. buildStudioGroups re-chunks untouched
-          // segments identically, so word index j maps to the same word.
+          // Restore manual timing, per-word overrides AND the position override
+          // for any group whose ID survived the segment change. buildStudioGroups
+          // re-chunks untouched segments identically, so word index j maps to the
+          // same word.
           return {
             ...g,
             start: saved.start,
             end: saved.end,
+            positionOverride: saved.positionOverride,
             words: g.words.map((w, j) => {
               const ov = saved.words[j]?.overrides
               return ov ? { ...w, overrides: ov } : w
@@ -168,8 +170,22 @@ export function ResultsScreen({
         })
       })
     } else {
-      // Rebuild from scratch — no manual edits or wpg changed.
-      setGroups(buildStudioGroups(segments, settings.wordsPerGroup))
+      // Rebuild from scratch — no manual edits or wpg changed. Position
+      // overrides don't set groupsEdited (they don't change boundaries), so
+      // carry them forward by group ID here; a wpg change shifts the
+      // ${seg.id}:${offset} IDs, dropping overrides for regrouped chunks —
+      // intentional, the old grouping no longer exists.
+      setGroups((prev) => {
+        const rebuilt = buildStudioGroups(segments, settings.wordsPerGroup)
+        const overridesById = new Map(
+          prev.filter((g) => g.positionOverride).map((g) => [g.id, g.positionOverride])
+        )
+        if (overridesById.size === 0) return rebuilt
+        return rebuilt.map((g) => {
+          const po = overridesById.get(g.id)
+          return po ? { ...g, positionOverride: po } : g
+        })
+      })
       if (wpgChanged) setGroupsEdited(false)
     }
   }, [segments, settings.wordsPerGroup]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -282,6 +298,10 @@ export function ResultsScreen({
     projectIORef.current = {
       gather: () => {
         const anyEdited = groupsEdited || segmentsEdited
+        // Position overrides live on groups but do NOT flip the edited flag
+        // (they don't change group boundaries) — persist the groups anyway so
+        // the overrides survive a save/reopen.
+        const hasPosOverrides = groups.some((g) => g.positionOverride)
         return {
           version: PROJECT_VERSION,
           suggestedName: suggestProjectName(result.audioPath),
@@ -290,7 +310,7 @@ export function ResultsScreen({
           transcriptionResult: { ...result, segments },
           studioSettings: settings,
           customGroupsEdited: anyEdited,
-          studioGroups: anyEdited ? groups : null,
+          studioGroups: anyEdited || hasPosOverrides ? groups : null,
         }
       },
       restore: (file: ProjectFile) => {
@@ -298,9 +318,11 @@ export function ResultsScreen({
         // resultsSessionId, so segments/groups state already initialized from
         // the new `result` prop — only manually-edited groups need restoring.
         // Do NOT add a setSegments mirror here.
-        if (file.customGroupsEdited && file.studioGroups) {
+        if (file.studioGroups && file.studioGroups.length > 0) {
           setGroups(file.studioGroups)
-          setGroupsEdited(true)
+          // Only mark edited when boundaries were actually edited — groups
+          // saved solely for position overrides keep auto-grouping semantics.
+          if (file.customGroupsEdited) setGroupsEdited(true)
         }
       },
       applyAgentResult: (agentResult: TranscriptionResult) => {
