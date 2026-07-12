@@ -58,6 +58,7 @@ const GOLDEN_DEFAULT_CONFIG = {
   animation: 'fade',
   animation_duration: 0.12,
   word_transition: 'highlight',
+  crossfade_duration: 0.06,
 
   highlight_radius: 16,
   highlight_padding_x: 17,
