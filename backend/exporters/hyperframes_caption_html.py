@@ -144,17 +144,23 @@ def _word_entry(w: dict) -> dict:
     return {"s": w["start"], "e": w["end"]}
 
 
+def _group_entry(g: dict) -> dict:
+    """One group's payload: timings + words, plus a sparse ``"pos"`` object when
+    the group carries a position override (mirrors the per-word ``"o"`` shape)."""
+    entry: dict = {
+        "s": g["start"],
+        "e": g["end"],
+        "w": [_word_entry(w) for w in g["words"]],
+    }
+    pos = {k: g[k] for k in ("position_x", "position_y") if g.get(k) is not None}
+    if pos:
+        entry["pos"] = pos
+    return entry
+
+
 def caption_groups_json(groups: list[dict]) -> str:
     """Compact word-timing payload aligned by index with the DOM spans."""
-    payload = [
-        {
-            "s": g["start"],
-            "e": g["end"],
-            "w": [_word_entry(w) for w in g["words"]],
-        }
-        for g in groups
-    ]
-    return json.dumps(payload, ensure_ascii=False)
+    return json.dumps([_group_entry(g) for g in groups], ensure_ascii=False)
 
 
 def caption_css(config: VideoRenderConfig) -> str:
@@ -374,8 +380,10 @@ function __capBuild(tl, CFG, GROUPS){
     var bgW = maxRowW + padH*2 + strokePad*2 + bgWidthExtra;
     var totalTextH = rows.length*textH + (rows.length-1)*rowLineGap;
     var bgH = totalTextH + padV*2 + strokePad*2 + bgHeightExtra;
-    var cx = resW * (CFG.posX != null ? CFG.posX : 0.5);
-    var cy = resH * (CFG.posY != null ? CFG.posY : 0.82);
+    // Per-group position override (payload "pos", fractions) beats CFG.
+    var gp = g.pos || {};
+    var cx = resW * (gp.position_x != null ? gp.position_x : (CFG.posX != null ? CFG.posX : 0.5));
+    var cy = resH * (gp.position_y != null ? gp.position_y : (CFG.posY != null ? CFG.posY : 0.82));
 
     var alignH = CFG.alignH || 'center', alignV = CFG.alignV || 'middle';
     var txOff = CFG.textOffsetX || 0, tyOff = CFG.textOffsetY || 0;

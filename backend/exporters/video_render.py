@@ -731,7 +731,12 @@ def _render_frame(
     text_offset_y   = getattr(config, "text_offset_y",   0)
     text_align_h    = getattr(config, "text_align_h",    "center")
     text_align_v    = getattr(config, "text_align_v",    "middle")
-    position_x      = getattr(config, "position_x",      0.5)
+    # Per-group position override (CustomGroup.position_x/y, None when unset)
+    # beats the global config position. Fractions of output resolution.
+    gpo_x = group.get("position_x")
+    gpo_y = group.get("position_y")
+    position_x      = gpo_x if gpo_x is not None else getattr(config, "position_x", 0.5)
+    position_y      = gpo_y if gpo_y is not None else config.position_y
     num_lines       = max(1, getattr(config, "lines",     1))
 
     # Split into rows
@@ -775,7 +780,7 @@ def _render_frame(
     bg_h = total_text_h + config.bg_padding_v * 2 + stroke_pad * 2 + bg_height_extra
 
     center_x = config.resolution_w * position_x
-    center_y = config.resolution_h * config.position_y + slide_offset
+    center_y = config.resolution_h * position_y + slide_offset
 
     # Slack between bg and text grows when bg_*_extra > 0; alignment shifts text
     # within that slack. Center/middle = no shift (current behavior).

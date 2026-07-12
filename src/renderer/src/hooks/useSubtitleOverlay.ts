@@ -231,8 +231,12 @@ export function useSubtitleOverlay({
       const bgW = maxRowW + padH * 2 + strokePad * 2 + bgWidthExtra
       const totalTextH = rows.length * textH + (rows.length - 1) * rowLineGap
       const bgH = totalTextH + padV * 2 + strokePad * 2 + bgHeightExtra
-      const cx = resW * (posX / 100)
-      const cy = resH * (posY / 100) + slideOffset
+      // Per-group position override (fractions) beats the global percent setting.
+      const gpo = activeGroup.positionOverride
+      const effPosX = gpo?.position_x != null ? gpo.position_x * 100 : posX
+      const effPosY = gpo?.position_y != null ? gpo.position_y * 100 : posY
+      const cx = resW * (effPosX / 100)
+      const cy = resH * (effPosY / 100) + slideOffset
 
       // Slack between bg and text grows when bgWidthExtra/bgHeightExtra > 0;
       // alignment shifts text within that slack. Center/middle = no shift.
