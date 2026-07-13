@@ -146,7 +146,11 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
     keywords: ['tiktok', 'reels', 'shorts', 'guides', 'preview'],
   },
   // Background
-  { label: 'BG opacity', cardId: 'background', keywords: ['background opacity', 'transparency', 'alpha'] },
+  {
+    label: 'BG opacity',
+    cardId: 'background',
+    keywords: ['background opacity', 'transparency', 'alpha'],
+  },
   { label: 'BG radius', cardId: 'background', keywords: ['rounded', 'corner', 'border radius'] },
   { label: 'BG width +', cardId: 'background', keywords: ['background width', 'padding', 'box'] },
   { label: 'BG height +', cardId: 'background', keywords: ['background height', 'padding', 'box'] },
