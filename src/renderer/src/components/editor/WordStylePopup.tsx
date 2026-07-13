@@ -279,10 +279,7 @@ export function WordStylePopup({
       style={popupStyle}
       className="pop-in w-[280px] max-h-[80vh] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl flex flex-col p-3 text-xs"
     >
-      <div
-        className="font-semibold mb-2 shrink-0"
-        style={{ color: 'var(--color-text-2)' }}
-      >
+      <div className="font-semibold mb-2 shrink-0" style={{ color: 'var(--color-text-2)' }}>
         Style: &ldquo;{word}&rdquo;
       </div>
 

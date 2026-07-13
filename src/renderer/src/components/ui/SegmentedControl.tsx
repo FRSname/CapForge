@@ -63,7 +63,10 @@ export function SegmentedControl<T extends string>({
       ref={containerRef}
       role="radiogroup"
       aria-label={ariaLabel}
-      className={cn('flex rounded-md overflow-hidden border border-[var(--color-border)]', className)}
+      className={cn(
+        'flex rounded-md overflow-hidden border border-[var(--color-border)]',
+        className
+      )}
     >
       {options.map(({ value: v, label }) => (
         <button

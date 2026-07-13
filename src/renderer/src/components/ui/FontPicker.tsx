@@ -10,15 +10,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadAllFonts, registerFontFromBuffer, type FontInfo } from '../../lib/fonts'
 
 interface FontPickerProps {
-  value:    string
+  value: string
   onChange: (name: string, path: string) => void
 }
 
 export function FontPicker({ value, onChange }: FontPickerProps) {
-  const [fonts,    setFonts]    = useState<FontInfo[]>([])
-  const [loading,  setLoading]  = useState(true)
-  const [busy,     setBusy]     = useState(false)
-  const inputRef                = useRef<HTMLInputElement>(null)
+  const [fonts, setFonts] = useState<FontInfo[]>([])
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
 
   // Load + register fonts on mount. Re-runs only if the subforge bridge
   // reports new paths (not expected during a session).
@@ -33,7 +33,9 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
     }
   }, [])
 
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    void refresh()
+  }, [refresh])
 
   async function handleFile(file: File) {
     const name = file.name.replace(/\.[^.]+$/, '')
@@ -49,8 +51,8 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
       } catch {
         // Save failed — font still works for this session.
       }
-      setFonts(prev => {
-        if (prev.some(f => f.name === name)) return prev
+      setFonts((prev) => {
+        if (prev.some((f) => f.name === name)) return prev
         return [{ name, path: savedPath, bundled: false }, ...prev]
       })
       onChange(name, savedPath)
@@ -72,7 +74,7 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
     try {
       const ok = await window.subforge.deleteFont(font.path)
       if (ok) {
-        setFonts(prev => prev.filter(f => f.path !== font.path))
+        setFonts((prev) => prev.filter((f) => f.path !== font.path))
         if (value === font.name) onChange('', '')
       }
     } finally {
@@ -81,12 +83,12 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
   }
 
   function handleSelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const opt = fonts.find(f => f.name === e.target.value)
+    const opt = fonts.find((f) => f.name === e.target.value)
     if (opt) onChange(opt.name, opt.path)
     else onChange('', '')
   }
 
-  const selectedIsCustom = fonts.find(f => f.name === value)?.bundled === false
+  const selectedIsCustom = fonts.find((f) => f.name === value)?.bundled === false
 
   return (
     <div className="flex items-center gap-1.5 min-w-0">
@@ -103,7 +105,7 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
       >
         {loading && <option>Loading…</option>}
         {!loading && <option value="">System default</option>}
-        {fonts.map(f => (
+        {fonts.map((f) => (
           <option
             key={`${f.name}|${f.path}`}
             value={f.name}
@@ -120,14 +122,14 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
           type="button"
           className="icon-btn shrink-0"
           title="Delete this custom font"
-          onClick={e => {
-            const font = fonts.find(f => f.name === value)
+          onClick={(e) => {
+            const font = fonts.find((f) => f.name === value)
             if (font) void handleDelete(font, e)
           }}
           disabled={busy}
         >
           <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
-            <path d="M6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25ZM11 3V1.75A1.75 1.75 0 0 0 9.25 0h-2.5A1.75 1.75 0 0 0 5 1.75V3H1.75a.75.75 0 0 0 0 1.5h.609l.403 8.05A1.75 1.75 0 0 0 4.51 14.25h6.978a1.75 1.75 0 0 0 1.748-1.7l.403-8.05h.61a.75.75 0 0 0 0-1.5ZM4.5 5.5h7l-.397 7.95a.25.25 0 0 1-.25.25H5.148a.25.25 0 0 1-.25-.25L4.5 5.5Z"/>
+            <path d="M6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25ZM11 3V1.75A1.75 1.75 0 0 0 9.25 0h-2.5A1.75 1.75 0 0 0 5 1.75V3H1.75a.75.75 0 0 0 0 1.5h.609l.403 8.05A1.75 1.75 0 0 0 4.51 14.25h6.978a1.75 1.75 0 0 0 1.748-1.7l.403-8.05h.61a.75.75 0 0 0 0-1.5ZM4.5 5.5h7l-.397 7.95a.25.25 0 0 1-.25.25H5.148a.25.25 0 0 1-.25-.25L4.5 5.5Z" />
           </svg>
         </button>
       )}
@@ -140,7 +142,7 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
         disabled={busy}
       >
         <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor">
-          <path d="M8.75 1.75a.75.75 0 0 0-1.5 0v5.19L5.03 4.72a.75.75 0 0 0-1.06 1.06l3.5 3.5a.75.75 0 0 0 1.06 0l3.5-3.5a.75.75 0 0 0-1.06-1.06L8.75 6.94V1.75ZM1.5 9.25a.75.75 0 0 1 1.5 0v3.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.75 14h-9.5A1.75 1.75 0 0 1 1.5 12.75v-3.5Z"/>
+          <path d="M8.75 1.75a.75.75 0 0 0-1.5 0v5.19L5.03 4.72a.75.75 0 0 0-1.06 1.06l3.5 3.5a.75.75 0 0 0 1.06 0l3.5-3.5a.75.75 0 0 0-1.06-1.06L8.75 6.94V1.75ZM1.5 9.25a.75.75 0 0 1 1.5 0v3.5c0 .138.112.25.25.25h9.5a.25.25 0 0 0 .25-.25v-3.5a.75.75 0 0 1 1.5 0v3.5A1.75 1.75 0 0 1 12.75 14h-9.5A1.75 1.75 0 0 1 1.5 12.75v-3.5Z" />
         </svg>
       </button>
 
@@ -149,7 +151,7 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
         type="file"
         accept=".ttf,.otf,.woff,.woff2"
         className="hidden"
-        onChange={async e => {
+        onChange={async (e) => {
           const f = e.target.files?.[0]
           if (f) await handleFile(f)
           // Reset so picking the same file again still fires change

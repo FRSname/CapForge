@@ -467,10 +467,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
             </svg>
           )}
         </button>
-        <span
-          className="text-xs tabular-nums"
-          style={{ color: 'var(--color-text-muted)' }}
-        >
+        <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-muted)' }}>
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
       </div>

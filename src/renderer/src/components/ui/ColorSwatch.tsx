@@ -47,10 +47,7 @@ export function ColorSwatch({ label, value: rawValue, onChange }: ColorSwatchPro
   return (
     <div className="flex items-center gap-1.5 min-w-0">
       {/* Label */}
-      <span
-        className="w-[72px] shrink-0 text-xs truncate"
-        style={{ color: 'var(--color-text-2)' }}
-      >
+      <span className="w-[72px] shrink-0 text-xs truncate" style={{ color: 'var(--color-text-2)' }}>
         {label}
       </span>
 

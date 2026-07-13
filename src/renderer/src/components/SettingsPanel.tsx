@@ -195,9 +195,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 <>
                   <span style={{ color: 'var(--color-accent-2)' }}>{sysInfo.gpu_name}</span>
                   {sysInfo.vram_gb && (
-                    <span style={{ color: 'var(--color-text-3)' }}>
-                      {sysInfo.vram_gb} GB VRAM
-                    </span>
+                    <span style={{ color: 'var(--color-text-3)' }}>{sysInfo.vram_gb} GB VRAM</span>
                   )}
                 </>
               ) : (

@@ -331,10 +331,7 @@ function PresetRow({ name, colors, onClick, onExport, onDelete }: PresetRowProps
         <span style={{ color: colors.text }}>Ab</span>
         <span style={{ color: colors.active }}>c</span>
       </span>
-      <span
-        className="flex-1 min-w-0 truncate text-xs"
-        style={{ color: 'var(--color-text)' }}
-      >
+      <span className="flex-1 min-w-0 truncate text-xs" style={{ color: 'var(--color-text)' }}>
         {name}
       </span>
       {onExport && (
