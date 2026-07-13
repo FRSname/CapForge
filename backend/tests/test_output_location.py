@@ -40,6 +40,14 @@ def test_absolute_output_dir_is_honoured(tmp_path):
     assert resolve_output_dir(str(chosen), str(src)) == str(chosen)
 
 
+def test_traversal_output_dir_falls_back_to_source_folder(tmp_path):
+    # A relative `..`-traversal string (e.g. from an untrusted client) is not
+    # absolute, so it's treated the same as an empty/relative value — never
+    # honoured literally. Part of the Phase 1 export/render-endpoint sandbox.
+    src = _make_source(tmp_path)
+    assert resolve_output_dir("../../../tmp/evil", str(src)) == str(src.resolve().parent)
+
+
 # --- hyperframes_workspace: the canonical shared project parent dir ------------
 
 

@@ -293,15 +293,18 @@ async def require_agent_token(
 async def require_local_token(
     token: Optional[str] = Query(None),
     x_capforge_local_token: Optional[str] = Header(None),
+    x_capforge_agent_token: Optional[str] = Header(None),
 ) -> None:
     """FastAPI dependency gating the local media endpoints.
 
     The token arrives as a ``?token=`` query param (media elements can't set
     headers) or, for ``fetch`` callers, the ``X-CapForge-Local-Token`` header.
-    The agent token is also accepted so an authorised MCP client isn't locked
-    out. Constant-time compare; a missing token never matches.
+    The MCP client authenticates with the ``X-CapForge-Agent-Token`` header
+    instead — that value is also accepted here so an authorised MCP client
+    isn't locked out of these routes. Constant-time compare; a missing token
+    never matches.
     """
-    provided = token or x_capforge_local_token
+    provided = token or x_capforge_local_token or x_capforge_agent_token
     if token_matches(provided, LOCAL_TOKEN) or token_matches(provided, AGENT_TOKEN):
         return
     raise HTTPException(status_code=401, detail="Invalid or missing local token")
@@ -752,7 +755,7 @@ async def agent_check_layout(req: dict):
     )
 
 
-@app.post("/api/export")
+@app.post("/api/export", dependencies=[Depends(require_local_token)])
 async def export_result(request: ExportRequest):
     """Export the latest transcription result to the requested formats."""
     if current_result is None:
@@ -785,7 +788,7 @@ async def ws_progress(websocket: WebSocket):
 
 # --- Video render endpoint ---
 
-@app.post("/api/render-video")
+@app.post("/api/render-video", dependencies=[Depends(require_local_token)])
 async def render_video(request: VideoRenderRequest):
     """Render a transparent subtitle overlay video from the current transcription."""
     global current_result
@@ -870,7 +873,7 @@ async def hyperframes_status(probe: bool = False):
     }
 
 
-@app.post("/api/export-hyperframes")
+@app.post("/api/export-hyperframes", dependencies=[Depends(require_local_token)])
 async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     """Generate a HyperFrames composition from the current result; optionally render it.
 
@@ -1524,7 +1527,15 @@ def _do_export(
     output_dir: str,
     audio_path: str,
 ) -> list[str]:
-    """Write exported files and return list of output paths."""
+    """Write exported files and return list of output paths.
+
+    ``output_dir`` is resolved through ``resolve_output_dir`` (same sandbox as
+    the HyperFrames export path): a non-absolute or otherwise unusable value
+    falls back to the folder next to the source media rather than being
+    honoured literally, so a client can't write outside a directory the user
+    actually chose.
+    """
+    output_dir = resolve_output_dir(output_dir, audio_path)
     os.makedirs(output_dir, exist_ok=True)
     stem = Path(audio_path).stem
     both_srt = ExportFormat.SRT_WORD in formats and ExportFormat.SRT_STANDARD in formats

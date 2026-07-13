@@ -407,11 +407,18 @@ def _install_fake_whisperx():
 _install_fake_whisperx()
 
 
+HF_TOKEN_HEADERS = {"X-CapForge-Local-Token": "hf-test-local-token"}
+
+
 @pytest.fixture
-def hf_client():
+def hf_client(monkeypatch):
     from fastapi.testclient import TestClient
 
     import backend.main as main_module
+
+    # /api/export-hyperframes is auth-gated (Phase 1); give tests a known token
+    # so calls can authenticate via HF_TOKEN_HEADERS.
+    monkeypatch.setattr(main_module, "LOCAL_TOKEN", "hf-test-local-token", raising=False)
 
     # No context manager: skip startup/shutdown (agent discovery file IO).
     return TestClient(main_module.app), main_module
@@ -451,7 +458,11 @@ def test_export_endpoint_returns_code_on_render_error(hf_client, tmp_path, monke
         main_module, monkeypatch, HyperframesUnavailableError("no cli")
     )
 
-    resp = tc.post("/api/export-hyperframes", json={"render": True, "use_ui_config": False})
+    resp = tc.post(
+        "/api/export-hyperframes",
+        json={"render": True, "use_ui_config": False},
+        headers=HF_TOKEN_HEADERS,
+    )
 
     assert resp.status_code == 400
     detail = resp.json()["detail"]
@@ -468,7 +479,11 @@ def test_export_endpoint_returns_cancelled_envelope(hf_client, tmp_path, monkeyp
         main_module, monkeypatch, HyperframesCancelledError("stopped")
     )
 
-    resp = tc.post("/api/export-hyperframes", json={"render": True, "use_ui_config": False})
+    resp = tc.post(
+        "/api/export-hyperframes",
+        json={"render": True, "use_ui_config": False},
+        headers=HF_TOKEN_HEADERS,
+    )
 
     assert resp.status_code == 200
     body = resp.json()
@@ -510,7 +525,11 @@ def test_export_endpoint_approval_timeout_returns_cancelled_and_resets_status(
         main_module, monkeypatch, AssertionError("must not render after a timed-out gate")
     )
 
-    resp = tc.post("/api/export-hyperframes", json={"render": True, "use_ui_config": True})
+    resp = tc.post(
+        "/api/export-hyperframes",
+        json={"render": True, "use_ui_config": True},
+        headers=HF_TOKEN_HEADERS,
+    )
 
     assert resp.status_code == 200
     body = resp.json()

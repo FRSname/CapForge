@@ -260,9 +260,16 @@ class CapForgeAPI {
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
+    // A subset of POST routes (e.g. /api/export, /api/render-video,
+    // /api/export-hyperframes) are auth-gated because they write to a
+    // client-supplied output_dir, so send the per-launch local token on every
+    // POST. Unlike media <src> loads, a fetch() can set a header — cleaner
+    // than a query param. Harmless on POSTs that ignore it.
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
     const res = await fetch(`${this.base}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify(body),
     })
     if (!res.ok) throw await this.handleError(res)

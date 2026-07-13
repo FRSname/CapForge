@@ -1167,6 +1167,14 @@ def render_subtitle_video(
     _reset_cancel()
     ffmpeg_path = _find_ffmpeg()
 
+    # Local import: hyperframes_project imports from this module, so importing
+    # it at module scope here would be circular. resolve_output_dir sandboxes
+    # a client-supplied output_dir the same way /api/export-hyperframes does —
+    # a non-absolute/unusable value falls back to the folder next to the
+    # source media instead of being honoured literally.
+    from backend.exporters.hyperframes_project import resolve_output_dir
+    output_dir = resolve_output_dir(output_dir, result.audio_path)
+
     os.makedirs(output_dir, exist_ok=True)
     stem = Path(result.audio_path).stem
 
