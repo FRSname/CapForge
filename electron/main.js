@@ -15,6 +15,7 @@ const appState = require('./app-state')
 const autosave = require('./autosave')
 const { checkForUpdates } = require('./update-check')
 const presetIO = require('./preset-io')
+const { resolveExistingFile, resolveExistingDir } = require('./path-validate')
 
 let mainWindow = null
 let setupWindow = null
@@ -406,7 +407,10 @@ app.whenReady().then(async () => {
     return true
   })
   ipcMain.handle('shell:showInFolder', (_event, filePath) => {
-    shell.showItemInFolder(filePath)
+    const result = resolveExistingFile(filePath, { fs, path })
+    if (!result.ok) return { error: result.error }
+    shell.showItemInFolder(result.resolved)
+    return { ok: true }
   })
 
   // IPC: one-click "Connect to Claude" for the MCP control layer.
@@ -422,11 +426,12 @@ app.whenReady().then(async () => {
   const { HyperframesStudio } = require('./hyperframes-studio')
   hyperframesStudio = new HyperframesStudio()
   ipcMain.handle('studio:open', async (_event, projectDir) => {
-    if (!projectDir || typeof projectDir !== 'string') {
-      return { error: 'No project folder to open.' }
+    const dirResult = resolveExistingDir(projectDir, { fs, path })
+    if (!dirResult.ok) {
+      return { error: dirResult.error }
     }
     try {
-      const { url } = await hyperframesStudio.open(projectDir)
+      const { url } = await hyperframesStudio.open(dirResult.resolved)
       // Electron owns the browser-open (we pass --no-open to the CLI).
       await shell.openExternal(url)
       return { url }

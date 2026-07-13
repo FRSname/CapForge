@@ -20,7 +20,9 @@ const { spawn } = require('child_process')
 const http = require('http')
 const net = require('net')
 
+const fs = require('fs')
 const { getNodeRuntimePaths, isNodeRuntimeReady, isHyperframesReady } = require('./node-runtime')
+const { resolveExistingDir } = require('./path-validate')
 
 // HyperFrames' own default preview port. The free-port lookup below falls back
 // to an OS-assigned port if it's busy (another studio, unrelated dev server).
@@ -99,16 +101,25 @@ class HyperframesStudio {
    * generated project.
    */
   async open(projectDir) {
+    // Defense-in-depth: main.js already validates before calling in, but
+    // `open()` also spawns a child process with this path as `cwd`, so it
+    // re-validates here in case a future caller skips the IPC handler.
+    const dirResult = resolveExistingDir(projectDir, { fs, path })
+    if (!dirResult.ok) {
+      throw new Error(dirResult.error)
+    }
+    const resolvedDir = dirResult.resolved
+
     this.stop()
     const port = await findFreePort(PREFERRED_STUDIO_PORT)
 
     return new Promise((resolve, reject) => {
-      const { cmd, args } = resolveStudioCommand(projectDir, port)
+      const { cmd, args } = resolveStudioCommand(resolvedDir, port)
       console.log(`[CapForge] Starting HyperFrames Studio: ${cmd} ${args.join(' ')}`)
 
       let proc
       try {
-        proc = spawn(cmd, args, { cwd: projectDir, windowsHide: true, env: studioEnv() })
+        proc = spawn(cmd, args, { cwd: resolvedDir, windowsHide: true, env: studioEnv() })
       } catch (err) {
         reject(new Error(`Failed to launch HyperFrames Studio: ${err.message}`))
         return
@@ -116,7 +127,7 @@ class HyperframesStudio {
 
       this.process = proc
       this.port = port
-      this.projectDir = projectDir
+      this.projectDir = resolvedDir
 
       const output = []
       const capture = (d) => {
