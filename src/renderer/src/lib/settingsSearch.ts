@@ -11,7 +11,8 @@
  * - safeZone — preview-only guide toggle (never rendered to video); resetting
  *   "Layout" should not silently switch the user's preview guides off. It IS
  *   searchable (see registry entry).
- * - fontWeight / lineHeight — no UI row in StudioPanel (set only via presets);
+ * - fontWeight / lineHeight — no UI row in StudioPanel (lineHeight is set via
+ *   presets; fontWeight only via a legacy vanilla preset's `bold` flag);
  *   counting them would show "n changed" with no visible row explaining it.
  * - fontPath — changes in lockstep with fontName; it is reset with Typography
  *   but not counted (one font pick should read as one change, not two).
