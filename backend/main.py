@@ -28,6 +28,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 
 from backend.agent_bridge import (
+    discovery_path,
     remove_discovery,
     resolve_local_token,
     resolve_port,
@@ -116,6 +117,18 @@ app.add_middleware(
 )
 
 # --- Shared state ---
+#
+# Concurrency note: current_result, current_effects, current_coauthor, and
+# ws_clients below are plain module globals mutated directly by request/WS
+# handlers, with no asyncio.Lock guarding them. This is an accepted invariant,
+# not an oversight: CapForge is a single-user, loopback-only app, uvicorn runs
+# this backend single-process/single-worker, and every handler that touches
+# this state runs coroutines on one asyncio event loop — mutations only
+# interleave at `await` points, never preempt mid-statement. Cross-request
+# interleaving (e.g. two requests racing to replace current_result) is judged
+# low-risk for a local desktop tool with one human driving one session. Do not
+# add locking speculatively; if a concrete corrupting interleaving is found,
+# write a failing test that demonstrates it before reaching for asyncio.Lock.
 
 transcriber = Transcriber()
 current_result: Optional[TranscriptionResult] = None
@@ -229,7 +242,8 @@ async def broadcast_progress(update: ProgressUpdate) -> None:
     for ws in ws_clients:
         try:
             await ws.send_text(data)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Dropping WS client %r: send failed (%s)", ws, exc)
             disconnected.append(ws)
     for ws in disconnected:
         ws_clients.remove(ws)
@@ -247,7 +261,8 @@ async def broadcast_event(payload: dict) -> None:
     for ws in ws_clients:
         try:
             await ws.send_text(data)
-        except Exception:
+        except Exception as exc:
+            logger.warning("Dropping WS client %r: send failed (%s)", ws, exc)
             disconnected.append(ws)
     for ws in disconnected:
         if ws in ws_clients:
@@ -274,7 +289,15 @@ async def _write_agent_discovery() -> None:
         path = write_discovery(resolve_port(), AGENT_TOKEN)
         logger.info("Agent discovery file written: %s (port %s)", path, resolve_port())
     except Exception:
-        logger.warning("Could not write agent discovery file", exc_info=True)
+        # Non-fatal: startup must still succeed without the discovery file, but
+        # this is the first place to look when "MCP can't connect" is reported —
+        # log at error level with the target path so it's diagnosable from
+        # backend.log without reproducing the failure.
+        logger.error(
+            "Could not write agent discovery file (target: %s)",
+            discovery_path(),
+            exc_info=True,
+        )
 
 
 @app.on_event("shutdown")
