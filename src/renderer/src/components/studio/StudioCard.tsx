@@ -52,10 +52,11 @@ export function StudioCard({
             {meta}
           </span>
           <svg
-            className="shrink-0 transition-transform text-[var(--color-text-3)]"
+            className="shrink-0 transition-transform"
             style={{
               transform: isOpen ? 'rotate(0deg)' : 'rotate(-90deg)',
               transitionDuration: 'var(--duration-fast)',
+              color: 'var(--color-text-3)',
             }}
             width="11"
             height="11"

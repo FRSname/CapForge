@@ -35,9 +35,12 @@ export function ExportPanel({ audioPath, render, outputDir, onOutputDir }: Expor
     <StudioCard title="Export" defaultOpen>
       {/* Output folder picker */}
       <div className="flex items-center gap-1.5 mb-2">
-        <span className="text-2xs text-[var(--color-text-3)] shrink-0">Output:</span>
+        <span className="text-2xs shrink-0" style={{ color: 'var(--color-text-3)' }}>
+          Output:
+        </span>
         <span
-          className="flex-1 min-w-0 text-[11px] text-[var(--color-text-2)] truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
+          className="flex-1 min-w-0 text-[11px] truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
+          style={{ color: 'var(--color-text-2)' }}
           title={outputDir || `Same as source (${effectiveOutputDir})`}
         >
           {outputDir ? outputDir.split(/[\\/]/).pop() || outputDir : 'Same as source'}

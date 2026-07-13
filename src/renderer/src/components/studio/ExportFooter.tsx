@@ -75,12 +75,15 @@ export function ExportFooter({ audioPath, sourceVideoInfo, render, outputDir }: 
 
       {render.status === 'done' && (
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-xs text-[var(--color-success)] shrink-0">✓ Render complete</span>
+          <span className="text-xs shrink-0" style={{ color: 'var(--color-success)' }}>
+            ✓ Render complete
+          </span>
           {render.lastOutputFile && (
             <button
               type="button"
               onClick={() => window.subforge.showInFolder(render.lastOutputFile!)}
-              className="text-xs underline truncate text-left min-w-0 text-[var(--color-text-3)] hover:text-[var(--color-text-2)]"
+              className="text-xs underline truncate text-left min-w-0 hover:text-[var(--color-text-2)]"
+              style={{ color: 'var(--color-text-3)' }}
               title={`Reveal in file browser:\n${render.lastOutputFile}`}
             >
               Reveal {render.lastOutputFile.split(/[\\/]/).pop()}
@@ -89,7 +92,7 @@ export function ExportFooter({ audioPath, sourceVideoInfo, render, outputDir }: 
         </div>
       )}
       {render.status === 'error' && (
-        <p className="text-xs text-[var(--color-danger)]">
+        <p className="text-xs" style={{ color: 'var(--color-danger)' }}>
           {render.message || 'Render failed — check logs'}
         </p>
       )}
@@ -126,8 +129,12 @@ function QuickRenderBtn({
       }}
     >
       <span>{icon}</span>
-      <span className="text-xs font-semibold text-[var(--color-text)]">{title}</span>
-      <span className="text-2xs text-[var(--color-text-3)]">{sub}</span>
+      <span className="text-xs font-semibold" style={{ color: 'var(--color-text)' }}>
+        {title}
+      </span>
+      <span className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
+        {sub}
+      </span>
     </button>
   )
 }

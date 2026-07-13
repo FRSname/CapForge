@@ -138,7 +138,8 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
                   )}
                 </div>
                 <span
-                  className={`text-2xs font-medium tracking-wide text-center ${isActive ? 'text-[var(--color-text-2)]' : 'text-[var(--color-text-3)]'}`}
+                  className="text-2xs font-medium tracking-wide text-center"
+                  style={{ color: isActive ? 'var(--color-text-2)' : 'var(--color-text-3)' }}
                 >
                   {step.label}
                 </span>
@@ -161,7 +162,9 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
             {progress?.message ?? 'Starting\u2026'}
           </p>
           {progress?.sub_message && (
-            <p className="text-xs text-[var(--color-text-2)]">{progress.sub_message}</p>
+            <p className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+              {progress.sub_message}
+            </p>
           )}
         </div>
 
@@ -177,7 +180,7 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
               }}
             />
           </div>
-          <div className="text-right text-[11px] text-[var(--color-text-3)]">
+          <div className="text-right text-[11px]" style={{ color: 'var(--color-text-3)' }}>
             <span className="tabular-nums">{pct > 0 ? `${pct}%` : ''}</span>
           </div>
         </div>

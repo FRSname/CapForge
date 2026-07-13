@@ -39,8 +39,12 @@ export function RenderProgressModal({ render }: Props) {
         className="w-[420px] max-w-[90vw] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-2xl p-5 flex flex-col gap-4"
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-[var(--color-text)]">Rendering…</h2>
-          <span className="text-xs tabular-nums text-[var(--color-text-3)]">{render.elapsed}</span>
+          <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
+            Rendering…
+          </h2>
+          <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-3)' }}>
+            {render.elapsed}
+          </span>
         </div>
 
         <div className="w-full h-2 rounded-full overflow-hidden bg-[var(--color-surface-3)]">
@@ -51,11 +55,12 @@ export function RenderProgressModal({ render }: Props) {
         </div>
 
         <div className="flex items-center justify-between gap-2">
-          <span className="text-xs tabular-nums text-[var(--color-text-2)]">
+          <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-2)' }}>
             {render.progress}%
           </span>
           <span
-            className="text-[11px] text-[var(--color-text-3)] truncate flex-1 text-right"
+            className="text-[11px] truncate flex-1 text-right"
+            style={{ color: 'var(--color-text-3)' }}
             aria-live="polite"
           >
             {render.message}

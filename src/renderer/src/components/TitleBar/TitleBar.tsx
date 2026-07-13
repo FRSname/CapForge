@@ -138,7 +138,8 @@ export function TitleBar({
             </IconButton>
             {autosavedLabel && (
               <span
-                className="text-2xs text-[var(--color-text-3)] tabular-nums mr-1 select-none"
+                className="text-2xs tabular-nums mr-1 select-none"
+                style={{ color: 'var(--color-text-3)' }}
                 title="Autosaved for crash recovery"
               >
                 {autosavedLabel}

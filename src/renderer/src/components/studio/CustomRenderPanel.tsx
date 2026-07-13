@@ -70,7 +70,9 @@ export function CustomRenderPanel({
   return (
     <StudioCard title="Custom Render" defaultOpen={false}>
       <div className="flex items-center gap-1.5 min-w-0">
-        <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Resolution</span>
+        <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+          Resolution
+        </span>
         <Select
           className="flex-1 min-w-0 text-xs"
           value={`${s.resolution[0]}x${s.resolution[1]}`}
@@ -112,8 +114,9 @@ export function CustomRenderPanel({
                 className={`flex-1 min-w-0 truncate text-2xs py-1 px-1 rounded-md border transition-colors ${
                   active
                     ? 'bg-[var(--color-accent)] text-white border-transparent'
-                    : 'bg-[var(--color-surface-2)] text-[var(--color-text-2)] border-[var(--color-border)] hover:bg-[var(--color-surface-3)]'
+                    : 'bg-[var(--color-surface-2)] border-[var(--color-border)] hover:bg-[var(--color-surface-3)]'
                 }`}
+                style={active ? undefined : { color: 'var(--color-text-2)' }}
               >
                 {label}
               </button>
@@ -122,7 +125,9 @@ export function CustomRenderPanel({
         </div>
       </div>
       <div className="flex items-center gap-1.5 min-w-0">
-        <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">FPS</span>
+        <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+          FPS
+        </span>
         <Select
           className="flex-1 min-w-0 text-xs"
           value={String(s.fps)}
@@ -137,7 +142,9 @@ export function CustomRenderPanel({
       </div>
       <div className="divider" />
       <div className="flex items-center gap-1.5 min-w-0">
-        <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Format</span>
+        <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+          Format
+        </span>
         <Select
           className="flex-1 min-w-0 text-xs"
           value={s.format}
@@ -149,7 +156,9 @@ export function CustomRenderPanel({
         </Select>
       </div>
       <div className="flex items-center gap-1.5 min-w-0">
-        <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Mode</span>
+        <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+          Mode
+        </span>
         <Select
           className="flex-1 min-w-0 text-xs"
           value={s.renderMode}
@@ -161,7 +170,9 @@ export function CustomRenderPanel({
       </div>
       {s.renderMode === 'baked' && (
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Bitrate</span>
+          <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+            Bitrate
+          </span>
           <Select
             className="flex-1 min-w-0 text-xs"
             value={s.bitrate}
@@ -183,7 +194,7 @@ export function CustomRenderPanel({
       >
         Render with current settings
       </Button>
-      <p className="text-2xs text-[var(--color-text-3)] text-center">
+      <p className="text-2xs text-center" style={{ color: 'var(--color-text-3)' }}>
         {s.resolution[0]}×{s.resolution[1]} · {s.fps}fps · {s.format.toUpperCase()} · {s.renderMode}
       </p>
     </StudioCard>

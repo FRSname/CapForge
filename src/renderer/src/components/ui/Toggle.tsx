@@ -18,7 +18,11 @@ export function Toggle({ checked, onChange, label, disabled }: ToggleProps) {
       >
         <span className="toggle-thumb" />
       </button>
-      {label && <span className="text-xs text-[var(--color-text-2)]">{label}</span>}
+      {label && (
+        <span className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+          {label}
+        </span>
+      )}
     </label>
   )
 }

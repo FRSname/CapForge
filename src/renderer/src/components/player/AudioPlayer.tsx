@@ -162,6 +162,8 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
       wsSeekTo(seekTo)
       onSeek?.()
     }
+    // Only re-run when the external seekTo request itself changes — wsSeekTo/onSeek
+    // are intentionally excluded so a fresh render doesn't re-trigger the same seek.
   }, [seekTo]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Waveform sync ───────────────────────────────────────────────
@@ -228,6 +230,9 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   useEffect(() => {
     timelineDraw(currentTime)
     overlayDraw(currentTime)
+    // currentTime is intentionally excluded — it ticks on every playback frame, and
+    // including it here would re-run this structural redraw on every tick instead of
+    // only when segments/duration/settings actually change.
   }, [segments, duration, settings, overlayDraw, timelineDraw]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Video zoom (video-area zoom, independent of timeline zoom) ──
@@ -462,7 +467,10 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
             </svg>
           )}
         </button>
-        <span className="text-xs text-[var(--color-text-muted)] tabular-nums">
+        <span
+          className="text-xs tabular-nums"
+          style={{ color: 'var(--color-text-muted)' }}
+        >
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
       </div>

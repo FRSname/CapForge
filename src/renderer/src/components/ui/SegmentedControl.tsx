@@ -77,8 +77,9 @@ export function SegmentedControl<T extends string>({
           className={`flex-1 text-[11px] py-1 transition-colors ${
             v === value
               ? 'bg-[var(--color-accent)] text-white'
-              : 'bg-[var(--color-surface-2)] text-[var(--color-text-2)] hover:bg-[var(--color-surface-3)]'
+              : 'bg-[var(--color-surface-2)] hover:bg-[var(--color-surface-3)]'
           }`}
+          style={v === value ? undefined : { color: 'var(--color-text-2)' }}
         >
           {label}
         </button>

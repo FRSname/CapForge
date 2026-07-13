@@ -438,8 +438,13 @@ export function StudioPanel({
           <div className="divider" />
           <Row label="Shadow" filter={filter}>
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Shadow</span>
-              <label className="flex items-center gap-1.5 text-xs text-[var(--color-text-2)] cursor-pointer">
+              <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+                Shadow
+              </span>
+              <label
+                className="flex items-center gap-1.5 text-xs cursor-pointer"
+                style={{ color: 'var(--color-text-2)' }}
+              >
                 <input
                   type="checkbox"
                   checked={s.shadowEnabled}
@@ -569,7 +574,7 @@ export function StudioPanel({
           {/* Preview-only platform guides — never rendered to video (see safeZone field doc). */}
           <Row label="Safe zones" filter={filter}>
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">
+              <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
                 Safe zones
               </span>
               <SegmentedControl
@@ -655,7 +660,10 @@ export function StudioPanel({
           {!filter && (
             <>
               <div className="divider" />
-              <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
+              <span
+                className="text-2xs uppercase tracking-wider"
+                style={{ color: 'var(--color-text-3)' }}
+              >
                 Text in BG box
               </span>
             </>
@@ -663,7 +671,9 @@ export function StudioPanel({
 
           <Row label="Align H" filter={filter}>
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Align H</span>
+              <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+                Align H
+              </span>
               <SegmentedControl
                 ariaLabel="Align horizontal"
                 className="flex-1 min-w-0"
@@ -676,7 +686,9 @@ export function StudioPanel({
 
           <Row label="Align V" filter={filter}>
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Align V</span>
+              <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+                Align V
+              </span>
               <SegmentedControl
                 ariaLabel="Align vertical"
                 className="flex-1 min-w-0"
@@ -715,7 +727,7 @@ export function StudioPanel({
         <StudioCard title="Animation" defaultOpen={false} {...cardProps('animation')}>
           <Row label="Entry/Exit" filter={filter}>
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">
+              <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
                 Entry/Exit
               </span>
               <Select
@@ -746,7 +758,7 @@ export function StudioPanel({
           <div className="divider" />
           <Row label="Word style" filter={filter}>
             <div className="flex items-center gap-1.5 min-w-0">
-              <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">
+              <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
                 Word style
               </span>
               <Select
@@ -772,7 +784,10 @@ export function StudioPanel({
               {!filter && (
                 <>
                   <div className="divider" />
-                  <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
+                  <span
+                    className="text-2xs uppercase tracking-wider"
+                    style={{ color: 'var(--color-text-3)' }}
+                  >
                     Highlight Options
                   </span>
                 </>
@@ -830,7 +845,10 @@ export function StudioPanel({
               </Row>
               <Row label="Movement" filter={filter}>
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">
+                  <span
+                    className="w-[72px] shrink-0 text-xs"
+                    style={{ color: 'var(--color-text-2)' }}
+                  >
                     Movement
                   </span>
                   <Select
@@ -851,7 +869,10 @@ export function StudioPanel({
               {!filter && (
                 <>
                   <div className="divider" />
-                  <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
+                  <span
+                    className="text-2xs uppercase tracking-wider"
+                    style={{ color: 'var(--color-text-3)' }}
+                  >
                     Underline Options
                   </span>
                 </>
@@ -904,7 +925,10 @@ export function StudioPanel({
               {!filter && (
                 <>
                   <div className="divider" />
-                  <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
+                  <span
+                    className="text-2xs uppercase tracking-wider"
+                    style={{ color: 'var(--color-text-3)' }}
+                  >
                     Bounce Options
                   </span>
                 </>
@@ -928,7 +952,10 @@ export function StudioPanel({
               {!filter && (
                 <>
                   <div className="divider" />
-                  <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
+                  <span
+                    className="text-2xs uppercase tracking-wider"
+                    style={{ color: 'var(--color-text-3)' }}
+                  >
                     Scale Options
                   </span>
                 </>

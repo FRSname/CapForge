@@ -36,7 +36,8 @@ export function StudioRow({ label, value: rawValue, min, max, step = 1, unit = '
     <div className="flex items-center gap-1.5 min-w-0">
       {/* Label */}
       <span
-        className="w-[72px] shrink-0 text-xs truncate text-[var(--color-text-2)]"
+        className="w-[72px] shrink-0 text-xs truncate"
+        style={{ color: 'var(--color-text-2)' }}
       >
         {label}
       </span>
@@ -59,11 +60,13 @@ export function StudioRow({ label, value: rawValue, min, max, step = 1, unit = '
           onChange={e => setDraft(e.target.value)}
           onBlur={commitEdit}
           onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditing(false) }}
-          className="w-10 shrink-0 text-right text-[11px] tabular-nums bg-[var(--color-surface-2)] border border-[var(--color-accent)] rounded px-0.5 outline-none text-[var(--color-text)]"
+          className="w-10 shrink-0 text-right text-[11px] tabular-nums bg-[var(--color-surface-2)] border border-[var(--color-accent)] rounded px-0.5 outline-none"
+          style={{ color: 'var(--color-text)' }}
         />
       ) : (
         <span
-          className={`w-10 shrink-0 text-right text-[11px] tabular-nums cursor-text hover:text-[var(--color-accent)] transition-colors ${isDirty ? 'text-[var(--color-text)]' : 'text-[var(--color-text-3)]'}`}
+          className="w-10 shrink-0 text-right text-[11px] tabular-nums cursor-text hover:text-[var(--color-accent)] transition-colors"
+          style={{ color: isDirty ? 'var(--color-text)' : 'var(--color-text-3)' }}
           onClick={startEdit}
           title="Click to type a value"
         >

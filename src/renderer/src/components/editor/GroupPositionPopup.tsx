@@ -125,7 +125,9 @@ export function GroupPositionPopup({
         <span className="font-medium" style={{ color: 'var(--color-text)' }}>
           Group position
         </span>
-        <span className="text-2xs truncate text-[var(--color-text-3)]">{groupLabel}</span>
+        <span className="text-2xs truncate" style={{ color: 'var(--color-text-3)' }}>
+          {groupLabel}
+        </span>
       </div>
 
       <PercentRow label="Horizontal" value={x} onChange={setX} />
@@ -133,7 +135,8 @@ export function GroupPositionPopup({
 
       <div className="flex gap-2 pt-1 border-t border-[var(--color-border)]">
         <button
-          className="flex-1 py-1 rounded border border-[var(--color-border)] text-[var(--color-text-2)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-2)] text-xs transition-colors"
+          className="flex-1 py-1 rounded border border-[var(--color-border)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-2)] text-xs transition-colors"
+          style={{ color: 'var(--color-text-2)' }}
           onClick={handleClear}
         >
           Clear
@@ -160,7 +163,9 @@ function PercentRow({
 }) {
   return (
     <div className="flex items-center gap-2">
-      <label className="w-16 shrink-0 text-[var(--color-text-2)]">{label}</label>
+      <label className="w-16 shrink-0" style={{ color: 'var(--color-text-2)' }}>
+        {label}
+      </label>
       <input
         type="range"
         min={0}
@@ -170,7 +175,10 @@ function PercentRow({
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
         className="flex-1 min-w-0"
       />
-      <span className="w-10 shrink-0 text-right tabular-nums text-[var(--color-text-2)]">
+      <span
+        className="w-10 shrink-0 text-right tabular-nums"
+        style={{ color: 'var(--color-text-2)' }}
+      >
         {value}%
       </span>
     </div>

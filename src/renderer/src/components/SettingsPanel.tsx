@@ -193,13 +193,15 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               <span className="label-xs mb-1">Hardware</span>
               {sysInfo.gpu_name ? (
                 <>
-                  <span className="text-[var(--color-accent-2)]">{sysInfo.gpu_name}</span>
+                  <span style={{ color: 'var(--color-accent-2)' }}>{sysInfo.gpu_name}</span>
                   {sysInfo.vram_gb && (
-                    <span className="text-[var(--color-text-3)]">{sysInfo.vram_gb} GB VRAM</span>
+                    <span style={{ color: 'var(--color-text-3)' }}>
+                      {sysInfo.vram_gb} GB VRAM
+                    </span>
                   )}
                 </>
               ) : (
-                <span className="text-[var(--color-text-2)]">CPU mode</span>
+                <span style={{ color: 'var(--color-text-2)' }}>CPU mode</span>
               )}
             </div>
           )}
@@ -231,7 +233,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                   placeholder="hf_…"
                   className="field-input text-xs font-mono"
                 />
-                <p className="text-[11px] text-[var(--color-text-3)]">
+                <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
                   Required for pyannote diarization. Get a token at huggingface.co.
                 </p>
               </div>
@@ -272,7 +274,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
           {/* Claude integration (MCP control layer) */}
           <div className="flex flex-col gap-2">
             <label className="label-xs">Claude AI integration</label>
-            <p className="text-[11px] text-[var(--color-text-3)]">
+            <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
               Let a Claude agent edit your captions live. Connect once, then restart Claude.
             </p>
             {claudeClients && !claudeClients.runtimeReady && (
@@ -300,7 +302,8 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             </div>
             <button
               type="button"
-              className="text-left text-[11px] underline text-[var(--color-text-3)] hover:text-[var(--color-text)]"
+              className="text-left text-[11px] underline hover:text-[var(--color-text)]"
+              style={{ color: 'var(--color-text-3)' }}
               onClick={handleClaudeCopyConfig}
             >
               Copy config manually

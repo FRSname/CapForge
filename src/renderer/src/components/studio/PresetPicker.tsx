@@ -199,7 +199,7 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
           style={{ maxHeight: '70vh' }}
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)]">
-            <span className="text-[11px] font-medium text-[var(--color-text-2)]">
+            <span className="text-[11px] font-medium" style={{ color: 'var(--color-text-2)' }}>
               Style presets
             </span>
             {saving ? (
@@ -255,7 +255,10 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
 
           <div className="overflow-y-auto" style={{ maxHeight: 'calc(70vh - 40px)' }}>
             {/* Built-in */}
-            <div className="px-3 py-1 text-[9px] uppercase tracking-wider text-[var(--color-text-3)]">
+            <div
+              className="px-3 py-1 text-[9px] uppercase tracking-wider"
+              style={{ color: 'var(--color-text-3)' }}
+            >
               Built-in
             </div>
             {BUILTIN_PRESETS.map((tpl) => (
@@ -270,7 +273,10 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
             {/* User */}
             {userPresets.length > 0 && (
               <>
-                <div className="px-3 py-1 mt-1 text-[9px] uppercase tracking-wider text-[var(--color-text-3)]">
+                <div
+                  className="px-3 py-1 mt-1 text-[9px] uppercase tracking-wider"
+                  style={{ color: 'var(--color-text-3)' }}
+                >
                   My presets
                 </div>
                 {userPresets.map((p) => (
@@ -325,11 +331,17 @@ function PresetRow({ name, colors, onClick, onExport, onDelete }: PresetRowProps
         <span style={{ color: colors.text }}>Ab</span>
         <span style={{ color: colors.active }}>c</span>
       </span>
-      <span className="flex-1 min-w-0 truncate text-xs text-[var(--color-text)]">{name}</span>
+      <span
+        className="flex-1 min-w-0 truncate text-xs"
+        style={{ color: 'var(--color-text)' }}
+      >
+        {name}
+      </span>
       {onExport && (
         <button
           type="button"
-          className="opacity-0 group-hover:opacity-70 hover:!opacity-100 shrink-0 text-[var(--color-text-3)] text-xs px-1"
+          className="opacity-0 group-hover:opacity-70 hover:!opacity-100 shrink-0 text-xs px-1"
+          style={{ color: 'var(--color-text-3)' }}
           onClick={(e) => {
             e.stopPropagation()
             onExport(e)
@@ -343,7 +355,8 @@ function PresetRow({ name, colors, onClick, onExport, onDelete }: PresetRowProps
       {onDelete && (
         <button
           type="button"
-          className="opacity-0 group-hover:opacity-70 hover:!opacity-100 shrink-0 text-[var(--color-text-3)] text-xs px-1"
+          className="opacity-0 group-hover:opacity-70 hover:!opacity-100 shrink-0 text-xs px-1"
+          style={{ color: 'var(--color-text-3)' }}
           onClick={(e) => {
             e.stopPropagation()
             onDelete(e)

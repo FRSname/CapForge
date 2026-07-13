@@ -47,7 +47,12 @@ export function ColorSwatch({ label, value: rawValue, onChange }: ColorSwatchPro
   return (
     <div className="flex items-center gap-1.5 min-w-0">
       {/* Label */}
-      <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)] truncate">{label}</span>
+      <span
+        className="w-[72px] shrink-0 text-xs truncate"
+        style={{ color: 'var(--color-text-2)' }}
+      >
+        {label}
+      </span>
 
       {/* Swatch button */}
       <div ref={popRef} className="relative">
@@ -87,7 +92,8 @@ export function ColorSwatch({ label, value: rawValue, onChange }: ColorSwatchPro
         value={hex}
         maxLength={7}
         onChange={handleHex}
-        className="w-[68px] text-[11px] font-mono text-[var(--color-text-3)] bg-transparent border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] focus:text-[var(--color-text)] outline-none transition-colors px-0.5"
+        className="w-[68px] text-[11px] font-mono bg-transparent border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] focus:text-[var(--color-text)] outline-none transition-colors px-0.5"
+        style={{ color: 'var(--color-text-3)' }}
         placeholder="#RRGGBB"
       />
     </div>

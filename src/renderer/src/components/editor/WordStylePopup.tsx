@@ -279,7 +279,10 @@ export function WordStylePopup({
       style={popupStyle}
       className="pop-in w-[280px] max-h-[80vh] rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl flex flex-col p-3 text-xs"
     >
-      <div className="font-semibold text-[var(--color-text-2)] mb-2 shrink-0">
+      <div
+        className="font-semibold mb-2 shrink-0"
+        style={{ color: 'var(--color-text-2)' }}
+      >
         Style: &ldquo;{word}&rdquo;
       </div>
 
@@ -289,7 +292,9 @@ export function WordStylePopup({
 
         {/* Size scale */}
         <div className="flex items-center gap-2">
-          <label className="w-20 shrink-0 text-[var(--color-text-2)]">Size scale</label>
+          <label className="w-20 shrink-0" style={{ color: 'var(--color-text-2)' }}>
+            Size scale
+          </label>
           <input
             type="range"
             min={50}
@@ -314,7 +319,9 @@ export function WordStylePopup({
 
         {/* Font */}
         <div className="flex items-center gap-2">
-          <label className="w-20 shrink-0 text-[var(--color-text-2)]">Font</label>
+          <label className="w-20 shrink-0" style={{ color: 'var(--color-text-2)' }}>
+            Font
+          </label>
           <select
             value={fontFamily}
             onChange={(e) => {
@@ -359,7 +366,9 @@ export function WordStylePopup({
 
         {/* Animation */}
         <div className="flex items-center gap-2">
-          <label className="w-20 shrink-0 text-[var(--color-text-2)]">Animation</label>
+          <label className="w-20 shrink-0" style={{ color: 'var(--color-text-2)' }}>
+            Animation
+          </label>
           <select
             value={transition}
             onChange={(e) => setTransition(e.target.value as WordTransition | '')}
@@ -434,7 +443,8 @@ export function WordStylePopup({
       {/* Footer */}
       <div className="flex gap-2 mt-2 shrink-0">
         <button
-          className="flex-1 py-1 rounded border border-[var(--color-border)] hover:bg-white/[0.04] text-[var(--color-text-2)] text-xs transition-colors"
+          className="flex-1 py-1 rounded border border-[var(--color-border)] hover:bg-white/[0.04] text-xs transition-colors"
+          style={{ color: 'var(--color-text-2)' }}
           onClick={handleClear}
           title="Remove all overrides for this word"
         >
@@ -456,7 +466,9 @@ export function WordStylePopup({
 function SubSettings({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5 pt-1.5 border-t border-[var(--color-border)]">
-      <div className="text-2xs uppercase tracking-wide text-[var(--color-text-3)]">{title}</div>
+      <div className="text-2xs uppercase tracking-wide" style={{ color: 'var(--color-text-3)' }}>
+        {title}
+      </div>
       {children}
     </div>
   )
@@ -476,7 +488,9 @@ interface NumberRowProps {
 function NumberRow({ label, value, onChange, min, max, step = 1 }: NumberRowProps) {
   return (
     <div className="flex items-center gap-2">
-      <label className="w-20 shrink-0 text-[var(--color-text-2)]">{label}</label>
+      <label className="w-20 shrink-0" style={{ color: 'var(--color-text-2)' }}>
+        {label}
+      </label>
       <input
         type="range"
         min={min}
@@ -513,7 +527,9 @@ interface ColorRowProps {
 function ColorRow({ label, value, onChange }: ColorRowProps) {
   return (
     <div className="flex items-center gap-2">
-      <label className="w-20 shrink-0 text-[var(--color-text-2)]">{label}</label>
+      <label className="w-20 shrink-0" style={{ color: 'var(--color-text-2)' }}>
+        {label}
+      </label>
       <input
         type="color"
         value={value}

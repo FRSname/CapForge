@@ -224,7 +224,9 @@ export function HyperFramesPanel({
       )}
       {/* Output folder — chosen before the render; defaults next to the source. */}
       <div className="flex items-center gap-1.5 mb-2">
-        <span className="text-2xs text-[var(--color-text-3)] shrink-0">Output:</span>
+        <span className="text-2xs shrink-0" style={{ color: 'var(--color-text-3)' }}>
+          Output:
+        </span>
         <span
           className="flex-1 min-w-0 text-[11px] truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
           style={{ color: 'var(--color-text-2)' }}
@@ -300,7 +302,10 @@ export function HyperFramesPanel({
 
       <div className="divider" />
       <div className="flex items-center justify-between gap-2 mb-1.5">
-        <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">
+        <span
+          className="text-2xs uppercase tracking-wider"
+          style={{ color: 'var(--color-text-3)' }}
+        >
           Co-author
         </span>
         {coauthor && (
@@ -353,7 +358,9 @@ export function HyperFramesPanel({
 
       <div className="divider" />
       <div className="flex items-center gap-1.5 min-w-0">
-        <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Captions</span>
+        <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+          Captions
+        </span>
         <Select
           className="flex-1 min-w-0 text-xs"
           value={captionStyle}
@@ -370,7 +377,9 @@ export function HyperFramesPanel({
       </div>
 
       <div className="divider" />
-      <span className="text-2xs text-[var(--color-text-3)] uppercase tracking-wider">Effects</span>
+      <span className="text-2xs uppercase tracking-wider" style={{ color: 'var(--color-text-3)' }}>
+        Effects
+      </span>
       <EffectsControls effects={effects} onChange={onEffectsChange} />
     </StudioCard>
   )

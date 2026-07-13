@@ -303,7 +303,8 @@ export function GroupEditor({
             {gi > 0 && (
               <div className="flex justify-center mb-1">
                 <button
-                  className="text-2xs px-2 py-0.5 rounded text-[var(--color-text-3)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] transition-colors"
+                  className="text-2xs px-2 py-0.5 rounded hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] transition-colors"
+                  style={{ color: 'var(--color-text-3)' }}
                   onClick={() => handleMerge(gi - 1)}
                   title="Merge with group above (M)"
                 >
@@ -349,10 +350,9 @@ export function GroupEditor({
               {/* Index — drag handle for full-group reorder */}
               <span
                 className={`text-2xs shrink-0 w-6 tabular-nums pt-0.5 transition-opacity ${
-                  drag?.type === 'group' && drag.groupIdx === gi
-                    ? 'text-[var(--color-text-3)] opacity-40'
-                    : 'text-[var(--color-text-3)] cursor-grab'
+                  drag?.type === 'group' && drag.groupIdx === gi ? 'opacity-40' : 'cursor-grab'
                 }`}
+                style={{ color: 'var(--color-text-3)' }}
                 draggable
                 onDragStart={(e) => {
                   e.stopPropagation()
@@ -369,7 +369,8 @@ export function GroupEditor({
 
               {/* Time (click = seek) */}
               <button
-                className="text-2xs shrink-0 tabular-nums text-[var(--color-text-2)] hover:text-[var(--color-accent)] transition-colors pt-0.5 font-mono"
+                className="text-2xs shrink-0 tabular-nums hover:text-[var(--color-accent)] transition-colors pt-0.5 font-mono"
+                style={{ color: 'var(--color-text-2)' }}
                 onClick={(e) => {
                   e.stopPropagation()
                   onSeek(group.start)
@@ -382,7 +383,8 @@ export function GroupEditor({
               {/* Position-override indicator — click to edit */}
               {group.positionOverride && (
                 <button
-                  className="text-2xs shrink-0 pt-0.5 text-[var(--color-accent)] hover:opacity-70 transition-opacity"
+                  className="text-2xs shrink-0 pt-0.5 hover:opacity-70 transition-opacity"
+                  style={{ color: 'var(--color-accent)' }}
                   onClick={(e) => {
                     e.stopPropagation()
                     setPosPopup({
@@ -399,7 +401,8 @@ export function GroupEditor({
               {/* Speaker badge — shown when set; or as +spk prompt when row is focused */}
               {editingSpeakerIdx === gi ? (
                 <input
-                  className="text-2xs px-1.5 py-0.5 rounded bg-[var(--color-surface-3)] text-[var(--color-text)] border border-[var(--color-accent)] outline-none w-20 shrink-0"
+                  className="text-2xs px-1.5 py-0.5 rounded bg-[var(--color-surface-3)] border border-[var(--color-accent)] outline-none w-20 shrink-0"
+                  style={{ color: 'var(--color-text)' }}
                   value={speakerDraft}
                   autoFocus
                   placeholder="Speaker…"
@@ -419,7 +422,8 @@ export function GroupEditor({
                 />
               ) : group.speaker ? (
                 <span
-                  className="text-2xs px-1.5 py-0.5 rounded bg-[var(--color-surface-3)] text-[var(--color-text-2)] shrink-0 cursor-pointer hover:text-[var(--color-text)] transition-colors"
+                  className="text-2xs px-1.5 py-0.5 rounded bg-[var(--color-surface-3)] shrink-0 cursor-pointer hover:text-[var(--color-text)] transition-colors"
+                  style={{ color: 'var(--color-text-2)' }}
                   onClick={(e) => {
                     e.stopPropagation()
                     startSpeakerEdit(gi)
@@ -430,7 +434,8 @@ export function GroupEditor({
                 </span>
               ) : focusedIdx === gi ? (
                 <button
-                  className="text-2xs px-1 py-0.5 text-[var(--color-text-3)] hover:text-[var(--color-text-2)] transition-colors shrink-0"
+                  className="text-2xs px-1 py-0.5 hover:text-[var(--color-text-2)] transition-colors shrink-0"
+                  style={{ color: 'var(--color-text-3)' }}
                   onClick={(e) => {
                     e.stopPropagation()
                     startSpeakerEdit(gi)
@@ -444,10 +449,11 @@ export function GroupEditor({
               {/* Words */}
               <div className="flex flex-wrap items-center gap-1 flex-1 min-w-0">
                 {group.words.map((w, wi) => (
-                  <span key={`${group.id}-${wi}`} className="inline-flex items-center">
+                  <span key={`${group.id}-${w.start}`} className="inline-flex items-center">
                     {wi > 0 && (
                       <button
-                        className="text-2xs px-1 text-[var(--color-text-3)] hover:text-[var(--color-accent)] opacity-40 hover:opacity-100"
+                        className="text-2xs px-1 hover:text-[var(--color-accent)] opacity-40 hover:opacity-100"
+                        style={{ color: 'var(--color-text-3)' }}
                         onClick={(e) => {
                           e.stopPropagation()
                           handleSplit(gi, wi)
@@ -463,7 +469,7 @@ export function GroupEditor({
                         drag?.type === 'word' && drag.groupIdx === gi && drag.wordIdx === wi
                           ? 'opacity-40 bg-[var(--color-surface-3)]'
                           : gi === activeIdx && wi === activeWordIdx
-                            ? 'bg-[var(--color-accent)]/25 text-[var(--color-accent)] font-medium'
+                            ? 'bg-[var(--color-accent)]/25 font-medium'
                             : 'bg-[var(--color-surface-3)] hover:bg-[var(--color-accent)]/20',
                         w.overrides ? 'ring-1 ring-[var(--color-accent)]/40' : '',
                       ].join(' ')}
@@ -482,7 +488,11 @@ export function GroupEditor({
                       }}
                       title="Right-click to style this word"
                       style={
-                        w.overrides?.text_color ? { color: w.overrides.text_color } : undefined
+                        w.overrides?.text_color
+                          ? { color: w.overrides.text_color }
+                          : gi === activeIdx && wi === activeWordIdx
+                            ? { color: 'var(--color-accent)' }
+                            : undefined
                       }
                     >
                       {w.word}
@@ -496,9 +506,10 @@ export function GroupEditor({
                 <button
                   className={`text-2xs px-2 py-0.5 rounded transition-colors ${
                     group.words.length <= 1
-                      ? 'text-[var(--color-text-3)] opacity-40 cursor-not-allowed'
-                      : 'text-[var(--color-text-3)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)]'
+                      ? 'opacity-40 cursor-not-allowed'
+                      : 'hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)]'
                   }`}
+                  style={{ color: 'var(--color-text-3)' }}
                   disabled={group.words.length <= 1}
                   onClick={(e) => {
                     e.stopPropagation()

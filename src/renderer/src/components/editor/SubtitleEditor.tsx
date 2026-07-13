@@ -218,17 +218,22 @@ export function SubtitleEditor({
             placeholder="Search…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full text-xs px-2.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:outline-none focus:border-[var(--color-accent)] text-[var(--color-text)] placeholder:text-[var(--color-text-subtle)]"
+            className="w-full text-xs px-2.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:outline-none focus:border-[var(--color-accent)] placeholder:text-[var(--color-text-subtle)]"
+            style={{ color: 'var(--color-text)' }}
           />
           {lowerQuery && (
-            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-2xs text-[var(--color-text-subtle)] tabular-nums pointer-events-none">
+            <span
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-2xs tabular-nums pointer-events-none"
+              style={{ color: 'var(--color-text-subtle)' }}
+            >
               {matchCount}/{segments.length}
             </span>
           )}
         </div>
         {onAddSegment && (
           <button
-            className="shrink-0 text-xs px-2.5 py-1 rounded transition-colors border border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-white/[0.04] hover:text-[var(--color-text)]"
+            className="shrink-0 text-xs px-2.5 py-1 rounded transition-colors border border-[var(--color-border)] hover:bg-white/[0.04] hover:text-[var(--color-text)]"
+            style={{ color: 'var(--color-text-muted)' }}
             onClick={handleAddClick}
             title="Insert a new subtitle at the current playback time"
           >
@@ -398,14 +403,15 @@ function SegmentRow({
       onKeyDown={handleKeyDown}
     >
       {seg.speaker && (
-        <span className="text-2xs text-[var(--color-accent)] font-semibold mr-1.5">
+        <span className="text-2xs font-semibold mr-1.5" style={{ color: 'var(--color-accent)' }}>
           [{seg.speaker}]
         </span>
       )}
 
       <div className="flex items-start gap-2 flex-wrap">
         <button
-          className="shrink-0 text-xs text-[var(--color-text-muted)] tabular-nums hover:text-[var(--color-accent)] transition-colors mt-0.5"
+          className="shrink-0 text-xs tabular-nums hover:text-[var(--color-accent)] transition-colors mt-0.5"
+          style={{ color: 'var(--color-text-muted)' }}
           onClick={() => onSeek(seg.start)}
         >
           {formatTime(seg.start)}
@@ -453,9 +459,12 @@ function SegmentRow({
                         className={[
                           'text-2xs px-1.5 py-0.5 rounded transition-colors tabular-nums',
                           isEditingThis
-                            ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)] border border-[var(--color-accent)]/40'
-                            : 'bg-[var(--color-surface)] text-[var(--color-text-muted)] border border-[var(--color-border)] hover:border-[var(--color-accent)]/40',
+                            ? 'bg-[var(--color-accent)]/20 border border-[var(--color-accent)]/40'
+                            : 'bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-accent)]/40',
                         ].join(' ')}
+                        style={{
+                          color: isEditingThis ? 'var(--color-accent)' : 'var(--color-text-muted)',
+                        }}
                         onClick={() =>
                           onWordTimingEditToggle(isEditingThis ? null : { segIdx, wordIdx: wi })
                         }
@@ -516,11 +525,10 @@ function SegmentRow({
                   }
                   className={[
                     'cursor-pointer rounded px-0.5 transition-colors',
-                    wi === activeWordIdx
-                      ? 'bg-[var(--color-accent)]/20 text-[var(--color-accent)] font-medium'
-                      : '',
+                    wi === activeWordIdx ? 'bg-[var(--color-accent)]/20 font-medium' : '',
                     'hover:bg-white/[0.06]',
                   ].join(' ')}
+                  style={wi === activeWordIdx ? { color: 'var(--color-accent)' } : undefined}
                   onClick={() => onSeek(w.start)}
                   title={`${formatTimePrecise(w.start)} → ${formatTimePrecise(w.end)}`}
                 >
@@ -528,7 +536,7 @@ function SegmentRow({
                 </span>
               ))
             ) : (
-              <span className="text-[var(--color-text-muted)]">{seg.text}</span>
+              <span style={{ color: 'var(--color-text-muted)' }}>{seg.text}</span>
             )}
           </div>
         )}
@@ -536,7 +544,8 @@ function SegmentRow({
         {/* Pencil icon — hover-revealed, only in read mode */}
         {!isEditing && (
           <button
-            className="shrink-0 opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity text-[var(--color-text-muted)] hover:text-[var(--color-accent)] mt-0.5 p-0.5 rounded"
+            className="shrink-0 opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity hover:text-[var(--color-accent)] mt-0.5 p-0.5 rounded"
+            style={{ color: 'var(--color-text-muted)' }}
             onClick={onStartEdit}
             title="Edit this subtitle"
           >
@@ -563,7 +572,8 @@ function SegmentRow({
           <div className="ml-auto flex items-center gap-1.5">
             {onRealign && seg.text.trim() !== '' && (
               <button
-                className="text-xs px-2 py-0.5 rounded border border-[var(--color-accent)]/40 text-[var(--color-accent)] hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                className="text-xs px-2 py-0.5 rounded border border-[var(--color-accent)]/40 hover:bg-[var(--color-accent)]/10 transition-colors disabled:opacity-50 disabled:cursor-wait"
+                style={{ color: 'var(--color-accent)' }}
                 onClick={() => onRealign(seg.id)}
                 disabled={isRealigning}
                 title="Re-fit word timings to the audio with forced alignment"
@@ -573,7 +583,8 @@ function SegmentRow({
             )}
             {!isFirst && (
               <button
-                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-white/[0.06] hover:text-[var(--color-text)] transition-colors"
+                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/[0.06] hover:text-[var(--color-text)] transition-colors"
+                style={{ color: 'var(--color-text-muted)' }}
                 onClick={() => onMerge?.(segIdx, 'prev')}
                 title="Merge with segment above"
               >
@@ -582,7 +593,8 @@ function SegmentRow({
             )}
             {!isLast && (
               <button
-                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] text-[var(--color-text-muted)] hover:bg-white/[0.06] hover:text-[var(--color-text)] transition-colors"
+                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/[0.06] hover:text-[var(--color-text)] transition-colors"
+                style={{ color: 'var(--color-text-muted)' }}
                 onClick={() => onMerge?.(segIdx, 'next')}
                 title="Merge with segment below"
               >
@@ -590,7 +602,8 @@ function SegmentRow({
               </button>
             )}
             <button
-              className="text-xs px-2 py-0.5 rounded border border-[var(--color-danger)]/40 text-[var(--color-danger)] hover:bg-[var(--color-danger)]/10 transition-colors"
+              className="text-xs px-2 py-0.5 rounded border border-[var(--color-danger)]/40 hover:bg-[var(--color-danger)]/10 transition-colors"
+              style={{ color: 'var(--color-danger)' }}
               onClick={() => onDelete(segIdx)}
             >
               Delete
@@ -609,7 +622,8 @@ function PlayheadButton({ title, onClick }: { title: string; onClick: () => void
   return (
     <button
       type="button"
-      className="shrink-0 p-0.5 rounded text-[var(--color-text-subtle)] hover:text-[var(--color-accent)] hover:bg-white/[0.06] transition-colors"
+      className="shrink-0 p-0.5 rounded hover:text-[var(--color-accent)] hover:bg-white/[0.06] transition-colors"
+      style={{ color: 'var(--color-text-subtle)' }}
       onClick={onClick}
       title={title}
     >
@@ -655,7 +669,10 @@ function TimingField({
 
   return (
     <div className="flex items-center gap-1.5">
-      <label className="text-2xs text-[var(--color-text-subtle)] uppercase tracking-wider">
+      <label
+        className="text-2xs uppercase tracking-wider"
+        style={{ color: 'var(--color-text-subtle)' }}
+      >
         {label}
       </label>
       <input

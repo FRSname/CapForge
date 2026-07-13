@@ -329,7 +329,7 @@ export function App() {
             className="app-no-drag flex items-center gap-3 px-4 py-2 text-xs border-b border-[var(--color-border)]"
             style={{ background: 'var(--color-surface-2)' }}
           >
-            <span className="text-[var(--color-text-2)]">
+            <span style={{ color: 'var(--color-text-2)' }}>
               Unsaved session recovered
               {recoverySnapshot.savedAt
                 ? ` from ${new Date(recoverySnapshot.savedAt).toLocaleString()}`
@@ -341,7 +341,7 @@ export function App() {
             </Button>
             <Button
               variant="titlebar"
-              className="text-[var(--color-text-3)]"
+              style={{ color: 'var(--color-text-3)' }}
               onClick={handleDiscardRecovery}
             >
               Discard

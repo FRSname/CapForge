@@ -157,7 +157,9 @@ export function EffectsControls({ effects, onChange }: EffectsControlsProps) {
 
       {templates.length > 0 && (
         <div className="flex items-center gap-1.5 min-w-0">
-          <span className="shrink-0 text-2xs text-[var(--color-text-3)]">Saved</span>
+          <span className="shrink-0 text-2xs" style={{ color: 'var(--color-text-3)' }}>
+            Saved
+          </span>
           <Select
             className="flex-1 min-w-0 text-[11px]"
             value=""
@@ -177,7 +179,7 @@ export function EffectsControls({ effects, onChange }: EffectsControlsProps) {
       )}
 
       {effects.length === 0 ? (
-        <p className="text-2xs text-[var(--color-text-3)] text-center mt-1.5">
+        <p className="text-2xs text-center mt-1.5" style={{ color: 'var(--color-text-3)' }}>
           Overlays composited over your captions when you render with HyperFrames.
         </p>
       ) : (
@@ -227,11 +229,15 @@ function EffectRow({
   return (
     <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface-2)] p-2">
       <div className="flex items-center gap-1.5 mb-1.5">
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--color-text-3)]">
+        <span
+          className="shrink-0 text-[10px] uppercase tracking-wide"
+          style={{ color: 'var(--color-text-3)' }}
+        >
           {TYPE_LABEL[e.type]}
         </span>
         <span
-          className="flex-1 min-w-0 truncate text-[11px] text-[var(--color-text-2)]"
+          className="flex-1 min-w-0 truncate text-[11px]"
+          style={{ color: 'var(--color-text-2)' }}
           title={summary(e)}
         >
           {summary(e)}
@@ -239,7 +245,8 @@ function EffectRow({
         <button
           type="button"
           onClick={onRemove}
-          className="shrink-0 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-3)] hover:bg-[var(--color-surface-3)]"
+          className="shrink-0 rounded px-1.5 py-0.5 text-[11px] hover:bg-[var(--color-surface-3)]"
+          style={{ color: 'var(--color-text-3)' }}
           title="Remove effect"
         >
           ✕
@@ -366,7 +373,8 @@ function RowTemplateSaver({ onSave }: { onSave: (name: string) => void }) {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="mt-1.5 w-full rounded px-1.5 py-0.5 text-2xs text-[var(--color-text-3)] hover:bg-[var(--color-surface-3)]"
+        className="mt-1.5 w-full rounded px-1.5 py-0.5 text-2xs hover:bg-[var(--color-surface-3)]"
+        style={{ color: 'var(--color-text-3)' }}
         title="Save this effect as a reusable template"
       >
         ★ Save as template
@@ -416,7 +424,9 @@ function FxNumber({
 }) {
   return (
     <label className="flex flex-col gap-0.5">
-      <span className="text-2xs text-[var(--color-text-3)]">{label}</span>
+      <span className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
+        {label}
+      </span>
       <input
         type="number"
         value={value}
@@ -445,7 +455,9 @@ function FxText({
 }) {
   return (
     <label className="flex flex-col gap-0.5">
-      <span className="text-2xs text-[var(--color-text-3)]">{label}</span>
+      <span className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
+        {label}
+      </span>
       <input
         type="text"
         value={value}
@@ -467,7 +479,10 @@ function FxCheckbox({
   onChange: (v: boolean) => void
 }) {
   return (
-    <label className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-2)] py-1">
+    <label
+      className="flex items-center gap-1.5 text-[11px] py-1"
+      style={{ color: 'var(--color-text-2)' }}
+    >
       <input type="checkbox" checked={checked} onChange={(ev) => onChange(ev.target.checked)} />
       {label}
     </label>

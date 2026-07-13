@@ -582,7 +582,7 @@ export function ResultsScreen({
           >
             Groups
           </TabButton>
-          <span className="text-2xs text-[var(--color-text-3)] ml-auto">
+          <span className="text-2xs ml-auto" style={{ color: 'var(--color-text-3)' }}>
             {view === 'text'
               ? `${segments.length} segment${segments.length === 1 ? '' : 's'}`
               : `${groups.length} group${groups.length === 1 ? '' : 's'}`}
@@ -668,9 +668,10 @@ function TabButton({ id, active, onClick, onArrow, children }: TabButtonProps) {
       className={[
         'text-xs px-3 py-1.5 rounded-t transition-colors border-b-2',
         active
-          ? 'border-[var(--color-accent)] text-[var(--color-text)] bg-[var(--color-surface-2)]'
-          : 'border-transparent text-[var(--color-text-3)] hover:text-[var(--color-text)]',
+          ? 'border-[var(--color-accent)] bg-[var(--color-surface-2)]'
+          : 'border-transparent hover:text-[var(--color-text)]',
       ].join(' ')}
+      style={{ color: active ? 'var(--color-text)' : 'var(--color-text-3)' }}
       onClick={onClick}
       onKeyDown={(e) => {
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {

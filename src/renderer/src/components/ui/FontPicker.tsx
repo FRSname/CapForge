@@ -90,7 +90,9 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
 
   return (
     <div className="flex items-center gap-1.5 min-w-0">
-      <span className="w-[72px] shrink-0 text-xs text-[var(--color-text-2)]">Font</span>
+      <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+        Font
+      </span>
       <select
         className="field-input flex-1 min-w-0 text-xs"
         value={value}
