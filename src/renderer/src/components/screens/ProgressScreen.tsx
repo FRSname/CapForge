@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react'
 import lottie from 'lottie-web/build/player/lottie_light'
 import type { TranscriptionResult } from '../../types/app'
 import { useTranscription } from '../../hooks/useTranscription'
+import { useToast } from '../../hooks/useToast'
+import type { ToastType } from '../../hooks/useToast'
 import chatAnimation from '../../assets/chat-loading.json'
 
 const STEPS = [
@@ -14,6 +16,28 @@ const STEPS = [
 
 type StepKey = (typeof STEPS)[number]['key']
 
+/**
+ * Handles a rejected transcription promise: silently short-circuits on a
+ * user-initiated cancel, otherwise surfaces the failure via toast and hands
+ * control back to the caller (App.tsx's existing `onCancel` state path) so
+ * the user is never stranded on the progress spinner.
+ *
+ * Exported as a pure function so it's testable without mounting the
+ * component (this repo's vitest config runs in plain node, no DOM).
+ */
+export function handleTranscriptionError(
+  err: unknown,
+  toast: (message: string, type?: ToastType) => void,
+  onFailure: () => void
+): void {
+  const rawMessage = err instanceof Error ? err.message : undefined
+  if (rawMessage === 'Cancelled') return
+
+  console.error('Transcription error:', err)
+  toast(rawMessage || 'Transcription failed', 'error')
+  onFailure()
+}
+
 interface ProgressScreenProps {
   filePath: string
   onDone: (result: TranscriptionResult) => void
@@ -22,6 +46,7 @@ interface ProgressScreenProps {
 
 export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenProps) {
   const { progress, start, cancel } = useTranscription()
+  const { toast } = useToast()
   // Guard against React StrictMode's dev-only double-mount:
   // without this, we POST /api/transcribe twice and the second call 409s.
   const startedRef = useRef(false)
@@ -44,9 +69,7 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
     }
     run()
       .then(onDone)
-      .catch((err) => {
-        if ((err as Error).message !== 'Cancelled') console.error('Transcription error:', err)
-      })
+      .catch((err) => handleTranscriptionError(err, toast, onCancel))
     // No cleanup: we don't want StrictMode's unmount to cancel an in-flight job.
     // Real user-initiated cancel goes through handleCancel below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
