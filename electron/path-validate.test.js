@@ -83,10 +83,7 @@ test('resolveExistingDir rejects an object', () => {
 })
 
 test('resolveExistingDir rejects a nonexistent path', () => {
-  const result = resolveExistingDir(
-    path.join(os.tmpdir(), 'capforge-does-not-exist-abc'),
-    deps
-  )
+  const result = resolveExistingDir(path.join(os.tmpdir(), 'capforge-does-not-exist-abc'), deps)
   assert.equal(result.ok, false)
   assert.match(result.error, /not found/i)
 })
