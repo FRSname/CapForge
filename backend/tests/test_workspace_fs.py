@@ -113,6 +113,59 @@ def test_import_missing_source_raises(root):
         wfs.import_path(root, "/does/not/exist")
 
 
+def test_import_pack_with_readme_lands_intact_under_name_dir(root, tmp_path):
+    """Effect pack contract: <name>.html + README + assets copy in intact."""
+    pack = tmp_path.parent / "lower-third-pack"
+    (pack / "assets").mkdir(parents=True, exist_ok=True)
+    (pack / "lower-third-pack.html").write_text("<div>pack</div>")
+    (pack / "README.md").write_text("usage rules")
+    (pack / "assets" / "logo.svg").write_text("<svg/>")
+
+    res = wfs.import_path(root, str(pack))
+
+    assert "compositions/lower-third-pack/lower-third-pack.html" in res["imported"]
+    assert "compositions/lower-third-pack/README.md" in res["imported"]
+    assert "compositions/lower-third-pack/assets/logo.svg" in res["imported"]
+    assert (root / "compositions/lower-third-pack/README.md").read_text() == "usage rules"
+
+
+def test_import_rejects_directory_with_no_html(root, tmp_path):
+    """A folder with no .html anywhere isn't an effect pack — reject clearly."""
+    pack = tmp_path.parent / "no-html-pack"
+    pack.mkdir(parents=True, exist_ok=True)
+    (pack / "README.md").write_text("no effect file here")
+    (pack / "notes.txt").write_text("just notes")
+
+    with pytest.raises(wfs.WorkspaceError, match="html"):
+        wfs.import_path(root, str(pack))
+
+
+def test_import_rejects_directory_with_only_nested_html(root, tmp_path):
+    """html buried in a subfolder (not directly inside the pack root) doesn't
+    satisfy the contract — a pack needs a top-level <name>.html."""
+    pack = tmp_path.parent / "nested-html-pack"
+    (pack / "assets").mkdir(parents=True, exist_ok=True)
+    (pack / "assets" / "demo.html").write_text("<div>demo</div>")
+    (pack / "README.md").write_text("no top-level effect file")
+
+    with pytest.raises(wfs.WorkspaceError, match="top-level"):
+        wfs.import_path(root, str(pack))
+
+
+def test_import_component_pack_into_components_subdir(root, tmp_path):
+    """A component pack imports under compositions/components/<name>/."""
+    pack = tmp_path.parent / "glow-text"
+    pack.mkdir(parents=True, exist_ok=True)
+    (pack / "glow-text.html").write_text("<span>glow</span>")
+    (pack / "README.md").write_text("component usage")
+
+    res = wfs.import_path(root, str(pack), dest_subdir="compositions/components")
+
+    assert "compositions/components/glow-text/glow-text.html" in res["imported"]
+    assert "compositions/components/glow-text/README.md" in res["imported"]
+    assert (root / "compositions/components/glow-text/glow-text.html").exists()
+
+
 def test_import_rejects_sensitive_source(root, tmp_path, monkeypatch):
     """Importing from CapForge's own data home (token + discovery file) is refused."""
     fake_home = tmp_path.parent / "capforge-home"

@@ -575,11 +575,25 @@ def enter_coauthor_mode() -> dict:
     On first entry CapForge seeds a complete, working starter (captions + video +
     the current effects) and then STOPS regenerating index.html, so your edits
     persist. Workflow: `get_workspace` to see the project → `write_workspace_file`
-    / `import_into_workspace` to author compositions under `compositions/` and wire
-    them into `index.html` via `data-composition-src` → `run_hyperframes_cli`
-    (lint/inspect) → iterate with `preview_hyperframes_frame` until the user is
-    happy → get the user's explicit approval → `render_hyperframes`. Always preview
-    and confirm before rendering; the final render is the last step, not a preview.
+    to author compositions from scratch under `compositions/` and wire them into
+    `index.html` via `data-composition-src` → `run_hyperframes_cli` (lint/inspect)
+    → iterate with `preview_hyperframes_frame` until the user is happy → get the
+    user's explicit approval → `render_hyperframes`. Always preview and confirm
+    before rendering; the final render is the last step, not a preview.
+
+    Reusing an effect pack instead of authoring from scratch: `import_into_workspace`
+    a folder (the effect's HTML + its README/registry-item.json usage rules +
+    assets) → `read_workspace_file` the README or the snippet's own comment header
+    to learn how it wants to be wired → for a **block** (standalone sub-composition,
+    own dimensions/duration), reference it from `index.html` with
+    `<div data-composition-src="compositions/<name>/<name>.html"
+    data-composition-id="…" data-start data-duration data-track-index data-width
+    data-height>`; for a **component** (a snippet with no own dimensions), paste
+    its HTML into your composition's markup, its CSS into `<style>`, and its JS
+    before the timeline instead of wiring a `data-composition-src` — merge its
+    exposed GSAP timeline calls into yours. When hand-merging a component, give
+    its element IDs a 2-3 letter prefix so they don't collide with your own.
+    Then `preview_hyperframes_frame` and confirm before rendering, same as above.
     Call `hyperframes_guide` for the creative vocabulary. Returns `{ coauthor, path }`.
 
     Durability: once you enter co-author mode CapForge persists that state in the
@@ -649,14 +663,22 @@ def write_workspace_file(path: str, content: str) -> dict:
 
 @mcp.tool()
 def import_into_workspace(src: str, dest_subdir: str = "compositions") -> dict:
-    """Copy an external file or folder — a custom effect block with its assets and
-    instructions — into the co-author workspace.
+    """Copy an external **effect pack** into the co-author workspace: a folder
+    containing a top-level `<name>.html` effect file, plus optional usage rules
+    (`README.md` / `registry-item.json`) and optional assets. A single file may
+    also be imported directly (no folder required).
 
-    A folder lands under `compositions/<name>/` preserving its internal layout, so
+    A folder lands under `<dest_subdir>/<name>/` preserving its internal layout, so
     its HTML's relative asset references keep working and you can `read_workspace_file`
-    its README to follow the instructions. Returns `{ imported, skipped }`
-    (disallowed file types are skipped, not fatal). Then reference the block from
-    `index.html` via `data-composition-src` and preview it.
+    its README (or the snippet's own comment header) to follow the instructions.
+    Use the default `dest_subdir="compositions"` for a **block** (a standalone
+    sub-composition with its own dimensions/duration — reference it from
+    `index.html` via `data-composition-src`); pass
+    `dest_subdir="compositions/components"` for a **component** (a snippet with no
+    own dimensions — its HTML/CSS/JS get pasted/merged into your composition
+    instead of wired with `data-composition-src`). Returns `{ imported, skipped }`
+    (disallowed file types are skipped, not fatal; importing a directory with no
+    `.html` file anywhere is rejected). Then preview it.
     """
     return _client.import_into_workspace(src, dest_subdir)
 
