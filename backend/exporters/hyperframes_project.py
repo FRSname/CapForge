@@ -21,7 +21,6 @@ Invoking `npx hyperframes render` on the folder is a separate concern.
 from __future__ import annotations
 
 import hashlib
-import html
 import json
 import logging
 import os
@@ -48,7 +47,7 @@ GSAP_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
 # a fresh scaffold would today. The fingerprint cache keys on (fingerprint,
 # SCAFFOLD_VERSION); bumping this forces every cached project to re-scaffold so a
 # code change to the HTML generator can never serve a stale (old-shape) preview.
-SCAFFOLD_VERSION = 2
+SCAFFOLD_VERSION = 3
 
 # Fingerprint sidecar written next to ``index.html`` after a successful scaffold.
 # ``ensure_hyperframes_project`` reads it to decide whether the existing scaffold
@@ -220,20 +219,18 @@ def _composition_fingerprint(
     groups: list[dict],
     result: TranscriptionResult,
     source_path: Optional[str],
-    effects: Optional[list[dict]],
     duration: Optional[float],
     caption_html: Optional[str],
 ) -> str:
     """Full stored fingerprint: the scaffold core plus the remaining inputs that
-    also reach ``index.html`` (effects markup/timeline, the composition duration,
-    and an agent-authored custom caption component). Kept separate from
-    :func:`_scaffold_fingerprint` so the core stays the documented, independently
-    testable building block while the cache still invalidates on ANY HTML input.
+    also reach ``index.html`` (the composition duration and an agent-authored
+    custom caption component). Kept separate from :func:`_scaffold_fingerprint`
+    so the core stays the documented, independently testable building block
+    while the cache still invalidates on ANY HTML input.
     """
     base = _scaffold_fingerprint(config, groups, result, source_path)
     extra = json.dumps(
         {
-            "effects": effects,
             "duration": duration,
             "caption_html": caption_html,
         },
@@ -349,61 +346,6 @@ def hyperframes_workspace(source_path: str) -> str:
     tag = hashlib.sha1(str(src).encode("utf-8")).hexdigest()[:8]
     return str(home / "studio" / tag)
 
-_DEFAULT_LOGO_WIDTH_FRAC = 0.18  # logo width as a fraction of canvas width when unset
-_ACCENT = "#D4952A"  # CapForge brand orange — default accent for text effects
-
-# Per-effect-type entrance/exit. Each set animates the effect's INNER element so
-# the outer .fx keeps positioning (centering transforms never fight the motion —
-# the same split that fixed caption drift).
-_FX_ANIM: dict[str, dict] = {
-    "logo": {
-        "from": {"opacity": 0, "scale": 0.8},
-        "to": {"opacity": 1, "scale": 1},
-        "exit": {"opacity": 0, "scale": 0.95},
-        "edur": 0.4, "xdur": 0.25, "ease": "back.out(1.7)",
-    },
-    "lower_third": {
-        "from": {"opacity": 0, "x": -40},
-        "to": {"opacity": 1, "x": 0},
-        "exit": {"opacity": 0, "x": -28},
-        "edur": 0.45, "xdur": 0.3, "ease": "power3.out",
-    },
-    "kinetic_stat": {
-        "from": {"opacity": 0, "scale": 0.6, "y": 18},
-        "to": {"opacity": 1, "scale": 1, "y": 0},
-        "exit": {"opacity": 0, "scale": 0.9},
-        "edur": 0.5, "xdur": 0.25, "ease": "back.out(2)",
-    },
-    # Marker sweep: scaleX from the left edge (transformOrigin set via GSAP so it
-    # survives GSAP overwriting the inline transform-origin).
-    "highlight": {
-        "from": {"opacity": 0, "scaleX": 0, "transformOrigin": "left center"},
-        "to": {"opacity": 1, "scaleX": 1, "transformOrigin": "left center"},
-        "exit": {"opacity": 0},
-        "edur": 0.4, "xdur": 0.2, "ease": "power2.out",
-    },
-    # B-roll insert: gentle zoom-settle, sits behind the captions (z-index 5).
-    "b_roll": {
-        "from": {"opacity": 0, "scale": 1.06},
-        "to": {"opacity": 1, "scale": 1},
-        "exit": {"opacity": 0, "scale": 1.0},
-        "edur": 0.5, "xdur": 0.3, "ease": "power2.out",
-    },
-}
-
-
-def _css_rgba(hex_color: str, opacity: float) -> str:
-    """Convert '#RRGGBB' (+ opacity) to a CSS rgba() string."""
-    h = (hex_color or "#000000").lstrip("#")
-    if len(h) == 3:
-        h = "".join(c * 2 for c in h)
-    try:
-        r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
-    except (ValueError, IndexError):
-        r, g, b = 0, 0, 0
-    return f"rgba({r}, {g}, {b}, {max(0.0, min(1.0, opacity)):.3f})"
-
-
 def _resolve_duration(
     result: TranscriptionResult,
     groups: list[dict],
@@ -425,191 +367,12 @@ def _resolve_duration(
     return (groups[-1]["end"] + 1.0) if groups else 1.0
 
 
-def _copy_asset(
-    src: object, project_dir: Path, copied: set[str]
-) -> Optional[str]:
-    """Copy an asset into assets/ (once) and return its project-relative path,
-    or None if the source is missing."""
-    if not src or not Path(str(src)).exists():
-        return None
-    src_path = Path(str(src))
-    if src_path.name not in copied:
-        assets_dir = project_dir / "assets"
-        assets_dir.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(src_path, assets_dir / src_path.name)
-        copied.add(src_path.name)
-    return f"assets/{src_path.name}"
-
-
-def _build_effect_inner(
-    ftype: str,
-    variables: dict,
-    x: float,
-    y: float,
-    canvas_w: int,
-    canvas_h: int,
-    project_dir: Path,
-    copied: set[str],
-) -> Optional[tuple[str, str, str]]:
-    """Build one effect's (outer_style, inner_class, inner_html), or None to skip.
-
-    `outer_style` positions the wrapper (incl. its centering transform); the
-    inner element is what the timeline animates. Returns None when required
-    content is missing (e.g. a logo with no image, an empty text effect).
-    """
-    if ftype == "logo":
-        rel = _copy_asset(variables.get("src") or variables.get("logo_path"), project_dir, copied)
-        if rel is None:
-            return None  # nothing to show without an image
-        width = variables.get("width")
-        if not isinstance(width, (int, float)) or width <= 0:
-            width = int(_DEFAULT_LOGO_WIDTH_FRAC * canvas_w)
-        outer_style = (
-            f"left: {x}%; top: {y}%; width: {int(width)}px; "
-            "transform: translate(-50%, -50%);"
-        )
-        inner = f'<img src="{rel}" style="width: 100%; display: block;" />'
-        return outer_style, "fx-logo", inner
-
-    if ftype == "lower_third":
-        title = str(variables.get("title") or variables.get("text") or "").strip()
-        if not title:
-            return None
-        subtitle = str(variables.get("subtitle") or "").strip()
-        accent = str(variables.get("accent") or _ACCENT)
-        outer_style = f"left: {x}%; top: {y}%; transform: translateY(-50%);"
-        sub_html = (
-            f'<div class="fx-lower-sub">{html.escape(subtitle)}</div>' if subtitle else ""
-        )
-        inner = (
-            f'<div class="fx-lower-bar" style="background: {accent};"></div>'
-            f'<div class="fx-lower-text">'
-            f'<div class="fx-lower-title">{html.escape(title)}</div>{sub_html}'
-            f"</div>"
-        )
-        return outer_style, "fx-lower", inner
-
-    if ftype == "kinetic_stat":
-        value = str(variables.get("value") or variables.get("text") or "").strip()
-        if not value:
-            return None
-        label = str(variables.get("label") or "").strip()
-        accent = str(variables.get("accent") or _ACCENT)
-        outer_style = f"left: {x}%; top: {y}%; transform: translate(-50%, -50%);"
-        label_html = (
-            f'<div class="fx-stat-label">{html.escape(label)}</div>' if label else ""
-        )
-        inner = (
-            f'<div class="fx-stat-value" style="color: {accent};">{html.escape(value)}</div>'
-            f"{label_html}"
-        )
-        return outer_style, "fx-stat", inner
-
-    if ftype == "highlight":
-        # A highlighter marker swept across a spoken word. Translucent so the
-        # word stays legible; sized in px (defaults relative to the canvas).
-        color = variables.get("color")
-        color = str(color) if color else _css_rgba(str(variables.get("accent") or _ACCENT), 0.45)
-        width = variables.get("width")
-        if not isinstance(width, (int, float)) or width <= 0:
-            width = int(0.22 * canvas_w)
-        height = variables.get("height")
-        if not isinstance(height, (int, float)) or height <= 0:
-            height = max(24, int(0.055 * canvas_h))
-        # Outer anchored by the marker's left edge so the sweep starts where placed.
-        outer_style = f"left: {x}%; top: {y}%; transform: translate(0, -50%);"
-        inner = (
-            f'<div class="fx-hl-bar" style="width: {int(width)}px; '
-            f'height: {int(height)}px; background: {color};"></div>'
-        )
-        return outer_style, "fx-highlight", inner
-
-    if ftype == "b_roll":
-        rel = _copy_asset(variables.get("src"), project_dir, copied)
-        if rel is None:
-            return None
-        if variables.get("fullscreen"):
-            outer_style = "left: 0; top: 0; width: 100%; height: 100%;"
-            img_style = "width: 100%; height: 100%; object-fit: cover; display: block;"
-        else:
-            width = variables.get("width")
-            if not isinstance(width, (int, float)) or width <= 0:
-                width = int(0.5 * canvas_w)
-            outer_style = (
-                f"left: {x}%; top: {y}%; width: {int(width)}px; "
-                "transform: translate(-50%, -50%);"
-            )
-            img_style = "width: 100%; height: auto; display: block;"
-        inner = f'<img src="{rel}" style="{img_style}" />'
-        return outer_style, "fx-broll", inner
-
-    return None  # unknown type
-
-
-def _prepare_effects(
-    effects: Optional[list[dict]], project_dir: Path, canvas_w: int, canvas_h: int
-) -> list[dict]:
-    """Copy effect assets in and return render-ready effect dicts.
-
-    Dispatches per `type` (logo / lower_third / kinetic_stat / highlight /
-    b_roll). Effects with an unknown type or missing required content are
-    skipped. Each prepared effect carries its own enter/exit animation so the
-    timeline stays type-agnostic.
-    """
-    if not effects:
-        return []
-    prepared: list[dict] = []
-    copied: set[str] = set()
-    for i, fx in enumerate(effects):
-        ftype = fx.get("type", "logo")
-        if ftype not in _FX_ANIM:
-            continue
-        variables = fx.get("variables") or {}
-        x = round(float(fx.get("anchor_x", 0.5)) * 100, 3)
-        y = round(float(fx.get("anchor_y", 0.5)) * 100, 3)
-        built = _build_effect_inner(
-            ftype, variables, x, y, canvas_w, canvas_h, project_dir, copied
-        )
-        if built is None:
-            continue
-        outer_style, inner_class, inner_html = built
-        start = float(fx.get("start", 0.0))
-        duration = float(fx.get("duration", 2.0))
-        anim = _FX_ANIM[ftype]
-        prepared.append({
-            "id": f"fx-{i}",
-            "s": start,
-            "e": start + duration,
-            "style": outer_style,
-            "cls": inner_class,
-            "inner": inner_html,
-            "ef": anim["from"], "et": anim["to"], "xt": anim["exit"],
-            "ed": anim["edur"], "xd": anim["xdur"], "ee": anim["ease"],
-        })
-    return prepared
-
-
-def _effects_html(effects: list[dict]) -> str:
-    """Pre-rendered effect wrappers (hidden via CSS; revealed by the timeline).
-
-    Outer `.fx` is positioned; the inner element is the animation target — the
-    same position/motion split used for captions so transforms never collide.
-    """
-    return "\n      ".join(
-        f'<div id="{fx["id"]}" class="fx" style="{fx["style"]}">'
-        f'<div id="{fx["id"]}-i" class="fx-inner {fx["cls"]}">{fx["inner"]}</div>'
-        f"</div>"
-        for fx in effects
-    )
-
-
 def _build_index_html(
     config: VideoRenderConfig,
     groups: list[dict],
     duration: float,
     source_src: str,
     font_face: str,
-    effects: list[dict],
     caption_sub_src: Optional[str] = None,
 ) -> str:
     # When a native HyperFrames caption style is selected, captions are a
@@ -622,12 +385,6 @@ def _build_index_html(
     # (hyperframes_caption_html) so the HyperFrames output matches the panel.
     cap = None if native_captions else caption_block(config, groups)
     captions_css = "" if native_captions else cap["css"]
-    effects_html = _effects_html(effects)
-    # Text-effect sizing, derived from canvas height for resolution independence.
-    lt_title_px = max(20, int(height * 0.045))
-    lt_sub_px = max(14, int(height * 0.030))
-    stat_value_px = max(48, int(height * 0.16))
-    stat_label_px = max(16, int(height * 0.038))
 
     # Caption layer lives only on the classic path; native styles own theirs. The
     # faithful CapForge caption renderer (matching the panel) is emitted by
@@ -635,21 +392,6 @@ def _build_index_html(
     caption_runtime = "" if native_captions else cap["runtime_js"]
     caption_payload = "" if native_captions else cap["payload_js"]
     caption_build = "" if native_captions else cap["build_call"]
-    effects_js = (
-        f"  var EFFECTS = {json.dumps([{k: fx[k] for k in ('id', 's', 'e', 'ef', 'et', 'xt', 'ed', 'xd', 'ee')} for fx in effects])};\n"
-        "  EFFECTS.forEach(function(fx){\n"
-        '    var outer = "#" + fx.id;\n'
-        '    var inner = "#" + fx.id + "-i";\n'
-        '    tl.set(outer, { visibility: "visible" }, fx.s);\n'
-        '    var to = Object.assign({}, fx.et, { duration: fx.ed, ease: fx.ee, overwrite: "auto" });\n'
-        "    tl.fromTo(inner, fx.ef, to, fx.s);\n"
-        "    var fxExit = Math.max(fx.s, fx.e - fx.xd);\n"
-        '    var ex = Object.assign({}, fx.xt, { duration: fx.xd, ease: "power2.in", overwrite: "auto" });\n'
-        "    tl.to(inner, ex, fxExit);\n"
-        '    tl.set(outer, { visibility: "hidden" }, fx.e);\n'
-        "    tl.set(inner, { opacity: 0 }, fx.e);\n"
-        "  });\n"
-    )
     # Register the timeline for the HyperFrames CLI to drive, and flag the
     # composition render-ready (the CLI's snapshot waits on __renderReady; render
     # polls for __timelines["root"] before capturing).
@@ -664,7 +406,6 @@ def _build_index_html(
         timeline_js = (
             "(function(){\n"
             "  var tl = gsap.timeline({ paused: true });\n"
-            + effects_js
             + register_js
             + "})();"
         )
@@ -684,7 +425,6 @@ def _build_index_html(
             + "  function __capStart(){\n"
             + "    var tl = gsap.timeline({ paused: true });\n"
             + caption_build
-            + effects_js
             + register_js
             + "  }\n"
             + "  __capWhenFontsReady(CAP_CFG, CAP_GROUPS, __capStart);\n"
@@ -702,25 +442,6 @@ def _build_index_html(
     }}
     #src-v {{ position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }}
     {captions_css}
-    /* Effects: outer .fx positions (incl. centering transform), .fx-inner is the
-       animation target — position/motion split, same as captions. */
-    .fx {{ position: absolute; visibility: hidden; z-index: 5; pointer-events: none; }}
-    .fx-inner {{ opacity: 0; }}
-    .fx-lower {{
-      display: flex; align-items: stretch; gap: 14px; max-width: 46%;
-      background: rgba(12, 12, 14, 0.78);
-      padding: 14px 22px 14px 14px; border-radius: 10px;
-      font-family: "{config.font_family}", system-ui, sans-serif;
-    }}
-    .fx-lower-bar {{ width: 5px; border-radius: 3px; flex: 0 0 auto; }}
-    .fx-lower-title {{ color: #fff; font-size: {lt_title_px}px; font-weight: 700; line-height: 1.15; white-space: nowrap; }}
-    .fx-lower-sub {{ color: rgba(255, 255, 255, 0.72); font-size: {lt_sub_px}px; margin-top: 3px; white-space: nowrap; }}
-    .fx-stat {{ text-align: center; font-family: "{config.font_family}", system-ui, sans-serif; }}
-    .fx-stat-value {{ font-size: {stat_value_px}px; font-weight: 800; line-height: 1; letter-spacing: -0.02em; text-shadow: 0 4px 24px rgba(0, 0, 0, 0.45); }}
-    .fx-stat-label {{ color: #fff; font-size: {stat_label_px}px; font-weight: 600; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.08em; text-shadow: 0 2px 12px rgba(0, 0, 0, 0.5); }}
-    .fx-highlight {{ display: inline-block; }}
-    .fx-hl-bar {{ border-radius: 4px; }}
-    .fx-broll {{ line-height: 0; }}
     """
 
     if native_captions:
@@ -747,7 +468,6 @@ def _build_index_html(
   <div id="root" data-composition-id="root" data-width="{width}" data-height="{height}" data-start="0" data-duration="{duration}" data-fps="{int(config.fps)}">
     <video id="src-v" src="{source_src}" muted playsinline data-start="0" data-duration="{duration}" data-track-index="0"></video>
     <audio id="src-a" src="{source_src}" data-start="0" data-duration="{duration}" data-track-index="2" data-volume="1"></audio>
-    {effects_html}
     {captions_markup}
     <script src="{GSAP_CDN}"></script>
     <script>{timeline_js}</script>
@@ -967,7 +687,6 @@ def seed_coauthor_project(
     *,
     source_video_path: Optional[str] = None,
     custom_groups: Optional[list[dict]] = None,
-    effects: Optional[list[dict]] = None,
     caption_html: Optional[str] = None,
     duration: Optional[float] = None,
     force_scaffold: bool = False,
@@ -985,7 +704,6 @@ def seed_coauthor_project(
         result, config, workspace,
         source_video_path=source_video_path,
         custom_groups=custom_groups,
-        effects=effects,
         caption_html=caption_html,
         duration=duration,
         force_scaffold=force_scaffold,
@@ -1034,7 +752,6 @@ def export_hyperframes_project(
     output_dir: str,
     source_video_path: Optional[str] = None,
     custom_groups: Optional[list[dict]] = None,
-    effects: Optional[list[dict]] = None,
     duration: Optional[float] = None,
     caption_html: Optional[str] = None,
     force_scaffold: bool = False,
@@ -1078,11 +795,8 @@ def export_hyperframes_project(
     word_faces = _word_font_face_blocks(config, groups, project_dir)
     if word_faces:
         font_face = f"{font_face}\n    {word_faces}" if font_face else word_faces
-    effects_render = _prepare_effects(
-        effects, project_dir, config.resolution_w, config.resolution_h
-    )
     index_html = _build_index_html(
-        config, groups, total_duration, source_src, font_face, effects_render,
+        config, groups, total_duration, source_src, font_face,
         caption_sub_src,
     )
     (project_dir / "index.html").write_text(index_html, encoding="utf-8")
@@ -1102,7 +816,7 @@ def export_hyperframes_project(
     # preview to re-scaffold (the safe direction), never a stale hit.
     try:
         fingerprint = _composition_fingerprint(
-            config, groups, result, source_video_path, effects, duration, caption_html
+            config, groups, result, source_video_path, duration, caption_html
         )
         write_scaffold_fingerprint(project_dir, fingerprint)
     except (OSError, ValueError):
@@ -1117,7 +831,6 @@ def ensure_hyperframes_project(
     output_dir: str,
     source_video_path: Optional[str] = None,
     custom_groups: Optional[list[dict]] = None,
-    effects: Optional[list[dict]] = None,
     duration: Optional[float] = None,
     caption_html: Optional[str] = None,
     force_scaffold: bool = False,
@@ -1142,7 +855,7 @@ def ensure_hyperframes_project(
 
     if groups:
         current_fp = _composition_fingerprint(
-            config, groups, result, source_video_path, effects, duration, caption_html
+            config, groups, result, source_video_path, duration, caption_html
         )
         stored = read_scaffold_fingerprint(project_dir)
         if (
@@ -1162,7 +875,6 @@ def ensure_hyperframes_project(
         output_dir,
         source_video_path=source_video_path,
         custom_groups=custom_groups,
-        effects=effects,
         duration=duration,
         caption_html=caption_html,
         force_scaffold=force_scaffold,

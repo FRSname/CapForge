@@ -100,15 +100,6 @@ class CapForgeClient:
     def check_layout(self, t: float, platform: str = "off") -> Any:
         return self._request("POST", "/api/agent/check-layout", json={"t": t, "platform": platform})
 
-    def get_effects(self) -> Any:
-        return self._request("GET", "/api/agent/effects")
-
-    def add_effect(self, effect: dict) -> Any:
-        return self._request("POST", "/api/agent/effects", json=effect)
-
-    def remove_effect(self, effect_id: str) -> Any:
-        return self._request("DELETE", f"/api/agent/effects/{quote(effect_id)}")
-
     def find_moments(self, query: str) -> Any:
         return self._request("GET", f"/api/agent/find-moments?query={quote(query)}")
 

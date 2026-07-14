@@ -71,23 +71,6 @@ export interface Segment {
   positionOverride?: GroupPositionOverride
 }
 
-/** Effect types the HyperFrames generator can composite (see backend `_FX_ANIM`). */
-export type EffectType = 'logo' | 'lower_third' | 'kinetic_stat' | 'highlight' | 'b_roll'
-
-/** An agent- or user-placed animated effect on the effects timeline. */
-export interface EffectClip {
-  id: string
-  type: EffectType
-  start: number
-  duration: number
-  trackIndex: number
-  anchorX: number
-  anchorY: number
-  sourceWordId?: string
-  variables: Record<string, unknown>
-  createdBy: 'user' | 'agent'
-}
-
 /** Top-level transcription result from the backend. */
 export interface TranscriptionResult {
   segments: Segment[]

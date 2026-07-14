@@ -83,15 +83,11 @@ actually reads.
 | `apply_preset` | Apply a built-in style preset by name → live UI |
 | `emphasize` | Style individual words (size/animation/color) → live UI |
 | `render_frame` | CLASSIC (Pillow) frame at time `t` (composited over video) — agent SEES it |
-| `preview_hyperframes_frame` | ONE HyperFrames frame at `t` (native/custom caption + effects) — fast preview, agent SEES it |
+| `preview_hyperframes_frame` | ONE HyperFrames frame at `t` (native/custom caption) — fast preview, agent SEES it |
 | `check_layout` | Caption bbox + frame-edge + advisory safe-zone check at `t` |
-| `find_moments` | Find transcript moments (word timings) matching a phrase — where to place effects |
+| `find_moments` | Find transcript moments (word timings) matching a phrase — where to time a composition or caption change |
 | `find_semantic_moments` | Find moments by category: `numbers` / `cta` / `speaker_change` (diarization) |
-| `list_effect_types` | Available effect types (logo, lower_third, kinetic_stat, highlight, b_roll) + their variable schemas |
-| `list_effects` | Effect clips currently on the timeline |
-| `add_effect` | Place an animated effect (logo / lower_third / kinetic_stat / highlight / b_roll) at a time — the AI video director |
-| `remove_effect` | Remove an effect clip by id |
-| `render_hyperframes` | Render captions + placed effects via HyperFrames → output path |
+| `render_hyperframes` | Render captions via HyperFrames → output path |
 | `list_caption_styles` | List caption styles: `classic` + native HyperFrames registry styles |
 | `set_caption_style` | Set the caption look (classic / `caption-pill-karaoke` / …) → live UI |
 | `get_custom_caption_contract` | Contract + starter template for authoring your OWN caption style from scratch |

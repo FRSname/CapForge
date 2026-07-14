@@ -13,7 +13,7 @@ import { useRef, useState, useCallback } from 'react'
 import { api } from '../lib/api'
 import { buildRenderBody, type RenderOverrides } from '../lib/render'
 import type { StudioSettings } from '../components/studio/StudioPanel'
-import type { EffectClip, Segment } from '../types/app'
+import type { Segment } from '../types/app'
 import { useToast } from './useToast'
 
 export type RenderStatus = 'idle' | 'rendering' | 'done' | 'error'
@@ -44,15 +44,9 @@ interface UseRenderArgs {
   settings: StudioSettings
   groups: Segment[]
   groupsEdited: boolean
-  effects: EffectClip[]
 }
 
-export function useRender({
-  settings,
-  groups,
-  groupsEdited,
-  effects,
-}: UseRenderArgs): RenderController {
+export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): RenderController {
   const [status, setStatus] = useState<RenderStatus>('idle')
   const [progress, setProgress] = useState(0)
   const [elapsed, setElapsed] = useState('')
@@ -118,7 +112,7 @@ export function useRender({
       })
 
       try {
-        const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir, effects)
+        const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir)
         const res = (await (engine === 'hyperframes'
           ? api.exportHyperframes(body)
           : api.renderVideo(body))) as { file?: string | null; status?: string }
@@ -154,7 +148,7 @@ export function useRender({
         if (!cancelled) toast(msg, 'error')
       }
     },
-    [settings, groups, groupsEdited, effects, stopTimer, toast]
+    [settings, groups, groupsEdited, stopTimer, toast]
   )
 
   // Generate the HyperFrames project folder (render:false) and hand it to the
@@ -164,7 +158,7 @@ export function useRender({
     async (outputDir?: string) => {
       try {
         toast('Building HyperFrames project…', 'info')
-        const body = buildRenderBody(settings, groups, groupsEdited, {}, outputDir, effects)
+        const body = buildRenderBody(settings, groups, groupsEdited, {}, outputDir)
         const res = (await api.exportHyperframes({ ...body, render: false })) as {
           project?: string
         }
@@ -177,7 +171,7 @@ export function useRender({
         toast(msg, 'error')
       }
     },
-    [settings, groups, groupsEdited, effects, toast]
+    [settings, groups, groupsEdited, toast]
   )
 
   const cancelRender = useCallback(() => {

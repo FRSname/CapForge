@@ -1,7 +1,8 @@
 """Find transcript moments matching a text query — backs the agent's find_moments tool.
 
-The agent uses this to locate *where* to place an effect: "find where they say
-CapForge" → word timings it can pass to add_effect.
+The agent uses this to locate *where* to time a caption change or a
+co-author-authored composition: "find where they say CapForge" → word timings
+it can use to place work in the timeline.
 """
 
 from __future__ import annotations

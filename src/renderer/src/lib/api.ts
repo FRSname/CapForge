@@ -3,7 +3,7 @@
  * Communicates with the Python FastAPI backend over REST + WebSocket.
  */
 
-import type { EffectClip, TranscriptionResult as AppTranscriptionResult } from '../types/app'
+import type { TranscriptionResult as AppTranscriptionResult } from '../types/app'
 
 export interface ApiError extends Error {
   title?: string
@@ -98,36 +98,6 @@ export function normalizeResult(raw: TranscriptionResult): AppTranscriptionResul
   }
 }
 
-/** Backend effect clip (snake_case) as returned by /api/effects. */
-interface BackendEffect {
-  id: string
-  type: string
-  start: number
-  duration: number
-  track_index: number
-  anchor_x: number
-  anchor_y: number
-  source_word_id?: string | null
-  variables?: Record<string, unknown>
-  created_by?: string
-}
-
-/** Map a backend effect (snake_case) to the renderer's camelCase EffectClip. */
-function mapEffect(e: BackendEffect): EffectClip {
-  return {
-    id: e.id,
-    type: e.type as EffectClip['type'],
-    start: e.start,
-    duration: e.duration,
-    trackIndex: e.track_index,
-    anchorX: e.anchor_x,
-    anchorY: e.anchor_y,
-    sourceWordId: e.source_word_id ?? undefined,
-    variables: e.variables ?? {},
-    createdBy: (e.created_by as EffectClip['createdBy']) ?? 'agent',
-  }
-}
-
 /** A style/emphasis command relayed from the agent over the control channel. */
 export interface AgentCommand {
   op: string
@@ -156,7 +126,6 @@ export interface ResyncSnapshot {
 export interface ControlHandlers {
   onResultUpdated?: () => void
   onCommand?: (cmd: AgentCommand) => void
-  onEffectsUpdated?: () => void
   /** Agent asked to render the final video — prompt the user to approve/cancel. */
   onRenderApprovalRequest?: (req: RenderApprovalRequest) => void
   /** A pending request was resolved elsewhere (timeout/another window) — dismiss. */
@@ -345,13 +314,6 @@ class CapForgeAPI {
     return this.post('/api/render-approval', { id, approved })
   }
 
-  /** Read the current effects timeline (agent + user placed), mapped to EffectClip. */
-  getEffects(): Promise<EffectClip[]> {
-    return this.get<{ effects: BackendEffect[] }>('/api/effects').then((r) =>
-      (r.effects ?? []).map(mapEffect)
-    )
-  }
-
   /** Caption styles for the HyperFrames render path: 'classic' + registry styles. */
   listCaptionStyles(): Promise<Array<{ name: string; title: string }>> {
     return this.get<{ styles: Array<{ name: string; title: string }> }>('/api/caption-styles').then(
@@ -483,7 +445,6 @@ class CapForgeAPI {
         const raw = JSON.parse(event.data as string)
         if (!raw || !raw.type) return
         if (raw.type === 'result_updated') this._controlHandlers?.onResultUpdated?.()
-        else if (raw.type === 'effects_updated') this._controlHandlers?.onEffectsUpdated?.()
         else if (raw.type === 'agent_command') {
           this._controlHandlers?.onCommand?.({ op: raw.op, payload: raw.payload })
         } else if (raw.type === 'render_approval_request') {

@@ -24,7 +24,7 @@ import {
   type CardId,
   type SearchFilter,
 } from '../../lib/settingsSearch'
-import type { EffectClip, Segment } from '../../types/app'
+import type { Segment } from '../../types/app'
 import type { VideoInfo } from '../../lib/api'
 
 // ── Settings shape ────────────────────────────────────────────
@@ -196,9 +196,6 @@ interface StudioPanelProps {
   audioPath?: string
   /** Probed source video info — drives quick-render resolution/fps. */
   sourceVideoInfo?: VideoInfo | null
-  /** Effects timeline (logos, etc.) — owned by App so agent placements mirror in. */
-  effects?: EffectClip[]
-  onEffectsChange?: (effects: EffectClip[]) => void
 }
 
 export { DEFAULTS as STUDIO_DEFAULTS }
@@ -255,19 +252,12 @@ export function StudioPanel({
   groupsEdited = false,
   audioPath = '',
   sourceVideoInfo = null,
-  effects: externalEffects,
-  onEffectsChange,
 }: StudioPanelProps) {
   const [internalS, setInternalS] = useState<StudioSettings>({ ...DEFAULTS })
   const [outputDir, setOutputDir] = useState<string>('')
-  const [internalEffects, setInternalEffects] = useState<EffectClip[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   // Merge with defaults so older saved projects that lack new fields don't produce undefined/NaN
   const s: StudioSettings = externalSettings ? { ...DEFAULTS, ...externalSettings } : internalS
-  // Effects come from App (so agent-placed effects mirror in); fall back to
-  // local panel state when StudioPanel is used standalone.
-  const effects = externalEffects ?? internalEffects
-  const setEffects = onEffectsChange ?? setInternalEffects
 
   function set<K extends keyof StudioSettings>(key: K, val: StudioSettings[K]) {
     const next = { ...s, [key]: val }
@@ -280,7 +270,7 @@ export function StudioPanel({
     else setInternalS(next)
   }
 
-  const render = useRender({ settings: s, groups, groupsEdited, effects })
+  const render = useRender({ settings: s, groups, groupsEdited })
 
   // ── Settings search ─────────────────────────────────────────
   const filter = useMemo(() => filterSettings(searchQuery), [searchQuery])
@@ -995,10 +985,8 @@ export function StudioPanel({
               render={render}
             />
 
-            {/* ── HyperFrames ✦ — Open Studio + Render + Effects ──── */}
+            {/* ── HyperFrames ✦ — Open Studio + Render ────────────── */}
             <HyperFramesPanel
-              effects={effects}
-              onEffectsChange={setEffects}
               captionStyle={s.captionStyle}
               onCaptionStyleChange={(v) => set('captionStyle', v)}
               audioPath={audioPath}

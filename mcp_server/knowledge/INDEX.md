@@ -37,8 +37,7 @@ requests* — not your opening move.
 
 ### Default mode — CapForge composes
 
-For caption styling and the parametric effects, CapForge generates the
-composition and you steer it. Loop:
+For caption styling, CapForge generates the composition and you steer it. Loop:
 
 1. **Read state** — `get_ui_state` (current style, display groups, presets),
    `get_transcript` (words + timing). Captions render from the *words*.
@@ -48,23 +47,24 @@ composition and you steer it. Loop:
    - **Custom style (your canvas)** — `get_custom_caption_contract` →
      `set_custom_caption_style(html)`: author a brand-new caption look in
      HTML/CSS/GSAP that renders through the genuine HyperFrames engine.
-3. **Effects** — `find_moments` / `find_semantic_moments` to locate a spoken beat,
-   then `add_effect` (logo, lower_third, kinetic_stat, highlight, b_roll).
-4. **See it** — `preview_hyperframes_frame(t)`; `check_layout(t, platform)`. Iterate
+   - Need something beyond captions (a bespoke animated moment tied to a spoken
+     beat)? `find_moments` / `find_semantic_moments` locate the timing, then
+     switch to co-author mode below to build and place it.
+3. **See it** — `preview_hyperframes_frame(t)`; `check_layout(t, platform)`. Iterate
    here with the user until they're happy (see the Golden rule above).
-5. **Render** — only after the user approves: `render_hyperframes(quality)`.
+4. **Render** — only after the user approves: `render_hyperframes(quality)`.
 
 ### Co-author mode — you compose
 
-When the task needs something the parametric effects can't express — a bespoke
-animation (a code-block reveal, a branded lower-third), or implementing a custom
-effect **block or folder a user hands you** — author the HyperFrames project
+When the task needs something beyond captions — a bespoke animation (a
+code-block reveal, a branded lower-third), or implementing a custom effect
+**block or folder a user hands you** — author the HyperFrames project
 directly, the way a standalone author would, **but inside CapForge's project**
 (this mode is exactly how you do that; do not reach for the standalone CLI):
 
 1. **`enter_coauthor_mode`** — CapForge seeds a complete, working starter
-   (captions + video + current effects) you then OWN; it stops regenerating
-   `index.html`, so your edits persist.
+   (captions + video) you then OWN; it stops regenerating `index.html`, so
+   your edits persist.
 2. **`get_workspace`** — the project folder + file tree. You own `index.html`,
    `compositions/`, and `assets/`. CapForge owns `transcript.json`, `source.*`, and
    the captions sub-composition — pull caption/grouping changes in with

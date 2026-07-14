@@ -8,7 +8,7 @@
  * the main process (window.subforge.saveProject / openProject).
  */
 
-import type { TranscriptionResult, Segment, WordOverrides, EffectClip } from '../types/app'
+import type { TranscriptionResult, Segment, WordOverrides } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 
 export const PROJECT_VERSION = 1
@@ -27,9 +27,6 @@ export interface ProjectFile {
   /** Groups snapshot — populated when customGroupsEdited is true OR any group
    *  carries a positionOverride (which doesn't flip the edited flag). */
   studioGroups: Segment[] | null
-  /** Placed HyperFrames effects (logos, lower-thirds, …). Optional for back-compat
-   *  with projects saved before effects were persisted. */
-  effects?: EffectClip[]
   /** Populated by the main process on read so we know what path to save back to. */
   _filePath?: string
 }
