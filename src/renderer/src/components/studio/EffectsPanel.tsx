@@ -9,11 +9,8 @@
  * timeline); project persistence comes in a later phase.
  */
 
-import { useCallback, useEffect, useState } from 'react'
 import { Button } from '../ui/Button'
-import { Select } from '../ui/Select'
 import { useToast } from '../../hooks/useToast'
-import { api, type EffectTemplate } from '../../lib/api'
 import type { EffectClip, EffectType } from '../../types/app'
 
 interface EffectsControlsProps {
@@ -62,47 +59,6 @@ function clamp01(v: number): number {
 
 export function EffectsControls({ effects, onChange }: EffectsControlsProps) {
   const { toast } = useToast()
-  const [templates, setTemplates] = useState<EffectTemplate[]>([])
-
-  const refreshTemplates = useCallback(() => {
-    api
-      .listEffectTemplates()
-      .then(setTemplates)
-      .catch(() => {
-        /* templates are best-effort; ignore load failures */
-      })
-  }, [])
-
-  useEffect(() => {
-    refreshTemplates()
-  }, [refreshTemplates])
-
-  function applyTemplate(t: EffectTemplate) {
-    _fxSeq += 1
-    const clip: EffectClip = {
-      id: `fx-${Date.now()}-${_fxSeq}`,
-      type: t.type,
-      start: 0,
-      duration: 2,
-      trackIndex: t.trackIndex,
-      anchorX: t.anchorX,
-      anchorY: t.anchorY,
-      variables: { ...t.variables },
-      createdBy: 'user',
-    }
-    onChange([...effects, clip])
-    toast(`Applied template “${t.name}”`, 'info')
-  }
-
-  async function saveTemplate(e: EffectClip, name: string) {
-    try {
-      await api.saveEffectTemplate(name, e)
-      toast(`Saved template “${name}”`, 'success')
-      refreshTemplates()
-    } catch (err) {
-      toast(err instanceof Error ? err.message : 'Could not save template', 'error')
-    }
-  }
 
   async function addEffect(type: EffectType) {
     let variables: Record<string, unknown> = { ...DEFAULT_VARS[type] }
@@ -155,29 +111,6 @@ export function EffectsControls({ effects, onChange }: EffectsControlsProps) {
         ))}
       </div>
 
-      {templates.length > 0 && (
-        <div className="flex items-center gap-1.5 min-w-0">
-          <span className="shrink-0 text-2xs" style={{ color: 'var(--color-text-3)' }}>
-            Saved
-          </span>
-          <Select
-            className="flex-1 min-w-0 text-[11px]"
-            value=""
-            onChange={(ev) => {
-              const t = templates.find((x) => x.name === ev.target.value)
-              if (t) applyTemplate(t)
-            }}
-          >
-            <option value="">Apply template…</option>
-            {templates.map((t) => (
-              <option key={t.name} value={t.name}>
-                {t.name}
-              </option>
-            ))}
-          </Select>
-        </div>
-      )}
-
       {effects.length === 0 ? (
         <p className="text-2xs text-center mt-1.5" style={{ color: 'var(--color-text-3)' }}>
           Overlays composited over your captions when you render with HyperFrames.
@@ -191,7 +124,6 @@ export function EffectsControls({ effects, onChange }: EffectsControlsProps) {
               onPatch={(next) => patch(e.id, next)}
               onPatchVar={(k, v) => patchVar(e.id, k, v)}
               onRemove={() => remove(e.id)}
-              onSaveTemplate={(name) => saveTemplate(e, name)}
             />
           ))}
         </div>
@@ -213,13 +145,11 @@ function EffectRow({
   onPatch,
   onPatchVar,
   onRemove,
-  onSaveTemplate,
 }: {
   e: EffectClip
   onPatch: (next: Partial<EffectClip>) => void
   onPatchVar: (key: string, val: unknown) => void
   onRemove: () => void
-  onSaveTemplate: (name: string) => void
 }) {
   const sVar = (k: string): string =>
     typeof e.variables[k] === 'string' ? (e.variables[k] as string) : ''
@@ -349,60 +279,6 @@ function EffectRow({
           </div>
         )}
       </div>
-
-      <RowTemplateSaver onSave={onSaveTemplate} />
-    </div>
-  )
-}
-
-/** "★ Save as template" affordance that expands to a name input on click. */
-function RowTemplateSaver({ onSave }: { onSave: (name: string) => void }) {
-  const [open, setOpen] = useState(false)
-  const [name, setName] = useState('')
-
-  function commit() {
-    const trimmed = name.trim()
-    if (!trimmed) return
-    onSave(trimmed)
-    setOpen(false)
-    setName('')
-  }
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="mt-1.5 w-full rounded px-1.5 py-0.5 text-2xs hover:bg-[var(--color-surface-3)]"
-        style={{ color: 'var(--color-text-3)' }}
-        title="Save this effect as a reusable template"
-      >
-        ★ Save as template
-      </button>
-    )
-  }
-
-  return (
-    <div className="mt-1.5 flex items-center gap-1">
-      <input
-        autoFocus
-        value={name}
-        placeholder="Template name"
-        onChange={(ev) => setName(ev.target.value)}
-        onKeyDown={(ev) => {
-          if (ev.key === 'Enter') commit()
-          if (ev.key === 'Escape') setOpen(false)
-        }}
-        className="flex-1 min-w-0 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-1 text-[11px]"
-        style={{ color: 'var(--color-text)' }}
-      />
-      <button
-        type="button"
-        onClick={commit}
-        className="shrink-0 rounded px-2 py-1 text-[11px] bg-[var(--color-accent)] text-white"
-      >
-        Save
-      </button>
     </div>
   )
 }

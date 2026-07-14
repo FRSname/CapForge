@@ -87,6 +87,10 @@ This is additive. The Pillow caption render and today's HyperFrames effect rende
 
 ## Phase 2 — Reusable effect-template library
 
+> **Superseded:** this effect-template library was removed; the reuse workflow
+> is now the effect-pack import flow in
+> `docs/plans/hyperframes-effect-pack-workflow.md`.
+
 **Goal:** "I created an effect I like (often via the Claude agent) — save it so we can reuse it across projects." A named template store, **backend-owned** (so the connected agent can save/apply too), **cross-project** (survives the throwaway project folders).
 
 ### Why backend-owned (not Electron `userData`)
