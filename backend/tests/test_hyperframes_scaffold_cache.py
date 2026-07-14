@@ -1,7 +1,7 @@
 """Tests for the scaffold-cache fast path (Phase 4).
 
 ``ensure_hyperframes_project`` skips a full re-scaffold when config + groups +
-transcript + source + effects are unchanged, and always re-scaffolds on any
+transcript + source are unchanged, and always re-scaffolds on any
 change. Over-inclusion is the invariant: a spurious re-scaffold is acceptable,
 a stale cache hit is a WRONG preview and must never happen.
 """
@@ -76,19 +76,6 @@ def test_source_touch_forces_rescaffold(transcription_result, tmp_path):
     # A larger source file → different stat (size) → re-scaffold.
     source.write_bytes(b"\x00\x01\x02\x03\x04\x05\x06\x07")
     _ensure(transcription_result, tmp_path, source_video_path=str(source))
-
-    assert _index_mtime_ns(project) != before
-
-
-def test_effects_change_forces_rescaffold(transcription_result, tmp_path):
-    project = _ensure(transcription_result, tmp_path)
-    before = _index_mtime_ns(project)
-
-    effects = [{
-        "type": "logo", "start": 0.0, "duration": 2.0,
-        "anchor_x": 0.5, "anchor_y": 0.5, "variables": {},
-    }]
-    _ensure(transcription_result, tmp_path, effects=effects)
 
     assert _index_mtime_ns(project) != before
 

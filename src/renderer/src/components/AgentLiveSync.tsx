@@ -14,7 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, normalizeResult, type AgentCommand, type RenderApprovalRequest } from '../lib/api'
-import type { EffectClip, TranscriptionResult } from '../types/app'
+import type { TranscriptionResult } from '../types/app'
 import type { StudioSettings } from './studio/StudioPanel'
 import type { WordOverrideEdit } from '../lib/project'
 import { applySettingsCommand } from '../lib/agentCommands'
@@ -30,8 +30,6 @@ interface AgentLiveSyncProps {
   applySettings: (next: StudioSettings) => void
   /** Merge per-word overrides onto group words (emphasis). */
   applyWordOverrides: (edits: WordOverrideEdit[]) => void
-  /** Replace the effects timeline (after the agent adds/removes effects). */
-  applyEffects: (effects: EffectClip[]) => void
 }
 
 function isEditableTarget(el: EventTarget | null): boolean {
@@ -46,7 +44,6 @@ export function AgentLiveSync({
   applyResult,
   applySettings,
   applyWordOverrides,
-  applyEffects,
 }: AgentLiveSyncProps) {
   const { toast } = useToast()
   const editingRef = useRef(false)
@@ -60,13 +57,11 @@ export function AgentLiveSync({
   const applyResultRef = useRef(applyResult)
   const applySettingsRef = useRef(applySettings)
   const applyWordOverridesRef = useRef(applyWordOverrides)
-  const applyEffectsRef = useRef(applyEffects)
   const toastRef = useRef(toast)
   settingsRef.current = settings
   applyResultRef.current = applyResult
   applySettingsRef.current = applySettings
   applyWordOverridesRef.current = applyWordOverrides
-  applyEffectsRef.current = applyEffects
   toastRef.current = toast
 
   // Soft lock — track whether a text field currently has focus.
@@ -129,15 +124,6 @@ export function AgentLiveSync({
       }
     }
 
-    const handleEffectsUpdated = async () => {
-      try {
-        applyEffectsRef.current(await api.getEffects())
-        toastRef.current('Agent updated effects.', 'info')
-      } catch {
-        /* best-effort */
-      }
-    }
-
     void (async () => {
       try {
         api.setPort(await window.subforge.getBackendPort())
@@ -149,7 +135,6 @@ export function AgentLiveSync({
         api.connectControl({
           onResultUpdated: () => void handleResultUpdated(),
           onCommand: handleCommand,
-          onEffectsUpdated: () => void handleEffectsUpdated(),
           onRenderApprovalRequest: (req) => setRenderReq(req),
           // Resolved elsewhere (timeout / another window) — drop the prompt.
           onRenderApprovalResolved: (id) => setRenderReq((r) => (r && r.id === id ? null : r)),

@@ -6,7 +6,7 @@
  * place where the casing bridge happens.
  */
 
-import type { EffectClip, Segment } from '../types/app'
+import type { Segment } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import { DEFAULT_PAD_V, CROSSFADE_DUR } from './renderConstants'
 
@@ -43,7 +43,6 @@ export interface RenderBody {
     position_x?: number
     position_y?: number
   }>
-  effects?: Array<Record<string, unknown>>
 }
 
 /**
@@ -58,8 +57,7 @@ export function buildRenderBody(
   groups: Segment[],
   groupsEdited: boolean,
   overrides: RenderOverrides = {},
-  outputDir?: string,
-  effects: EffectClip[] = []
+  outputDir?: string
 ): RenderBody {
   const renderMode = overrides.renderMode ?? settings.renderMode
   const [resW, resH] = overrides.resolution ?? settings.resolution
@@ -165,23 +163,6 @@ export function buildRenderBody(
       // config.position_x/position_y
       ...(g.positionOverride?.position_x != null && { position_x: g.positionOverride.position_x }),
       ...(g.positionOverride?.position_y != null && { position_y: g.positionOverride.position_y }),
-    }))
-  }
-
-  // Effects ride only the HyperFrames render path; the casing bridge to the
-  // backend EffectClip happens here alongside the rest of the config.
-  if (effects.length > 0) {
-    body.effects = effects.map((e) => ({
-      id: e.id,
-      type: e.type,
-      start: e.start,
-      duration: e.duration,
-      track_index: e.trackIndex,
-      anchor_x: e.anchorX,
-      anchor_y: e.anchorY,
-      source_word_id: e.sourceWordId ?? null,
-      variables: e.variables,
-      created_by: e.createdBy,
     }))
   }
 

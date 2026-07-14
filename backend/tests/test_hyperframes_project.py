@@ -4,8 +4,6 @@ import json
 from pathlib import Path
 
 import pytest
-from PIL import Image
-
 from backend.exporters import hyperframes_project as hp
 from backend.exporters.hyperframes_project import (
     export_hyperframes_project,
@@ -78,8 +76,9 @@ def test_caption_groups_match_capforge_grouping(transcription_result, tmp_path):
 
 def test_every_group_has_hard_exit_kill(transcription_result, tmp_path):
     html = (_generate(transcription_result, tmp_path) / "index.html").read_text()
-    # captions.md exit guarantee — a deterministic hidden kill at group.end.
-    assert 'visibility: "hidden"' in html
+    # captions.md exit guarantee — a deterministic hidden kill at group.end
+    # (the caption runtime's tl.set(..., { opacity: 0, visibility: 'hidden' }, g.e)).
+    assert "visibility: 'hidden'" in html
 
 
 def test_style_values_flow_from_config(transcription_result, tmp_path):
@@ -164,133 +163,6 @@ def test_sync_companions_overwrites_corrupt_transcript_on_success(
 
     words = json.loads((project / "transcript.json").read_text())
     assert len(words) == 6  # fixture has 6 words — regenerated wholesale
-
-
-# --- Phase B: effect clips ---
-
-
-def _make_logo(tmp_path) -> str:
-    path = tmp_path / "logo.png"
-    Image.new("RGBA", (64, 64), (212, 149, 42, 255)).save(path)
-    return str(path)
-
-
-def test_logo_effect_composited(transcription_result, tmp_path):
-    logo = _make_logo(tmp_path)
-    effects = [{
-        "id": "e1", "type": "logo", "start": 0.5, "duration": 1.5,
-        "anchor_x": 0.5, "anchor_y": 0.3,
-        "variables": {"src": logo, "width": 200},
-    }]
-    project = _generate(transcription_result, tmp_path, effects=effects)
-    html = (project / "index.html").read_text()
-    assert 'class="fx"' in html and 'id="fx-0"' in html
-    assert "var EFFECTS" in html
-    assert "width: 200px" in html
-    assert (project / "assets" / "logo.png").exists()  # asset copied in
-
-
-def test_logo_with_missing_image_is_skipped(transcription_result, tmp_path):
-    effects = [{
-        "id": "e1", "type": "logo", "start": 0.0, "duration": 1.0,
-        "variables": {"src": str(tmp_path / "does-not-exist.png")},
-    }]
-    project = _generate(transcription_result, tmp_path, effects=effects)
-    html = (project / "index.html").read_text()
-    assert 'class="fx"' not in html
-
-
-def test_no_effects_emits_empty_effects_array(transcription_result, tmp_path):
-    html = (_generate(transcription_result, tmp_path) / "index.html").read_text()
-    assert 'class="fx"' not in html
-    assert "var EFFECTS = []" in html
-
-
-# --- Phase D: text effect types ---
-
-
-def test_lower_third_effect_renders_title_and_subtitle(transcription_result, tmp_path):
-    effects = [{
-        "id": "e1", "type": "lower_third", "start": 0.5, "duration": 2.0,
-        "variables": {"title": "Jane Doe", "subtitle": "CEO, Acme"},
-    }]
-    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
-    assert 'class="fx"' in html and 'class="fx-inner fx-lower"' in html
-    assert "Jane Doe" in html and "CEO, Acme" in html
-
-
-def test_kinetic_stat_effect_renders_value_and_label(transcription_result, tmp_path):
-    effects = [{
-        "id": "e1", "type": "kinetic_stat", "start": 1.0, "duration": 1.5,
-        "variables": {"value": "2.4M", "label": "downloads"},
-    }]
-    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
-    assert 'class="fx-inner fx-stat"' in html
-    assert "2.4M" in html and "downloads" in html
-
-
-def test_lower_third_without_title_is_skipped(transcription_result, tmp_path):
-    effects = [{"id": "e1", "type": "lower_third", "start": 0.0, "variables": {"subtitle": "x"}}]
-    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
-    assert 'class="fx"' not in html
-
-
-def test_unknown_effect_type_is_skipped(transcription_result, tmp_path):
-    effects = [{"id": "e1", "type": "explosion", "start": 0.0, "variables": {}}]
-    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
-    assert 'class="fx"' not in html
-
-
-def test_text_effect_escapes_html(transcription_result, tmp_path):
-    effects = [{
-        "id": "e1", "type": "lower_third", "start": 0.0,
-        "variables": {"title": "<script>x</script>"},
-    }]
-    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
-    assert "<script>x</script>" not in html
-    assert "&lt;script&gt;" in html
-
-
-# --- Phase D slice 2: highlight + b_roll ---
-
-
-def test_highlight_renders_marker_bar(transcription_result, tmp_path):
-    effects = [{
-        "id": "e1", "type": "highlight", "start": 0.5, "duration": 1.0,
-        "anchor_x": 0.4, "anchor_y": 0.5, "variables": {"width": 240, "height": 40},
-    }]
-    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
-    assert 'class="fx-inner fx-highlight"' in html
-    assert "fx-hl-bar" in html and "width: 240px" in html
-    assert '"transformOrigin": "left center"' in html  # GSAP sweep origin
-
-
-def test_b_roll_image_composited_and_copied(transcription_result, tmp_path):
-    img = _make_logo(tmp_path)  # any image file works
-    effects = [{
-        "id": "e1", "type": "b_roll", "start": 1.0, "duration": 2.0,
-        "variables": {"src": img, "width": 600},
-    }]
-    project = _generate(transcription_result, tmp_path, effects=effects)
-    html = (project / "index.html").read_text()
-    assert 'class="fx-inner fx-broll"' in html and "width: 600px" in html
-    assert (project / "assets" / "logo.png").exists()
-
-
-def test_b_roll_fullscreen_covers_frame(transcription_result, tmp_path):
-    img = _make_logo(tmp_path)
-    effects = [{
-        "id": "e1", "type": "b_roll", "start": 0.0, "duration": 1.0,
-        "variables": {"src": img, "fullscreen": True},
-    }]
-    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
-    assert "object-fit: cover" in html and "width: 100%; height: 100%" in html
-
-
-def test_b_roll_with_missing_image_is_skipped(transcription_result, tmp_path):
-    effects = [{"id": "e1", "type": "b_roll", "start": 0.0, "variables": {"src": str(tmp_path / "nope.png")}}]
-    html = (_generate(transcription_result, tmp_path, effects=effects) / "index.html").read_text()
-    assert 'class="fx"' not in html
 
 
 # --- Phase 3: native HyperFrames caption styles ---
@@ -408,7 +280,7 @@ def test_native_caption_style_references_subcomposition(transcription_result, tm
     # Native path: captions are a sub-composition; the hand-rolled track is gone.
     assert 'data-composition-src="compositions/components/caption-pill-karaoke.html"' in html
     assert 'class="cgroup"' not in html and 'class="cw"' not in html
-    # Root timeline (effects) still registered.
+    # Root timeline still registered.
     assert 'window.__timelines["root"]' in html
     # Our transcript + duration were injected into the component.
     injected = comp.read_text()

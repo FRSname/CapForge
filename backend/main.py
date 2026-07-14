@@ -73,7 +73,6 @@ from backend.exporters.srt_word import export_srt_word
 from backend.exporters.vtt_export import export_vtt
 from backend.exporters.video_render import RenderCancelled, cancel_render, render_subtitle_video
 from backend.models.schemas import (
-    EffectClip,
     ExportFormat,
     ExportRequest,
     HyperframesRenderRequest,
@@ -111,7 +110,7 @@ app.add_middleware(
 
 # --- Shared state ---
 #
-# Concurrency note: current_result, current_effects, current_coauthor, and
+# Concurrency note: current_result, current_coauthor, and
 # ws_clients below are plain module globals mutated directly by request/WS
 # handlers, with no asyncio.Lock guarding them. This is an accepted invariant,
 # not an oversight: CapForge is a single-user, loopback-only app, uvicorn runs
@@ -126,9 +125,6 @@ app.add_middleware(
 transcriber = Transcriber()
 current_result: Optional[TranscriptionResult] = None
 current_status = ProgressUpdate(status=JobStatus.IDLE, progress=0, message="Ready")
-# Agent/user effects timeline (logos, etc.). The HyperFrames render uses this
-# when the request doesn't supply its own effects (the agent's placement path).
-current_effects: list[EffectClip] = []
 
 # Agent-authored caption component (HTML). Used when caption_style == "custom".
 current_custom_caption_html: Optional[str] = None
@@ -949,11 +945,6 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             message=message,
         ))
 
-    # Prefer effects supplied in the request (frontend panel); otherwise fall
-    # back to the server-side timeline the agent populates via /api/agent/effects.
-    effects_source = request.effects if request.effects is not None else current_effects
-    effects_dicts = [e.model_dump() for e in effects_source] if effects_source else None
-
     # Resolve where the user actually wants the output: an absolute dir they
     # chose, or — for an empty/relative value like the schema default "output" —
     # the folder next to the source file. Never the opaque backend CWD.
@@ -968,7 +959,6 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             into,
             source_video_path=current_result.audio_path,
             custom_groups=custom_groups_dicts,
-            effects=effects_dicts,
             caption_html=current_custom_caption_html,
         )
 
@@ -1088,51 +1078,9 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             current_hf_cancel = None
 
 
-# --- Agent effects endpoints ---
-
-@app.get("/api/effects")
-async def get_effects_public():
-    """Read the current effects timeline (open endpoint for the renderer's live mirror)."""
-    return {"effects": [e.model_dump() for e in current_effects]}
-
-
-@app.get("/api/agent/effects", dependencies=[Depends(require_agent_token)])
-async def get_effects():
-    """Return the current effects timeline."""
-    return {"effects": [e.model_dump() for e in current_effects]}
-
-
-@app.post("/api/agent/effects", dependencies=[Depends(require_agent_token)])
-async def add_effect(effect: EffectClip):
-    """Append an effect clip (id auto-generated if absent). Returns the stored effect."""
-    global current_effects
-    current_effects = [*current_effects, effect]
-    await broadcast_event({"type": "effects_updated"})
-    return {"status": "ok", "effect": effect.model_dump(), "count": len(current_effects)}
-
-
-@app.put("/api/agent/effects", dependencies=[Depends(require_agent_token)])
-async def replace_effects(effects: list[EffectClip]):
-    """Replace the entire effects timeline."""
-    global current_effects
-    current_effects = list(effects)
-    await broadcast_event({"type": "effects_updated"})
-    return {"status": "ok", "count": len(current_effects)}
-
-
-@app.delete("/api/agent/effects/{effect_id}", dependencies=[Depends(require_agent_token)])
-async def remove_effect(effect_id: str):
-    """Remove an effect clip by id."""
-    global current_effects
-    before = len(current_effects)
-    current_effects = [e for e in current_effects if e.id != effect_id]
-    await broadcast_event({"type": "effects_updated"})
-    return {"status": "ok", "removed": before - len(current_effects), "count": len(current_effects)}
-
-
 @app.get("/api/agent/find-moments", dependencies=[Depends(require_agent_token)])
 async def find_moments_endpoint(query: str):
-    """Find transcript moments matching `query` — used to place effects at spoken words."""
+    """Find transcript moments matching `query` — used to time authored content to spoken words."""
     if current_result is None:
         raise HTTPException(status_code=404, detail="No transcription result available")
     return {"matches": find_transcript_moments(current_result, query)}
@@ -1140,8 +1088,8 @@ async def find_moments_endpoint(query: str):
 
 @app.get("/api/agent/find-semantic-moments", dependencies=[Depends(require_agent_token)])
 async def find_semantic_moments_endpoint(kind: str):
-    """Detect moments by category (numbers | cta | speaker_change) for placing
-    kinetic-stat / lower-third effects without a literal phrase."""
+    """Detect moments by category (numbers | cta | speaker_change) for timing
+    authored content without a literal phrase."""
     if current_result is None:
         raise HTTPException(status_code=404, detail="No transcription result available")
     try:
@@ -1197,18 +1145,17 @@ async def get_custom_caption():
 
 @app.post("/api/agent/preview-hyperframes-frame", dependencies=[Depends(require_agent_token)])
 async def preview_hyperframes_frame(req: dict):
-    """Render ONE frame of the HyperFrames composition (current caption style +
-    placed effects, over the video) at time `t` and return it as PNG.
+    """Render ONE frame of the HyperFrames composition (current caption style,
+    over the video) at time `t` and return it as PNG.
 
     A fast single-frame preview (`hyperframes snapshot`, seconds not minutes) so
-    the agent can SEE a custom/native caption style or an effect placement without
-    a full render. Uses the live mirrored config (same as the agent render path).
+    the agent can SEE a custom/native caption style without a full render. Uses
+    the live mirrored config (same as the agent render path).
     """
     if current_result is None:
         raise HTTPException(status_code=404, detail="No transcription result available")
     t = float(req.get("t", 0.0))
     config, ui_groups = _agent_frame_inputs()
-    effects_dicts = [e.model_dump() for e in current_effects] if current_effects else None
     loop = asyncio.get_running_loop()
 
     def heartbeat(message: str) -> None:
@@ -1234,16 +1181,15 @@ async def preview_hyperframes_frame(req: dict):
             return snapshot_hyperframes_project(str(project_dir), t, on_progress=heartbeat)
         # Default: scaffold into the SAME canonical workspace the Studio serves, so
         # a preview re-generates the open Studio's project (not a separate copy).
-        # ``ensure_`` skips the full scaffold when config+groups+transcript+source+
-        # effects are unchanged (the preview→tweak→preview fast path), and always
-        # falls back to a full scaffold on any change.
+        # ``ensure_`` skips the full scaffold when config+groups+transcript+source
+        # are unchanged (the preview→tweak→preview fast path), and always falls
+        # back to a full scaffold on any change.
         scaffolded = ensure_hyperframes_project(
             current_result,
             config,
             workspace,
             source_video_path=current_result.audio_path,
             custom_groups=ui_groups,
-            effects=effects_dicts,
             caption_html=current_custom_caption_html,
         )
         return snapshot_hyperframes_project(scaffolded, t, on_progress=heartbeat)
@@ -1353,7 +1299,6 @@ async def _coauthor_enter() -> dict:
     if current_result is None:
         raise HTTPException(status_code=404, detail="No transcription result available")
     config, ui_groups = _agent_frame_inputs()
-    effects_dicts = [e.model_dump() for e in current_effects] if current_effects else None
     workspace = hyperframes_workspace(current_result.audio_path)
     project_dir = coauthor_project_dir(current_result, workspace)
     # Write the durable marker BEFORE the resource it protects. If we crash after
@@ -1368,7 +1313,7 @@ async def _coauthor_enter() -> dict:
         await loop.run_in_executor(None, lambda: seed_coauthor_project(
             current_result, config, workspace,
             source_video_path=current_result.audio_path,
-            custom_groups=ui_groups, effects=effects_dicts,
+            custom_groups=ui_groups,
             caption_html=current_custom_caption_html,
             force_scaffold=True,
         ))

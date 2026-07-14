@@ -3,28 +3,22 @@
  * HyperFrames engine in one place, separate from the classic Pillow render:
  *   - Open in HyperFrames Studio  (scaffold the project + open the local
  *     preview webapp to inspect/refine it — the primary action)
- *   - Render with HyperFrames     (GSAP render of captions + effects)
+ *   - Render with HyperFrames     (GSAP render of the captions)
  *   - Caption style               (classic, or a native registry caption style)
- *   - Effects                     (logo / lower-third / stat / highlight / b-roll)
  *
- * All of this needs Node.js 22+. Effects state lives in App so agent-placed
- * effects mirror in live (see EffectsControls).
+ * All of this needs Node.js 22+.
  */
 
 import { useEffect, useState } from 'react'
 import { StudioCard } from './StudioCard'
 import { Button } from '../ui/Button'
 import { Select } from '../ui/Select'
-import { EffectsControls } from './EffectsPanel'
 import { dirname } from '../../lib/render'
 import { api } from '../../lib/api'
 import { useToast } from '../../hooks/useToast'
-import type { EffectClip } from '../../types/app'
 import type { RenderController } from '../../hooks/useRender'
 
 interface HyperFramesPanelProps {
-  effects: EffectClip[]
-  onEffectsChange: (effects: EffectClip[]) => void
   captionStyle: string
   onCaptionStyleChange: (style: string) => void
   audioPath: string
@@ -34,8 +28,6 @@ interface HyperFramesPanelProps {
 }
 
 export function HyperFramesPanel({
-  effects,
-  onEffectsChange,
   captionStyle,
   onCaptionStyleChange,
   audioPath,
@@ -272,7 +264,7 @@ export function HyperFramesPanel({
         className="w-full justify-center mt-1.5"
         disabled={busy || installing}
         onClick={renderWithHyperframes}
-        title="Render captions + effects with the HyperFrames engine (GSAP animation). First use downloads the bundled engine (~150 MB)."
+        title="Render captions with the HyperFrames engine (GSAP animation). First use downloads the bundled engine (~150 MB)."
       >
         {installing ? 'Setting up…' : 'Render with HyperFrames ✦'}
       </Button>
@@ -375,12 +367,6 @@ export function HyperFramesPanel({
           ))}
         </Select>
       </div>
-
-      <div className="divider" />
-      <span className="text-2xs uppercase tracking-wider" style={{ color: 'var(--color-text-3)' }}>
-        Effects
-      </span>
-      <EffectsControls effects={effects} onChange={onEffectsChange} />
     </StudioCard>
   )
 }
