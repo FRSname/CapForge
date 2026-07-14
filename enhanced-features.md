@@ -18,15 +18,15 @@ unchanged underneath; everything here is additive.
 
 | Area | What it adds |
 |---|---|
-| **HyperFrames render engine** | A second render path (alongside classic Pillow) that renders captions + effects through the real `npx hyperframes` engine — GSAP animation, HTML/CSS looks. |
-| **Effects / AI video director** | A 5-type effects timeline (logo, lower-third, kinetic-stat, highlight, b-roll) placed manually in the UI or by an agent at spoken moments. |
+| **HyperFrames render engine** | A second render path (alongside classic Pillow) that renders the captions through the real `npx hyperframes` engine — GSAP animation, HTML/CSS looks. |
+| **Effects (co-author)** | The connected agent authors effects as real HyperFrames compositions in co-author mode, timed to spoken moments — reusing effect packs where one exists. |
 | **Native caption styles** | Opt-in registry caption components (`caption-pill-karaoke`, …) pulled live from the HyperFrames catalog. `classic` stays the default. |
 | **Custom (agent-authored) captions** | An agent can write a brand-new caption look in HTML/CSS/GSAP, validated against a contract, rendered by the real engine. |
 | **HyperFrames creative library** | The MCP server serves the genuine HyperFrames creative references (caption craft, motion, type, transitions, palettes) to the connected agent, pull-on-demand. *(newest addition)* |
 | **Effect packs** | Reusable effects are plain folders (HTML + usage rules + assets) imported into the co-author workspace and wired by the agent — no CapForge-managed template store. |
 | **HyperFrames Studio** | "Open in HyperFrames Studio" launches `npx hyperframes preview` in the browser for live inspection/refinement. |
 | **Portrait / 4K fit** | Native caption components are fitted to portrait (9:16), 4K, and square canvases. |
-| **AI control layer (MCP)** | A local Claude agent operates the *running* app — transcript cleanup, live style/emphasis, effect placement, vision QA — via token-guarded endpoints. One-click "Connect to Claude". |
+| **AI control layer (MCP)** | A local Claude agent operates the *running* app — transcript cleanup, live style/emphasis, co-author authoring, vision QA — via token-guarded endpoints. One-click "Connect to Claude". |
 
 ---
 
@@ -48,7 +48,7 @@ Three cooperating layers. The base app is unchanged; the two new layers attach t
                                           │ + reads ~/.capforge/backend.json
 ┌───────────────┐  spawns   ┌────────────▼──────────────────────────┐
 │ Electron main │──────────▶│   Python FastAPI backend (127.0.0.1)   │
-│ (electron/)   │           │   transcribe · render · effects        │
+│ (electron/)   │           │   transcribe · render · co-author      │
 └───────┬───────┘           │   ┌──────────────────────────────────┐ │
         │ IPC               │   │ classic Pillow renderer          │ │
 ┌───────▼───────┐  WS       │   │ HyperFrames pipeline ── npx ─────┼─┼──▶  hyperframes
@@ -58,7 +58,7 @@ Three cooperating layers. The base app is unchanged; the two new layers attach t
 ```
 
 **Key idea:** the agent and the UI operate the **same running backend**. When the agent
-changes a word, a style, or an effect via `/api/agent/*`, the backend broadcasts over
+changes a word or a style via `/api/agent/*`, the backend broadcasts over
 `/ws/progress` and the open UI updates live. The agent is not a separate renderer — it
 drives the app the user already has open.
 
@@ -71,8 +71,8 @@ drives the app the user already has open.
   token is resolved from env → persisted file → freshly generated (stable across
   restarts).
 - **Live broadcast** — `/ws/progress` carries both render progress and control events
-  (`result_updated`, `effects_updated`, `agent_command`). The renderer's
-  `AgentLiveSync` mirrors agent changes back into the UI.
+  (`result_updated`, `agent_command`). The renderer's `AgentLiveSync` mirrors agent
+  changes back into the UI.
 - **HyperFrames is the real engine** — the backend never reimplements HyperFrames; it
   generates a project folder and shells out to `npx -y hyperframes render | snapshot |
   catalog | add | preview`.
@@ -170,64 +170,38 @@ by default):
 - **Open in HyperFrames Studio ⧉** — generates the project (no render) and launches
   `npx hyperframes preview` on a free port; Electron (`hyperframes-studio.js`) polls for
   readiness and opens the browser. Inspect/refine the live composition, then render.
-- **Render with HyperFrames ✦** — renders captions + effects through the engine.
+- **Render with HyperFrames ✦** — renders the captions through the engine.
 - **Captions** dropdown — `classic` or any native registry style (from
   `/api/caption-styles`).
-- Nested **effects timeline** (see §4).
+- **Co-author** section — hand the project to the connected agent to author custom
+  effects and animations directly (see §4).
 
 ---
 
-## 4. Effects / AI video director
+## 4. Effects: co-author effect packs
 
-### 4.1 Effect data model
+Effects are **authored, not configured**. An earlier iteration shipped a structured
+effects timeline here (a 5-type `EffectClip` model with its own panel, REST endpoints,
+and MCP placement tools); it was removed in July 2026 because parametric clip types
+could never keep up with what the agent can simply write. Today the one effects path
+is **co-author mode**: the connected agent takes ownership of the HyperFrames project
+and authors real HTML/CSS/GSAP compositions, reusing **effect packs** where one exists.
 
-Frontend `EffectClip` (`src/renderer/src/types/app.ts`) ↔ backend `EffectClip`
-(`backend/models/schemas.py`), bridged in `lib/render.ts` (camelCase ↔ snake_case):
+### 4.1 The model
 
-| Field | Meaning |
-|---|---|
-| `id` | clip id |
-| `type` | `logo \| lower_third \| kinetic_stat \| highlight \| b_roll` |
-| `start`, `duration` | seconds |
-| `trackIndex` / `track_index` | timeline track (1 = primary) |
-| `anchorX/Y` / `anchor_x/y` | normalized position, 0–1, (0,0) = top-left |
-| `sourceWordId` / `source_word_id` | optional link to the spoken word it was placed at |
-| `variables` | type-specific config |
-| `createdBy` / `created_by` | `user` or `agent` |
+- `enter_coauthor_mode` seeds a complete, working starter project (captions + video)
+  in the per-source workspace, then CapForge **stops regenerating `index.html`** — the
+  agent owns the composition and its edits survive (durable marker, clobber guard).
+- The agent authors under `compositions/` and wires work into `index.html` via
+  `data-composition-src`, iterating with `preview_hyperframes_frame` (fast single-frame
+  snapshots) and the read-only CLI dev loop (`run_hyperframes_cli`: lint / inspect /
+  compositions / info / docs).
+- CapForge keeps the transcript and caption companions in sync (`sync_captions`);
+  the final video still goes through the approval-gated `render_hyperframes`.
+- The creative vocabulary (motion, type, transitions, palettes) comes from the
+  HyperFrames creative library (§5.3).
 
-### 4.2 The five effect types
-
-| Type | Description | Variables |
-|---|---|---|
-| `logo` | Animated image overlay (pop in / hold / pop out) | `src` (image path), `width` px |
-| `lower_third` | Name/title bar sliding in from the left | `title` (req), `subtitle`, `accent` |
-| `kinetic_stat` | Big animated number + label | `value` (req, e.g. "2.4M"), `label`, `accent` |
-| `highlight` | Translucent marker swept across a word | `color`, `width`, `height` px |
-| `b_roll` | Timed image insert behind the captions | `src` (req), `width`, `fullscreen` |
-
-Effects are honored only on the HyperFrames render path (the Pillow renderer ignores them).
-
-### 4.3 Effects timeline UI
-
-`EffectsPanel.tsx` (`EffectsControls`), nested in the HyperFrames card and lifted to
-`App.tsx` so the agent can mirror live-placed effects:
-
-- Quick-add buttons for all 5 types (logo/b-roll open an image picker).
-- Per-effect rows with editable start, duration, anchor X/Y, and type-specific fields.
-- A "Saved" template picker, and a "★ Save as template" action per effect.
-- Type-appropriate default anchors (logo → top-right, lower-third → bottom-left, etc.).
-
-### 4.4 Finding moments (where to place effects)
-
-`backend/engine/moments.py`:
-
-- **`find_moments(query)`** — locate a literal phrase in the transcript (single- or
-  multi-token, normalized). Returns `[{text, start, end, word_id}]`.
-- **`find_semantic_moments(kind)`** — `numbers` (digits + spelled-out, for a
-  kinetic_stat), `cta` (calls to action, e.g. "subscribe"/"link in bio"), or
-  `speaker_change` (per diarized speaker, for a lower_third).
-
-### 4.5 Effect packs (reusable effect folders, co-author mode)
+### 4.2 Effect packs (reusable effect folders)
 
 There is no CapForge-managed template store. A reusable effect is a plain **effect
 pack**: a folder with a top-level `<name>.html` file plus optional `README.md` /
@@ -237,12 +211,23 @@ under `compositions/<name>/` (or `compositions/components/<name>/`); the agent
 then reads its usage rules and hand-wires it via `data-composition-src` (blocks)
 or snippet paste (components). See `mcp_server/README.md` § Effect packs.
 
+### 4.3 Finding moments (when to show something)
+
+`backend/engine/moments.py` gives the agent word-level timings to place authored
+work against:
+
+- **`find_moments(query)`** — locate a literal phrase in the transcript (single- or
+  multi-token, normalized). Returns `[{text, start, end, word_id}]`.
+- **`find_semantic_moments(kind)`** — `numbers` (digits + spelled-out, e.g. for a
+  stat callout), `cta` (calls to action, e.g. "subscribe"/"link in bio"), or
+  `speaker_change` (per diarized speaker, e.g. for a name/title card).
+
 ---
 
 ## 5. The AI control layer (MCP)
 
 The base MCP control layer ships on `main`; Enhanced extends it heavily with the
-effects, caption-style, custom-caption, HyperFrames, and creative-library tools.
+caption-style, custom-caption, co-author, HyperFrames, and creative-library tools.
 
 ### 5.1 How it connects
 
@@ -298,24 +283,24 @@ Defined in `mcp_server/server.py` (FastMCP). Grouped:
 | Tool | Description |
 |---|---|
 | `render_frame` | Classic (Pillow) subtitle frame at time `t` as an image. |
-| `preview_hyperframes_frame` | Fast single HyperFrames frame at `t` (native/custom caption + effects). |
+| `preview_hyperframes_frame` | Fast single HyperFrames frame at `t` (native/custom caption, or the co-authored composition). |
 | `check_layout` | Mechanical layout read: caption bbox, edge touch, platform safe-zone advisories. |
 
-**Effects / AI video director**
+**Transcript moments & render**
 | Tool | Description |
 |---|---|
-| `find_moments` | Find spoken moments matching a phrase (where to place effects). |
+| `find_moments` | Find spoken moments matching a phrase (when to show authored work). |
 | `find_semantic_moments` | Find moments by kind: `numbers` / `cta` / `speaker_change`. |
-| `list_effect_types` | The 5 effect types and the variables each accepts. |
-| `list_effects` | Effect clips currently on the timeline. |
-| `add_effect` | Place an effect at `start` for `duration` (with per-type content + anchor). |
-| `remove_effect` | Remove an effect by id. |
-| `render_hyperframes` | Render captions + placed effects via HyperFrames → output path. |
+| `render_hyperframes` | Render the final video via HyperFrames (approval-gated) → output path. |
 
-**Effect packs (co-author workspace import)**
+**Co-author workspace (see §4)**
 | Tool | Description |
 |---|---|
+| `enter_coauthor_mode` / `exit_coauthor_mode` | Take/return ownership of the HyperFrames project (durable across backend restarts). |
+| `get_workspace` / `read_workspace_file` / `write_workspace_file` | Inspect and author files in the sandboxed per-source workspace. |
 | `import_into_workspace` | Import an effect pack (folder: top-level `<name>.html` + optional README/registry-item.json + assets) into the co-author workspace, layout preserved. |
+| `run_hyperframes_cli` | Read-only CLI dev loop: lint / inspect / compositions / info / docs. |
+| `sync_captions` | Refresh CapForge-owned caption/transcript companions in the co-author project. |
 
 **Caption style**
 | Tool | Description |
@@ -370,14 +355,15 @@ MCP it would otherwise only see tool docstrings. This library closes that gap.
 `apply_preset` or `set_style` → `emphasize` keywords → `render_frame` to verify. The
 open UI updates live throughout.
 
-**Agent directs a video (effects + custom caption):**
-`hyperframes_guide()` → pull `captions` + a motion topic → `set_custom_caption_style`
-(or `set_caption_style`) → `find_semantic_moments("numbers")` → `add_effect(kinetic_stat,…)`
-→ `preview_hyperframes_frame(t)` to judge → `render_hyperframes("standard")`.
+**Agent directs a video (co-author effects + custom caption):**
+`hyperframes_guide()` → pull `captions` + a motion topic → `enter_coauthor_mode` →
+`find_semantic_moments("numbers")` to pick timings → author (or `import_into_workspace`
+an effect pack and wire it) → `preview_hyperframes_frame(t)` to judge →
+`render_hyperframes("standard")` after the user approves.
 
 **User in the UI:**
-Build effects in the EffectsControls timeline → pick a caption style → *Open in
-HyperFrames Studio* to inspect → *Render with HyperFrames ✦*.
+Pick a caption style → *Open in HyperFrames Studio* to inspect → *Co-author with
+agent ✦* for custom effects → *Render with HyperFrames ✦*.
 
 ---
 
@@ -396,8 +382,7 @@ HyperFrames Studio* to inspect → *Render with HyperFrames ✦*.
 | `backend/engine/moments.py` | Literal + semantic moment finding. |
 | `electron/claude-connect.js` | One-click Connect to Claude (config writers). |
 | `electron/hyperframes-studio.js` | Launches/stops the `npx hyperframes preview` server. |
-| `src/renderer/src/components/studio/HyperFramesPanel.tsx` | "HyperFrames ✦" card. |
-| `src/renderer/src/components/studio/EffectsPanel.tsx` | Effects timeline UI. |
+| `src/renderer/src/components/studio/HyperFramesPanel.tsx` | "HyperFrames ✦" card (Studio, render, co-author, caption style). |
 | `src/renderer/src/components/player/SafeZoneOverlay.tsx` | TikTok/Reels/Shorts preview guides. |
 | `docs/plans/hyperframes-integration.md` | The integration plan (phases 0–D). |
 | `docs/plans/hyperframes-studio-and-templates.md` | Studio/templates/captions plan (phases 1–3). |
@@ -412,8 +397,8 @@ HyperFrames Studio* to inspect → *Render with HyperFrames ✦*.
 - **Backend:** `backend/tests/` — `test_hyperframes_{project,render,export,captions}.py`,
   `test_workspace_fs.py` (co-author workspace + effect-pack import), `test_moments.py`,
   plus the base golden-frame tests.
-- **Frontend:** `src/renderer/src/lib/project.test.ts` (effects persistence) and the
-  connect helpers in `electron/claude-connect.test.js`.
+- **Frontend/Electron:** vitest suites under `src/renderer/src/` and the node:test
+  suites in `electron/` (connect helpers, preset IO, path validation, …).
 
 Run the MCP + backend Python tests with the dev venv, e.g.
 `PYTHONPATH=. <venv>/bin/python -m pytest mcp_server backend -q`.
