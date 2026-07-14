@@ -19,12 +19,12 @@
  * single source of truth.
  */
 
-const { app, dialog, shell } = require("electron");
-const https = require("https");
+const { app, dialog, shell } = require('electron')
+const https = require('https')
 
-const GITHUB_REPO = "FRSname/CapForge";
-const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`;
-const FETCH_TIMEOUT_MS = 5000;
+const GITHUB_REPO = 'FRSname/CapForge'
+const RELEASES_API = `https://api.github.com/repos/${GITHUB_REPO}/releases/latest`
+const FETCH_TIMEOUT_MS = 5000
 
 /**
  * Fetch latest release metadata from GitHub. Resolves to `{ version, url, notes }`
@@ -39,45 +39,50 @@ function fetchLatestRelease() {
       {
         headers: {
           // GitHub requires a User-Agent for anonymous API calls.
-          "User-Agent": `CapForge/${app.getVersion()}`,
-          "Accept": "application/vnd.github+json",
+          'User-Agent': `CapForge/${app.getVersion()}`,
+          Accept: 'application/vnd.github+json',
         },
         timeout: FETCH_TIMEOUT_MS,
       },
       (res) => {
         if (res.statusCode !== 200) {
-          res.resume();
-          resolve(null);
-          return;
+          res.resume()
+          resolve(null)
+          return
         }
-        let body = "";
-        res.on("data", (chunk) => { body += chunk; });
-        res.on("end", () => {
+        let body = ''
+        res.on('data', (chunk) => {
+          body += chunk
+        })
+        res.on('end', () => {
           try {
-            const data = JSON.parse(body);
+            const data = JSON.parse(body)
             // Strip leading "v" — GitHub tag convention is "v1.2.0",
             // our package.json version is "1.2.0".
-            const version = String(data.tag_name || "").replace(/^v/i, "");
-            const isMac = process.platform === "darwin";
-            const ext = isMac ? ".dmg" : ".exe";
-            const asset = (data.assets || []).find((a) =>
-              typeof a.name === "string" && a.name.toLowerCase().endsWith(ext)
-            );
+            const version = String(data.tag_name || '').replace(/^v/i, '')
+            const isMac = process.platform === 'darwin'
+            const ext = isMac ? '.dmg' : '.exe'
+            const asset = (data.assets || []).find(
+              (a) => typeof a.name === 'string' && a.name.toLowerCase().endsWith(ext)
+            )
             resolve({
               version,
               url: asset ? asset.browser_download_url : data.html_url,
-              notes: String(data.body || "").trim(),
+              notes: String(data.body || '').trim(),
               htmlUrl: data.html_url,
-            });
+            })
           } catch {
-            resolve(null);
+            resolve(null)
           }
-        });
+        })
       }
-    );
-    req.on("error", () => resolve(null));
-    req.on("timeout", () => { req.destroy(); resolve(null); });
-  });
+    )
+    req.on('error', () => resolve(null))
+    req.on('timeout', () => {
+      req.destroy()
+      resolve(null)
+    })
+  })
 }
 
 /**
@@ -86,16 +91,20 @@ function fetchLatestRelease() {
  * pre-release suffix after a dash.
  */
 function compareVersions(a, b) {
-  const norm = (v) => String(v).split("-")[0].split(".").map((x) => parseInt(x, 10) || 0);
-  const pa = norm(a);
-  const pb = norm(b);
-  const len = Math.max(pa.length, pb.length);
+  const norm = (v) =>
+    String(v)
+      .split('-')[0]
+      .split('.')
+      .map((x) => parseInt(x, 10) || 0)
+  const pa = norm(a)
+  const pb = norm(b)
+  const len = Math.max(pa.length, pb.length)
   for (let i = 0; i < len; i++) {
-    const da = pa[i] || 0;
-    const db = pb[i] || 0;
-    if (da !== db) return da - db;
+    const da = pa[i] || 0
+    const db = pb[i] || 0
+    if (da !== db) return da - db
   }
-  return 0;
+  return 0
 }
 
 /**
@@ -104,52 +113,52 @@ function compareVersions(a, b) {
  * click), both "up to date" and failure states show an informational dialog.
  */
 async function checkForUpdates({ parentWindow, silent = false } = {}) {
-  const latest = await fetchLatestRelease();
-  const current = app.getVersion();
+  const latest = await fetchLatestRelease()
+  const current = app.getVersion()
 
   if (!latest || !latest.version) {
     if (!silent) {
       dialog.showMessageBox(parentWindow, {
-        type: "info",
-        title: "CapForge — Update Check",
+        type: 'info',
+        title: 'CapForge — Update Check',
         message: "Couldn't reach the update server.",
-        detail: "Check your internet connection and try again.",
-        buttons: ["OK"],
-      });
+        detail: 'Check your internet connection and try again.',
+        buttons: ['OK'],
+      })
     }
-    return;
+    return
   }
 
   if (compareVersions(latest.version, current) <= 0) {
     if (!silent) {
       dialog.showMessageBox(parentWindow, {
-        type: "info",
-        title: "CapForge — Up to Date",
+        type: 'info',
+        title: 'CapForge — Up to Date',
         message: `You're running the latest version (${current}).`,
-        buttons: ["OK"],
-      });
+        buttons: ['OK'],
+      })
     }
-    return;
+    return
   }
 
   // New version available — always shown (startup or manual).
   const result = await dialog.showMessageBox(parentWindow, {
-    type: "info",
-    title: "CapForge — Update Available",
+    type: 'info',
+    title: 'CapForge — Update Available',
     message: `CapForge ${latest.version} is available.`,
     detail:
       `You're currently running ${current}.\n\n` +
-      (latest.notes ? `Release notes:\n${latest.notes.slice(0, 500)}` : "") +
-      (process.platform === "darwin"
-        ? "\n\nDownloading will open your browser — open the DMG and drag CapForge to Applications."
-        : "\n\nDownloading will open your browser — run the new installer to update."),
-    buttons: ["Download", "Later"],
+      (latest.notes ? `Release notes:\n${latest.notes.slice(0, 500)}` : '') +
+      (process.platform === 'darwin'
+        ? '\n\nDownloading will open your browser — open the DMG and drag CapForge to Applications.'
+        : '\n\nDownloading will open your browser — run the new installer to update.'),
+    buttons: ['Download', 'Later'],
     defaultId: 0,
     cancelId: 1,
-  });
+  })
   if (result.response === 0) {
-    shell.openExternal(latest.url || latest.htmlUrl);
+    shell.openExternal(latest.url || latest.htmlUrl)
   }
 }
 
-module.exports = { checkForUpdates, compareVersions, GITHUB_REPO };
+module.exports = { checkForUpdates, compareVersions, GITHUB_REPO }

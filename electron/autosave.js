@@ -11,65 +11,65 @@
  * app-state.js so a kill mid-write can't truncate the file.
  */
 
-const { app } = require("electron");
-const path = require("path");
-const fs = require("fs");
+const { app } = require('electron')
+const path = require('path')
+const fs = require('fs')
 
-const MAX_HISTORY = 3;
+const MAX_HISTORY = 3
 
-let file = null;
+let file = null
 
 function ensureFile() {
   // Lazy — app.getPath is only valid after the app is ready.
-  if (file === null) file = path.join(app.getPath("userData"), "autosave.json");
-  return file;
+  if (file === null) file = path.join(app.getPath('userData'), 'autosave.json')
+  return file
 }
 
 function readAll() {
-  ensureFile();
-  if (!fs.existsSync(file)) return { current: null, history: [] };
+  ensureFile()
+  if (!fs.existsSync(file)) return { current: null, history: [] }
   try {
-    return JSON.parse(fs.readFileSync(file, "utf-8"));
+    return JSON.parse(fs.readFileSync(file, 'utf-8'))
   } catch (err) {
-    console.warn("[CapForge] Failed to parse autosave.json:", err.message);
-    return { current: null, history: [] };
+    console.warn('[CapForge] Failed to parse autosave.json:', err.message)
+    return { current: null, history: [] }
   }
 }
 
 function writeAtomic(data) {
-  ensureFile();
+  ensureFile()
   try {
-    const tmp = file + ".tmp";
-    fs.writeFileSync(tmp, JSON.stringify(data), "utf-8");
-    fs.renameSync(tmp, file);
+    const tmp = file + '.tmp'
+    fs.writeFileSync(tmp, JSON.stringify(data), 'utf-8')
+    fs.renameSync(tmp, file)
   } catch (err) {
-    console.warn("[CapForge] Failed to persist autosave:", err.message);
+    console.warn('[CapForge] Failed to persist autosave:', err.message)
   }
 }
 
 /** Store a new snapshot, stamping savedAt and rotating the previous current into history. */
 function write(snapshot) {
-  const prev = readAll();
-  const stamped = { ...snapshot, savedAt: Date.now() };
+  const prev = readAll()
+  const stamped = { ...snapshot, savedAt: Date.now() }
   const history = prev.current
     ? [prev.current, ...prev.history].slice(0, MAX_HISTORY)
-    : prev.history;
-  writeAtomic({ current: stamped, history });
+    : prev.history
+  writeAtomic({ current: stamped, history })
 }
 
 /** Return the latest snapshot (with savedAt) or null when there is none. */
 function read() {
-  return readAll().current;
+  return readAll().current
 }
 
 /** Remove all autosave data — called on explicit Save and on New. */
 function clear() {
-  ensureFile();
+  ensureFile()
   try {
-    if (fs.existsSync(file)) fs.unlinkSync(file);
+    if (fs.existsSync(file)) fs.unlinkSync(file)
   } catch (err) {
-    console.warn("[CapForge] Failed to clear autosave:", err.message);
+    console.warn('[CapForge] Failed to clear autosave:', err.message)
   }
 }
 
-module.exports = { write, read, clear };
+module.exports = { write, read, clear }
