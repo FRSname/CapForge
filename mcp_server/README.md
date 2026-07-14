@@ -72,6 +72,7 @@ actually reads.
 | Tool | What it does |
 |------|--------------|
 | `get_status` | Backend job status |
+| `get_hyperframes_status` | Preflight the HyperFrames CLI before rendering (`cli_version`, `compat_ok`, remediation reasons) |
 | `get_transcript` | Transcript with segment + word indices |
 | `update_words` | Replace tokens (spelling/homophone fixes) → live UI |
 | `remove_filler_words` | Drop um/uh/er… (timing preserved) → live UI |
@@ -91,10 +92,6 @@ actually reads.
 | `add_effect` | Place an animated effect (logo / lower_third / kinetic_stat / highlight / b_roll) at a time — the AI video director |
 | `remove_effect` | Remove an effect clip by id |
 | `render_hyperframes` | Render captions + placed effects via HyperFrames → output path |
-| `list_effect_templates` | List saved reusable effect templates (cross-project looks) |
-| `save_effect_template` | Save a timeline effect (by id) as a reusable template — "save this so we can reuse it" |
-| `apply_effect_template` | Drop a saved template onto the timeline at a time → live UI |
-| `delete_effect_template` | Delete a saved effect template by name |
 | `list_caption_styles` | List caption styles: `classic` + native HyperFrames registry styles |
 | `set_caption_style` | Set the caption look (classic / `caption-pill-karaoke` / …) → live UI |
 | `get_custom_caption_contract` | Contract + starter template for authoring your OWN caption style from scratch |
@@ -105,9 +102,37 @@ actually reads.
 | `get_workspace` | The co-author project path + file tree the agent authors in |
 | `read_workspace_file` | Read a text file from the co-author workspace (sandboxed) |
 | `write_workspace_file` | Write/overwrite a file in the co-author workspace (sandboxed: extension allowlist + size cap) |
-| `import_into_workspace` | Copy an external effect block/folder (HTML + assets + instructions) into the workspace, layout preserved |
+| `import_into_workspace` | Import an effect pack (folder: a top-level `<name>.html` + optional README/registry-item.json + assets) into the workspace, layout preserved |
 | `run_hyperframes_cli` | Run an allowlisted HyperFrames CLI check (lint/inspect/compositions/info/docs) in the workspace — the dev loop |
 | `hyperframes_guide` | The HyperFrames **creative library** — caption craft, motion, type, the text-highlight vocabulary, transitions, palettes. Call with no topic for the operating model + index, then a topic id to pull on demand |
+
+## Effect packs (co-author mode)
+
+Reusable effects are plain folders, not a CapForge-managed library — this mirrors
+how HyperFrames itself organizes reusable compositions. An **effect pack** is a
+folder containing a top-level `<name>.html` effect file, plus optional
+usage rules (`README.md` and/or `registry-item.json`) and optional assets
+(images, fonts, etc.). There is no built-in registry or `hyperframes import`
+command — a pack is placed by copying the folder in, then wired by hand:
+
+1. `import_into_workspace(src)` copies the pack folder into the co-author
+   workspace under `compositions/<name>/` (or
+   `dest_subdir="compositions/components"` for a component), preserving its
+   internal layout so relative asset paths keep resolving.
+2. `read_workspace_file` its `README.md` / `registry-item.json`, or the HTML's
+   own comment header, to learn how it expects to be wired.
+3. Wire it:
+   - **Block** (a standalone sub-composition with its own dimensions/duration):
+     reference it from `index.html` via
+     `<div data-composition-src="compositions/<name>/<name>.html"
+     data-composition-id="…" data-start data-duration data-track-index
+     data-width data-height>`.
+   - **Component** (a snippet with no own dimensions): paste its HTML into your
+     composition's markup, its CSS into `<style>`, and its JS before the
+     timeline — merging its exposed GSAP timeline calls into yours. Prefix its
+     element IDs with 2-3 letters to avoid collisions with your own.
+4. `preview_hyperframes_frame` to check it, then `render_hyperframes` once the
+   user approves.
 
 ## Creative library (`knowledge/`)
 

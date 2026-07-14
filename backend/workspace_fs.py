@@ -93,6 +93,35 @@ def _guard_source(resolved: Path) -> None:
             raise WorkspaceError("Refusing to import from a sensitive system location.")
 
 
+def _is_skippable(p: Path, source: Path) -> bool:
+    """True if ``p`` should be skipped while walking ``source`` — a symlink (can
+    point outside the source folder) or a hidden/build entry (``.git``,
+    ``node_modules``, ``.env``, …). Shared by the pack-html guard and the import
+    copy loop so both walk the tree identically."""
+    if p.is_symlink():
+        return True
+    return any(
+        part in _SKIP_DIRS or part.startswith(".") for part in p.relative_to(source).parts
+    )
+
+
+def _guard_pack_has_html(source: Path) -> None:
+    """An effect pack is a folder with a top-level ``<name>.html`` effect file —
+    directly inside the imported folder, not nested in a subfolder — plus
+    optional docs/assets. Reject a directory import that has none (no top-level
+    effect file, or html buried in e.g. ``assets/``, isn't a pack)."""
+    for p in source.iterdir():
+        if _is_skippable(p, source):
+            continue
+        if p.is_file() and p.suffix.lower() in (".html", ".htm"):
+            return
+    raise WorkspaceError(
+        f"'{source.name}' has no top-level .html file. An effect pack must "
+        "include a top-level <name>.html effect file directly inside the "
+        "imported folder."
+    )
+
+
 def list_tree(root: Path) -> list[dict]:
     """Shallow recursive listing of the workspace (skips build/VCS noise).
 
@@ -152,13 +181,17 @@ def write_file(root: Path, relpath: str, content: str) -> dict:
 
 
 def import_path(root: Path, src: str, dest_subdir: str = "compositions") -> dict:
-    """Copy an external file or folder into the workspace.
+    """Copy an external file or effect pack into the workspace.
 
-    A folder (e.g. a self-contained effect block + its assets + README) is copied
-    under ``<dest_subdir>/<name>/`` preserving its internal layout, so the HTML's
-    relative references keep resolving and the agent can read its instructions.
-    Per-file extension + size limits apply; disallowed files are skipped, not
-    fatal. Returns ``{imported: [...], skipped: [...]}`` (workspace-relative).
+    An effect pack is a folder with a top-level ``<name>.html`` effect file,
+    optional usage rules (``README.md`` / ``registry-item.json``), and optional
+    assets. It is copied under ``<dest_subdir>/<name>/`` preserving its internal
+    layout, so the HTML's relative references keep resolving and the agent can
+    read its instructions. A directory import with no top-level ``.html`` file
+    is rejected — html nested only in a subfolder (e.g. ``assets/demo.html``)
+    doesn't count. Per-file extension + size limits apply; disallowed files are
+    skipped, not fatal. Returns ``{imported: [...], skipped: [...]}``
+    (workspace-relative).
     """
     source = Path(src).expanduser()
     if not source.exists():
@@ -206,16 +239,14 @@ def import_path(root: Path, src: str, dest_subdir: str = "compositions") -> dict
             raise WorkspaceError("Could not copy the file into the workspace.") from exc
         imported.append(dest.relative_to(root_resolved).as_posix())
     else:
+        _guard_pack_has_html(source)
         folder_root = Path(dest_subdir) / source.name
         for p in sorted(source.rglob("*")):
-            rel = p.relative_to(source)
             # Never follow a symlink (it can point outside the source folder) and
             # skip hidden/build entries (.env, .git, …) defence-in-depth.
-            if p.is_symlink() or any(
-                part in _SKIP_DIRS or part.startswith(".") for part in rel.parts
-            ):
+            if _is_skippable(p, source):
                 continue
             if p.is_file():
-                _copy_one(p, folder_root / rel)
+                _copy_one(p, folder_root / p.relative_to(source))
 
     return {"imported": imported, "skipped": skipped}
