@@ -15,7 +15,8 @@ const appState = require('./app-state')
 const autosave = require('./autosave')
 const { checkForUpdates } = require('./update-check')
 const presetIO = require('./preset-io')
-const { resolveExistingFile, resolveExistingDir } = require('./path-validate')
+const { resolveExistingFile, resolveExistingDir, isUnderDir } = require('./path-validate')
+const { isBoundsVisibleOnAnyDisplay } = require('./window-bounds')
 
 let mainWindow = null
 let setupWindow = null
@@ -81,15 +82,7 @@ function createWindow() {
     const { screen } = require('electron')
     const bounds = { x: saved.x, y: saved.y, width: opts.width, height: opts.height }
     const displays = screen.getAllDisplays()
-    const visible = displays.some((d) => {
-      const a = d.workArea
-      return (
-        bounds.x < a.x + a.width &&
-        bounds.x + bounds.width > a.x &&
-        bounds.y < a.y + a.height &&
-        bounds.y + bounds.height > a.y
-      )
-    })
+    const visible = isBoundsVisibleOnAnyDisplay(bounds, displays)
     if (visible) {
       opts.x = saved.x
       opts.y = saved.y
@@ -578,7 +571,7 @@ app.whenReady().then(async () => {
 
   // IPC: delete a saved font
   ipcMain.handle('fonts:delete', async (_event, fontPath) => {
-    if (!fontPath || !fontPath.startsWith(fontsDir)) return false
+    if (!fontPath || !isUnderDir(fontPath, fontsDir)) return false
     if (fs.existsSync(fontPath)) {
       fs.unlinkSync(fontPath)
       return true
@@ -589,7 +582,7 @@ app.whenReady().then(async () => {
   // IPC: read a font file as ArrayBuffer (user dir or bundled dir)
   ipcMain.handle('fonts:read', async (_event, fontPath) => {
     if (!fontPath || !fs.existsSync(fontPath)) return null
-    const allowed = fontPath.startsWith(fontsDir) || fontPath.startsWith(bundledFontsDir)
+    const allowed = isUnderDir(fontPath, fontsDir) || isUnderDir(fontPath, bundledFontsDir)
     if (!allowed) return null
     return fs.readFileSync(fontPath).buffer
   })

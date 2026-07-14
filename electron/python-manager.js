@@ -89,13 +89,28 @@ function rotateLogIfNeeded(logPath) {
  * - In dev (running via `npm start`): `<project>/resources/bin-mac` or
  *   `<project>/resources/bin-win`, chosen by platform.
  */
-function findBundledBinDir() {
-  if (process.resourcesPath) {
-    const packaged = path.join(process.resourcesPath, 'bin')
+/**
+ * Pure decision logic behind `findBundledBinDir()` — everything the choice
+ * depends on is passed in, so it's testable without a packaged/dev Electron
+ * environment.
+ */
+function resolveBundledBinDir({ resourcesPath, projectRoot, platformName, fs, path }) {
+  if (resourcesPath) {
+    const packaged = path.join(resourcesPath, 'bin')
     if (fs.existsSync(packaged)) return packaged
   }
-  const devDir = process.platform === 'darwin' ? 'bin-mac' : 'bin-win'
-  return path.join(PROJECT_ROOT, 'resources', devDir)
+  const devDir = platformName === 'darwin' ? 'bin-mac' : 'bin-win'
+  return path.join(projectRoot, 'resources', devDir)
+}
+
+function findBundledBinDir() {
+  return resolveBundledBinDir({
+    resourcesPath: process.resourcesPath,
+    projectRoot: PROJECT_ROOT,
+    platformName: process.platform,
+    fs,
+    path,
+  })
 }
 
 /**
@@ -106,14 +121,131 @@ function findBundledBinDir() {
  *   2. A dev venv at the project root (path is platform-specific — Windows
  *      `.venv\Scripts\python.exe`, macOS `venv/bin/python3`).
  *   3. System `python` / `python3` on PATH (last-resort fallback).
+ *
+ * The decision itself is pure and takes everything as an injected dep
+ * (mirrors `preset-io.js`/`path-validate.js`) so it's unit-testable without
+ * Electron; `findPython()` below just wires it up to the real environment.
  */
-function findPython() {
-  if (isRuntimeReady()) {
-    return getRuntimePaths().pythonExe
-  }
-  const venvPython = path.join(PROJECT_ROOT, platform.devVenvPythonRelPath)
+function resolvePythonPath({
+  runtimeReady,
+  runtimePythonExe,
+  projectRoot,
+  devVenvPythonRelPath,
+  platformName,
+  fs,
+  path,
+}) {
+  if (runtimeReady) return runtimePythonExe
+  const venvPython = path.join(projectRoot, devVenvPythonRelPath)
   if (fs.existsSync(venvPython)) return venvPython
-  return process.platform === 'darwin' ? 'python3' : 'python'
+  return platformName === 'darwin' ? 'python3' : 'python'
+}
+
+function findPython() {
+  const runtimeReady = isRuntimeReady()
+  return resolvePythonPath({
+    runtimeReady,
+    // Only read getRuntimePaths() when the runtime is actually ready — same
+    // short-circuit as the original inline
+    // `if (isRuntimeReady()) return getRuntimePaths().pythonExe`.
+    runtimePythonExe: runtimeReady ? getRuntimePaths().pythonExe : undefined,
+    projectRoot: PROJECT_ROOT,
+    devVenvPythonRelPath: platform.devVenvPythonRelPath,
+    platformName: process.platform,
+    fs,
+    path,
+  })
+}
+
+/**
+ * Build the environment for the spawned uvicorn process from a base env
+ * (normally `process.env`) plus everything the backend needs to discover
+ * bundled binaries, models, the local media token, and the HyperFrames Node
+ * runtime. Returns a NEW object — `baseEnv` is never mutated.
+ *
+ * Extracted verbatim from the inline assembly in `start()` (same key order,
+ * same PATH-prepend sequence — bundled bin dir first, then the managed Node
+ * dir) — a behavior-preserving move, not a rewrite.
+ */
+function buildBackendEnv({
+  baseEnv,
+  binDir,
+  ffmpegExe,
+  ffprobeExe,
+  fs,
+  path,
+  modelDir,
+  port,
+  localToken,
+  extraModelDownloadEnv,
+  node,
+}) {
+  // Prepend bundled bin dir to PATH so whisperx (which shells out to
+  // ffmpeg by name) finds our copy first. Also expose explicit paths
+  // via env vars that our own exporters consult.
+  const env = { ...baseEnv }
+  env.PATH = binDir + path.delimiter + (env.PATH || '')
+  if (fs.existsSync(ffmpegExe)) env.CAPFORGE_FFMPEG = ffmpegExe
+  if (fs.existsSync(ffprobeExe)) env.CAPFORGE_FFPROBE = ffprobeExe
+  // Point the backend at the managed model dir populated during first-run setup.
+  env.CAPFORGE_MODEL_DIR = modelDir
+  env.HF_HOME = modelDir
+  env.HUGGINGFACE_HUB_CACHE = modelDir
+  env.PYTHONIOENCODING = 'utf-8'
+  env.PYTHONUTF8 = '1'
+  // Tell the backend the port we chose so it can publish the agent discovery
+  // file (~/.capforge/backend.json) the local MCP control server reads.
+  env.CAPFORGE_PORT = String(port)
+  // Secret the renderer must echo back on media requests (see constructor).
+  env.CAPFORGE_LOCAL_TOKEN = localToken
+  // Platform-specific HF Hub tweaks (Windows disables symlinks to avoid
+  // WinError 1314; macOS inherits defaults). See electron/platform/win.js.
+  Object.assign(env, extraModelDownloadEnv)
+
+  // HyperFrames (`npx hyperframes`) needs Node 22+. Point the backend at the
+  // app-managed Node + CLI + render-browser cache. We export these paths
+  // *unconditionally* — even before provisioning has created the files — and
+  // the backend resolver (node_runtime.hyperframes_argv) checks existence at
+  // call time. That way, on-demand provisioning that finishes *after* this
+  // backend spawned is picked up on the very next render, with no restart
+  // (restarting would drop the in-memory transcription). The paths are
+  // deterministic (derived from userData), so they're valid in any state.
+  env.CAPFORGE_NODE_BIN = node.nodeExe
+  // The pinned, offline CLI is run as `node <cli.js>` (never the .cmd shim,
+  // which Python subprocess can't spawn without a shell on Windows).
+  env.CAPFORGE_HYPERFRAMES_CLI = node.hyperframesCli
+  // Prepend the managed Node dir so the `node` the CLI sub-spawns resolves;
+  // harmless before provisioning (the dir simply doesn't exist yet).
+  env.PATH = node.nodeBinDir + path.delimiter + (env.PATH || '')
+  // Keep the managed chrome-headless-shell app-local + uninstallable.
+  env.PUPPETEER_CACHE_DIR = node.browserCacheDir
+
+  return env
+}
+
+/**
+ * The uvicorn argv, extracted verbatim from the `spawn()` call in `start()`.
+ * `--no-access-log`: the local media endpoints carry the auth token as a
+ * `?token=` query param (media elements can't send headers), and uvicorn's
+ * access log would otherwise write that query string to backend.log. The
+ * token must never be logged, so access logging is disabled here.
+ */
+function buildUvicornArgs(port) {
+  return [
+    '-m',
+    'uvicorn',
+    'backend.main:app',
+    '--host',
+    '127.0.0.1',
+    '--port',
+    String(port),
+    '--no-access-log',
+  ]
+}
+
+/** The health-check URL polled by `_waitForReady()`. */
+function buildStatusUrl(port) {
+  return `http://127.0.0.1:${port}/api/status`
 }
 
 class PythonBackend {
@@ -152,29 +284,8 @@ class PythonBackend {
       const ffmpegExe = path.join(binDir, platform.ffmpegExeName)
       const ffprobeExe = path.join(binDir, platform.ffprobeExeName)
 
-      // Prepend bundled bin dir to PATH so whisperx (which shells out to
-      // ffmpeg by name) finds our copy first. Also expose explicit paths
-      // via env vars that our own exporters consult.
-      const env = { ...process.env }
-      env.PATH = binDir + path.delimiter + (env.PATH || '')
-      if (fs.existsSync(ffmpegExe)) env.CAPFORGE_FFMPEG = ffmpegExe
-      if (fs.existsSync(ffprobeExe)) env.CAPFORGE_FFPROBE = ffprobeExe
       // Point the backend at the managed model dir populated during first-run setup.
       const { modelDir } = getRuntimePaths()
-      env.CAPFORGE_MODEL_DIR = modelDir
-      env.HF_HOME = modelDir
-      env.HUGGINGFACE_HUB_CACHE = modelDir
-      env.PYTHONIOENCODING = 'utf-8'
-      env.PYTHONUTF8 = '1'
-      // Tell the backend the port we chose so it can publish the agent discovery
-      // file (~/.capforge/backend.json) the local MCP control server reads.
-      env.CAPFORGE_PORT = String(this.port)
-      // Secret the renderer must echo back on media requests (see constructor).
-      env.CAPFORGE_LOCAL_TOKEN = this.localToken
-      // Platform-specific HF Hub tweaks (Windows disables symlinks to avoid
-      // WinError 1314; macOS inherits defaults). See electron/platform/win.js.
-      Object.assign(env, platform.extraModelDownloadEnv)
-
       // HyperFrames (`npx hyperframes`) needs Node 22+. Point the backend at the
       // app-managed Node + CLI + render-browser cache. We export these paths
       // *unconditionally* — even before provisioning has created the files — and
@@ -184,15 +295,19 @@ class PythonBackend {
       // (restarting would drop the in-memory transcription). The paths are
       // deterministic (derived from userData), so they're valid in any state.
       const node = getNodeRuntimePaths()
-      env.CAPFORGE_NODE_BIN = node.nodeExe
-      // The pinned, offline CLI is run as `node <cli.js>` (never the .cmd shim,
-      // which Python subprocess can't spawn without a shell on Windows).
-      env.CAPFORGE_HYPERFRAMES_CLI = node.hyperframesCli
-      // Prepend the managed Node dir so the `node` the CLI sub-spawns resolves;
-      // harmless before provisioning (the dir simply doesn't exist yet).
-      env.PATH = node.nodeBinDir + path.delimiter + (env.PATH || '')
-      // Keep the managed chrome-headless-shell app-local + uninstallable.
-      env.PUPPETEER_CACHE_DIR = node.browserCacheDir
+      const env = buildBackendEnv({
+        baseEnv: process.env,
+        binDir,
+        ffmpegExe,
+        ffprobeExe,
+        fs,
+        path,
+        modelDir,
+        port: this.port,
+        localToken: this.localToken,
+        extraModelDownloadEnv: platform.extraModelDownloadEnv,
+        node,
+      })
 
       // Open the log file for append (rotating first if it's oversized).
       // Every backend write goes to both the file and the Electron console.
@@ -227,24 +342,7 @@ class PythonBackend {
       const cwd =
         unpacked && fs.existsSync(path.join(unpacked, 'backend')) ? unpacked : PROJECT_ROOT
 
-      // --no-access-log: the local media endpoints carry the auth token as a
-      // ?token= query param (media elements can't send headers), and uvicorn's
-      // access log would otherwise write that query string to backend.log. The
-      // token must never be logged, so access logging is disabled here.
-      this.process = spawn(
-        python,
-        [
-          '-m',
-          'uvicorn',
-          'backend.main:app',
-          '--host',
-          '127.0.0.1',
-          '--port',
-          String(this.port),
-          '--no-access-log',
-        ],
-        { cwd, windowsHide: true, env }
-      )
+      this.process = spawn(python, buildUvicornArgs(this.port), { cwd, windowsHide: true, env })
 
       const writeLog = (text) => {
         this._output.push(text)
@@ -294,7 +392,7 @@ class PythonBackend {
         reject(new Error('Backend did not start in time.\n\n' + this._output.join('')))
         return
       }
-      const req = http.get(`http://127.0.0.1:${this.port}/api/status`, (res) => {
+      const req = http.get(buildStatusUrl(this.port), (res) => {
         if (res.statusCode === 200) {
           console.log('[CapForge] Backend is ready.')
           resolve()
@@ -308,4 +406,16 @@ class PythonBackend {
   }
 }
 
-module.exports = { PythonBackend }
+module.exports = {
+  PythonBackend,
+  // Pure helpers — exported for `python-manager.test.js` (no Electron
+  // required, mirrors preset-io.js / path-validate.js).
+  PREFERRED_PORT,
+  LOG_MAX_BYTES,
+  resolvePythonPath,
+  resolveBundledBinDir,
+  buildBackendEnv,
+  buildUvicornArgs,
+  buildStatusUrl,
+  rotateLogIfNeeded,
+}

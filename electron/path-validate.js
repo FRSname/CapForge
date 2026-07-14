@@ -60,7 +60,28 @@ function resolveExistingDir(input, { fs, path }) {
   return { ok: true, resolved }
 }
 
+/**
+ * Naive prefix-based containment check — `candidate.startsWith(dir)`. This is
+ * the existing style used by the `fonts:read` / `fonts:delete` IPC handlers
+ * in `main.js` to keep font operations scoped to the app's own fonts dirs.
+ *
+ * NOTE: unlike the backend's `_is_servable_path` (realpath-resolved, see
+ * CLAUDE.md "Local media token"), this is a plain string prefix check — it
+ * does not realpath-resolve symlinks and can false-positive on a sibling
+ * directory that merely shares a prefix (e.g. dir `/a/fonts` "contains"
+ * `/a/fonts-evil/x`). Extracted verbatim for testability, not hardened —
+ * that would be a behavior change out of scope here.
+ *
+ * @param {unknown} candidate
+ * @param {string} dir
+ * @returns {boolean}
+ */
+function isUnderDir(candidate, dir) {
+  return typeof candidate === 'string' && candidate.startsWith(dir)
+}
+
 module.exports = {
   resolveExistingFile,
   resolveExistingDir,
+  isUnderDir,
 }
