@@ -72,6 +72,7 @@ actually reads.
 | Tool | What it does |
 |------|--------------|
 | `get_status` | Backend job status |
+| `get_hyperframes_status` | Preflight the HyperFrames CLI before rendering (`cli_version`, `compat_ok`, remediation reasons) |
 | `get_transcript` | Transcript with segment + word indices |
 | `update_words` | Replace tokens (spelling/homophone fixes) → live UI |
 | `remove_filler_words` | Drop um/uh/er… (timing preserved) → live UI |

@@ -23,7 +23,7 @@ unchanged underneath; everything here is additive.
 | **Native caption styles** | Opt-in registry caption components (`caption-pill-karaoke`, …) pulled live from the HyperFrames catalog. `classic` stays the default. |
 | **Custom (agent-authored) captions** | An agent can write a brand-new caption look in HTML/CSS/GSAP, validated against a contract, rendered by the real engine. |
 | **HyperFrames creative library** | The MCP server serves the genuine HyperFrames creative references (caption craft, motion, type, transitions, palettes) to the connected agent, pull-on-demand. *(newest addition)* |
-| **Effect templates** | Save an effect as a reusable "look" and drop it into any project. |
+| **Effect packs** | Reusable effects are plain folders (HTML + usage rules + assets) imported into the co-author workspace and wired by the agent — no CapForge-managed template store. |
 | **HyperFrames Studio** | "Open in HyperFrames Studio" launches `npx hyperframes preview` in the browser for live inspection/refinement. |
 | **Portrait / 4K fit** | Native caption components are fitted to portrait (9:16), 4K, and square canvases. |
 | **AI control layer (MCP)** | A local Claude agent operates the *running* app — transcript cleanup, live style/emphasis, effect placement, vision QA — via token-guarded endpoints. One-click "Connect to Claude". |
@@ -227,16 +227,15 @@ Effects are honored only on the HyperFrames render path (the Pillow renderer ign
   kinetic_stat), `cta` (calls to action, e.g. "subscribe"/"link in bio"), or
   `speaker_change` (per diarized speaker, for a lower_third).
 
-### 4.5 Effect templates (cross-project look library)
+### 4.5 Effect packs (reusable effect folders, co-author mode)
 
-`backend/effect_templates.py` — store at `~/.capforge/effect-templates.json`:
-
-- `save_template(name, effect)` — timing is stripped (a template is a reusable *look*,
-  not a placement). Asset effects (logo/b_roll) copy their image to
-  `~/.capforge/templates/assets/<uuid>-<file>` so the template survives the project being
-  deleted.
-- `apply_template(name, start, duration)` — instantiates a fresh `EffectClip`.
-- `list_templates()` / `delete_template(name)`.
+There is no CapForge-managed template store. A reusable effect is a plain **effect
+pack**: a folder with a top-level `<name>.html` file plus optional `README.md` /
+`registry-item.json` usage rules and assets — the HyperFrames-native convention.
+The `import_into_workspace` MCP tool copies a pack into the co-author workspace
+under `compositions/<name>/` (or `compositions/components/<name>/`); the agent
+then reads its usage rules and hand-wires it via `data-composition-src` (blocks)
+or snippet paste (components). See `mcp_server/README.md` § Effect packs.
 
 ---
 
@@ -313,13 +312,10 @@ Defined in `mcp_server/server.py` (FastMCP). Grouped:
 | `remove_effect` | Remove an effect by id. |
 | `render_hyperframes` | Render captions + placed effects via HyperFrames → output path. |
 
-**Effect templates**
+**Effect packs (co-author workspace import)**
 | Tool | Description |
 |---|---|
-| `list_effect_templates` | Saved reusable looks. |
-| `save_effect_template` | Save a timeline effect (by id) as a template. |
-| `apply_effect_template` | Drop a template onto the timeline at a time. |
-| `delete_effect_template` | Delete a template by name. |
+| `import_into_workspace` | Import an effect pack (folder: top-level `<name>.html` + optional README/registry-item.json + assets) into the co-author workspace, layout preserved. |
 
 **Caption style**
 | Tool | Description |
@@ -396,7 +392,7 @@ HyperFrames Studio* to inspect → *Render with HyperFrames ✦*.
 | `mcp_server/knowledge.py` + `knowledge/` | HyperFrames creative library (manifest + vendored refs). |
 | `backend/agent_bridge.py` | Discovery file + token auth. |
 | `backend/exporters/hyperframes_*.py` | Project gen, render, snapshot, caption styles. |
-| `backend/effect_templates.py` | Reusable effect template store. |
+| `backend/workspace_fs.py` | Co-author workspace sandbox + effect-pack import (`import_path()`). |
 | `backend/engine/moments.py` | Literal + semantic moment finding. |
 | `electron/claude-connect.js` | One-click Connect to Claude (config writers). |
 | `electron/hyperframes-studio.js` | Launches/stops the `npx hyperframes preview` server. |
@@ -414,7 +410,8 @@ HyperFrames Studio* to inspect → *Render with HyperFrames ✦*.
   creative library (`test_knowledge.py`: manifest↔file integrity, traversal rejection,
   no orphan files, index references every topic).
 - **Backend:** `backend/tests/` — `test_hyperframes_{project,render,export,captions}.py`,
-  `test_effect_templates.py`, `test_moments.py`, plus the base golden-frame tests.
+  `test_workspace_fs.py` (co-author workspace + effect-pack import), `test_moments.py`,
+  plus the base golden-frame tests.
 - **Frontend:** `src/renderer/src/lib/project.test.ts` (effects persistence) and the
   connect helpers in `electron/claude-connect.test.js`.
 
