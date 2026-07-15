@@ -526,6 +526,8 @@ def _draw_word_list(
                     x += effective_space_w
                 continue
             color = w_active_color if is_active else w_text_color
+        elif w_word_trans == "none":
+            color = w_text_color
         else:  # instant
             color = w_active_color if is_active else w_text_color
 

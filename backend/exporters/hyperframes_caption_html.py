@@ -588,6 +588,8 @@ function __capBuild(tl, CFG, GROUPS){
         w.style.opacity = '0';
         tl.set(w, { opacity: 1, color: wActive }, m.s);
         tl.set(w, { color: wBase }, m.e);
+      } else if(m.mode === 'none'){
+        // static: base color for the whole group lifetime, no timeline events.
       } else {
         tl.set(w, { color: wActive }, m.s);
         tl.set(w, { color: wBase }, m.e);
