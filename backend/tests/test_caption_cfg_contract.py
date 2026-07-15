@@ -83,6 +83,8 @@ EXPECTED_IN_CAP_CFG: dict[str, str] = {
     "highlight_radius": "hlRadius",
     "highlight_opacity": "hlOpacity",
     "highlight_animation": "hlAnim",
+    "highlight_offset_x": "hlOffX",
+    "highlight_offset_y": "hlOffY",
     "underline_thickness": "ulThickness",
     "underline_color": "ulColor",
     "underline_offset_y": "ulOffsetY",
@@ -167,6 +169,8 @@ PILLOW_HONORED_OVERRIDE_KEYS = frozenset({
     "highlight_padding_y",
     "highlight_radius",
     "highlight_opacity",
+    "highlight_offset_x",
+    "highlight_offset_y",
 })
 
 # Honored by Pillow but DELIBERATELY excluded from the HTML payload: a local path
@@ -221,6 +225,8 @@ _SENTINELS: dict[str, object] = {
     "highlight_radius": 18,
     "highlight_opacity": 0.71,
     "highlight_animation": "slide",
+    "highlight_offset_x": 15,
+    "highlight_offset_y": -17,
     "underline_thickness": 5,
     "underline_color": "#232425",
     "underline_offset_y": 6,

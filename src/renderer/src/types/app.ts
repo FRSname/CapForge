@@ -22,6 +22,8 @@ export interface WordOverrides {
   highlight_padding_x?: number
   highlight_padding_y?: number
   highlight_opacity?: number
+  highlight_offset_x?: number
+  highlight_offset_y?: number
   underline_thickness?: number
   underline_color?: string
   underline_offset_y?: number

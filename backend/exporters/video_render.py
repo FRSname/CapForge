@@ -396,6 +396,8 @@ def _draw_word_list(
     highlight_padding_y = getattr(config, "highlight_padding_y", getattr(config, "highlight_padding", 6))
     highlight_opacity  = getattr(config, "highlight_opacity",     0.85)
     highlight_anim     = getattr(config, "highlight_animation",   "jump")
+    highlight_offset_x = getattr(config, "highlight_offset_x",    0)
+    highlight_offset_y = getattr(config, "highlight_offset_y",    0)
     ul_thickness       = getattr(config, "underline_thickness",   4)
     ul_color_hex       = getattr(config, "underline_color",       "")
     BOUNCE_PX          = text_h * bounce_strength
@@ -424,6 +426,8 @@ def _draw_word_list(
         w_hl_pad_y  = float(active_ov.get("highlight_padding_y", highlight_padding_y))
         w_hl_radius = int(active_ov.get("highlight_radius", highlight_radius))
         w_hl_opac   = float(active_ov.get("highlight_opacity", highlight_opacity))
+        w_hl_off_x  = float(active_ov.get("highlight_offset_x", highlight_offset_x))
+        w_hl_off_y  = float(active_ov.get("highlight_offset_y", highlight_offset_y))
         h_pad   = max(w_hl_pad_x, outline_sw + 2)
         h_pad_v = max(w_hl_pad_y, outline_sw + 2)
         h_rad   = w_hl_radius
@@ -449,6 +453,11 @@ def _draw_word_list(
                 hl_x = target_x
                 hl_w = target_w
 
+            # Pill-only offset: applied post-lerp (after jump/slide resolves hl_x)
+            # so the pill translates rigidly during slide instead of lerping the
+            # offset in — it must never be folded into target_x/prev_x above.
+            hl_x += w_hl_off_x
+
             hl_rgba = _hex_to_rgba(config.active_word_color, hl_alpha)
             # If a dedicated pill_draw was supplied, render the pill there so the
             # caller can composite it under the text shadow (without the pill
@@ -456,9 +465,9 @@ def _draw_word_list(
             _draw_rounded_rect(
                 pill_draw if pill_draw is not None else draw,
                 (hl_x - h_pad,
-                 center_y - text_h / 2 - h_pad_v + hl_off_y,
+                 center_y - text_h / 2 - h_pad_v + hl_off_y + w_hl_off_y,
                  hl_x + hl_w + h_pad,
-                 center_y + text_h / 2 + h_pad_v + hl_off_y),
+                 center_y + text_h / 2 + h_pad_v + hl_off_y + w_hl_off_y),
                 h_rad, hl_rgba,
             )
 

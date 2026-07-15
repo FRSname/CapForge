@@ -66,6 +66,8 @@ const GOLDEN_DEFAULT_CONFIG = {
   highlight_opacity: 0.85,
   highlight_animation: 'jump',
   highlight_text_color: '#FFFFFF',
+  highlight_offset_x: 0,
+  highlight_offset_y: 0,
   underline_thickness: 4,
   underline_color: '',
   underline_offset_y: 2,

@@ -197,6 +197,22 @@ def _override_groups() -> list[dict]:
     return [{"text": "Big colour under moved", "start": 0.0, "end": 3.0, "words": words}]
 
 
+def _highlight_offset_override_group() -> list[dict]:
+    """One 3-word group where the active word carries a per-word highlight
+    pill offset override — the highlight-mode counterpart of
+    ``_override_groups()``. Unlike that group's "under"/"moved" words (whose
+    overrides disable the pill or move a different word), the active word
+    here keeps ``word_transition='highlight'`` from the global config so its
+    pill actually renders with the per-word offset applied."""
+    words = [
+        {"word": "Hello", "start": 0.0, "end": 0.75},
+        {"word": "brave", "start": 0.75, "end": 1.5,
+         "overrides": {"highlight_offset_x": 10, "highlight_offset_y": -6}},
+        {"word": "world", "start": 1.5, "end": 2.5},
+    ]
+    return [{"text": "Hello brave world", "start": 0.0, "end": 2.5, "words": words}]
+
+
 @_run
 def test_highlight_slide_parity(source_video):
     """D2: highlight_animation='slide' — the pill lerps from the previous word's
@@ -211,6 +227,41 @@ def test_highlight_slide_parity(source_video):
     mean, notable = _diff(pillow_png, hf_png)
     assert mean < MEAN_MAX, f"slide: mean diff {mean:.2f} >= {MEAN_MAX}"
     assert notable < NOTABLE_FRAC_MAX, f"slide: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+
+
+@_run
+def test_highlight_offset_parity(source_video):
+    """highlight_offset_x/y must shift the pill rect identically in Pillow and
+    HyperFrames — including the riskiest combination, offset + 'slide'
+    movement. The offset must translate the pill rigidly (applied post-lerp
+    to BOTH tween ends), not lerp in during the slide. Same mid-slide t as
+    test_highlight_slide_parity (t=0.9, 20% into word 2 'brave': raw_t=0.2 ->
+    t_ease=0.75) so a renderer that added the offset only to the tween's
+    'to' value would land pixels elsewhere than one that translated rigidly."""
+    pillow_png, hf_png = _render_both(
+        _result(),
+        _config(word_transition="highlight", highlight_animation="slide",
+                 highlight_offset_x=20, highlight_offset_y=-12),
+        source_video, t=0.9,
+    )
+    mean, notable = _diff(pillow_png, hf_png)
+    assert mean < MEAN_MAX, f"offset+slide: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, f"offset+slide: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+
+    # Per-word highlight_offset override. _override_groups()'s "under"/"moved"
+    # words never show a pill at their sampled t (the override disables
+    # highlight or nudges a different word), so cover the per-word offset
+    # override path with its own small group where the active word's pill
+    # actually renders.
+    pillow_png2, hf_png2 = _render_both(
+        _result(), _config(word_transition="highlight"), source_video,
+        custom_groups=_highlight_offset_override_group(), t=1.0,
+    )
+    mean2, notable2 = _diff(pillow_png2, hf_png2)
+    assert mean2 < MEAN_MAX, f"offset override: mean diff {mean2:.2f} >= {MEAN_MAX}"
+    assert notable2 < NOTABLE_FRAC_MAX, (
+        f"offset override: {notable2:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
 
 
 @_run

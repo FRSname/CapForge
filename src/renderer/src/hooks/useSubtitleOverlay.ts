@@ -294,6 +294,8 @@ export function useSubtitleOverlay({
       const ulWidth = settings.underlineWidth ?? 0
       const bStrength = settings.bounceStrength ?? 0.18
       const sFactor = settings.scaleFactor ?? 1.25
+      const hlOffsetX = settings.highlightOffsetX ?? 0
+      const hlOffsetY = settings.highlightOffsetY ?? 0
 
       // ── Highlight pill (drawn BEFORE words) ─────────────────────
       // The highlight is per-active-word, so per-word overrides for the active
@@ -329,13 +331,17 @@ export function useSubtitleOverlay({
             const wHlPadY = Math.max(ov?.highlight_padding_y ?? hlPadY, sStroke + 2)
             const wHlRadius = ov?.highlight_radius ?? hlRadius
             const wHlOpac = ov?.highlight_opacity ?? hlOpacity
+            // Pill-only offset, applied post-lerp so slide translates rigidly
+            // (never folded into targetX / the slide's from-to endpoints).
+            const wHlOffX = ov?.highlight_offset_x ?? hlOffsetX
+            const wHlOffY = ov?.highlight_offset_y ?? hlOffsetY
             ctx.save()
             ctx.globalAlpha = animAlpha * wHlOpac
             ctx.fillStyle = activeColor
             roundRect(
               ctx,
-              hlX - wHlPadX,
-              hlY - textH / 2 - wHlPadY,
+              hlX + wHlOffX - wHlPadX,
+              hlY + wHlOffY - textH / 2 - wHlPadY,
               hlW + wHlPadX * 2,
               textH + wHlPadY * 2,
               wHlRadius

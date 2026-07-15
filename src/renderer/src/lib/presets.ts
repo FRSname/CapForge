@@ -57,6 +57,8 @@ export interface VanillaPreset {
   highlightPadY?: string | number
   highlightOpacity?: string | number
   highlightAnim?: string
+  highlightOffsetX?: string | number
+  highlightOffsetY?: string | number
   highlightTextColor?: string
   underlineThickness?: string | number
   underlineColor?: string
@@ -145,6 +147,10 @@ export function vanillaToStudio(p: VanillaPreset): Partial<StudioSettings> {
   if (p.highlightAnim === 'jump' || p.highlightAnim === 'slide') {
     out.highlightAnim = p.highlightAnim
   }
+  if (p.highlightOffsetX != null)
+    out.highlightOffsetX = num(p.highlightOffsetX, STUDIO_DEFAULTS.highlightOffsetX)
+  if (p.highlightOffsetY != null)
+    out.highlightOffsetY = num(p.highlightOffsetY, STUDIO_DEFAULTS.highlightOffsetY)
   if (p.highlightTextColor != null) out.highlightTextColor = p.highlightTextColor
   if (p.underlineThickness != null)
     out.underlineThickness = num(p.underlineThickness, STUDIO_DEFAULTS.underlineThickness)
@@ -223,6 +229,8 @@ export function studioToVanilla(s: StudioSettings): VanillaPreset {
     highlightPadY: String(s.highlightPadY),
     highlightOpacity: String(s.highlightOpacity),
     highlightAnim: s.highlightAnim,
+    highlightOffsetX: String(s.highlightOffsetX),
+    highlightOffsetY: String(s.highlightOffsetY),
     highlightTextColor: s.highlightTextColor,
     underlineThickness: String(s.underlineThickness),
     underlineColor: s.underlineColor,

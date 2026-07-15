@@ -127,6 +127,8 @@ export function buildRenderBody(
     highlight_opacity: settings.highlightOpacity,
     highlight_animation: settings.highlightAnim,
     highlight_text_color: settings.highlightTextColor ?? '',
+    highlight_offset_x: settings.highlightOffsetX ?? 0,
+    highlight_offset_y: settings.highlightOffsetY ?? 0,
     underline_thickness: settings.underlineThickness,
     underline_color: settings.underlineColor,
     underline_offset_y: settings.underlineOffsetY ?? 2,
