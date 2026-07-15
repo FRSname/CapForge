@@ -61,6 +61,15 @@ def test_empty_list_returns_empty_list():
     assert fill_group_gaps([]) == []
 
 
+def test_single_group_is_unchanged():
+    groups = [build_group(["Hello", "brave", "new"], start=0.5, word_dur=0.5)]
+
+    result = fill_group_gaps(groups)
+
+    assert result == [{**groups[0]}]
+    assert result[0] is not groups[0]
+
+
 def test_input_groups_are_not_mutated():
     groups = [
         build_group(["Hello", "brave", "new"], start=0.5, word_dur=0.5),  # 0.5-2.0
