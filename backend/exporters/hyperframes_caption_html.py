@@ -9,7 +9,7 @@ caption) silently changes the look the user configured.
 
 This module emits that third renderer. It reproduces the Canvas logic — every
 `word_transition` mode (instant, crossfade, highlight, underline, bounce, scale,
-karaoke, reveal), the group entrance/exit animations (none/fade/slide/pop), text
+karaoke, reveal, none), the group entrance/exit animations (none/fade/slide/pop), text
 stroke, drop shadow, tracking, alignment, multi-line grouping and positioning —
 from the same `VideoRenderConfig` the other two renderers consume.
 
