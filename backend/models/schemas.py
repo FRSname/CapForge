@@ -178,6 +178,8 @@ class VideoRenderConfig(BaseModel):
     highlight_opacity: float = Field(0.85, ge=0.0, le=1.0, description="Opacity of the highlight box")
     highlight_animation: str = Field("jump", description="Highlight box movement: jump or slide")
     highlight_text_color: str = Field("", description="Text color inside highlight pill; empty = use bg_color")
+    highlight_offset_x: int = Field(0, description="Horizontal offset of the highlight pill in px (may be negative)")
+    highlight_offset_y: int = Field(0, description="Vertical offset of the highlight pill in px (may be negative)")
     # Underline options
     underline_thickness: int = Field(4, ge=1, description="Underline bar thickness in px")
     underline_color: str = Field("", description="Underline color hex; empty = use active_word_color")

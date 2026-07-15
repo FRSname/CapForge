@@ -93,6 +93,8 @@ def caption_cfg(config: VideoRenderConfig) -> dict:
         "hlOpacity": config.highlight_opacity,
         # Same getattr default as Pillow (video_render.py highlight_anim).
         "hlAnim": getattr(config, "highlight_animation", "jump"),
+        "hlOffX": getattr(config, "highlight_offset_x", 0),
+        "hlOffY": getattr(config, "highlight_offset_y", 0),
         "ulThickness": config.underline_thickness,
         "ulColor": config.underline_color or "",
         "ulOffsetY": config.underline_offset_y,
@@ -130,7 +132,7 @@ _WORD_OVERRIDE_KEYS = (
     "word_transition", "pos_offset_x", "pos_offset_y", "bounce_strength",
     "scale_factor", "underline_thickness", "underline_color", "underline_offset_y",
     "underline_width", "highlight_padding_x", "highlight_padding_y",
-    "highlight_radius", "highlight_opacity",
+    "highlight_radius", "highlight_opacity", "highlight_offset_x", "highlight_offset_y",
 )
 
 
@@ -451,11 +453,14 @@ function __capBuild(tl, CFG, GROUPS){
       var o = m.o;
       var wHlPadX = Math.max(o.highlight_padding_x != null ? o.highlight_padding_x : CFG.hlPadX, sStroke + 2);
       var wHlPadY = Math.max(o.highlight_padding_y != null ? o.highlight_padding_y : CFG.hlPadY, sStroke + 2);
+      var wHlOffX = o.highlight_offset_x != null ? o.highlight_offset_x : (CFG.hlOffX||0);
+      var wHlOffY = o.highlight_offset_y != null ? o.highlight_offset_y : (CFG.hlOffY||0);
       m.hlPadX = wHlPadX;  // slide tween re-derives the padded rect from this
+      m.hlOffX = wHlOffX;  // slide tween adds this to BOTH from/to (rigid translate)
       var p = document.createElement('div'); p.className='cw-pill';
-      p.style.left = (m.x + m.ox - wHlPadX) + 'px';
+      p.style.left = (m.x + m.ox - wHlPadX + wHlOffX) + 'px';
       // Pill height stays BASE textH even for scaled words (Pillow uses text_h).
-      p.style.top = (m.cyc + m.oy - textH/2 - wHlPadY) + 'px';
+      p.style.top = (m.cyc + m.oy - textH/2 - wHlPadY + wHlOffY) + 'px';
       p.style.width = (m.width + wHlPadX*2) + 'px';
       p.style.height = (textH + wHlPadY*2) + 'px';
       p.style.background = CFG.activeColor;  // global — Pillow never recolors the pill per word
@@ -554,8 +559,8 @@ function __capBuild(tl, CFG, GROUPS){
           // makes tween progress == clamp(raw_t*2.5). First word of a row and
           // jump mode keep the static mkPill rect (m.prev is row-local).
           tl.fromTo(m.pill,
-            { left: (m.prev.x - m.hlPadX) + 'px', width: (m.prev.width + m.hlPadX*2) + 'px' },
-            { left: (m.x + m.ox - m.hlPadX) + 'px', width: (m.width + m.hlPadX*2) + 'px',
+            { left: (m.prev.x - m.hlPadX + m.hlOffX) + 'px', width: (m.prev.width + m.hlPadX*2) + 'px' },
+            { left: (m.x + m.ox - m.hlPadX + m.hlOffX) + 'px', width: (m.width + m.hlPadX*2) + 'px',
               duration: Math.max((m.e - m.s) / 2.5, 0.001), ease: 'power1.out', overwrite: 'auto' }, m.s);
         }
         tl.set(w, { color: hlText }, m.s);
