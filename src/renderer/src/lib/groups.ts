@@ -58,6 +58,34 @@ export function buildStudioGroups(segments: Segment[], wordsPerGroup: number): S
   return groups
 }
 
+/**
+ * Stretch each group's end to the next group's start so captions persist
+ * through silence gaps. Mirrors the backend's `fill_group_gaps()`
+ * (`backend/exporters/video_render.py`).
+ *
+ * For every group except the last, if the next group's start is later than
+ * this group's end (i.e. there is a gap), extend this group's end to meet
+ * it. Never shrinks an end (overlapping/out-of-order groups are left as-is).
+ * The last group is unchanged. Word timings are untouched — only the
+ * group's outer `end` moves. Returns a new array of new objects; the input
+ * is never mutated.
+ *
+ * This is a derived view for preview/playback consumers only — it must
+ * never be baked into `studioGroups` state, the Groups editor, the
+ * timeline, project save, or the `custom_groups` render payload.
+ */
+export function fillGroupGaps(groups: Segment[]): Segment[] {
+  if (groups.length === 0) return []
+
+  return groups.map((group, i) => {
+    const next = groups[i + 1]
+    if (next && next.start > group.end) {
+      return { ...group, end: next.start }
+    }
+    return { ...group }
+  })
+}
+
 // ── Group-editor primitives ──────────────────────────────────────
 // These operate on an already-built groups array; they do NOT mutate. Callers
 // pass the result back up to ResultsScreen.setSegments (or a groups store).

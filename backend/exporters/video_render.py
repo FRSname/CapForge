@@ -295,6 +295,29 @@ def _build_groups(result: TranscriptionResult, words_per_group: int) -> list[dic
     return groups
 
 
+def fill_group_gaps(groups: list[dict]) -> list[dict]:
+    """Stretch each group's end to the next group's start so captions persist
+    through silence gaps.
+
+    For every group except the last, if the next group's start is later than
+    this group's end (i.e. there is a gap), extend this group's end to meet
+    it. Never shrinks an end (overlapping/out-of-order groups are left as-is).
+    The last group is unchanged. Word timings are untouched — only the
+    group's outer `end` moves. Returns new dicts; the input list/dicts are
+    never mutated.
+    """
+    if not groups:
+        return []
+
+    result: list[dict] = []
+    for i, group in enumerate(groups):
+        if i < len(groups) - 1 and groups[i + 1]["start"] > group["end"]:
+            result.append({**group, "end": groups[i + 1]["start"]})
+        else:
+            result.append({**group})
+    return result
+
+
 # ---------------------------------------------------------------------------
 # Frame renderer
 # ---------------------------------------------------------------------------
@@ -1215,6 +1238,8 @@ def render_subtitle_video(
         groups = custom_groups
     else:
         groups = _build_groups(result, config.words_per_group)
+    if getattr(config, "fill_gaps", False):
+        groups = fill_group_gaps(groups)
     if not groups:
         raise ValueError("No subtitle data to render")
 

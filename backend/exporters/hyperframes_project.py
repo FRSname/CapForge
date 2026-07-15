@@ -32,7 +32,7 @@ from typing import Optional
 
 from backend.exporters.hyperframes_caption_html import caption_block
 from backend.exporters.hyperframes_export import export_hyperframes
-from backend.exporters.video_render import _build_groups, resolve_font_file
+from backend.exporters.video_render import _build_groups, fill_group_gaps, resolve_font_file
 from backend.models.schemas import TranscriptionResult, VideoRenderConfig
 from backend.workspace_fs import resolve_in_workspace
 
@@ -733,6 +733,8 @@ def sync_companions(
     if not project.is_dir():
         raise FileNotFoundError(f"Co-author project not found: {project}")
     groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    if getattr(config, "fill_gaps", False):
+        groups = fill_group_gaps(groups)
     if not groups:
         raise ValueError("No subtitle data to refresh")
     source_src, _transcript_json, _total, caption_sub_src = _write_companions(
@@ -771,6 +773,8 @@ def export_hyperframes_project(
     authored composition.
     """
     groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    if getattr(config, "fill_gaps", False):
+        groups = fill_group_gaps(groups)
     if not groups:
         raise ValueError("No subtitle data to build a HyperFrames composition")
 
@@ -852,6 +856,8 @@ def ensure_hyperframes_project(
     t0 = time.perf_counter()
     project_dir = coauthor_project_dir(result, output_dir)
     groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    if getattr(config, "fill_gaps", False):
+        groups = fill_group_gaps(groups)
 
     if groups:
         current_fp = _composition_fingerprint(
