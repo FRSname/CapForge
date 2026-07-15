@@ -200,12 +200,12 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
   { label: 'Opacity', cardId: 'animation', keywords: ['highlight opacity', 'transparency'] },
   { label: 'Movement', cardId: 'animation', keywords: ['jump', 'slide', 'highlight movement'] },
   {
-    label: 'Offset X',
+    label: 'Pill offset X',
     cardId: 'animation',
     keywords: ['highlight offset', 'pill position', 'nudge'],
   },
   {
-    label: 'Offset Y',
+    label: 'Pill offset Y',
     cardId: 'animation',
     keywords: ['highlight offset', 'pill position', 'nudge'],
   },

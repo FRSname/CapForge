@@ -856,9 +856,9 @@ export function StudioPanel({
                   </Select>
                 </div>
               </Row>
-              <Row label="Offset X" filter={filter}>
+              <Row label="Pill offset X" filter={filter}>
                 <StudioRow
-                  label="Offset X"
+                  label="Pill offset X"
                   value={s.highlightOffsetX}
                   min={-100}
                   max={100}
@@ -867,9 +867,9 @@ export function StudioPanel({
                   onChange={(v) => set('highlightOffsetX', v)}
                 />
               </Row>
-              <Row label="Offset Y" filter={filter}>
+              <Row label="Pill offset Y" filter={filter}>
                 <StudioRow
-                  label="Offset Y"
+                  label="Pill offset Y"
                   value={s.highlightOffsetY}
                   min={-50}
                   max={50}
