@@ -30,6 +30,8 @@ export interface WordStyleDefaults {
   highlightPadX?: number
   highlightPadY?: number
   highlightOpacity?: number
+  highlightOffsetX?: number
+  highlightOffsetY?: number
   underlineThickness?: number
   underlineColor?: string
   bounceStrength?: number
@@ -102,6 +104,12 @@ export function WordStylePopup({
   const [hlPadY, setHlPadY] = useState(overrides.highlight_padding_y ?? defaults.highlightPadY ?? 0)
   const [hlOpacity, setHlOpacity] = useState(
     overrides.highlight_opacity ?? defaults.highlightOpacity ?? 1
+  )
+  const [hlOffsetX, setHlOffsetX] = useState(
+    overrides.highlight_offset_x ?? defaults.highlightOffsetX ?? 0
+  )
+  const [hlOffsetY, setHlOffsetY] = useState(
+    overrides.highlight_offset_y ?? defaults.highlightOffsetY ?? 0
   )
   const [ulThick, setUlThick] = useState(
     overrides.underline_thickness ?? defaults.underlineThickness ?? 3
@@ -197,6 +205,8 @@ export function WordStylePopup({
     hlPadX,
     hlPadY,
     hlOpacity,
+    hlOffsetX,
+    hlOffsetY,
     ulThick,
     ulColor,
     bStrength,
@@ -227,6 +237,8 @@ export function WordStylePopup({
       if (hlPadX !== (defaults.highlightPadX ?? 0)) next.highlight_padding_x = hlPadX
       if (hlPadY !== (defaults.highlightPadY ?? 0)) next.highlight_padding_y = hlPadY
       if (hlOpacity !== (defaults.highlightOpacity ?? 1)) next.highlight_opacity = hlOpacity
+      if (hlOffsetX !== (defaults.highlightOffsetX ?? 0)) next.highlight_offset_x = hlOffsetX
+      if (hlOffsetY !== (defaults.highlightOffsetY ?? 0)) next.highlight_offset_y = hlOffsetY
     }
     if (effectiveTransition === 'underline') {
       if (ulThick !== (defaults.underlineThickness ?? 3)) next.underline_thickness = ulThick
@@ -395,6 +407,20 @@ export function WordStylePopup({
               min={0}
               max={1}
               step={0.05}
+            />
+            <NumberRow
+              label="Offset X"
+              value={hlOffsetX}
+              onChange={setHlOffsetX}
+              min={-100}
+              max={100}
+            />
+            <NumberRow
+              label="Offset Y"
+              value={hlOffsetY}
+              onChange={setHlOffsetY}
+              min={-100}
+              max={100}
             />
           </SubSettings>
         )}

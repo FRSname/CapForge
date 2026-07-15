@@ -81,6 +81,8 @@ export interface StudioSettings {
   highlightOpacity: number
   highlightAnim: string // 'jump' | 'slide'
   highlightTextColor: string // hex, '' = use bgColor (legacy behaviour)
+  highlightOffsetX: number
+  highlightOffsetY: number
   underlineThickness: number
   underlineColor: string // hex, '' = use activeColor
   underlineOffsetY: number // vertical offset from text baseline in px
@@ -165,6 +167,8 @@ const DEFAULTS: StudioSettings = {
   highlightOpacity: 0.85,
   highlightAnim: 'jump',
   highlightTextColor: '#FFFFFF',
+  highlightOffsetX: 0,
+  highlightOffsetY: 0,
   underlineThickness: 4,
   underlineColor: '',
   underlineOffsetY: 2,
@@ -851,6 +855,28 @@ export function StudioPanel({
                     <option value="slide">Slide</option>
                   </Select>
                 </div>
+              </Row>
+              <Row label="Offset X" filter={filter}>
+                <StudioRow
+                  label="Offset X"
+                  value={s.highlightOffsetX}
+                  min={-100}
+                  max={100}
+                  unit="px"
+                  def={DEFAULTS.highlightOffsetX}
+                  onChange={(v) => set('highlightOffsetX', v)}
+                />
+              </Row>
+              <Row label="Offset Y" filter={filter}>
+                <StudioRow
+                  label="Offset Y"
+                  value={s.highlightOffsetY}
+                  min={-50}
+                  max={50}
+                  unit="px"
+                  def={DEFAULTS.highlightOffsetY}
+                  onChange={(v) => set('highlightOffsetY', v)}
+                />
               </Row>
             </>
           )}
