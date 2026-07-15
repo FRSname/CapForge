@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'vitest'
-import { buildStudioGroups, mergeGroups, splitGroup, moveWord, reorderGroup } from './groups'
+import {
+  buildStudioGroups,
+  fillGroupGaps,
+  mergeGroups,
+  splitGroup,
+  moveWord,
+  reorderGroup,
+} from './groups'
 import type { Segment, Word } from '../types/app'
 
 // ── Fixtures ─────────────────────────────────────────────────────
@@ -118,6 +125,62 @@ describe('buildStudioGroups', () => {
   test('assigns stable ids per segment + word offset', () => {
     const groups = buildStudioGroups([makeSegment('a'), makeSegment('b', 10)], 3)
     expect(groups.map(g => g.id)).toEqual(['a:0', 'a:3', 'b:0', 'b:3'])
+  })
+})
+
+// ── fillGroupGaps ──────────────────────────────────────────────────
+
+describe('fillGroupGaps', () => {
+  test('stretches a group\'s end to the next group\'s start when there is a gap', () => {
+    const groups: Segment[] = [
+      { id: 'a', start: 0, end: 1, text: 'a', words: [word('a', 0, 1)] },
+      { id: 'b', start: 3, end: 4, text: 'b', words: [word('b', 3, 4)] },
+    ]
+    const filled = fillGroupGaps(groups)
+    expect(filled[0].end).toBe(3)
+    expect(filled[1].end).toBe(4)
+    expect(filled[0].start).toBe(0)
+    expect(filled[1].start).toBe(3)
+  })
+
+  test('leaves abutting groups (no gap) untouched', () => {
+    const groups: Segment[] = [
+      { id: 'a', start: 0, end: 1, text: 'a', words: [word('a', 0, 1)] },
+      { id: 'b', start: 1, end: 2, text: 'b', words: [word('b', 1, 2)] },
+    ]
+    const filled = fillGroupGaps(groups)
+    expect(filled[0].end).toBe(1)
+    expect(filled[1].end).toBe(2)
+  })
+
+  test('never shrinks an end for overlapping/out-of-order groups', () => {
+    const groups: Segment[] = [
+      { id: 'a', start: 0, end: 5, text: 'a', words: [word('a', 0, 5)] },
+      { id: 'b', start: 3, end: 6, text: 'b', words: [word('b', 3, 6)] },
+    ]
+    const filled = fillGroupGaps(groups)
+    expect(filled[0].end).toBe(5)
+    expect(filled[1].end).toBe(6)
+  })
+
+  test('leaves the last group unchanged', () => {
+    const groups = buildStudioGroups([makeSegment('s1')], 3)
+    const filled = fillGroupGaps(groups)
+    expect(filled[filled.length - 1]).toEqual(groups[groups.length - 1])
+  })
+
+  test('does not mutate the input array or its group objects', () => {
+    const groups: Segment[] = [
+      { id: 'a', start: 0, end: 1, text: 'a', words: [word('a', 0, 1)] },
+      { id: 'b', start: 3, end: 4, text: 'b', words: [word('b', 3, 4)] },
+    ]
+    const before = JSON.parse(JSON.stringify(groups))
+    fillGroupGaps(groups)
+    expect(groups).toEqual(before)
+  })
+
+  test('returns an empty array for an empty input', () => {
+    expect(fillGroupGaps([])).toEqual([])
   })
 })
 

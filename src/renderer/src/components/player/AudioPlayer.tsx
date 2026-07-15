@@ -29,6 +29,13 @@ export interface AudioPlayerHandle {
 interface AudioPlayerProps {
   audioPath: string
   segments: Segment[]
+  /**
+   * Groups fed to the subtitle preview overlay only. Distinct from `segments`
+   * so a preview-only derived view (e.g. Fill gaps' stretched ends) never
+   * reaches the timeline, which must keep editing against true word-bounded
+   * times. Defaults to `segments` when the caller has no derived view to apply.
+   */
+  overlaySegments?: Segment[]
   settings: StudioSettings
   resolution?: [number, number]
   onTimeUpdate?: (time: number) => void
@@ -53,6 +60,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   {
     audioPath,
     segments,
+    overlaySegments = segments,
     settings,
     resolution = [1920, 1080],
     onTimeUpdate,
@@ -100,7 +108,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   const { draw: overlayDraw } = useSubtitleOverlay({
     canvasRef: overlayRef,
     anchorRef: previewAreaRef as React.RefObject<HTMLElement>,
-    segments,
+    segments: overlaySegments,
     settings,
     resolution,
   })
@@ -219,7 +227,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
       timelineDraw(0)
       overlayDraw(0)
     }
-  }, [ready, segments, overlayDraw, timelineDraw])
+  }, [ready, segments, overlaySegments, overlayDraw, timelineDraw])
 
   // Reset waveform zoom once when media first becomes ready (separate from segment changes)
   useEffect(() => {
@@ -233,7 +241,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     // currentTime is intentionally excluded — it ticks on every playback frame, and
     // including it here would re-run this structural redraw on every tick instead of
     // only when segments/duration/settings actually change.
-  }, [segments, duration, settings, overlayDraw, timelineDraw]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [segments, overlaySegments, duration, settings, overlayDraw, timelineDraw]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Video zoom (video-area zoom, independent of timeline zoom) ──
   const vz = useVideoZoom()
