@@ -31,6 +31,7 @@ export interface WordOverrides {
 }
 
 export type WordTransition =
+  | 'none'
   | 'instant'
   | 'crossfade'
   | 'highlight'
@@ -38,6 +39,7 @@ export type WordTransition =
   | 'bounce'
   | 'scale'
   | 'karaoke'
+  | 'reveal'
 
 /**
  * Per-group caption position override — fractions of output resolution (0–1),

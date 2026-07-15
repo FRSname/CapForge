@@ -49,6 +49,7 @@ interface WordStylePopupProps {
 // Vanilla's word-level transitions.
 const TRANSITIONS: Array<[WordTransition | '', string]> = [
   ['', '— Global —'],
+  ['none', 'None (static)'],
   ['instant', 'Instant'],
   ['crossfade', 'Crossfade'],
   ['highlight', 'Highlight'],
@@ -56,6 +57,7 @@ const TRANSITIONS: Array<[WordTransition | '', string]> = [
   ['bounce', 'Bounce'],
   ['scale', 'Scale Up'],
   ['karaoke', 'Karaoke'],
+  ['reveal', 'Reveal'],
 ]
 
 // Popup dimensions used for viewport clamping (approximate).
