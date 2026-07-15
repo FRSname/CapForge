@@ -39,7 +39,6 @@ const GOLDEN_DEFAULT_CONFIG = {
   text_align_v: 'middle',
 
   words_per_group: 3,
-  fill_gaps: false,
   caption_style: 'classic',
   lines: 1,
   max_width: 0.9,

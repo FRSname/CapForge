@@ -62,7 +62,6 @@ const ROUND_TRIP_KEYS: (keyof StudioSettings)[] = [
   'shadowOffsetX',
   'shadowOffsetY',
   'safeZone',
-  'fillGaps',
 ]
 
 const RENDER_KEYS = [
@@ -130,7 +129,6 @@ describe('studioToVanilla → vanillaToStudio round-trip', () => {
       shadowOffsetX: -2,
       shadowOffsetY: 5,
       safeZone: 'tiktok',
-      fillGaps: true,
       // Render settings — the round-trip must NOT carry these.
       resolution: [808, 1440],
       resolutionIsSource: true,

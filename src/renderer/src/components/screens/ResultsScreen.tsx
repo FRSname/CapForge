@@ -63,14 +63,6 @@ export function ResultsScreen({
   const [groups, setGroups] = useState<Segment[]>(() =>
     buildStudioGroups(result.segments, settings.wordsPerGroup)
   )
-  // Fill gaps: preview-only derived view that stretches each group's end to
-  // the next group's start. Feeds ONLY the preview overlay (AudioPlayer's
-  // `overlaySegments`) — never studioGroups state, the Groups editor, the
-  // timeline, project save, or the custom_groups render payload.
-  const displayGroups = useMemo(
-    () => (settings.fillGaps ? fillGroupGaps(groups) : groups),
-    [groups, settings.fillGaps]
-  )
   // True once the user manually merges/splits/reorders groups — flag is sent
   // to the backend so renderSubtitleVideo uses `custom_groups` instead of
   // re-chunking from the stored transcription.
@@ -209,6 +201,15 @@ export function ResultsScreen({
     setGroups(next)
     setGroupsEdited(true)
   }, [])
+
+  // "Fill gaps" — bake the gap-fill stretch into the editable groups so each
+  // caption persists until the next group starts. One-shot + undoable; the
+  // user then shortens individual group ends (in GroupEditor) to carve out
+  // deliberate gaps where subtitles should disappear.
+  const handleFillGaps = useCallback(() => {
+    pushUndo()
+    handleGroupsChange(fillGroupGaps(groups))
+  }, [groups, handleGroupsChange, pushUndo])
 
   // Position-only updates (per-group position override) — deliberately do NOT
   // flip groupsEdited: boundaries are untouched, so re-grouping must keep
@@ -594,7 +595,21 @@ export function ResultsScreen({
           >
             Groups
           </TabButton>
-          <span className="text-2xs ml-auto" style={{ color: 'var(--color-text-3)' }}>
+          {view === 'groups' && (
+            <button
+              className="text-2xs ml-auto px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              style={{ color: 'var(--color-text-2)' }}
+              onClick={handleFillGaps}
+              disabled={groups.length < 2}
+              title="Stretch every caption to the start of the next group so subtitles persist through silence. You can then shorten individual group end times to create deliberate gaps."
+            >
+              Fill gaps
+            </button>
+          )}
+          <span
+            className={`text-2xs ${view === 'groups' ? 'ml-2' : 'ml-auto'}`}
+            style={{ color: 'var(--color-text-3)' }}
+          >
             {view === 'text'
               ? `${segments.length} segment${segments.length === 1 ? '' : 's'}`
               : `${groups.length} group${groups.length === 1 ? '' : 's'}`}
@@ -627,6 +642,7 @@ export function ResultsScreen({
             onBeforeEdit={pushUndo}
             defaults={wordStyleDefaults}
             positionDefaults={{ posX: settings.posX, posY: settings.posY }}
+            mediaDuration={result.duration}
           />
         )}
       </div>
@@ -643,7 +659,7 @@ export function ResultsScreen({
           ref={playerRef}
           audioPath={result.audioPath}
           segments={groups}
-          overlaySegments={displayGroups}
+          overlaySegments={groups}
           settings={settings}
           resolution={settings.resolution}
           onTimeUpdate={handleTimeUpdate}

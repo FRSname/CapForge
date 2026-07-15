@@ -339,14 +339,15 @@ def test_group_entry_ease_parity(source_video):
     assert notable < NOTABLE_FRAC_MAX, f"slide mid-entry: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
 
 
-def _gap_groups() -> list[dict]:
+def _gap_groups(held: bool = False) -> list[dict]:
     """Two groups with a real 1s silence gap between them: group 1's words end
-    at 1.0, group 2's words start at 2.0. With `fill_gaps=True`, group 1's
-    outer `end` stretches to 2.0 (group 2's start) so a sample at t=1.5 —
-    inside the former gap — still shows group 1's caption. Without the flag,
-    the same t falls in the real gap and both renderers must show nothing."""
+    at 1.0, group 2's words start at 2.0. When ``held`` is True, group 1's
+    outer ``end`` is baked to 2.0 (group 2's start) — the "Fill gaps" button /
+    editable end-time result — so a sample at t=1.5, inside the former gap,
+    still shows group 1's caption. With the natural end (1.0), the same t falls
+    in the real gap and both renderers must show nothing."""
     return [
-        {"text": "Hello brave", "start": 0.0, "end": 1.0, "words": [
+        {"text": "Hello brave", "start": 0.0, "end": 2.0 if held else 1.0, "words": [
             {"word": "Hello", "start": 0.0, "end": 0.5},
             {"word": "brave", "start": 0.5, "end": 1.0},
         ]},
@@ -358,34 +359,34 @@ def _gap_groups() -> list[dict]:
 
 
 @_run
-def test_fill_gaps_parity(source_video):
-    """`fill_gaps` stretches group 1's end (1.0) to group 2's start (2.0) so
-    its caption persists through the silence gap instead of disappearing.
-    Sampled at t=1.5 — inside the former gap — both renderers must still show
-    group 1's "Hello brave" text on screen."""
+def test_baked_gap_end_parity(source_video):
+    """A group whose end is baked/extended to the next group's start (the
+    "Fill gaps" button / editable end-time result) persists its caption through
+    the silence gap instead of disappearing. Sampled at t=1.5 — inside the
+    former gap — both renderers must still show group 1's "Hello brave" text."""
     pillow_png, hf_png = _render_both(
-        _result(), _config(word_transition="instant", fill_gaps=True), source_video,
-        custom_groups=_gap_groups(), t=1.5,
+        _result(), _config(word_transition="instant"), source_video,
+        custom_groups=_gap_groups(held=True), t=1.5,
     )
     assert _content_mask(Image.open(io.BytesIO(pillow_png)).convert("RGB")).getbbox() is not None, (
-        "fill_gaps: pillow frame at t=1.5 has no caption content"
+        "baked gap end: pillow frame at t=1.5 has no caption content"
     )
     mean, notable = _diff(pillow_png, hf_png)
-    assert mean < MEAN_MAX, f"fill_gaps: mean diff {mean:.2f} >= {MEAN_MAX}"
-    assert notable < NOTABLE_FRAC_MAX, f"fill_gaps: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    assert mean < MEAN_MAX, f"baked gap end: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, f"baked gap end: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
 
-    # Sanity counterpart: fill_gaps defaults to False, so the same t (still
-    # inside the REAL gap) must render an EMPTY caption in both renderers.
-    # This guards the diff assertion above against a false positive where
-    # both renderers simply ignore fill_gaps (which would also "agree").
+    # Sanity counterpart: with the NATURAL end (1.0), the same t is still inside
+    # the REAL gap and must render an EMPTY caption in both renderers. This
+    # guards the diff assertion above against a false positive where both
+    # renderers simply show nothing (which would also "agree").
     pillow_empty, hf_empty = _render_both(
-        _result(), _config(word_transition="instant", fill_gaps=False), source_video,
-        custom_groups=_gap_groups(), t=1.5,
+        _result(), _config(word_transition="instant"), source_video,
+        custom_groups=_gap_groups(held=False), t=1.5,
     )
     for label, png in (("pillow", pillow_empty), ("hyperframes", hf_empty)):
         img = Image.open(io.BytesIO(png)).convert("RGB")
         assert _content_mask(img).getbbox() is None, (
-            f"fill_gaps=False: {label} frame at t=1.5 unexpectedly shows caption content"
+            f"natural gap end: {label} frame at t=1.5 unexpectedly shows caption content"
         )
 
 

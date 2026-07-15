@@ -115,11 +115,6 @@ INTENTIONALLY_ABSENT: dict[str, str] = {
         "Grouping is applied UPSTREAM (segments → N-word display groups) before "
         "markup; it shapes CAP_GROUPS / the DOM spans, not the CAP_CFG style."
     ),
-    "fill_gaps": (
-        "Applied UPSTREAM to group selection (fill_group_gaps() stretches group "
-        "end times before the groups are handed to the HTML/Pillow renderers); it "
-        "shapes CAP_GROUPS' start/end values, not the CAP_CFG style payload."
-    ),
     "caption_style": (
         "Selects the render PATH (classic Pillow-parity HTML vs a HyperFrames "
         "registry caption-style). When this HTML caption layer runs it is already "

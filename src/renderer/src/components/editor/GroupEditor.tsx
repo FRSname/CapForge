@@ -35,6 +35,9 @@ interface GroupEditorProps {
   defaults: WordStyleDefaults
   /** Global caption position (percent) — seeds the group position popup. */
   positionDefaults: GroupPositionDefaults
+  /** Source media duration (seconds) — upper bound when extending the last
+   *  group's end (which has no "next group" to clamp against). */
+  mediaDuration?: number
 }
 
 type DragSource =
@@ -56,6 +59,7 @@ export function GroupEditor({
   onBeforeEdit,
   defaults,
   positionDefaults,
+  mediaDuration,
 }: GroupEditorProps) {
   const { toast } = useToast()
 
@@ -68,6 +72,11 @@ export function GroupEditor({
   // Speaker inline-edit state
   const [editingSpeakerIdx, setEditingSpeakerIdx] = useState<number | null>(null)
   const [speakerDraft, setSpeakerDraft] = useState('')
+
+  // Per-group end-time inline-edit state. Editing a group's end shortens the
+  // caption (creating a deliberate gap) or extends it up to the next group.
+  const [editingEndIdx, setEditingEndIdx] = useState<number | null>(null)
+  const [endDraft, setEndDraft] = useState('')
 
   // ── Actions ──────────────────────────────────────────────────
   const handleMerge = useCallback(
@@ -140,6 +149,42 @@ export function GroupEditor({
       setEditingSpeakerIdx(null)
     },
     [groups, speakerDraft, onChange, onBeforeEdit]
+  )
+
+  // ── End-time editing ──────────────────────────────────────────
+  // Natural end = the group's last word's end (the shortest sensible end, where
+  // the caption disappears right after the last word). The editable range is
+  // [naturalEnd, nextGroup.start] — pull to the min for a maximal gap, push to
+  // the max to hold the caption until the next group. The last group has no
+  // next start, so it can extend up to the media duration.
+  const naturalEnd = useCallback(
+    (g: Segment) => (g.words.length ? Math.max(...g.words.map((w) => w.end)) : g.end),
+    []
+  )
+
+  const startEndEdit = useCallback(
+    (gi: number) => {
+      setEditingEndIdx(gi)
+      setEndDraft(formatTime(groups[gi]?.end ?? 0))
+    },
+    [groups]
+  )
+
+  const commitEndEdit = useCallback(
+    (gi: number) => {
+      setEditingEndIdx(null)
+      const parsed = parseTime(endDraft)
+      const g = groups[gi]
+      if (parsed == null || !g) return
+      const min = naturalEnd(g)
+      const max = groups[gi + 1] ? groups[gi + 1].start : (mediaDuration ?? g.end)
+      if (max <= min) return // degenerate (overlap) — leave the end untouched
+      const end = Math.min(max, Math.max(min, parsed))
+      if (end === g.end) return
+      onBeforeEdit?.()
+      onChange(groups.map((x, i) => (i === gi ? { ...x, end } : x)))
+    },
+    [groups, endDraft, naturalEnd, mediaDuration, onChange, onBeforeEdit]
   )
 
   // ── Word-style overrides ──────────────────────────────────────
@@ -367,18 +412,60 @@ export function GroupEditor({
                 #{gi + 1}
               </span>
 
-              {/* Time (click = seek) */}
-              <button
-                className="text-2xs shrink-0 tabular-nums hover:text-[var(--color-accent)] transition-colors pt-0.5 font-mono"
-                style={{ color: 'var(--color-text-2)' }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onSeek(group.start)
-                }}
-                title="Seek to group start"
-              >
-                {formatTime(group.start)}→{formatTime(group.end)}
-              </button>
+              {/* Time — start seeks; end is click-to-edit (shorten to create a
+                  gap, or extend up to the next group). Accent = held/extended. */}
+              <span className="text-2xs shrink-0 tabular-nums pt-0.5 font-mono inline-flex items-center gap-0.5">
+                <button
+                  className="hover:text-[var(--color-accent)] transition-colors"
+                  style={{ color: 'var(--color-text-2)' }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onSeek(group.start)
+                  }}
+                  title="Seek to group start"
+                >
+                  {formatTime(group.start)}
+                </button>
+                <span style={{ color: 'var(--color-text-3)' }}>→</span>
+                {editingEndIdx === gi ? (
+                  <input
+                    className="w-14 px-1 rounded bg-[var(--color-surface-3)] border border-[var(--color-accent)] outline-none font-mono text-2xs tabular-nums"
+                    style={{ color: 'var(--color-text)' }}
+                    value={endDraft}
+                    autoFocus
+                    onChange={(e) => setEndDraft(e.target.value)}
+                    onBlur={() => commitEndEdit(gi)}
+                    onClick={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        commitEndEdit(gi)
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault()
+                        setEditingEndIdx(null)
+                      }
+                    }}
+                  />
+                ) : (
+                  <button
+                    className="hover:text-[var(--color-accent)] transition-colors"
+                    style={{
+                      color:
+                        group.end !== naturalEnd(group)
+                          ? 'var(--color-accent)'
+                          : 'var(--color-text-2)',
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      startEndEdit(gi)
+                    }}
+                    title="Click to edit this caption's end time — shorten to create a gap where subtitles disappear, or extend up to the next group"
+                  >
+                    {formatTime(group.end)}
+                  </button>
+                )}
+              </span>
 
               {/* Position-override indicator — click to edit */}
               {group.positionOverride && (
@@ -558,4 +645,12 @@ function formatTime(s: number): string {
   const m = Math.floor(s / 60)
   const sec = (s % 60).toFixed(1).padStart(4, '0')
   return `${m}:${sec}`
+}
+
+// Inverse of formatTime — "m:ss.s" or plain seconds → seconds. null if unparseable.
+function parseTime(s: string): number | null {
+  const m = s.trim().match(/^(?:(\d+):)?(\d+(?:\.\d+)?)$/)
+  if (!m) return null
+  const mins = m[1] ? parseInt(m[1], 10) : 0
+  return mins * 60 + parseFloat(m[2])
 }

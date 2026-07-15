@@ -46,7 +46,7 @@ export const CARD_SETTINGS: Record<CardId, Array<keyof StudioSettings>> = {
     'shadowOffsetX',
     'shadowOffsetY',
   ],
-  layout: ['wordsPerGroup', 'fillGaps', 'lines', 'posX', 'posY', 'maxWidth'],
+  layout: ['wordsPerGroup', 'lines', 'posX', 'posY', 'maxWidth'],
   background: [
     'bgOpacity',
     'bgRadius',
