@@ -122,6 +122,9 @@ SCENARIOS: dict[str, tuple[dict, list[str], float]] = {
     "plain_steady": ({}, GROUP_WORDS, 2.25),
     # Highlight pill on the 2nd word (word 2 spans 1.5-2.0 → t=1.75).
     "highlight_word2": ({"word_transition": "highlight"}, GROUP_WORDS, 1.75),
+    # Static "none" mode: all words in base text_color, no active-word treatment.
+    # Same t as highlight_word2 so the two goldens are directly comparable.
+    "none_static": ({"word_transition": "none"}, GROUP_WORDS, 1.75),
     # Background box with rounded corners + opacity.
     "bg_box": ({"bg_opacity": 0.85, "bg_corner_radius": 18}, GROUP_WORDS, 2.25),
     # Drop shadow on (blur + offset path).
