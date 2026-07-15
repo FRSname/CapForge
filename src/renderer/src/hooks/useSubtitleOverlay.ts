@@ -500,6 +500,10 @@ export function useSubtitleOverlay({
               drawW(m.word, x, wy)
             }
             break
+          case 'none':
+            ctx.fillStyle = wTextColor
+            drawW(m.word, x, wy)
+            break
           default: // instant
             ctx.fillStyle = isActive ? wActiveColor : wTextColor
             drawW(m.word, x, wy)

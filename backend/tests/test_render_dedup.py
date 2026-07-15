@@ -231,6 +231,32 @@ def test_key_distinguishes_active_word_and_group() -> None:
     assert k1 != k_other_group
 
 
+def test_key_is_stable_across_words_when_transition_is_none() -> None:
+    """word_transition="none" ignores active/past/future entirely (all words draw
+    in the base text colour), so the key must stay identical across the whole
+    group regardless of which word is active — this is what lets the group
+    collapse to one cached frame instead of re-keying at every word boundary.
+    """
+    config = make_config(animation="none", word_transition="none")
+    group = build_group(["one", "two", "three"], start=1.0, word_dur=0.5)
+    k_word1 = _frame_state_key(0, group, 1.25, config)   # word 1 active
+    k_word2 = _frame_state_key(0, group, 1.75, config)   # word 2 active
+    assert k_word1 is not None
+    assert k_word1 == k_word2
+
+
+def test_key_still_varies_by_active_word_when_transition_is_instant() -> None:
+    """Guard against the fix above over-broadening: "instant" (and other
+    active-word-aware transitions) must still re-key when the active word
+    changes.
+    """
+    config = make_config(animation="none", word_transition="instant")
+    group = build_group(["one", "two", "three"], start=1.0, word_dur=0.5)
+    k_word1 = _frame_state_key(0, group, 1.25, config)   # word 1 active
+    k_word2 = _frame_state_key(0, group, 1.75, config)   # word 2 active
+    assert k_word1 != k_word2
+
+
 def test_per_word_transition_override_is_respected() -> None:
     """A word overriding its transition to bounce must be uncacheable while active."""
     config = make_config(animation="none", word_transition="instant")

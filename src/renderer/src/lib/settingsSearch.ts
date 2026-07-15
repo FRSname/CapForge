@@ -186,6 +186,8 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
       'scale',
       'reveal',
       'crossfade',
+      'none',
+      'static',
       'word animation',
     ],
   },

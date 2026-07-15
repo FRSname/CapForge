@@ -157,6 +157,7 @@ def _render_both(result, config, source_video, custom_groups=None, t=T) -> tuple
 @_run
 @pytest.mark.parametrize("mode", [
     "instant", "crossfade", "highlight", "underline", "bounce", "scale", "karaoke", "reveal",
+    "none",
 ])
 def test_word_transition_parity(mode, source_video):
     pillow_png, hf_png = _render_both(_result(), _config(word_transition=mode), source_video)

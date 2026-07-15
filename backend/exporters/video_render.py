@@ -526,6 +526,8 @@ def _draw_word_list(
                     x += effective_space_w
                 continue
             color = w_active_color if is_active else w_text_color
+        elif w_word_trans == "none":
+            color = w_text_color
         else:  # instant
             color = w_active_color if is_active else w_text_color
 
@@ -957,6 +959,11 @@ def _frame_state_key(
     # This captures everything the steady-state draw reads from t:
     # is_active (instant/highlight/underline/scale colour + pill position),
     # is_past (karaoke), "already started" (reveal), crossfade plateau value.
+    # A word whose effective transition is "none" always draws in the base
+    # text colour regardless of A/P/F, so it gets a constant state char ("N")
+    # instead — this lets an all-"none" group collapse to a single cached
+    # frame for its whole visible span instead of re-keying at every word
+    # boundary.
     states: list[str] = []
     first_active = -1
     for i, w in enumerate(group["words"]):
@@ -980,7 +987,10 @@ def _frame_state_key(
                 return None
             if w["end"] - _CROSSFADE_DUR < t < w["end"]:
                 return None
-        states.append("A" if is_active else ("P" if t >= w["end"] else "F"))
+        if w_trans == "none":
+            states.append("N")
+        else:
+            states.append("A" if is_active else ("P" if t >= w["end"] else "F"))
 
     # --- sliding highlight pill: eases during the first 40% of the word ---
     # (t_ease = 1-(1-clamp(raw_t*2.5))^2 saturates exactly at raw_t >= 0.4).

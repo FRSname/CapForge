@@ -756,6 +756,7 @@ export function StudioPanel({
                 value={s.wordStyle}
                 onChange={(e) => set('wordStyle', e.target.value)}
               >
+                <option value="none">None (static)</option>
                 <option value="instant">Instant</option>
                 <option value="crossfade">Crossfade</option>
                 <option value="highlight">Highlight</option>
