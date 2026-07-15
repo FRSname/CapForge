@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { TranscriptionResult, Segment } from '../../types/app'
-import { buildStudioGroups } from '../../lib/groups'
+import { buildStudioGroups, fillGroupGaps } from '../../lib/groups'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
 import { useUndoRedo } from '../../hooks/useUndoRedo'
@@ -62,6 +62,14 @@ export function ResultsScreen({
   // source segments or wpg change, matching vanilla's behaviour.
   const [groups, setGroups] = useState<Segment[]>(() =>
     buildStudioGroups(result.segments, settings.wordsPerGroup)
+  )
+  // Fill gaps: preview-only derived view that stretches each group's end to
+  // the next group's start. Feeds ONLY the preview overlay (AudioPlayer's
+  // `overlaySegments`) — never studioGroups state, the Groups editor, the
+  // timeline, project save, or the custom_groups render payload.
+  const displayGroups = useMemo(
+    () => (settings.fillGaps ? fillGroupGaps(groups) : groups),
+    [groups, settings.fillGaps]
   )
   // True once the user manually merges/splits/reorders groups — flag is sent
   // to the backend so renderSubtitleVideo uses `custom_groups` instead of
@@ -635,6 +643,7 @@ export function ResultsScreen({
           ref={playerRef}
           audioPath={result.audioPath}
           segments={groups}
+          overlaySegments={displayGroups}
           settings={settings}
           resolution={settings.resolution}
           onTimeUpdate={handleTimeUpdate}

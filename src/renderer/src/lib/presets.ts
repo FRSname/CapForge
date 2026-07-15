@@ -85,6 +85,7 @@ export interface VanillaPreset {
   customFontPath?: string
   /** Preview-only safe-zone guide ('off' | 'tiktok' | 'reels' | 'shorts'). */
   safeZone?: string
+  fillGaps?: boolean
 }
 
 const num = (v: string | number | undefined, fallback: number): number => {
@@ -173,6 +174,8 @@ export function vanillaToStudio(p: VanillaPreset): Partial<StudioSettings> {
   if (p.shadowOffsetY != null)
     out.shadowOffsetY = num(p.shadowOffsetY, STUDIO_DEFAULTS.shadowOffsetY)
 
+  if (p.fillGaps != null) out.fillGaps = Boolean(p.fillGaps)
+
   // Render/export keys (resolution/fps/format/renderMode/bitrate) are
   // deliberately NOT read — see the VanillaPreset doc comment.
 
@@ -245,6 +248,7 @@ export function studioToVanilla(s: StudioSettings): VanillaPreset {
     shadowOffsetX: String(s.shadowOffsetX),
     shadowOffsetY: String(s.shadowOffsetY),
     safeZone: s.safeZone,
+    fillGaps: s.fillGaps,
   }
 }
 

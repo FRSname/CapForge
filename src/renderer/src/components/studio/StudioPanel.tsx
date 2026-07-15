@@ -55,6 +55,11 @@ export interface StudioSettings {
    */
   safeZone: 'off' | 'tiktok' | 'reels' | 'shorts'
   wordsPerGroup: number
+  /** Stretch each group's end to the next group's start so captions persist
+   *  through silence gaps. Preview-only derived view; never baked into
+   *  studioGroups state, the Groups editor, the timeline, project save, or
+   *  the custom_groups render payload — see lib/groups.ts fillGroupGaps(). */
+  fillGaps: boolean
   /** 'classic' = CapForge's built-in caption track; else a HyperFrames registry
    *  caption-style name (HyperFrames render path only). */
   captionStyle: string
@@ -147,6 +152,7 @@ const DEFAULTS: StudioSettings = {
   maxWidth: 90,
   safeZone: 'off',
   wordsPerGroup: 3,
+  fillGaps: false,
   captionStyle: 'classic',
   lines: 1,
   bgOpacity: 0,
@@ -518,6 +524,25 @@ export function StudioPanel({
               def={DEFAULTS.wordsPerGroup}
               onChange={(v) => set('wordsPerGroup', v)}
             />
+          </Row>
+          <Row label="Fill gaps" filter={filter}>
+            <div className="flex items-center gap-1.5 min-w-0">
+              <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
+                Fill gaps
+              </span>
+              <label
+                className="flex items-center gap-1.5 text-xs cursor-pointer"
+                style={{ color: 'var(--color-text-2)' }}
+              >
+                <input
+                  type="checkbox"
+                  checked={s.fillGaps}
+                  onChange={(e) => set('fillGaps', e.target.checked)}
+                  className="accent-[var(--color-accent)]"
+                />
+                {s.fillGaps ? 'On' : 'Off'}
+              </label>
+            </div>
           </Row>
           <Row label="Lines" filter={filter}>
             <StudioRow

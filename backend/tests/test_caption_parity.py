@@ -106,15 +106,19 @@ def _config(**over) -> VideoRenderConfig:
     return VideoRenderConfig(**base)
 
 
-def _content_bbox(img: Image.Image) -> tuple[int, int, int, int]:
-    """Bounding box of pixels that differ notably from the frame's flat
+def _content_mask(img: Image.Image) -> Image.Image:
+    """1-bit mask of pixels that differ notably from the frame's flat
     background (sampled at the top-left corner — every fixture composites over
     a solid-colour video). Threshold 24 on the max-channel diff sits far above
     codec noise (~±5) but well inside any real caption pixel."""
     bg = Image.new("RGB", img.size, img.getpixel((0, 0)))
     r, g, b = ImageChops.difference(img, bg).split()
-    mask = ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 24 else 0)
-    bbox = mask.getbbox()
+    return ImageChops.lighter(ImageChops.lighter(r, g), b).point(lambda v: 255 if v > 24 else 0)
+
+
+def _content_bbox(img: Image.Image) -> tuple[int, int, int, int]:
+    """Bounding box of `_content_mask`'s notable-diff pixels."""
+    bbox = _content_mask(img).getbbox()
     assert bbox is not None, "no caption content found against the background"
     return bbox
 
@@ -333,6 +337,56 @@ def test_group_entry_ease_parity(source_video):
     mean, notable = _diff(pillow_png, hf_png)
     assert mean < MEAN_MAX, f"slide mid-entry: mean diff {mean:.2f} >= {MEAN_MAX}"
     assert notable < NOTABLE_FRAC_MAX, f"slide mid-entry: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+
+
+def _gap_groups() -> list[dict]:
+    """Two groups with a real 1s silence gap between them: group 1's words end
+    at 1.0, group 2's words start at 2.0. With `fill_gaps=True`, group 1's
+    outer `end` stretches to 2.0 (group 2's start) so a sample at t=1.5 —
+    inside the former gap — still shows group 1's caption. Without the flag,
+    the same t falls in the real gap and both renderers must show nothing."""
+    return [
+        {"text": "Hello brave", "start": 0.0, "end": 1.0, "words": [
+            {"word": "Hello", "start": 0.0, "end": 0.5},
+            {"word": "brave", "start": 0.5, "end": 1.0},
+        ]},
+        {"text": "world today", "start": 2.0, "end": 3.0, "words": [
+            {"word": "world", "start": 2.0, "end": 2.5},
+            {"word": "today", "start": 2.5, "end": 3.0},
+        ]},
+    ]
+
+
+@_run
+def test_fill_gaps_parity(source_video):
+    """`fill_gaps` stretches group 1's end (1.0) to group 2's start (2.0) so
+    its caption persists through the silence gap instead of disappearing.
+    Sampled at t=1.5 — inside the former gap — both renderers must still show
+    group 1's "Hello brave" text on screen."""
+    pillow_png, hf_png = _render_both(
+        _result(), _config(word_transition="instant", fill_gaps=True), source_video,
+        custom_groups=_gap_groups(), t=1.5,
+    )
+    assert _content_mask(Image.open(io.BytesIO(pillow_png)).convert("RGB")).getbbox() is not None, (
+        "fill_gaps: pillow frame at t=1.5 has no caption content"
+    )
+    mean, notable = _diff(pillow_png, hf_png)
+    assert mean < MEAN_MAX, f"fill_gaps: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, f"fill_gaps: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+
+    # Sanity counterpart: fill_gaps defaults to False, so the same t (still
+    # inside the REAL gap) must render an EMPTY caption in both renderers.
+    # This guards the diff assertion above against a false positive where
+    # both renderers simply ignore fill_gaps (which would also "agree").
+    pillow_empty, hf_empty = _render_both(
+        _result(), _config(word_transition="instant", fill_gaps=False), source_video,
+        custom_groups=_gap_groups(), t=1.5,
+    )
+    for label, png in (("pillow", pillow_empty), ("hyperframes", hf_empty)):
+        img = Image.open(io.BytesIO(png)).convert("RGB")
+        assert _content_mask(img).getbbox() is None, (
+            f"fill_gaps=False: {label} frame at t=1.5 unexpectedly shows caption content"
+        )
 
 
 @_run

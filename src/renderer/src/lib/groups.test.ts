@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'vitest'
-import { buildStudioGroups, mergeGroups, splitGroup, moveWord, reorderGroup } from './groups'
+import {
+  buildStudioGroups,
+  fillGroupGaps,
+  mergeGroups,
+  splitGroup,
+  moveWord,
+  reorderGroup,
+} from './groups'
 import type { Segment, Word } from '../types/app'
 
 // ── Fixtures ─────────────────────────────────────────────────────
@@ -20,7 +27,7 @@ const makeSegment = (id: string, base = 0, speaker?: string): Segment => {
     id,
     start: words[0].start,
     end: words[words.length - 1].end,
-    text: words.map(w => w.word).join(' '),
+    text: words.map((w) => w.word).join(' '),
     words,
     speaker,
   }
@@ -76,7 +83,7 @@ describe('buildStudioGroups', () => {
     const seg = makeSegment('s1')
     for (const wpg of [1, 2, 3, 4, 5, 6, 7]) {
       const groups = buildStudioGroups([seg], wpg)
-      const flat = groups.flatMap(g => g.words.map(w => w.word))
+      const flat = groups.flatMap((g) => g.words.map((w) => w.word))
       expect(flat).toEqual(['the', 'quick', 'brown', 'fox', 'jumps', 'over'])
     }
   })
@@ -107,17 +114,73 @@ describe('buildStudioGroups', () => {
     }
     const groups = buildStudioGroups([seg], 2)
     expect(groups[0].text).toBe('hello world')
-    expect(groups[0].words.map(w => w.word)).toEqual(['hello', 'world'])
+    expect(groups[0].words.map((w) => w.word)).toEqual(['hello', 'world'])
   })
 
   test('carries the segment speaker onto every derived group', () => {
     const groups = buildStudioGroups([makeSegment('s1', 0, 'SPEAKER_00')], 2)
-    expect(groups.every(g => g.speaker === 'SPEAKER_00')).toBe(true)
+    expect(groups.every((g) => g.speaker === 'SPEAKER_00')).toBe(true)
   })
 
   test('assigns stable ids per segment + word offset', () => {
     const groups = buildStudioGroups([makeSegment('a'), makeSegment('b', 10)], 3)
-    expect(groups.map(g => g.id)).toEqual(['a:0', 'a:3', 'b:0', 'b:3'])
+    expect(groups.map((g) => g.id)).toEqual(['a:0', 'a:3', 'b:0', 'b:3'])
+  })
+})
+
+// ── fillGroupGaps ──────────────────────────────────────────────────
+
+describe('fillGroupGaps', () => {
+  test("stretches a group's end to the next group's start when there is a gap", () => {
+    const groups: Segment[] = [
+      { id: 'a', start: 0, end: 1, text: 'a', words: [word('a', 0, 1)] },
+      { id: 'b', start: 3, end: 4, text: 'b', words: [word('b', 3, 4)] },
+    ]
+    const filled = fillGroupGaps(groups)
+    expect(filled[0].end).toBe(3)
+    expect(filled[1].end).toBe(4)
+    expect(filled[0].start).toBe(0)
+    expect(filled[1].start).toBe(3)
+  })
+
+  test('leaves abutting groups (no gap) untouched', () => {
+    const groups: Segment[] = [
+      { id: 'a', start: 0, end: 1, text: 'a', words: [word('a', 0, 1)] },
+      { id: 'b', start: 1, end: 2, text: 'b', words: [word('b', 1, 2)] },
+    ]
+    const filled = fillGroupGaps(groups)
+    expect(filled[0].end).toBe(1)
+    expect(filled[1].end).toBe(2)
+  })
+
+  test('never shrinks an end for overlapping/out-of-order groups', () => {
+    const groups: Segment[] = [
+      { id: 'a', start: 0, end: 5, text: 'a', words: [word('a', 0, 5)] },
+      { id: 'b', start: 3, end: 6, text: 'b', words: [word('b', 3, 6)] },
+    ]
+    const filled = fillGroupGaps(groups)
+    expect(filled[0].end).toBe(5)
+    expect(filled[1].end).toBe(6)
+  })
+
+  test('leaves the last group unchanged', () => {
+    const groups = buildStudioGroups([makeSegment('s1')], 3)
+    const filled = fillGroupGaps(groups)
+    expect(filled[filled.length - 1]).toEqual(groups[groups.length - 1])
+  })
+
+  test('does not mutate the input array or its group objects', () => {
+    const groups: Segment[] = [
+      { id: 'a', start: 0, end: 1, text: 'a', words: [word('a', 0, 1)] },
+      { id: 'b', start: 3, end: 4, text: 'b', words: [word('b', 3, 4)] },
+    ]
+    const before = JSON.parse(JSON.stringify(groups))
+    fillGroupGaps(groups)
+    expect(groups).toEqual(before)
+  })
+
+  test('returns an empty array for an empty input', () => {
+    expect(fillGroupGaps([])).toEqual([])
   })
 })
 
@@ -218,8 +281,11 @@ describe('moveWord', () => {
 // ── reorderGroup ─────────────────────────────────────────────────
 
 describe('reorderGroup', () => {
-  const groups = buildStudioGroups([makeSegment('a'), makeSegment('b', 10), makeSegment('c', 20)], 6)
-  const ids = (gs: Segment[]) => gs.map(g => g.id)
+  const groups = buildStudioGroups(
+    [makeSegment('a'), makeSegment('b', 10), makeSegment('c', 20)],
+    6
+  )
+  const ids = (gs: Segment[]) => gs.map((g) => g.id)
 
   test('moves a group before the target index', () => {
     expect(ids(reorderGroup(groups, 2, 0))).toEqual(['c:0', 'a:0', 'b:0'])
