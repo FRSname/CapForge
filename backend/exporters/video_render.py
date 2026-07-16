@@ -1296,6 +1296,8 @@ def _render_overlay(
             output_path,
         ]
     else:
+        # ProRes 4444 convention is premultiplied alpha (Premiere/FCP un-premultiply
+        # on import); WebM stays straight (VP9 convention).
         ffmpeg_cmd = [
             ffmpeg_path, "-y",
             "-f", "rawvideo",
@@ -1303,6 +1305,7 @@ def _render_overlay(
             "-s", f"{config.resolution_w}x{config.resolution_h}",
             "-r", str(config.fps),
             "-i", "pipe:0",
+            "-vf", "premultiply=inplace=1",
             "-c:v", "prores_ks",
             "-profile:v", "4444",
             "-pix_fmt", "yuva444p10le",
