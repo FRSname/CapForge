@@ -14,6 +14,7 @@ import { useTimeline, TIMELINE_HEIGHT, TIMELINE_HEIGHT_EXPANDED } from '../../ho
 import { useSubtitleOverlay } from '../../hooks/useSubtitleOverlay'
 import { useVideoZoom } from '../../hooks/useVideoZoom'
 import { SafeZoneOverlay } from './SafeZoneOverlay'
+import { VolumeControl } from './VolumeControl'
 import type { Segment } from '../../types/app'
 import type { StudioSettings } from '../studio/StudioPanel'
 
@@ -126,9 +127,11 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     playing,
     currentTime,
     duration,
+    volume,
     ready,
     playPause,
     seekTo: wsSeekTo,
+    setVolume,
     wsRef,
   } = useWaveSurfer({
     containerRef: waveformRef as React.RefObject<HTMLElement>,
@@ -478,6 +481,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
         <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-muted)' }}>
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
+        <VolumeControl volume={volume} onVolumeChange={setVolume} />
       </div>
     </div>
   )

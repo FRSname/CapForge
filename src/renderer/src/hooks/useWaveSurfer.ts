@@ -14,9 +14,11 @@ export interface WaveSurferControls {
   playing: boolean
   currentTime: number
   duration: number
+  volume: number
   ready: boolean
   playPause: () => void
   seekTo: (time: number) => void
+  setVolume: (volume: number) => void
   destroy: () => void
   wsRef: React.RefObject<WaveSurfer | null>
 }
@@ -45,7 +47,9 @@ export function useWaveSurfer({
   const [playing, setPlaying]         = useState(false)
   const [currentTime, setCurrentTime] = useState(0)
   const [duration, setDuration]       = useState(0)
+  const [volume, setVolumeState]      = useState(1)
   const [ready, setReady]             = useState(false)
+  const volumeRef = useRef(1)
 
   // Stable callback refs — prevents WaveSurfer event listeners from becoming stale
   const onTimeUpdateRef = useRef(onTimeUpdate)
@@ -80,6 +84,7 @@ export function useWaveSurfer({
     })
 
     wsRef.current = ws
+    ws.setVolume(volumeRef.current)
 
     ws.on('play',  () => setPlaying(true))
     ws.on('pause', () => setPlaying(false))
@@ -121,10 +126,28 @@ export function useWaveSurfer({
     if (d > 0) ws.seekTo(Math.max(0, Math.min(1, time / d)))
   }, [])
 
+  const setVolume = useCallback((nextVolume: number) => {
+    const clampedVolume = Math.max(0, Math.min(1, nextVolume))
+    volumeRef.current = clampedVolume
+    setVolumeState(clampedVolume)
+    wsRef.current?.setVolume(clampedVolume)
+  }, [])
+
   const destroy = useCallback(() => {
     wsRef.current?.destroy()
     wsRef.current = null
   }, [])
 
-  return { playing, currentTime, duration, ready, playPause, seekTo, destroy, wsRef }
+  return {
+    playing,
+    currentTime,
+    duration,
+    volume,
+    ready,
+    playPause,
+    seekTo,
+    setVolume,
+    destroy,
+    wsRef,
+  }
 }
