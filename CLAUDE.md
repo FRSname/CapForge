@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 CapForge is a desktop subtitle editor: Electron 33 shell → React 19 renderer → Python FastAPI backend. The backend runs WhisperX for transcription and Pillow/FFmpeg for video rendering. Electron spawns the Python process on startup; the renderer talks to it over REST + WebSocket on `127.0.0.1:53421`.
 
+## Git Operations
+
+Delegate all git **write** work — `commit`, `merge`, `push`, `branch`, `rebase`, conflict resolution — to the `git-ops` subagent (`Agent(subagent_type: "git-ops", …)`). It follows conventional-commit format, never commits/pushes directly to the default branch (branches first), and confirms before the first push. The read-only `scout` agent must never be used for git writes. Read-only git inspection (`status`, `diff`, `log`) can be run inline or by `scout`.
+
 ## Build & Dev Commands
 
 ```bash
