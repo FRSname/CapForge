@@ -541,7 +541,7 @@ When both `srt_word` and `srt_standard` are exported, filenames get `_word.srt` 
 ### Prerequisites
 
 - **Python 3.11** (or 3.10) for the dev backend
-- **Node.js 18+** with npm
+- **Node.js 22.12+** with npm
 - **NVIDIA GPU** with CUDA 12.4-compatible driver (≥ 550), or CPU fallback
 
 ### Setup
@@ -591,6 +591,11 @@ npm run dist:dir        →  unpacked debug build
 ## Packaging & Distribution
 
 CapForge ships as a single NSIS installer (`CapForge-Setup-<version>.exe`) built with electron-builder. The installer itself is ~155 MB; on first launch a setup wizard downloads the Python package set and Whisper model to `%APPDATA%\CapForge\`.
+
+Windows builds require electron-builder 26.9.0 or newer. Earlier assisted,
+per-user NSIS templates can execute their Windows 7 `System.dll` compatibility
+path on Windows 11 and crash with `0xc0000005` before showing the installer.
+The newer template guards that path with `${IfNot} ${AtLeastWin8}`.
 
 ### Build artifacts
 
@@ -813,7 +818,7 @@ Codecs verified in use: `libx264`, `libvpx-vp9`, `prores_ks`, `aac`.
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.0.0",
     "electron": "^33.0.0",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.11.1",
     "electron-vite": "^5.0.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",

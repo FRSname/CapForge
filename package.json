@@ -9,6 +9,9 @@
     "email": "noreply@frscz.local"
   },
   "license": "MIT",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
@@ -34,7 +37,7 @@
     "@vitejs/plugin-react": "^5.0.0",
     "dotenv": "^17.4.2",
     "electron": "^33.0.0",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.11.1",
     "electron-vite": "^5.0.0",
     "eslint": "^10.4.1",
     "eslint-config-prettier": "^10.1.8",
