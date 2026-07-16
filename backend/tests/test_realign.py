@@ -27,11 +27,14 @@ def _install_fake_whisperx() -> types.ModuleType:
 
 FAKE_WX = _install_fake_whisperx()
 
-from backend.engine.transcriber import Transcriber  # noqa: E402
+import backend.engine.transcriber as transcriber_module  # noqa: E402
+from backend.engine.transcriber import ALIGNMENT_MODELS, Transcriber  # noqa: E402
 from backend.models.schemas import (  # noqa: E402
     JobStatus,
     ProgressUpdate,
     Segment,
+    SystemInfo,
+    TranscribeRequest,
     TranscriptionResult,
     WordSegment,
 )
@@ -224,6 +227,109 @@ def test_align_model_cached_per_language(monkeypatch, audio_file):
     t.unload_model()
     t.realign_segments([seg], audio_file, "de")
     assert loads == ["en", "de", "de"]  # unload cleared the cache
+
+
+def test_lithuanian_selects_configured_alignment_model(monkeypatch):
+    calls: list[dict] = []
+
+    def fake_load(**kwargs):
+        calls.append(kwargs)
+        return "MODEL", {}
+
+    monkeypatch.setattr(FAKE_WX, "load_align_model", fake_load)
+    Transcriber._load_alignment_model("lt", "cpu")
+
+    assert calls == [{
+        "language_code": "lt",
+        "device": "cpu",
+        "model_name": ALIGNMENT_MODELS["lt"],
+    }]
+
+
+def test_english_uses_whisperx_default_alignment_model(monkeypatch):
+    calls: list[dict] = []
+
+    def fake_load(**kwargs):
+        calls.append(kwargs)
+        return "MODEL", {}
+
+    monkeypatch.setattr(FAKE_WX, "load_align_model", fake_load)
+    Transcriber._load_alignment_model("en", "cpu")
+
+    assert calls == [{"language_code": "en", "device": "cpu"}]
+
+
+def test_alignment_load_failure_preserves_transcription_with_approximate_words(
+    monkeypatch, audio_file
+):
+    class FakeWhisperModel:
+        def transcribe(self, audio, **kwargs):
+            return {
+                "language": "lt",
+                "segments": [
+                    {"start": 1.0, "end": 3.0, "text": "Labas rytas"},
+                ],
+            }
+
+    def fail_load(**kwargs):
+        raise RuntimeError("aligner download failed")
+
+    monkeypatch.setattr(FAKE_WX, "load_align_model", fail_load)
+    monkeypatch.setattr(
+        transcriber_module, "detect_hardware", lambda: SystemInfo()
+    )
+    transcriber = Transcriber()
+    transcriber._model = FakeWhisperModel()
+    monkeypatch.setattr(transcriber, "_load_model", lambda *args, **kwargs: None)
+    progress: list[ProgressUpdate] = []
+
+    result = transcriber.transcribe(
+        TranscribeRequest(audio_path=audio_file, language="lt"),
+        on_progress=progress.append,
+    )
+
+    assert result.language == "lt"
+    assert [segment.text for segment in result.segments] == ["Labas rytas"]
+    assert [word.word for word in result.segments[0].words] == ["Labas", "rytas"]
+    assert result.segments[0].words[0].start == pytest.approx(1.0)
+    assert result.segments[0].words[0].end == pytest.approx(2.0)
+    assert result.segments[0].words[1].end == pytest.approx(3.0)
+    assert any(
+        "approximate word timings" in update.message for update in progress
+    )
+
+
+def test_realign_lithuanian_uses_configured_alignment_model(
+    monkeypatch, audio_file
+):
+    calls: list[dict] = []
+
+    def fake_load(**kwargs):
+        calls.append(kwargs)
+        return "LT_MODEL", {"language": "lt"}
+
+    monkeypatch.setattr(FAKE_WX, "load_align_model", fake_load)
+    monkeypatch.setattr(
+        FAKE_WX,
+        "align",
+        lambda *args, **kwargs: {
+            "segments": [{
+                "words": [{"word": "Labas", "start": 0.0, "end": 1.0}]
+            }]
+        },
+    )
+
+    transcriber = Transcriber()
+    transcriber._device = "cpu"
+    transcriber.realign_segments(
+        [Segment(start=0.0, end=1.0, text="Labas")], audio_file, "lt"
+    )
+
+    assert calls == [{
+        "language_code": "lt",
+        "device": "cpu",
+        "model_name": ALIGNMENT_MODELS["lt"],
+    }]
 
 
 # --- POST /api/realign endpoint ---

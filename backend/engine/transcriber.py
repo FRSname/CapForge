@@ -31,6 +31,13 @@ logger = logging.getLogger(__name__)
 # can't silently swap the model.
 DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
 
+# WhisperX does not provide defaults for every language. Keep CapForge's
+# additions in one place so transcription and edited-caption realignment use
+# exactly the same model selection.
+ALIGNMENT_MODELS: dict[str, str] = {
+    "lt": "m3hrdadfi/wav2vec2-large-xlsr-lithuanian",
+}
+
 # Callback type for progress reporting
 ProgressCallback = Optional[Callable[[ProgressUpdate], Any]]
 
@@ -100,20 +107,28 @@ class Transcriber:
         # --- Step 3: Align ---
         self._check_cancelled()
         self._report(on_progress, JobStatus.ALIGNING, 55, "Loading alignment model…")
-        model_a, metadata = whisperx.load_align_model(
-            language_code=detected_language, device=device
-        )
-        self._report(on_progress, JobStatus.ALIGNING, 60, "Aligning words…")
-        result = whisperx.align(
-            result["segments"], model_a, metadata, audio, device,
-            return_char_alignments=False,
-        )
-        self._report(on_progress, JobStatus.ALIGNING, 75, "Word alignment complete")
-
-        # Free alignment model
-        del model_a
-        gc.collect()
-        self._try_cuda_empty_cache()
+        model_a = None
+        try:
+            model_a, metadata = self._load_alignment_model(detected_language, device)
+            self._report(on_progress, JobStatus.ALIGNING, 60, "Aligning words…")
+            result = whisperx.align(
+                result["segments"], model_a, metadata, audio, device,
+                return_char_alignments=False,
+            )
+            self._report(on_progress, JobStatus.ALIGNING, 75, "Word alignment complete")
+        except Exception as exc:
+            warning = (
+                f"Forced alignment unavailable for language {detected_language!r}: "
+                f"{exc}. Preserving the transcription with approximate word timings."
+            )
+            logger.warning(warning, exc_info=True)
+            self._report(on_progress, JobStatus.ALIGNING, 75, f"Warning: {warning}")
+            result = self._add_approximate_word_timings(result)
+        finally:
+            if model_a is not None:
+                del model_a
+                gc.collect()
+                self._try_cuda_empty_cache()
 
         # --- Step 4: Diarize (optional) ---
         self._check_cancelled()
@@ -173,9 +188,19 @@ class Transcriber:
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
         device = self._device or detect_hardware().recommended_device.value
-        self._load_align_model(language, device)
-        audio = whisperx.load_audio(audio_path)
-        return [self._realign_one(seg, audio, device) for seg in segments]
+        try:
+            self._load_align_model(language, device)
+            audio = whisperx.load_audio(audio_path)
+            return [self._realign_one(seg, audio, device) for seg in segments]
+        except Exception as exc:
+            logger.warning(
+                "Forced alignment unavailable for language %r during caption "
+                "realignment: %s. Returning approximate word timings.",
+                language,
+                exc,
+                exc_info=True,
+            )
+            return [self._approximate_segment_words(seg) for seg in segments]
 
     def _realign_one(self, seg: Segment, audio: Any, device: str) -> Segment:
         text = seg.text.strip()
@@ -265,7 +290,8 @@ class Transcriber:
         self._model_size = model_size
 
     def _load_align_model(self, language: str, device: str) -> None:
-        if self._align_model is not None and self._align_lang == language:
+        normalized_language = language.lower()
+        if self._align_model is not None and self._align_lang == normalized_language:
             return
         if self._align_model is not None:
             del self._align_model
@@ -274,12 +300,58 @@ class Transcriber:
             self._align_lang = None
             gc.collect()
             self._try_cuda_empty_cache()
-        model_a, metadata = whisperx.load_align_model(
-            language_code=language, device=device
-        )
+        model_a, metadata = self._load_alignment_model(normalized_language, device)
         self._align_model = model_a
         self._align_metadata = metadata
-        self._align_lang = language
+        self._align_lang = normalized_language
+
+    @staticmethod
+    def _load_alignment_model(language: Optional[str], device: str) -> tuple[Any, dict]:
+        """Load CapForge's configured aligner or defer to WhisperX's default."""
+        normalized_language = language.lower() if language else language
+        kwargs: dict[str, Any] = {
+            "language_code": normalized_language,
+            "device": device,
+        }
+        model_name = ALIGNMENT_MODELS.get(normalized_language or "")
+        if model_name:
+            kwargs["model_name"] = model_name
+        return whisperx.load_align_model(**kwargs)
+
+    @classmethod
+    def _add_approximate_word_timings(cls, raw: dict) -> dict:
+        """Copy a Whisper result and add evenly distributed word timings."""
+        result = dict(raw)
+        result["segments"] = []
+        for raw_segment in raw.get("segments", []):
+            segment = dict(raw_segment)
+            start = float(segment.get("start", 0.0))
+            end = float(segment.get("end", start))
+            words = cls._fill_word_timings(
+                [{"word": word} for word in segment.get("text", "").split()],
+                start,
+                end,
+            )
+            segment["words"] = [word.model_dump(exclude_none=True) for word in words]
+            result["segments"].append(segment)
+        return result
+
+    @classmethod
+    def _approximate_segment_words(cls, seg: Segment) -> Segment:
+        """Return an edited segment with evenly distributed word timings."""
+        text = seg.text.strip()
+        if not text or seg.end <= seg.start:
+            return seg
+        words = cls._fill_word_timings(
+            [{"word": word} for word in text.split()], seg.start, seg.end
+        )
+        return Segment(
+            start=seg.start,
+            end=seg.end,
+            text=seg.text,
+            words=words,
+            speaker=seg.speaker,
+        )
 
     @staticmethod
     def _fill_word_timings(
