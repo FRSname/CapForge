@@ -7,10 +7,14 @@
  * regardless of how many times <FontPicker> mounts.
  */
 
+import { api } from './api'
+
+export type FontSource = 'system' | 'bundled' | 'custom'
+
 export interface FontInfo {
-  name:     string
-  path:     string
-  bundled?: boolean
+  name: string
+  path: string
+  source: FontSource
 }
 
 // Track which (name|path) we've already registered so re-mounts are no-ops.
@@ -59,21 +63,49 @@ export async function registerFontFromBuffer(name: string, data: ArrayBuffer): P
 }
 
 /**
- * Load bundled fonts + user fonts, register them all, and return the combined
- * list. Used on <FontPicker> mount. Order: bundled first, then user fonts.
+ * Merge font sources by family name. A user font wins over a bundled face,
+ * which wins over the name-only system entry, so selecting a duplicate always
+ * uses the most explicit local file.
+ */
+export function mergeFontCatalogs(
+  systemNames: string[],
+  bundled: Array<{ name: string; path: string }>,
+  custom: Array<{ name: string; path: string }>
+): FontInfo[] {
+  const byName = new Map<string, FontInfo>()
+  for (const name of systemNames) {
+    const trimmed = name.trim()
+    if (trimmed)
+      byName.set(trimmed.toLocaleLowerCase(), { name: trimmed, path: '', source: 'system' })
+  }
+  for (const font of bundled) {
+    byName.set(font.name.toLocaleLowerCase(), { ...font, source: 'bundled' })
+  }
+  for (const font of custom) {
+    byName.set(font.name.toLocaleLowerCase(), { ...font, source: 'custom' })
+  }
+  return [...byName.values()].sort((a, b) => a.name.localeCompare(b.name))
+}
+
+/**
+ * Load installed, bundled, and user fonts. Only bundled/user files need
+ * FontFace registration; Chromium already knows how to render system fonts.
  */
 export async function loadAllFonts(): Promise<FontInfo[]> {
-  const [bundled, custom] = await Promise.all([
+  const [system, bundled, custom] = await Promise.all([
+    api.getSystemFonts().catch((error) => {
+      console.warn('[fonts] Could not load installed fonts:', error)
+      return []
+    }),
     window.subforge.listBundledFonts().catch(() => []),
     window.subforge.listFonts().catch(() => []),
   ])
-  const all: FontInfo[] = [
-    ...bundled.map(f => ({ ...f, bundled: true  })),
-    ...custom.map( f => ({ ...f, bundled: false })),
-  ]
+  const all = mergeFontCatalogs(system, bundled, custom)
   // Fire registrations in parallel; don't block returning the list on font I/O.
   // A canvas draw that happens before a font resolves just renders in the
   // fallback face — the next draw after registration completes will use it.
-  for (const f of all) void registerFont(f.name, f.path)
+  for (const font of all) {
+    if (font.source !== 'system' && font.path) void registerFont(font.name, font.path)
+  }
   return all
 }

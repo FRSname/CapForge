@@ -109,6 +109,23 @@ def test_serve_audio_accepts_agent_token(client, source_audio):
     assert res.status_code == 200
 
 
+# ── Auth: installed font catalog ────────────────────────────────────────────
+
+def test_system_fonts_without_token_is_401(client):
+    res = client.get("/api/fonts/system")
+    assert res.status_code == 401
+
+
+def test_system_fonts_with_valid_token_is_200(client, main_module, monkeypatch):
+    monkeypatch.setattr(main_module, "list_system_font_families", lambda: ["Arial", "Inter"])
+    res = client.get(
+        "/api/fonts/system",
+        headers={"X-CapForge-Local-Token": "test-local-token-abc"},
+    )
+    assert res.status_code == 200
+    assert res.json() == {"fonts": ["Arial", "Inter"]}
+
+
 # ── Path allowlist: serve-audio ──────────────────────────────────────────────
 
 def test_serve_audio_rejects_path_outside_allowlist(client, tmp_path):

@@ -39,6 +39,7 @@ from backend.agent_bridge import (
 from backend.engine.errors import explain
 from backend.engine.hardware import detect_hardware
 from backend.engine.moments import find_semantic_moments, find_transcript_moments
+from backend.engine.system_fonts import list_system_font_families
 from backend.engine.transcriber import Transcriber, TranscriptionCancelled
 from backend.exporters.ass_export import export_ass
 from backend.exporters.frame_qa import analyze_layout, render_qa_frame_png
@@ -390,6 +391,12 @@ async def get_models():
         "available": ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"],
         "recommended": hw.recommended_model.value,
     }
+
+
+@app.get("/api/fonts/system", dependencies=[Depends(require_local_token)])
+async def get_system_fonts():
+    """Return installed font families that the local renderer can resolve."""
+    return {"fonts": await asyncio.to_thread(list_system_font_families)}
 
 
 @app.get("/api/status")

@@ -8,6 +8,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadAllFonts, registerFontFromBuffer, type FontInfo } from '../../lib/fonts'
+import { FontCombobox } from './FontCombobox'
 
 interface FontPickerProps {
   value: string
@@ -52,8 +53,11 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
         // Save failed — font still works for this session.
       }
       setFonts((prev) => {
-        if (prev.some((f) => f.name === name)) return prev
-        return [{ name, path: savedPath, bundled: false }, ...prev]
+        const normalized = name.toLocaleLowerCase()
+        return [
+          { name, path: savedPath, source: 'custom' },
+          ...prev.filter((font) => font.name.toLocaleLowerCase() !== normalized),
+        ]
       })
       onChange(name, savedPath)
     } finally {
@@ -82,39 +86,22 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
     }
   }
 
-  function handleSelectChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    const opt = fonts.find((f) => f.name === e.target.value)
-    if (opt) onChange(opt.name, opt.path)
-    else onChange('', '')
-  }
-
-  const selectedIsCustom = fonts.find((f) => f.name === value)?.bundled === false
+  const selectedIsCustom = fonts.find((f) => f.name === value)?.source === 'custom'
 
   return (
     <div className="flex items-center gap-1.5 min-w-0">
       <span className="w-[72px] shrink-0 text-xs" style={{ color: 'var(--color-text-2)' }}>
         Font
       </span>
-      <select
-        className="field-input flex-1 min-w-0 text-xs"
+      <FontCombobox
+        className="flex-1"
+        fonts={fonts}
         value={value}
-        onChange={handleSelectChange}
+        emptyLabel={loading ? 'Loading…' : 'System default'}
+        onChange={(font) => onChange(font?.name ?? '', font?.path ?? '')}
         disabled={loading || busy}
-        // Preview the currently selected font in the collapsed <select>
-        style={value ? { fontFamily: `"${value}", sans-serif` } : undefined}
-      >
-        {loading && <option>Loading…</option>}
-        {!loading && <option value="">System default</option>}
-        {fonts.map((f) => (
-          <option
-            key={`${f.name}|${f.path}`}
-            value={f.name}
-            style={{ fontFamily: `"${f.name}", sans-serif` }}
-          >
-            {f.bundled ? f.name : `${f.name} ★`}
-          </option>
-        ))}
-      </select>
+        ariaLabel="Font family"
+      />
 
       {/* Delete (only for user-added fonts, only when one is selected) */}
       {selectedIsCustom && (
