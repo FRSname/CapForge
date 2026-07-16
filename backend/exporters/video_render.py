@@ -1170,6 +1170,21 @@ class _FrameSource:
 # Video encoder
 # ---------------------------------------------------------------------------
 
+# All user-facing video encodes (overlay MP4/MOV, baked MP4 — never the
+# straight-alpha WebM branch, which is untagged by VP9/browser convention)
+# force the RGB->YUV conversion to BT.709 limited range AND tag the output
+# streams to match, so NLEs (Premiere in particular) stop guessing the
+# range/matrix and mis-rendering colors/alpha. ``scale=out_color_matrix=...``
+# must be paired with the matching output tags below, or a matrix-without-tags
+# (or tags-without-matrix) mismatch reintroduces a subtle hue/contrast shift.
+_BT709_SCALE_FILTER = "scale=out_color_matrix=bt709"
+_BT709_TAGS: list[str] = [
+    "-colorspace", "bt709",
+    "-color_primaries", "bt709",
+    "-color_trc", "bt709",
+    "-color_range", "tv",
+]
+
 
 def render_subtitle_video(
     result: TranscriptionResult,
@@ -1288,16 +1303,41 @@ def _render_overlay(
             "-s", f"{config.resolution_w}x{config.resolution_h}",
             "-r", str(config.fps),
             "-i", "pipe:0",
+            "-vf", f"{_BT709_SCALE_FILTER}:out_range=tv,format=yuv420p",
             "-c:v", "libx264",
             "-preset", "medium",
             "-b:v", config.video_bitrate,
             "-pix_fmt", "yuv420p",
+            *_BT709_TAGS,
             "-an",
             output_path,
         ]
     else:
         # ProRes 4444 convention is premultiplied alpha (Premiere/FCP un-premultiply
-        # on import); WebM stays straight (VP9 convention).
+        # on import); WebM stays straight (VP9 convention). ``premultiply`` must
+        # run first (it operates in RGBA, before any RGB<->YUV conversion); the
+        # trailing ``format=`` forces the explicit ``scale`` filter to perform
+        # the RGBA->YUVA conversion itself with the 709 matrix, instead of an
+        # auto-inserted scaler using default (unspecified) coefficients.
+        #
+        # ``-movflags write_colr``: verified empirically (both Homebrew ffmpeg
+        # 8.0.1 and the bundled resources/bin-mac/ffmpeg 8.1) that the mov
+        # muxer otherwise writes NO ``colr`` atom at all for a prores_ks
+        # stream — none of the four ``-color_*``/``-colorspace`` tags below
+        # reach the container without it, even though the pixel data itself
+        # is correctly BT.709/limited-range converted by the ``-vf`` chain
+        # above. ffmpeg's own `-h muxer=mov` flags this option "Experimental,
+        # may be renamed or changed, do not use from scripts" — it is used
+        # here anyway because omitting it leaves the ProRes overlay (the
+        # branch this whole fix targets) completely untagged, which defeats
+        # the purpose; even with it, only ``color_space`` (matrix) lands in
+        # the atom (the mov muxer only ever emits the legacy 3-field 'nclc'
+        # colr variant for ProRes, which has no range bit, and — for reasons
+        # not fully understood, reproduced across every codec tested,
+        # including ffv1/mkv and libx264/mp4 — ``color_primaries``/
+        # ``color_trc`` never propagate through this ffmpeg build's generic
+        # AVCodecContext options for ANY codec). Revisit if a future ffmpeg
+        # upgrade renames/removes the flag (build will need to re-verify).
         ffmpeg_cmd = [
             ffmpeg_path, "-y",
             "-f", "rawvideo",
@@ -1305,12 +1345,14 @@ def _render_overlay(
             "-s", f"{config.resolution_w}x{config.resolution_h}",
             "-r", str(config.fps),
             "-i", "pipe:0",
-            "-vf", "premultiply=inplace=1",
+            "-vf", f"premultiply=inplace=1,{_BT709_SCALE_FILTER}:out_range=tv,format=yuva444p10le",
             "-c:v", "prores_ks",
             "-profile:v", "4444",
+            "-movflags", "write_colr",
             "-pix_fmt", "yuva444p10le",
             "-vendor", "apl0",
             "-threads", "0",
+            *_BT709_TAGS,
             "-an",
             output_path,
         ]
@@ -1477,10 +1519,12 @@ def _render_baked(
         "-i", source_video_path,
         "-map", "0:v",
         "-map", "1:a?",
+        "-vf", f"{_BT709_SCALE_FILTER}:out_range=tv,format=yuv420p",
         "-c:v", "libx264",
         "-preset", "medium",
         "-b:v", config.video_bitrate,
         "-pix_fmt", "yuv420p",
+        *_BT709_TAGS,
         "-c:a", "aac",
         "-b:a", "192k",
         "-shortest",
