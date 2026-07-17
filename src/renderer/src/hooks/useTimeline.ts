@@ -8,6 +8,18 @@
 
 import { useCallback, useEffect, useRef } from 'react'
 import type { Segment } from '../types/app'
+import {
+  niceStep,
+  nearestSnap,
+  computePixelsPerSecond,
+  timeToPixel,
+  clientXToTime,
+  clampScrollT,
+  computeAutoPanScrollT,
+  computeZoomAtPointer,
+  computeWheelScroll,
+  clampZoom,
+} from '../lib/timelineMath'
 
 const RULER_H = 20
 const TRACK_H = 32
@@ -148,22 +160,19 @@ export function useTimeline({
       // When playing, pan so the playhead sits at ~20% from the left.
       // Triggers when playhead goes past 85% of the visible window or off-screen.
       if (isPlayingRef.current) {
-        const raw = Math.max(0, Math.min(rawScrollT, Math.max(0, duration - visibleDur)))
-        if (currentTime < raw || currentTime > raw + visibleDur * 0.85) {
-          stateRef.current.scrollT = Math.max(0, currentTime - visibleDur * 0.2)
+        const autoPanScrollT = computeAutoPanScrollT(currentTime, rawScrollT, duration, visibleDur)
+        if (autoPanScrollT !== null) {
+          stateRef.current.scrollT = autoPanScrollT
         }
       }
 
-      const scrollT = Math.max(
-        0,
-        Math.min(stateRef.current.scrollT, Math.max(0, duration - visibleDur))
-      )
+      const scrollT = clampScrollT(stateRef.current.scrollT, duration, visibleDur)
       stateRef.current.scrollT = scrollT
 
-      const pps = cssW / visibleDur
+      const pps = computePixelsPerSecond(cssW, visibleDur)
       const t0 = scrollT
       const t1 = scrollT + visibleDur
-      const tToX = (t: number) => (t - t0) * pps
+      const tToX = (t: number) => timeToPixel(t, t0, pps)
 
       // ── Background ────────────────────────────────────────────────
       ctx.fillStyle = rulerBg
@@ -386,8 +395,7 @@ export function useTimeline({
     const rect = canvas.getBoundingClientRect()
     const { zoom, scrollT } = stateRef.current
     const visibleDur = duration / zoom
-    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width))
-    return scrollT + ratio * visibleDur
+    return clientXToTime(clientX, rect.left, rect.width, scrollT, visibleDur)
   }
 
   // Phase 1: returns 'body' (instead of null) when cursor is over a segment's center.
@@ -397,7 +405,7 @@ export function useTimeline({
     const rect = canvas.getBoundingClientRect()
     const { zoom, scrollT } = stateRef.current
     const visibleDur = duration / zoom
-    const pps = rect.width / visibleDur
+    const pps = computePixelsPerSecond(rect.width, visibleDur)
 
     for (const seg of segments) {
       const startPx = (seg.start - scrollT) * pps + rect.left
@@ -432,7 +440,7 @@ export function useTimeline({
     if (!canvas || !duration) return null
     const rect = canvas.getBoundingClientRect()
     const { zoom, scrollT } = stateRef.current
-    const pps = rect.width / (duration / zoom)
+    const pps = computePixelsPerSecond(rect.width, duration / zoom)
 
     for (let i = 0; i < seg.words.length; i++) {
       const startPx = (seg.words[i].start - scrollT) * pps + rect.left
@@ -525,7 +533,7 @@ export function useTimeline({
         movedRef.current = true
 
         const rect = canvas.getBoundingClientRect()
-        const pps = rect.width / (duration / stateRef.current.zoom)
+        const pps = computePixelsPerSecond(rect.width, duration / stateRef.current.zoom)
         const dt = (e.clientX - wd.startClientX) / pps
 
         const segIdx = segments.findIndex((s) => s.id === wd.segId)
@@ -588,7 +596,7 @@ export function useTimeline({
 
       const { zoom } = stateRef.current
       const rect = canvas.getBoundingClientRect()
-      const pps = rect.width / (duration / zoom)
+      const pps = computePixelsPerSecond(rect.width, duration / zoom)
       const dt = (e.clientX - dragRef.current.startClientX) / pps
 
       const segIdx = segments.findIndex((s) => s.id === dragRef.current!.segId)
@@ -606,15 +614,7 @@ export function useTimeline({
       }
 
       function snapNearest(t: number): number {
-        let best: number | null = null
-        let bestDist = snapThresholdT
-        for (const target of snapTargets) {
-          const dist = Math.abs(t - target)
-          if (dist < bestDist) {
-            bestDist = dist
-            best = target
-          }
-        }
+        const best = nearestSnap(t, snapTargets, snapThresholdT)
         snapTargetRef.current = best
         return best !== null ? best : t
       }
@@ -695,17 +695,21 @@ export function useTimeline({
       e.preventDefault()
       const st = stateRef.current
       if (e.ctrlKey || e.metaKey) {
-        const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15
         const rect = canvas.getBoundingClientRect()
-        const ratio = (e.clientX - rect.left) / rect.width
-        const anchorT = st.scrollT + (duration / st.zoom) * ratio
-        const newZoom = Math.max(1, Math.min(200, st.zoom * factor))
-        st.zoom = newZoom
-        st.scrollT = anchorT - (duration / newZoom) * ratio
+        const { zoom, scrollT } = computeZoomAtPointer(
+          e.deltaY,
+          e.clientX,
+          rect.left,
+          rect.width,
+          duration,
+          st.zoom,
+          st.scrollT
+        )
+        st.zoom = zoom
+        st.scrollT = scrollT
         onZoomChange?.(st.zoom, st.scrollT)
       } else {
-        const step = (duration / st.zoom) * 0.1
-        st.scrollT = Math.max(0, Math.min(st.scrollT + (e.deltaY > 0 ? step : -step), duration))
+        st.scrollT = computeWheelScroll(e.deltaY, duration, st.zoom, st.scrollT)
         onScrollChange?.(st.scrollT, st.zoom)
       }
       // Redraw immediately — mutating refs alone won't trigger a re-render.
@@ -717,7 +721,7 @@ export function useTimeline({
 
   const setZoom = useCallback(
     (zoom: number) => {
-      const clamped = Math.max(1, zoom)
+      const clamped = clampZoom(zoom)
       stateRef.current.zoom = clamped
       onZoomChange?.(clamped, stateRef.current.scrollT)
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -733,15 +737,6 @@ export function useTimeline({
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
-
-function niceStep(duration: number, widthPx: number): number {
-  const steps = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600]
-  const ideal = duration / (widthPx / 80)
-  for (const s of steps) {
-    if (s >= ideal) return s
-  }
-  return steps[steps.length - 1]
-}
 
 function roundRectPath(
   ctx: CanvasRenderingContext2D,
@@ -762,18 +757,4 @@ function roundRectPath(
   ctx.lineTo(x, y + r)
   ctx.quadraticCurveTo(x, y, x + r, y)
   ctx.closePath()
-}
-
-/** Nearest target within thresholdT of t, or null when nothing is close enough. */
-function nearestSnap(t: number, targets: number[], thresholdT: number): number | null {
-  let best: number | null = null
-  let bestDist = thresholdT
-  for (const target of targets) {
-    const dist = Math.abs(t - target)
-    if (dist < bestDist) {
-      bestDist = dist
-      best = target
-    }
-  }
-  return best
 }
