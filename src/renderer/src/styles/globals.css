@@ -373,6 +373,11 @@ html, body, #root {
 }
 .field-input:focus { border-color: var(--color-accent); }
 
+/* Tailwind v4 misparses the placeholder-variant text-color arbitrary value
+   (ambiguous color vs font-size) — ::placeholder can't be styled via an
+   inline `style` prop either, so it gets a tiny dedicated utility class. */
+.placeholder-subtle::placeholder { color: var(--color-text-subtle); }
+
 select.field-input {
   cursor: pointer;
   appearance: none;

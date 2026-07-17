@@ -89,8 +89,14 @@ export function ColorSwatch({ label, value: rawValue, onChange }: ColorSwatchPro
         value={hex}
         maxLength={7}
         onChange={handleHex}
-        className="w-[68px] text-[11px] font-mono bg-transparent border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] focus:text-[var(--color-text)] outline-none transition-colors px-0.5"
+        className="w-[68px] text-[11px] font-mono bg-transparent border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] outline-none transition-colors px-0.5"
         style={{ color: 'var(--color-text-3)' }}
+        onFocus={(e) => {
+          e.currentTarget.style.color = 'var(--color-text)'
+        }}
+        onBlur={(e) => {
+          e.currentTarget.style.color = 'var(--color-text-3)'
+        }}
         placeholder="#RRGGBB"
       />
     </div>

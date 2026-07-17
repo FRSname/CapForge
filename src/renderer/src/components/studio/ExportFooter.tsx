@@ -82,8 +82,14 @@ export function ExportFooter({ audioPath, sourceVideoInfo, render, outputDir }: 
             <button
               type="button"
               onClick={() => window.subforge.showInFolder(render.lastOutputFile!)}
-              className="text-xs underline truncate text-left min-w-0 hover:text-[var(--color-text-2)]"
+              className="text-xs underline truncate text-left min-w-0"
               style={{ color: 'var(--color-text-3)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--color-text-2)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--color-text-3)'
+              }}
               title={`Reveal in file browser:\n${render.lastOutputFile}`}
             >
               Reveal {render.lastOutputFile.split(/[\\/]/).pop()}
