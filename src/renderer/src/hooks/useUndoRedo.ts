@@ -1,7 +1,6 @@
 import { useCallback, useRef, useState } from 'react'
 import type { Segment } from '../types/app'
-
-const MAX_HISTORY = 50
+import { popSnapshot, pushSnapshot } from '../lib/undoStack'
 
 type EditorState = {
   segments: Segment[]
@@ -14,9 +13,12 @@ function snapshot(state: EditorState): EditorState {
 }
 
 export function useUndoRedo(
-  segments: Segment[], setSegments: (s: Segment[]) => void,
-  groups: Segment[], setGroups: (g: Segment[]) => void,
-  groupsEdited: boolean, setGroupsEdited: (v: boolean) => void,
+  segments: Segment[],
+  setSegments: (s: Segment[]) => void,
+  groups: Segment[],
+  setGroups: (g: Segment[]) => void,
+  groupsEdited: boolean,
+  setGroupsEdited: (v: boolean) => void
 ) {
   const undoStack = useRef<EditorState[]>([])
   const redoStack = useRef<EditorState[]>([])
@@ -33,38 +35,50 @@ export function useUndoRedo(
 
   /** Push the current editor state onto the undo stack (call before an edit). */
   const pushUndo = useCallback(() => {
-    undoStack.current.push(snapshot({ segments, groups, groupsEdited }))
-    if (undoStack.current.length > MAX_HISTORY) undoStack.current.shift()
-    redoStack.current.length = 0
+    undoStack.current = pushSnapshot(
+      undoStack.current,
+      snapshot({ segments, groups, groupsEdited })
+    )
+    redoStack.current = []
     updateFlags()
   }, [segments, groups, groupsEdited, updateFlags])
 
   const undo = useCallback(() => {
     if (undoStack.current.length === 0) return
-    redoStack.current.push(snapshot({ segments, groups, groupsEdited }))
-    const prev = undoStack.current.pop()!
+    redoStack.current = pushSnapshot(
+      redoStack.current,
+      snapshot({ segments, groups, groupsEdited })
+    )
+    const { stack, popped } = popSnapshot(undoStack.current)
+    undoStack.current = stack
+    if (!popped) return
     isRestoringRef.current = true
-    setSegments(prev.segments)
-    setGroups(prev.groups)
-    setGroupsEdited(prev.groupsEdited)
+    setSegments(popped.segments)
+    setGroups(popped.groups)
+    setGroupsEdited(popped.groupsEdited)
     updateFlags()
   }, [segments, groups, groupsEdited, setSegments, setGroups, setGroupsEdited, updateFlags])
 
   const redo = useCallback(() => {
     if (redoStack.current.length === 0) return
-    undoStack.current.push(snapshot({ segments, groups, groupsEdited }))
-    const next = redoStack.current.pop()!
+    undoStack.current = pushSnapshot(
+      undoStack.current,
+      snapshot({ segments, groups, groupsEdited })
+    )
+    const { stack, popped } = popSnapshot(redoStack.current)
+    redoStack.current = stack
+    if (!popped) return
     isRestoringRef.current = true
-    setSegments(next.segments)
-    setGroups(next.groups)
-    setGroupsEdited(next.groupsEdited)
+    setSegments(popped.segments)
+    setGroups(popped.groups)
+    setGroupsEdited(popped.groupsEdited)
     updateFlags()
   }, [segments, groups, groupsEdited, setSegments, setGroups, setGroupsEdited, updateFlags])
 
   /** Clear both stacks (e.g. when segments are replaced wholesale). */
   const clear = useCallback(() => {
-    undoStack.current.length = 0
-    redoStack.current.length = 0
+    undoStack.current = []
+    redoStack.current = []
     updateFlags()
   }, [updateFlags])
 

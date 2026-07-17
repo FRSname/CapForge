@@ -12,6 +12,23 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { Segment } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import { DEFAULT_PAD_V, CROSSFADE_DUR, DEFAULT_LINE_HEIGHT } from '../lib/renderConstants'
+import {
+  quadEaseOut,
+  lerp,
+  computeAnimationPhase,
+  measureTrackedWidth,
+  computeRowLineGap,
+  splitIntoRows,
+  computeRowWidths,
+  computeBgBox,
+  computeAlignShift,
+  computeWordPositions,
+  computeWordProgress,
+  computeCrossfadeFactors,
+  computeBounceAmount,
+  hexToRgb,
+  lerpColor,
+} from '../lib/overlayGeometry'
 
 export interface OverlayOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>
@@ -114,30 +131,13 @@ export function useSubtitleOverlay({
       // ── Animation phase ─────────────────────────────────────────
       const age = currentTime - activeGroup.start
       const remaining = activeGroup.end - currentTime
-      const easeOut = (v: number) => {
-        v = Math.max(0, Math.min(1, v))
-        return 1 - (1 - v) ** 2
-      }
-      const entryT = animDur > 0 ? easeOut(age / animDur) : 1
-      const exitT = animDur > 0 ? easeOut(remaining / animDur) : 1
-      const phaseT = Math.min(entryT, exitT)
-
-      let animAlpha = 1
-      let slideOffset = 0
-      let popScale = 1
-
-      if (animation === 'fade') {
-        animAlpha = phaseT
-      }
-      if (animation === 'slide') {
-        animAlpha = phaseT
-        const slidePx = resH * 0.04
-        slideOffset = entryT < 1 ? slidePx * (1 - entryT) : slidePx * (1 - exitT) * -1
-      }
-      if (animation === 'pop') {
-        animAlpha = phaseT
-        if (entryT < 1) popScale = 0.85 + 0.15 * entryT
-      }
+      const { animAlpha, slideOffset, popScale } = computeAnimationPhase(
+        age,
+        remaining,
+        animDur,
+        animation,
+        resH
+      )
 
       // ── Font + measure ──────────────────────────────────────────
       // Use real font metrics (ascent + descent of "Ayg") instead of the EM
@@ -159,19 +159,12 @@ export function useSubtitleOverlay({
       // per-word draw below mirrors that (HyperFrames does the same).
       const gapBase = (aygMetrics.fontBoundingBoxAscent ?? ascent) - ascent
       const baseFontStr = ctx.font
-      const rowLineGap = textH * ((settings.lineHeight ?? DEFAULT_LINE_HEIGHT) - 1)
+      const rowLineGap = computeRowLineGap(textH, settings.lineHeight ?? DEFAULT_LINE_HEIGHT)
 
       const trk = settings.tracking ?? 0
 
-      const measureWord = (text: string) => {
-        if (trk === 0) return ctx.measureText(text).width
-        let w = 0
-        for (let ci = 0; ci < text.length; ci++) {
-          w += ctx.measureText(text[ci]).width
-          if (ci < text.length - 1) w += trk
-        }
-        return w
-      }
+      const measureWord = (text: string) =>
+        measureTrackedWidth(text, trk, (s) => ctx.measureText(s).width)
 
       const baseSpaceW = ctx.measureText(' ').width
       const effectiveSpaceW = baseSpaceW + 0 // word spacing control can be added here
@@ -185,52 +178,25 @@ export function useSubtitleOverlay({
       }))
 
       // Split into rows
-      const rows: (typeof wm)[] = []
       const maxW = ((settings.maxWidth ?? 90) / 100) * resW
-      if (numLines <= 1) {
-        // Greedy word-wrap: if total width exceeds maxWidth, break into rows
-        const totalW = wm.reduce((s, m, i) => s + m.width + (i > 0 ? effectiveSpaceW : 0), 0)
-        if (totalW > maxW && wm.length > 1) {
-          let row: typeof wm = []
-          let rowW = 0
-          for (const m of wm) {
-            const addW = row.length > 0 ? effectiveSpaceW + m.width : m.width
-            if (row.length > 0 && rowW + addW > maxW) {
-              rows.push(row)
-              row = [m]
-              rowW = m.width
-            } else {
-              row.push(m)
-              rowW += addW
-            }
-          }
-          if (row.length) rows.push(row)
-        } else {
-          rows.push(wm)
-        }
-      } else {
-        const perRow = Math.ceil(wm.length / numLines)
-        for (let r = 0; r < numLines; r++) {
-          const slice = wm.slice(r * perRow, (r + 1) * perRow)
-          if (slice.length) rows.push(slice)
-        }
-      }
+      const rows = splitIntoRows(wm, numLines, maxW, effectiveSpaceW)
 
-      const rowWidths = rows.map((row) => {
-        let w = 0
-        row.forEach((m, i) => {
-          w += m.width
-          if (i < row.length - 1) w += effectiveSpaceW
-        })
-        return w
-      })
+      const rowWidths = computeRowWidths(rows, effectiveSpaceW)
       const maxRowW = Math.max(...rowWidths)
 
       // Match backend: bg includes stroke padding so the box matches when stroke > 0.
       const strokePad = sStroke
-      const bgW = maxRowW + padH * 2 + strokePad * 2 + bgWidthExtra
-      const totalTextH = rows.length * textH + (rows.length - 1) * rowLineGap
-      const bgH = totalTextH + padV * 2 + strokePad * 2 + bgHeightExtra
+      const { bgW, bgH, totalTextH } = computeBgBox(
+        maxRowW,
+        padH,
+        strokePad,
+        bgWidthExtra,
+        rows.length,
+        textH,
+        rowLineGap,
+        padV,
+        bgHeightExtra
+      )
       // Per-group position override (fractions) beats the global percent setting.
       const gpo = activeGroup.positionOverride
       const effPosX = gpo?.position_x != null ? gpo.position_x * 100 : posX
@@ -244,26 +210,30 @@ export function useSubtitleOverlay({
       const alignV = settings.textAlignV ?? 'middle'
       const txOff = settings.textOffsetX ?? 0
       const tyOff = settings.textOffsetY ?? 0
-      const alignShiftX =
-        alignH === 'left' ? -bgWidthExtra / 2 : alignH === 'right' ? bgWidthExtra / 2 : 0
-      const alignShiftY =
-        alignV === 'top' ? -bgHeightExtra / 2 : alignV === 'bottom' ? bgHeightExtra / 2 : 0
+      const { alignShiftX, alignShiftY } = computeAlignShift(
+        alignH,
+        alignV,
+        bgWidthExtra,
+        bgHeightExtra
+      )
 
       // Pre-compute word positions. wordYPos is the *visual centre* of each row
       // (matches backend's center_y for that row). When we draw text we shift to
       // alphabetic baseline; pill / underline / bounce can use it directly.
-      const wordXPos: number[] = []
-      const wordYPos: number[] = []
-      rows.forEach((row, ri) => {
-        const rowY =
-          cy + alignShiftY + tyOff - totalTextH / 2 + textH / 2 + ri * (textH + rowLineGap)
-        let wx = cx + alignShiftX + txOff - rowWidths[ri] / 2
-        row.forEach((m) => {
-          wordXPos.push(wx)
-          wordYPos.push(rowY)
-          wx += m.width + effectiveSpaceW
-        })
-      })
+      const { wordXPos, wordYPos } = computeWordPositions(
+        rows,
+        rowWidths,
+        cx,
+        cy,
+        alignShiftX,
+        alignShiftY,
+        txOff,
+        tyOff,
+        totalTextH,
+        textH,
+        rowLineGap,
+        effectiveSpaceW
+      )
 
       // ── Pop scale transform ─────────────────────────────────────
       if (popScale !== 1) {
@@ -319,11 +289,11 @@ export function useSubtitleOverlay({
               const wordDur = Math.max(m.end - m.start, 0.001)
               const rawT = (currentTime - m.start) / wordDur
               // fast ease-out: most of the slide happens in first 40% of the word
-              const tEase = 1 - (1 - Math.min(Math.max(rawT * 2.5, 0), 1)) ** 2
+              const tEase = quadEaseOut(rawT * 2.5)
               const prevX = wordXPos[ai - 1]
               const prevW = wm[ai - 1].width
-              hlX = prevX + (targetX - prevX) * tEase
-              hlW = prevW + (m.width - prevW) * tEase
+              hlX = lerp(prevX, targetX, tEase)
+              hlW = lerp(prevW, m.width, tEase)
             }
             // Backend enforces min pad = stroke + 2 so the pill always clears the
             // stroke; mirror that here so the preview matches.
@@ -359,8 +329,7 @@ export function useSubtitleOverlay({
         const x = wordXPos[i] + wOffX
         const wy = wordYPos[i] + wOffY
         const isActive = m.start <= currentTime && currentTime < m.end
-        const wordDur = Math.max(m.end - m.start, 0.001)
-        const wordProg = isActive ? Math.min(Math.max((currentTime - m.start) / wordDur, 0), 1) : 0
+        const wordProg = computeWordProgress(currentTime, m.start, m.end, isActive)
 
         const wTextColor = m.overrides?.text_color ?? textColor
         const wActiveColor = m.overrides?.active_word_color ?? activeColor
@@ -442,9 +411,7 @@ export function useSubtitleOverlay({
 
         switch (wTransition) {
           case 'crossfade': {
-            const CDUR = CROSSFADE_DUR
-            const fi = Math.min(Math.max((currentTime - m.start) / CDUR, 0), 1)
-            const fo = Math.min(Math.max((m.end - currentTime) / CDUR, 0), 1)
+            const { fi, fo } = computeCrossfadeFactors(currentTime, m.start, m.end, CROSSFADE_DUR)
             ctx.fillStyle = lerpColor(hexToRgb(wTextColor), hexToRgb(wActiveColor), fi * fo)
             drawW(m.word, x, wy)
             break
@@ -466,8 +433,7 @@ export function useSubtitleOverlay({
             }
             break
           case 'bounce': {
-            const BOUNCE = textH * wBStrength
-            const bounceY = isActive ? wy - BOUNCE * Math.sin(wordProg * Math.PI) : wy
+            const bounceY = isActive ? wy - computeBounceAmount(textH, wBStrength, wordProg) : wy
             ctx.fillStyle = isActive ? wActiveColor : wTextColor
             drawW(m.word, x, bounceY)
             break
@@ -537,15 +503,6 @@ export function useSubtitleOverlay({
 }
 
 // ── Helpers ────────────────────────────────────────────────────
-
-function hexToRgb(hex: string): [number, number, number] {
-  const n = parseInt(hex.startsWith('#') ? hex.slice(1) : hex, 16)
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255]
-}
-
-function lerpColor(c1: [number, number, number], c2: [number, number, number], t: number): string {
-  return `rgb(${c1.map((v, i) => Math.round(v + (c2[i] - v) * t)).join(',')})`
-}
 
 function roundRect(
   ctx: CanvasRenderingContext2D,
