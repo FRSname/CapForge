@@ -348,8 +348,14 @@ export function GroupEditor({
             {gi > 0 && (
               <div className="flex justify-center mb-1">
                 <button
-                  className="text-2xs px-2 py-0.5 rounded hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] transition-colors"
+                  className="text-2xs px-2 py-0.5 rounded hover:bg-[var(--color-surface-3)] transition-colors"
                   style={{ color: 'var(--color-text-3)' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--color-text)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--color-text-3)'
+                  }}
                   onClick={() => handleMerge(gi - 1)}
                   title="Merge with group above (M)"
                 >
@@ -416,8 +422,14 @@ export function GroupEditor({
                   gap, or extend up to the next group). Accent = held/extended. */}
               <span className="text-2xs shrink-0 tabular-nums pt-0.5 font-mono inline-flex items-center gap-0.5">
                 <button
-                  className="hover:text-[var(--color-accent)] transition-colors"
+                  className="transition-colors"
                   style={{ color: 'var(--color-text-2)' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--color-accent)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--color-text-2)'
+                  }}
                   onClick={(e) => {
                     e.stopPropagation()
                     onSeek(group.start)
@@ -448,22 +460,15 @@ export function GroupEditor({
                     }}
                   />
                 ) : (
-                  <button
-                    className="hover:text-[var(--color-accent)] transition-colors"
-                    style={{
-                      color:
-                        group.end !== naturalEnd(group)
-                          ? 'var(--color-accent)'
-                          : 'var(--color-text-2)',
-                    }}
+                  <EndTimeButton
+                    label={formatTime(group.end)}
+                    isDirty={group.end !== naturalEnd(group)}
+                    title="Click to edit this caption's end time — shorten to create a gap where subtitles disappear, or extend up to the next group"
                     onClick={(e) => {
                       e.stopPropagation()
                       startEndEdit(gi)
                     }}
-                    title="Click to edit this caption's end time — shorten to create a gap where subtitles disappear, or extend up to the next group"
-                  >
-                    {formatTime(group.end)}
-                  </button>
+                  />
                 )}
               </span>
 
@@ -509,8 +514,14 @@ export function GroupEditor({
                 />
               ) : group.speaker ? (
                 <span
-                  className="text-2xs px-1.5 py-0.5 rounded bg-[var(--color-surface-3)] shrink-0 cursor-pointer hover:text-[var(--color-text)] transition-colors"
+                  className="text-2xs px-1.5 py-0.5 rounded bg-[var(--color-surface-3)] shrink-0 cursor-pointer transition-colors"
                   style={{ color: 'var(--color-text-2)' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--color-text)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--color-text-2)'
+                  }}
                   onClick={(e) => {
                     e.stopPropagation()
                     startSpeakerEdit(gi)
@@ -521,8 +532,14 @@ export function GroupEditor({
                 </span>
               ) : focusedIdx === gi ? (
                 <button
-                  className="text-2xs px-1 py-0.5 hover:text-[var(--color-text-2)] transition-colors shrink-0"
+                  className="text-2xs px-1 py-0.5 transition-colors shrink-0"
                   style={{ color: 'var(--color-text-3)' }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = 'var(--color-text-2)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--color-text-3)'
+                  }}
                   onClick={(e) => {
                     e.stopPropagation()
                     startSpeakerEdit(gi)
@@ -539,8 +556,14 @@ export function GroupEditor({
                   <span key={`${group.id}-${w.start}`} className="inline-flex items-center">
                     {wi > 0 && (
                       <button
-                        className="text-2xs px-1 hover:text-[var(--color-accent)] opacity-40 hover:opacity-100"
+                        className="text-2xs px-1 opacity-40 hover:opacity-100"
                         style={{ color: 'var(--color-text-3)' }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.color = 'var(--color-accent)'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.color = 'var(--color-text-3)'
+                        }}
                         onClick={(e) => {
                           e.stopPropagation()
                           handleSplit(gi, wi)
@@ -594,9 +617,15 @@ export function GroupEditor({
                   className={`text-2xs px-2 py-0.5 rounded transition-colors ${
                     group.words.length <= 1
                       ? 'opacity-40 cursor-not-allowed'
-                      : 'hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)]'
+                      : 'hover:bg-[var(--color-surface-3)]'
                   }`}
                   style={{ color: 'var(--color-text-3)' }}
+                  onMouseEnter={(e) => {
+                    if (group.words.length > 1) e.currentTarget.style.color = 'var(--color-text)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--color-text-3)'
+                  }}
                   disabled={group.words.length <= 1}
                   onClick={(e) => {
                     e.stopPropagation()
@@ -638,6 +667,36 @@ export function GroupEditor({
         />
       )}
     </div>
+  )
+}
+
+// ── EndTimeButton ────────────────────────────────────────────────
+// Extracted so `hovered` can be local `useState` — this button lives
+// inside `groups.map(...)`, and hooks can't be called in a loop callback.
+// Hover color is derived declaratively each render (not an imperative
+// `.style.color` write) so an external change to `isDirty` while hovered
+// (e.g. the group's end time is dragged on the timeline) can't be
+// silently clobbered by a stale mouseleave value.
+interface EndTimeButtonProps {
+  label: string
+  isDirty: boolean
+  title: string
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void
+}
+
+function EndTimeButton({ label, isDirty, title, onClick }: EndTimeButtonProps) {
+  const [hovered, setHovered] = useState(false)
+  return (
+    <button
+      className="transition-colors"
+      style={{ color: hovered || isDirty ? 'var(--color-accent)' : 'var(--color-text-2)' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
+      title={title}
+    >
+      {label}
+    </button>
   )
 }
 

@@ -218,7 +218,7 @@ export function SubtitleEditor({
             placeholder="Search…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full text-xs px-2.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:outline-none focus:border-[var(--color-accent)] placeholder:text-[var(--color-text-subtle)]"
+            className="placeholder-subtle w-full text-xs px-2.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:outline-none focus:border-[var(--color-accent)]"
             style={{ color: 'var(--color-text)' }}
           />
           {lowerQuery && (
@@ -232,8 +232,14 @@ export function SubtitleEditor({
         </div>
         {onAddSegment && (
           <button
-            className="shrink-0 text-xs px-2.5 py-1 rounded transition-colors border border-[var(--color-border)] hover:bg-white/[0.04] hover:text-[var(--color-text)]"
+            className="shrink-0 text-xs px-2.5 py-1 rounded transition-colors border border-[var(--color-border)] hover:bg-white/[0.04]"
             style={{ color: 'var(--color-text-muted)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--color-text)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--color-text-muted)'
+            }}
             onClick={handleAddClick}
             title="Insert a new subtitle at the current playback time"
           >
@@ -410,8 +416,14 @@ function SegmentRow({
 
       <div className="flex items-start gap-2 flex-wrap">
         <button
-          className="shrink-0 text-xs tabular-nums hover:text-[var(--color-accent)] transition-colors mt-0.5"
+          className="shrink-0 text-xs tabular-nums transition-colors mt-0.5"
           style={{ color: 'var(--color-text-muted)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = 'var(--color-accent)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = 'var(--color-text-muted)'
+          }}
           onClick={() => onSeek(seg.start)}
         >
           {formatTime(seg.start)}
@@ -544,8 +556,14 @@ function SegmentRow({
         {/* Pencil icon — hover-revealed, only in read mode */}
         {!isEditing && (
           <button
-            className="shrink-0 opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity hover:text-[var(--color-accent)] mt-0.5 p-0.5 rounded"
+            className="shrink-0 opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity mt-0.5 p-0.5 rounded"
             style={{ color: 'var(--color-text-muted)' }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.color = 'var(--color-accent)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.color = 'var(--color-text-muted)'
+            }}
             onClick={onStartEdit}
             title="Edit this subtitle"
           >
@@ -583,8 +601,14 @@ function SegmentRow({
             )}
             {!isFirst && (
               <button
-                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/[0.06] hover:text-[var(--color-text)] transition-colors"
+                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/[0.06] transition-colors"
                 style={{ color: 'var(--color-text-muted)' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--color-text)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--color-text-muted)'
+                }}
                 onClick={() => onMerge?.(segIdx, 'prev')}
                 title="Merge with segment above"
               >
@@ -593,8 +617,14 @@ function SegmentRow({
             )}
             {!isLast && (
               <button
-                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/[0.06] hover:text-[var(--color-text)] transition-colors"
+                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/[0.06] transition-colors"
                 style={{ color: 'var(--color-text-muted)' }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.color = 'var(--color-text)'
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.color = 'var(--color-text-muted)'
+                }}
                 onClick={() => onMerge?.(segIdx, 'next')}
                 title="Merge with segment below"
               >
@@ -622,8 +652,14 @@ function PlayheadButton({ title, onClick }: { title: string; onClick: () => void
   return (
     <button
       type="button"
-      className="shrink-0 p-0.5 rounded hover:text-[var(--color-accent)] hover:bg-white/[0.06] transition-colors"
+      className="shrink-0 p-0.5 rounded hover:bg-white/[0.06] transition-colors"
       style={{ color: 'var(--color-text-subtle)' }}
+      onMouseEnter={(e) => {
+        e.currentTarget.style.color = 'var(--color-accent)'
+      }}
+      onMouseLeave={(e) => {
+        e.currentTarget.style.color = 'var(--color-text-subtle)'
+      }}
       onClick={onClick}
       title={title}
     >

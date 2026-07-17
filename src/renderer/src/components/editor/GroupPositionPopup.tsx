@@ -135,8 +135,14 @@ export function GroupPositionPopup({
 
       <div className="flex gap-2 pt-1 border-t border-[var(--color-border)]">
         <button
-          className="flex-1 py-1 rounded border border-[var(--color-border)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface-2)] text-xs transition-colors"
+          className="flex-1 py-1 rounded border border-[var(--color-border)] hover:bg-[var(--color-surface-2)] text-xs transition-colors"
           style={{ color: 'var(--color-text-2)' }}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.color = 'var(--color-text)'
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.color = 'var(--color-text-2)'
+          }}
           onClick={handleClear}
         >
           Clear

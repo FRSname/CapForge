@@ -329,7 +329,7 @@ export function StudioPanel({
               if (e.key === 'Escape') setSearchQuery('')
             }}
             aria-label="Search settings"
-            className="w-full text-xs pl-2.5 pr-7 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:outline-none focus:border-[var(--color-accent)] placeholder:text-[var(--color-text-subtle)]"
+            className="placeholder-subtle w-full text-xs pl-2.5 pr-7 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)] focus:outline-none focus:border-[var(--color-accent)]"
             style={{ color: 'var(--color-text)' }}
           />
           {searchQuery && (
