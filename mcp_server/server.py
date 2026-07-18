@@ -334,14 +334,28 @@ def list_caption_styles() -> dict:
 
 @mcp.tool()
 def set_caption_style(name: str) -> dict:
-    """Set the caption look for the HyperFrames render. Updates the live UI.
+    """Set the caption look for the HyperFrames render. Updates the style dropdown
+    in the UI, but NOT the live Canvas preview panel — that always draws the
+    classic style and cannot render registry styles.
 
     `name` is 'classic' or a registry style from list_caption_styles, e.g.
     'caption-pill-karaoke'. Native styles install on the next HyperFrames
     render/Studio (needs Node 22+) and bring their own animation + grouping.
+    The style only becomes visible via `preview_hyperframes_frame`, the
+    HyperFrames Studio, or a HyperFrames render — never end a turn believing
+    something visible happened from this call alone.
     """
     _client.send_command("set_settings", {"patch": {"captionStyle": name}})
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "applied": name,
+        "visible_after": "hyperframes_preview_or_render",
+        "hint": (
+            "No change appears in the live preview panel — registry styles only "
+            "render via HyperFrames. Call preview_hyperframes_frame(t) or ask the "
+            "user to Render with HyperFrames / open the Studio."
+        ),
+    }
 
 
 # --- HyperFrames creative library ---------------------------------------
@@ -411,13 +425,25 @@ def set_custom_caption_style(html: str) -> dict:
 
     The HTML is validated immediately (transcript array, timeline, composition
     root, no banned patterns) — a clear error comes back if anything's missing.
-    Also switches the live caption style to this custom one. Render it with
-    render_hyperframes (or open the Studio) to see it. For the design vocabulary
-    behind a strong custom look, see `hyperframes_guide`.
+    Also switches the style dropdown in the UI to this custom one — but NOT the
+    live Canvas preview panel, which cannot render it. The style only becomes
+    visible via `preview_hyperframes_frame`, the HyperFrames Studio, or
+    render_hyperframes; never end a turn believing something visible happened
+    from this call alone. For the design vocabulary behind a strong custom
+    look, see `hyperframes_guide`.
     """
     result = _client.set_custom_caption(html)
     _client.send_command("set_settings", {"patch": {"captionStyle": "custom"}})
-    return {"status": "ok", **(result if isinstance(result, dict) else {})}
+    return {
+        "status": "ok",
+        "visible_after": "hyperframes_preview_or_render",
+        "hint": (
+            "No change appears in the live preview panel — custom styles only "
+            "render via HyperFrames. Call preview_hyperframes_frame(t) or ask the "
+            "user to Render with HyperFrames / open the Studio."
+        ),
+        **(result if isinstance(result, dict) else {}),
+    }
 
 
 # --- Co-author mode: free-form HyperFrames authoring in CapForge's project ---
