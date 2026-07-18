@@ -4,7 +4,9 @@ __pycache__/
 *$py.class
 *.egg-info/
 dist/
-build/
+build/*
+!build/icon.icns
+!build/icon.ico
 *.egg
 .venv/
 .venv-dev/
