@@ -76,7 +76,7 @@ Electron spawns the Python backend on startup. The renderer talks to the backend
 | Diarization | pyannote-audio, speechbrain |
 | ML Framework | PyTorch 2.6.0 + CUDA 12.4 |
 | Video Render | Pillow 11, FFmpeg 8.1 |
-| Packaging | electron-builder 25 (NSIS / DMG) |
+| Packaging | electron-builder 26 (NSIS / DMG) |
 
 ---
 
@@ -85,7 +85,7 @@ Electron spawns the Python backend on startup. The renderer talks to the backend
 ### Prerequisites
 
 - **Python 3.11** (or 3.10) for the dev backend
-- **Node.js 18+**
+- **Node.js 22.12+**
 - **NVIDIA GPU** with CUDA 12.4-compatible driver (≥ 550), or CPU fallback
 - **FFmpeg** on PATH (for video rendering in dev mode)
 
