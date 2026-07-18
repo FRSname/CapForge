@@ -300,8 +300,14 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             </div>
             <button
               type="button"
-              className="text-left text-[11px] underline hover:text-[var(--color-text)]"
+              className="text-left text-[11px] underline"
               style={{ color: 'var(--color-text-3)' }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.color = 'var(--color-text)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--color-text-3)'
+              }}
               onClick={handleClaudeCopyConfig}
             >
               Copy config manually

@@ -42,8 +42,9 @@ jobs:
         # Exporter tests only need pydantic + pillow — whisperx/torch from
         # backend/requirements.txt are not required (and far too heavy for CI).
         # Pillow is pinned so golden-frame rasterization matches the goldens
-        # generated locally (.venv-dev also has 12.2.0).
-        run: pip install pytest pydantic pillow==12.2.0
+        # generated locally (.venv-dev also has 12.2.0). fastapi + httpx are
+        # needed by the route/auth tests that use fastapi.testclient.
+        run: pip install pytest pydantic pillow==12.2.0 fastapi httpx
 
       - name: Run pytest
         run: python -m pytest

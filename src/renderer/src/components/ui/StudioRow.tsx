@@ -27,6 +27,7 @@ export function StudioRow({
 
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
+  const [hovered, setHovered] = useState(false)
 
   function startEdit() {
     setDraft(display)
@@ -76,8 +77,16 @@ export function StudioRow({
         />
       ) : (
         <span
-          className="w-10 shrink-0 text-right text-[11px] tabular-nums cursor-text hover:text-[var(--color-accent)] transition-colors"
-          style={{ color: isDirty ? 'var(--color-text)' : 'var(--color-text-3)' }}
+          className="w-10 shrink-0 text-right text-[11px] tabular-nums cursor-text transition-colors"
+          style={{
+            color: hovered
+              ? 'var(--color-accent)'
+              : isDirty
+                ? 'var(--color-text)'
+                : 'var(--color-text-3)',
+          }}
+          onMouseEnter={() => setHovered(true)}
+          onMouseLeave={() => setHovered(false)}
           onClick={startEdit}
           title="Click to type a value"
         >
