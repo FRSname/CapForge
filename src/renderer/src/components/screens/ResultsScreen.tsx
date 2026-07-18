@@ -597,8 +597,14 @@ export function ResultsScreen({
           </TabButton>
           {view === 'groups' && (
             <button
-              className="text-2xs ml-auto px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-surface-3)] hover:text-[var(--color-text)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="text-2xs ml-auto px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-surface-3)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ color: 'var(--color-text-2)' }}
+              onMouseEnter={(e) => {
+                if (groups.length >= 2) e.currentTarget.style.color = 'var(--color-text)'
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.color = 'var(--color-text-2)'
+              }}
               onClick={handleFillGaps}
               disabled={groups.length < 2}
               title="Stretch every caption to the start of the next group so subtitles persist through silence. You can then shorten individual group end times to create deliberate gaps."
@@ -687,6 +693,7 @@ interface TabButtonProps {
 }
 
 function TabButton({ id, active, onClick, onArrow, children }: TabButtonProps) {
+  const [hovered, setHovered] = useState(false)
   return (
     <button
       type="button"
@@ -696,11 +703,13 @@ function TabButton({ id, active, onClick, onArrow, children }: TabButtonProps) {
       tabIndex={active ? 0 : -1}
       className={[
         'text-xs px-3 py-1.5 rounded-t transition-colors border-b-2',
-        active
-          ? 'border-[var(--color-accent)] bg-[var(--color-surface-2)]'
-          : 'border-transparent hover:text-[var(--color-text)]',
+        active ? 'border-[var(--color-accent)] bg-[var(--color-surface-2)]' : 'border-transparent',
       ].join(' ')}
-      style={{ color: active ? 'var(--color-text)' : 'var(--color-text-3)' }}
+      style={{
+        color: active ? 'var(--color-text)' : hovered ? 'var(--color-text)' : 'var(--color-text-3)',
+      }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
       onClick={onClick}
       onKeyDown={(e) => {
         if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {

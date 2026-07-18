@@ -279,6 +279,60 @@ describe('applyPreset', () => {
   })
 })
 
+describe('vanillaToStudio — unknown-key tolerance and remaining field mappings', () => {
+  test('unrecognized top-level keys are silently ignored (no throw, no patch)', () => {
+    const patch = vanillaToStudio({ someFutureField: 'x', anotherOne: 42 } as VanillaPreset)
+    expect(patch).toEqual({})
+  })
+
+  test('unrecognized keys alongside valid ones only apply the valid ones', () => {
+    const patch = vanillaToStudio({
+      textColor: '#FFFFFF',
+      unknownField: 'ignored',
+    } as VanillaPreset)
+    expect(patch.textColor).toBe('#FFFFFF')
+    expect((patch as unknown as Record<string, unknown>).unknownField).toBeUndefined()
+  })
+
+  test('customFontPath maps to fontPath', () => {
+    expect(vanillaToStudio({ customFontPath: '/fonts/Custom.ttf' }).fontPath).toBe(
+      '/fonts/Custom.ttf'
+    )
+  })
+
+  test('shadowEnabled is coerced to a real boolean', () => {
+    expect(vanillaToStudio({ shadowEnabled: true }).shadowEnabled).toBe(true)
+    expect(vanillaToStudio({ shadowEnabled: false }).shadowEnabled).toBe(false)
+  })
+})
+
+describe('studioToVanilla — fallback behavior', () => {
+  test('falls back to "Arial" when fontName is empty', () => {
+    expect(studioToVanilla({ ...STUDIO_DEFAULTS, fontName: '' }).font).toBe('Arial')
+  })
+
+  test('preserves a non-empty fontName', () => {
+    expect(studioToVanilla({ ...STUDIO_DEFAULTS, fontName: 'Inter' }).font).toBe('Inter')
+  })
+
+  test('omits customFontPath (leaves it undefined) when fontPath is empty', () => {
+    expect(studioToVanilla({ ...STUDIO_DEFAULTS, fontPath: '' }).customFontPath).toBeUndefined()
+  })
+
+  test('writes customFontPath when fontPath is set', () => {
+    expect(studioToVanilla({ ...STUDIO_DEFAULTS, fontPath: '/fonts/A.ttf' }).customFontPath).toBe(
+      '/fonts/A.ttf'
+    )
+  })
+
+  test('numeric fields are serialized as strings', () => {
+    const vanilla = studioToVanilla({ ...STUDIO_DEFAULTS, fontSize: 72, tracking: 1.5 })
+    expect(vanilla.fontSize).toBe('72')
+    expect(typeof vanilla.fontSize).toBe('string')
+    expect(vanilla.tracking).toBe('1.5')
+  })
+})
+
 describe('BUILTIN_PRESETS hygiene', () => {
   test('every built-in key is actually consumed by vanillaToStudio (no dead keys)', () => {
     for (const preset of BUILTIN_PRESETS) {
