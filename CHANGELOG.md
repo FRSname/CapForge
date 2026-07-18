@@ -1,5 +1,46 @@
 # Changelog
 
+## CapForge v2.3.0
+
+### New Features
+
+**Effect packs**
+Reusable effects are now HyperFrames-native effect packs — plain folders (HTML + usage notes + assets) that the connected agent imports into your project workspace and wires up by hand, following each pack's own rules. Effect packs replace the previous effect-template library and the on-screen effects timeline, which have been removed: agent-authored, engine-native effects are now the single effects path.
+
+**Fill gaps, baked in**
+"Fill gaps" is now a one-click button in the Groups view that stretches each caption group to the start of the next one as a real, undoable edit — no hidden toggle state. Group end times are also directly editable per group (click the end time in the Groups list), so you control exactly how long any caption stays on screen.
+
+**Static captions**
+A new word style, "None (static)", displays captions without any per-word animation — identical in the live preview, the classic renderer, and the HyperFrames engine.
+
+**Highlight pill offset**
+New Offset X/Y controls nudge the highlight pill independently of the text, for looks where the pill sits behind or beside the word rather than exactly on it.
+
+### Fixes
+
+**Correct colors in editing software**
+All video exports except WebM (overlay MOV, overlay MP4, baked MP4) now force the color conversion to BT.709 limited range and tag the stream accordingly, so Premiere, Resolve and other NLEs stop guessing the color space. This fixes hue shifts on saturated colors and washed-out-looking imports.
+
+**Transparent overlays composite correctly**
+The ProRes 4444 overlay export now writes premultiplied alpha — the QuickTime convention — fixing semi-transparent caption backgrounds compositing incorrectly in NLEs. (If Premiere auto-detects the clip as "Straight Alpha", conform it to Premultiplied.)
+
+**Theme consistency**
+A sweep across the editor, studio panel and title bar fixes text colors that Tailwind could misparse and render incorrectly, including hover/focus states — both themes now behave consistently everywhere.
+
+**New app icon**
+The refreshed brand icon now appears everywhere: the macOS app (Dock, Finder, DMG), the Windows installer, and the in-app title bar.
+
+### Internal
+
+**Renderer formulas pinned by tests**
+The renderer test suite more than doubled (126 → 274 tests). Caption geometry, timeline math and undo logic were extracted verbatim into pure, unit-tested modules (`overlayGeometry`, `timelineMath`, `undoStack`), so the preview↔export parity formulas are now pinned on the TypeScript side too.
+
+**Size refactors, parity-verified**
+The studio settings panel was split into per-section components, and ffmpeg encode/mux logic was extracted from the frame renderer into its own module — verified byte-identical against the golden-frame suite and the full 20-scenario caption-parity run.
+
+**Reproducible release builds**
+The real macOS `.icns` and Windows `.ico` app icons are now tracked in the repository (previously they lived only on the build machine), so release builds work from a fresh clone.
+
 ## CapForge v2.0.0 — Enhanced
 
 The Enhanced release turns CapForge from a caption editor into an AI video director: a second GSAP/HTML render engine, an on-screen effects timeline, agent-authored caption looks, and a Claude agent that can place and style all of it in the running app. Everything is additive — the classic renderer and workflow are unchanged.
