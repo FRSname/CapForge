@@ -454,5 +454,28 @@ describe('CapForgeAPI', () => {
       expect(result.duration).toBe(12.5)
       expect(result.language).toBe('en')
     })
+
+    test('preserves degraded alignment state for the persistent UI notice', () => {
+      const raw: TranscriptionResult = {
+        segments: [{ id: 'wire-segment', start: 0, end: 1, text: 'Labas', words: [] }],
+        language: 'lt',
+        duration: 1,
+        audio_path: 'audio.wav',
+        alignment_degraded: true,
+      }
+
+      expect(normalizeResult(raw).alignmentDegraded).toBe(true)
+    })
+
+    test('defaults older results without the flag to precise alignment', () => {
+      const raw: TranscriptionResult = {
+        segments: [{ id: 'wire-segment', start: 0, end: 1, text: 'Labas', words: [] }],
+        language: 'lt',
+        duration: 1,
+        audio_path: 'audio.wav',
+      }
+
+      expect(normalizeResult(raw).alignmentDegraded).toBe(false)
+    })
   })
 })

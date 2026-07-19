@@ -81,6 +81,8 @@ export interface TranscriptionResult {
   language: string
   duration: number
   audioPath: string
+  /** True when any word timings were approximated instead of force-aligned. */
+  alignmentDegraded?: boolean
 }
 
 /** Progress event pushed over WebSocket from the Python backend. */

@@ -79,6 +79,7 @@ export interface TranscriptionResult {
   language: string
   duration: number
   audio_path: string
+  alignment_degraded?: boolean
 }
 
 export interface VideoInfo {
@@ -109,6 +110,7 @@ export function normalizeResult(raw: TranscriptionResult): AppTranscriptionResul
     language: raw.language,
     duration: raw.duration,
     audioPath: raw.audio_path,
+    alignmentDegraded: raw.alignment_degraded ?? false,
   }
 }
 
@@ -315,7 +317,10 @@ class CapForgeAPI {
 
   /** Re-run WhisperX forced alignment on edited segments (audio stays server-side). */
   realignSegments(segments: RealignSegmentPayload[], language?: string) {
-    return this.post<{ segments: RealignSegmentPayload[] }>('/api/realign', { segments, language })
+    return this.post<{ segments: RealignSegmentPayload[]; alignment_degraded: boolean }>(
+      '/api/realign',
+      { segments, language }
+    )
   }
 
   /** Mirror the renderer's UI state (settings + groups) so the agent can read it. */

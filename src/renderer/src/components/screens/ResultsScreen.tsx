@@ -20,6 +20,7 @@ import { useUndoRedo } from '../../hooks/useUndoRedo'
 import { useToast } from '../../hooks/useToast'
 import { api, type RealignSegmentPayload } from '../../lib/api'
 import { AudioPlayer, type AudioPlayerHandle } from '../player/AudioPlayer'
+import { AlignmentNotice } from './AlignmentNotice'
 import { SubtitleEditor } from '../editor/SubtitleEditor'
 import { GroupEditor } from '../editor/GroupEditor'
 import type { WordStyleDefaults } from '../editor/WordStylePopup'
@@ -76,6 +77,9 @@ export function ResultsScreen({
   const [editorWidth, setEditorWidth] = useState(420)
   // Segment id currently being re-aligned via /api/realign (null = idle).
   const [realigningSegId, setRealigningSegId] = useState<string | null>(null)
+  // Once any fallback timings enter the transcript, keep the warning visible:
+  // later successful realignments do not prove every other word is precise.
+  const [alignmentDegraded, setAlignmentDegraded] = useState(Boolean(result.alignmentDegraded))
 
   const playerRef = useRef<AudioPlayerHandle>(null)
   const { toast } = useToast()
@@ -324,7 +328,7 @@ export function ResultsScreen({
           suggestedName: suggestProjectName(result.audioPath),
           selectedFilePath: result.audioPath,
           outputDir: 'output',
-          transcriptionResult: { ...result, segments },
+          transcriptionResult: { ...result, segments, alignmentDegraded },
           studioSettings: settings,
           customGroupsEdited: anyEdited,
           studioGroups: anyEdited || hasPosOverrides ? groups : null,
@@ -347,6 +351,7 @@ export function ResultsScreen({
         // the user can revert. setSegmentsEdited re-publishes derived groups.
         pushUndo()
         setSegments(agentResult.segments)
+        if (agentResult.alignmentDegraded) setAlignmentDegraded(true)
         setSegmentsEdited(true)
       },
       applyWordOverrides: (edits: WordOverrideEdit[]) => {
@@ -504,7 +509,12 @@ export function ResultsScreen({
           })
         )
         setSegmentsEdited(true)
-        toast('Word timings re-aligned', 'success')
+        if (res.alignment_degraded) {
+          setAlignmentDegraded(true)
+          toast('Using approximate word timings — forced alignment is unavailable', 'info')
+        } else {
+          toast('Word timings re-aligned', 'success')
+        }
       } catch (err) {
         const detail = err instanceof Error ? err.message : 'Unknown error'
         toast(`Re-align failed: ${detail}`, 'error')
@@ -661,6 +671,7 @@ export function ResultsScreen({
 
       {/* Right area: player */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <AlignmentNotice visible={alignmentDegraded} />
         <AudioPlayer
           ref={playerRef}
           audioPath={result.audioPath}

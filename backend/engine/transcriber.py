@@ -17,6 +17,7 @@ from backend.models.schemas import (
     JobStatus,
     ModelSize,
     ProgressUpdate,
+    RealignResponse,
     Segment,
     TranscribeRequest,
     TranscriptionResult,
@@ -108,6 +109,7 @@ class Transcriber:
         self._check_cancelled()
         self._report(on_progress, JobStatus.ALIGNING, 55, "Loading alignment model…")
         model_a = None
+        alignment_degraded = False
         try:
             model_a, metadata = self._load_alignment_model(detected_language, device)
             self._report(on_progress, JobStatus.ALIGNING, 60, "Aligning words…")
@@ -117,6 +119,7 @@ class Transcriber:
             )
             self._report(on_progress, JobStatus.ALIGNING, 75, "Word alignment complete")
         except Exception as exc:
+            alignment_degraded = True
             warning = (
                 f"Forced alignment unavailable for language {detected_language!r}: "
                 f"{exc}. Preserving the transcription with approximate word timings."
@@ -152,7 +155,12 @@ class Transcriber:
 
         # --- Build result ---
         self._report(on_progress, JobStatus.DONE, 95, "Building result…")
-        transcription = self._build_result(result, detected_language, audio_path)
+        transcription = self._build_result(
+            result,
+            detected_language,
+            audio_path,
+            alignment_degraded=alignment_degraded,
+        )
         self._report(on_progress, JobStatus.DONE, 100, "Done")
         return transcription
 
@@ -176,13 +184,13 @@ class Transcriber:
 
     def realign_segments(
         self, segments: list[Segment], audio_path: str, language: str
-    ) -> list[Segment]:
+    ) -> RealignResponse:
         """Re-run WhisperX forced alignment on edited segments.
 
         Used after the user edits a segment's text so every word gets a real
         timestamp instead of one inherited from its neighbor. Returns new
-        Segment objects (1:1 with the input) and never touches the stored
-        transcription result.
+        Segment objects (1:1 with the input) plus whether approximate timings
+        had to be used, and never touches the stored transcription result.
         """
         if not Path(audio_path).is_file():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
@@ -190,8 +198,6 @@ class Transcriber:
         device = self._device or detect_hardware().recommended_device.value
         try:
             self._load_align_model(language, device)
-            audio = whisperx.load_audio(audio_path)
-            return [self._realign_one(seg, audio, device) for seg in segments]
         except Exception as exc:
             logger.warning(
                 "Forced alignment unavailable for language %r during caption "
@@ -200,12 +206,32 @@ class Transcriber:
                 exc,
                 exc_info=True,
             )
-            return [self._approximate_segment_words(seg) for seg in segments]
+            return RealignResponse(
+                segments=[self._approximate_segment_words(seg) for seg in segments],
+                alignment_degraded=True,
+            )
 
-    def _realign_one(self, seg: Segment, audio: Any, device: str) -> Segment:
+        # Only an unavailable alignment model is recoverable. Audio decoding
+        # and alignment errors are real failures and must reach the endpoint's
+        # 500 handler instead of being disguised as successful approximate data.
+        audio = whisperx.load_audio(audio_path)
+        aligned_segments: list[Segment] = []
+        alignment_degraded = False
+        for segment in segments:
+            aligned, segment_degraded = self._realign_one(segment, audio, device)
+            aligned_segments.append(aligned)
+            alignment_degraded = alignment_degraded or segment_degraded
+        return RealignResponse(
+            segments=aligned_segments,
+            alignment_degraded=alignment_degraded,
+        )
+
+    def _realign_one(
+        self, seg: Segment, audio: Any, device: str
+    ) -> tuple[Segment, bool]:
         text = seg.text.strip()
         if not text or seg.end <= seg.start:
-            return seg
+            return seg, False
 
         result = whisperx.align(
             [{"start": seg.start, "end": seg.end, "text": text}],
@@ -217,18 +243,25 @@ class Transcriber:
         raw_words: list[dict] = []
         for sub in result.get("segments", []):
             raw_words.extend(sub.get("words", []))
+        alignment_degraded = not raw_words or any(
+            word.get("start") is None or word.get("end") is None
+            for word in raw_words
+        )
         if not raw_words:
             # Alignment failed outright (e.g. no dictionary characters) —
             # distribute the words evenly across the original window.
             raw_words = [{"word": w} for w in text.split()]
 
         words = self._fill_word_timings(raw_words, seg.start, seg.end)
-        return Segment(
-            start=words[0].start if words else seg.start,
-            end=words[-1].end if words else seg.end,
-            text=seg.text,
-            words=words,
-            speaker=seg.speaker,
+        return (
+            Segment(
+                start=words[0].start if words else seg.start,
+                end=words[-1].end if words else seg.end,
+                text=seg.text,
+                words=words,
+                speaker=seg.speaker,
+            ),
+            alignment_degraded,
         )
 
     # --- Private helpers ---
@@ -407,7 +440,10 @@ class Transcriber:
 
     @staticmethod
     def _build_result(
-        raw: dict, language: Optional[str], audio_path: str
+        raw: dict,
+        language: Optional[str],
+        audio_path: str,
+        alignment_degraded: bool = False,
     ) -> TranscriptionResult:
         segments: list[Segment] = []
         for seg in raw.get("segments", []):
@@ -452,6 +488,7 @@ class Transcriber:
             language=language,
             audio_path=audio_path,
             duration=media_duration,
+            alignment_degraded=alignment_degraded,
         )
 
     @staticmethod

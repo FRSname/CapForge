@@ -96,6 +96,7 @@ class TranscriptionResult(BaseModel):
     language: Optional[str] = None
     audio_path: str = ""
     duration: Optional[float] = None
+    alignment_degraded: bool = False
 
 
 class RealignRequest(BaseModel):
@@ -108,6 +109,7 @@ class RealignRequest(BaseModel):
 
 class RealignResponse(BaseModel):
     segments: list[Segment] = Field(default_factory=list)
+    alignment_degraded: bool = False
 
 
 # --- Progress ---

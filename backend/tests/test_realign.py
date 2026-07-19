@@ -32,6 +32,7 @@ from backend.engine.transcriber import ALIGNMENT_MODELS, Transcriber  # noqa: E4
 from backend.models.schemas import (  # noqa: E402
     JobStatus,
     ProgressUpdate,
+    RealignResponse,
     Segment,
     SystemInfo,
     TranscribeRequest,
@@ -149,11 +150,12 @@ def test_realign_merges_subsegments_into_one(monkeypatch, audio_file):
     seg = Segment(start=0.0, end=2.0, text="Hello there. Bye.", speaker="SPEAKER_00")
     out = t.realign_segments([seg], audio_file, "en")
 
-    assert len(out) == 1
-    assert out[0].text == "Hello there. Bye."
-    assert out[0].speaker == "SPEAKER_00"
-    assert [w.word for w in out[0].words] == ["Hello", "there.", "Bye."]
-    assert out[0].start == 0.0 and out[0].end == 2.0
+    assert out.alignment_degraded is False
+    assert len(out.segments) == 1
+    assert out.segments[0].text == "Hello there. Bye."
+    assert out.segments[0].speaker == "SPEAKER_00"
+    assert [w.word for w in out.segments[0].words] == ["Hello", "there.", "Bye."]
+    assert out.segments[0].start == 0.0 and out.segments[0].end == 2.0
 
 
 def test_realign_failed_alignment_falls_back_to_even_spacing(monkeypatch, audio_file):
@@ -168,10 +170,35 @@ def test_realign_failed_alignment_falls_back_to_even_spacing(monkeypatch, audio_
     seg = Segment(start=0.0, end=2.0, text="10 45")
     out = t.realign_segments([seg], audio_file, "en")
 
-    assert [w.word for w in out[0].words] == ["10", "45"]
-    assert out[0].words[0].start == pytest.approx(0.0)
-    assert out[0].words[0].end == pytest.approx(1.0)
-    assert out[0].words[1].end == pytest.approx(2.0)
+    assert out.alignment_degraded is True
+    assert [w.word for w in out.segments[0].words] == ["10", "45"]
+    assert out.segments[0].words[0].start == pytest.approx(0.0)
+    assert out.segments[0].words[0].end == pytest.approx(1.0)
+    assert out.segments[0].words[1].end == pytest.approx(2.0)
+
+
+def test_realign_interpolated_words_are_marked_degraded(monkeypatch, audio_file):
+    monkeypatch.setattr(
+        FAKE_WX,
+        "align",
+        lambda *args, **kwargs: {
+            "segments": [{
+                "words": [
+                    {"word": "Labas", "start": 0.0, "end": 0.8},
+                    {"word": "10"},
+                ]
+            }]
+        },
+    )
+    t = Transcriber()
+
+    out = t.realign_segments(
+        [Segment(start=0.0, end=2.0, text="Labas 10")], audio_file, "lt"
+    )
+
+    assert out.alignment_degraded is True
+    assert out.segments[0].words[1].start == pytest.approx(0.8)
+    assert out.segments[0].words[1].end == pytest.approx(2.0)
 
 
 def test_realign_empty_text_returns_segment_unchanged(monkeypatch, audio_file):
@@ -182,7 +209,41 @@ def test_realign_empty_text_returns_segment_unchanged(monkeypatch, audio_file):
     t = Transcriber()
     seg = Segment(start=1.0, end=2.0, text="   ")
     out = t.realign_segments([seg], audio_file, "en")
-    assert out[0] is seg
+    assert out.alignment_degraded is False
+    assert out.segments[0] is seg
+
+
+def test_realign_model_load_failure_uses_flagged_approximate_timings(
+    monkeypatch, audio_file
+):
+    monkeypatch.setattr(
+        FAKE_WX,
+        "load_align_model",
+        lambda **kwargs: (_ for _ in ()).throw(RuntimeError("model unavailable")),
+    )
+    t = Transcriber()
+
+    out = t.realign_segments(
+        [Segment(start=0.0, end=2.0, text="Labas rytas")], audio_file, "lt"
+    )
+
+    assert out.alignment_degraded is True
+    assert [word.word for word in out.segments[0].words] == ["Labas", "rytas"]
+    assert out.segments[0].words[0].end == pytest.approx(1.0)
+
+
+def test_realign_alignment_error_is_not_hidden_by_fallback(monkeypatch, audio_file):
+    monkeypatch.setattr(
+        FAKE_WX,
+        "align",
+        lambda *args, **kwargs: (_ for _ in ()).throw(RuntimeError("alignment bug")),
+    )
+    t = Transcriber()
+
+    with pytest.raises(RuntimeError, match="alignment bug"):
+        t.realign_segments(
+            [Segment(start=0.0, end=1.0, text="Labas")], audio_file, "lt"
+        )
 
 
 def test_realign_missing_audio_raises():
@@ -289,6 +350,7 @@ def test_alignment_load_failure_preserves_transcription_with_approximate_words(
     )
 
     assert result.language == "lt"
+    assert result.alignment_degraded is True
     assert [segment.text for segment in result.segments] == ["Labas rytas"]
     assert [word.word for word in result.segments[0].words] == ["Labas", "rytas"]
     assert result.segments[0].words[0].start == pytest.approx(1.0)
@@ -436,7 +498,7 @@ def test_endpoint_success_is_stateless(client, monkeypatch, audio_file):
 
     def fake_realign(segments, audio_path, language):
         calls.append((len(segments), audio_path, language))
-        return realigned
+        return RealignResponse(segments=realigned)
 
     monkeypatch.setattr(main_module.transcriber, "realign_segments", fake_realign)
 
@@ -448,6 +510,7 @@ def test_endpoint_success_is_stateless(client, monkeypatch, audio_file):
     )
     assert resp.status_code == 200
     body = resp.json()
+    assert body["alignment_degraded"] is False
     assert [w["word"] for w in body["segments"][0]["words"]] == ["hi", "there"]
     # Audio path came from the stored result, not the request.
     assert calls == [(1, audio_file, "en")]
@@ -463,7 +526,7 @@ def test_endpoint_language_override(client, monkeypatch, audio_file):
 
     def fake_realign(segments, audio_path, language):
         seen.append(language)
-        return segments
+        return RealignResponse(segments=segments)
 
     monkeypatch.setattr(main_module.transcriber, "realign_segments", fake_realign)
     resp = tc.post(
@@ -475,3 +538,52 @@ def test_endpoint_language_override(client, monkeypatch, audio_file):
     )
     assert resp.status_code == 200
     assert seen == ["de"]
+
+
+def test_endpoint_marks_stored_result_when_realign_is_degraded(
+    client, monkeypatch, audio_file
+):
+    tc, main_module = client
+    stored = _loaded_result(audio_file)
+    monkeypatch.setattr(main_module, "current_result", stored)
+    approximate = Segment(
+        start=0.0,
+        end=1.0,
+        text="Labas",
+        words=[WordSegment(word="Labas", start=0.0, end=1.0)],
+    )
+    monkeypatch.setattr(
+        main_module.transcriber,
+        "realign_segments",
+        lambda *args: RealignResponse(
+            segments=[approximate], alignment_degraded=True
+        ),
+    )
+
+    resp = tc.post(
+        "/api/realign",
+        json={"segments": [{"start": 0.0, "end": 1.0, "text": "Labas"}]},
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["alignment_degraded"] is True
+    assert main_module.current_result is stored
+    assert stored.alignment_degraded is True
+
+
+def test_endpoint_returns_500_for_alignment_errors(client, monkeypatch, audio_file):
+    tc, main_module = client
+    monkeypatch.setattr(main_module, "current_result", _loaded_result(audio_file))
+    monkeypatch.setattr(
+        main_module.transcriber,
+        "realign_segments",
+        lambda *args: (_ for _ in ()).throw(RuntimeError("alignment bug")),
+    )
+
+    resp = tc.post(
+        "/api/realign",
+        json={"segments": [{"start": 0.0, "end": 1.0, "text": "Labas"}]},
+    )
+
+    assert resp.status_code == 500
+    assert resp.json()["detail"]["raw"] == "alignment bug"
