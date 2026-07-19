@@ -561,6 +561,27 @@ def sync_captions() -> dict:
 
 
 @mcp.tool()
+def install_caption_component(style: str) -> dict:
+    """Install a HyperFrames registry caption component (e.g. 'caption-kinetic-slam',
+    see `list_caption_styles`) into your co-author project — the legitimate way to
+    bring a registry style into a co-authored composition (the CLI passthrough
+    `run_hyperframes_cli` is read-only and cannot run `add`).
+
+    Additive-only: writes `compositions/components/<style>.html` fed with the
+    current transcript, and NEVER touches `index.html`. Wiring it in is still YOUR
+    job: reference it from your composition with `data-composition-src` (the
+    returned `path`), and replace/disable any inline caption layer of your own so
+    captions don't render twice. Returns `{status, path, hint}` — after editing
+    `index.html`, tell the user to refresh the Studio tab to see the change.
+
+    Co-author mode ONLY — enter with `enter_coauthor_mode` first. `style` must be a
+    registry name, not 'classic' or 'custom' (those are CapForge-pipeline caption
+    modes, not installable components) — see `set_caption_style` /
+    `set_custom_caption_style` for those instead."""
+    return _client.install_caption_component(style)
+
+
+@mcp.tool()
 def get_workspace() -> dict:
     """The CapForge-owned HyperFrames project you author in during co-author mode.
 

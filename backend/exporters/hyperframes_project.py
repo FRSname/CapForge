@@ -633,6 +633,51 @@ def _prepare_caption_style(
     return rel
 
 
+def install_caption_component_for_coauthor(
+    result: TranscriptionResult,
+    config: VideoRenderConfig,
+    project_dir: str,
+    style: str,
+    *,
+    custom_groups: Optional[list[dict]] = None,
+    caption_html: Optional[str] = None,
+    duration: Optional[float] = None,
+) -> str:
+    """Install registry caption component ``style`` into an ACTIVE co-author
+    project and feed it the CURRENT transcript — additive-only: writes/updates
+    only ``compositions/components/<style>.html``, never ``index.html`` or any
+    other companion file (``transcript.json``, the copied source media).
+
+    Before this, a registry component only ever landed in a co-author project as
+    a side effect of ``sync_companions`` during a render — the agent had no way
+    to request one directly, because the CLI passthrough allowlist
+    (``CLI_ALLOWED_SUBCOMMANDS``) is deliberately read-only and excludes ``add``.
+    This calls the SAME flat-style path (``_prepare_caption_style``) every other
+    caller uses by building a throwaway config copy with ``caption_style=style``
+    — the caller is responsible for rejecting 'classic'/'custom' before this is
+    reached (see Phase 5, docs/plans/caption-style-visibility-feedback.md).
+
+    Wiring the installed component into ``index.html`` (via
+    ``data-composition-src``) and removing/disabling any inline caption layer
+    stays the agent's job — this function only ever writes the component file.
+
+    Returns the component's project-relative path.
+    """
+    proj = Path(project_dir)
+    groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    if not groups:
+        raise ValueError("No subtitle data to build the caption component from")
+    total_duration = _resolve_duration(result, groups, None, duration)
+    transcript_json = export_hyperframes(result)
+    style_config = config.model_copy(update={"caption_style": style})
+    rel = _prepare_caption_style(
+        style_config, proj, groups, transcript_json, total_duration, caption_html
+    )
+    if rel is None:  # defensive — caller guarantees style != 'classic'
+        raise ValueError(f"Caption style '{style}' resolved to no component")
+    return rel
+
+
 def _write_companions(
     result: TranscriptionResult,
     config: VideoRenderConfig,

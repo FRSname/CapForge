@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -50,6 +51,7 @@ from backend.exporters.hyperframes_project import (
     ensure_hyperframes_project,
     export_hyperframes_project,
     hyperframes_workspace,
+    install_caption_component_for_coauthor,
     read_coauthor_marker,
     resolve_output_dir,
     seed_coauthor_project,
@@ -1418,6 +1420,102 @@ async def coauthor_sync_captions():
     """Refresh ONLY the CapForge-owned companions (transcript + the captions
     sub-composition) in the co-author project — never the agent's index.html."""
     return await _coauthor_sync_captions()
+
+
+async def _coauthor_install_caption_component(style: object) -> dict:
+    """Install a HyperFrames registry caption component into the ACTIVE
+    co-author project (Phase 5, docs/plans/caption-style-visibility-feedback.md).
+
+    Additive-only: writes ``compositions/components/<style>.html`` and feeds it
+    the current transcript, but never touches ``index.html`` — wiring it in via
+    ``data-composition-src`` (and disabling any inline caption layer) stays the
+    agent's job. This is the legitimate replacement for the old side-effect-only
+    path where a component landed in the project only because a render's
+    ``sync_companions`` happened to install it.
+    """
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    if not isinstance(style, str) or not style.strip():
+        raise HTTPException(status_code=400, detail="Provide `style` (non-empty string).")
+    style = style.strip()
+    # Strict slug check BEFORE anything else touches `style`: it flows into an
+    # f-string path (component_rel_path) and the `npx hyperframes add <style>`
+    # argv, so it must never contain path-traversal segments (e.g. "../evil") or
+    # a leading "-" that could be parsed as a CLI flag (argument injection —
+    # subprocess is list-form so this isn't shell injection, but a malformed
+    # argv could still do something unintended). Deliberately NOT checked
+    # against the live list_caption_styles() catalog: that shells out to the
+    # CLI and the curated fallback can lag the real registry.
+    if not re.match(r"^[a-z0-9][a-z0-9-]{0,63}$", style):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"'{style}' is not a valid caption style name — must be lowercase "
+                "letters, digits, and hyphens only, starting with a letter or "
+                "digit (e.g. 'caption-kinetic-slam')."
+            ),
+        )
+    from backend.exporters.hyperframes_captions import CUSTOM_CAPTION_STYLE
+
+    if style in ("classic", CUSTOM_CAPTION_STYLE):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"'{style}' is a CapForge-pipeline caption mode, not a registry "
+                "component to install. Pick a registry style name instead (e.g. "
+                "'caption-kinetic-slam')."
+            ),
+        )
+    project_dir = coauthor_project_dir(
+        current_result, hyperframes_workspace(current_result.audio_path)
+    )
+    # Same upfront guard as sync_captions — this only makes sense for an active
+    # co-author project, so fail with a clear 409 rather than a confusing error
+    # deeper in the install pipeline.
+    if not coauthor_active(project_dir):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Not in co-author mode — install_caption_component only applies to "
+                "an active co-author project. Call set_coauthor(enable=True) first."
+            ),
+        )
+    config, ui_groups = _agent_frame_inputs()
+    from backend.exporters.hyperframes_captions import CaptionStyleError
+
+    loop = asyncio.get_running_loop()
+    try:
+        rel = await loop.run_in_executor(
+            None,
+            lambda: install_caption_component_for_coauthor(
+                current_result, config, str(project_dir), style,
+                custom_groups=ui_groups, caption_html=current_custom_caption_html,
+            ),
+        )
+    except CaptionStyleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "path": rel,
+        "hint": (
+            f'Reference it from index.html via data-composition-src="{rel}"; '
+            "replace/disable any inline caption layer to avoid double captions. "
+            "The user must refresh the Studio tab to see changes."
+        ),
+    }
+
+
+@app.post(
+    "/api/agent/coauthor/install-caption-component",
+    dependencies=[Depends(require_agent_token)],
+)
+async def coauthor_install_caption_component(body: dict):
+    """Install a HyperFrames registry caption component (e.g.
+    'caption-kinetic-slam') into the co-author project, additive-only — never
+    touches index.html. See ``_coauthor_install_caption_component``."""
+    return await _coauthor_install_caption_component(body.get("style"))
 
 
 # Ungated UI mirrors — the local renderer (no agent token) drives co-author mode

@@ -158,6 +158,14 @@ class CapForgeClient:
     def sync_captions(self) -> Any:
         return self._request("POST", "/api/agent/coauthor/sync-captions", timeout=_LONG_TIMEOUT)
 
+    def install_caption_component(self, style: str) -> Any:
+        # Install shells to the HyperFrames CLI on first use of a style — same
+        # ballpark cost as entering co-author mode.
+        return self._request(
+            "POST", "/api/agent/coauthor/install-caption-component",
+            json={"style": style}, timeout=_LONG_TIMEOUT,
+        )
+
     def get_frame(self, t: float, composite: bool = True, _retry: bool = True) -> bytes:
         """Render a QA frame and return raw PNG bytes (not JSON)."""
         self._ensure()
