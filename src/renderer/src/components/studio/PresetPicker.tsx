@@ -11,6 +11,7 @@ import type { StudioSettings } from './StudioPanel'
 import {
   BUILTIN_PRESETS,
   applyPreset,
+  getSystemFontExportWarning,
   studioToVanilla,
   type BuiltinPreset,
   type VanillaPreset,
@@ -162,6 +163,8 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
       toast('Export unavailable — please restart CapForge', 'error')
       return
     }
+    const systemFontWarning = getSystemFontExportWarning(p.settings)
+    if (systemFontWarning && !window.confirm(systemFontWarning)) return
     try {
       const res = await window.subforge.exportPreset(p.name)
       if (!res) {
@@ -175,8 +178,13 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
       const msg =
         res.fontStatus === 'missing'
           ? `Exported "${p.name}" — its custom font wasn't included (missing or too large)`
-          : `Exported to ${res.filePath}`
-      toast(msg, res.fontStatus === 'missing' ? 'info' : 'success')
+          : res.fontStatus === 'system'
+            ? `Exported "${p.name}" — system font "${p.settings.font}" is not included`
+            : `Exported to ${res.filePath}`
+      toast(
+        msg,
+        res.fontStatus === 'missing' || res.fontStatus === 'system' ? 'info' : 'success'
+      )
     } catch {
       toast('Export failed', 'error')
     }

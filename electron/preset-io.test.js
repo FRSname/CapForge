@@ -402,7 +402,7 @@ test('buildPresetExport embeds a user font as base64 (custom classification)', (
 test('buildPresetExport references a bundled CapForge font by name only (no embedded bytes)', () => {
   const fs = {
     existsSync(p) {
-      return p === '/app/Fonts/Inter-Bold.ttf'
+      return p.replaceAll('\\', '/') === '/app/Fonts/Inter-Bold.ttf'
     },
   }
   const kind = classifyFont({
@@ -437,10 +437,24 @@ test('classifyFont returns "none" when there is no custom font path', () => {
   )
 })
 
+test('classifyFont identifies a system font referenced only by family', () => {
+  const fs = { existsSync: () => false }
+  assert.equal(
+    classifyFont({
+      fontFamily: 'Arial',
+      customFontPath: '',
+      bundledFontsDir: '/app/Fonts',
+      fs,
+      path,
+    }),
+    'system'
+  )
+})
+
 test('classifyFont returns "bundled" for a font path (bundled basename takes priority)', () => {
   const fs = {
     existsSync(p) {
-      return p === '/app/Fonts/Inter-Bold.ttf'
+      return p.replaceAll('\\', '/') === '/app/Fonts/Inter-Bold.ttf'
     },
   }
   const kind = classifyFont({

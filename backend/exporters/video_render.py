@@ -21,6 +21,7 @@ from typing import Callable, Optional
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
+from backend.engine.system_fonts import find_system_font_face
 from backend.models.schemas import (
     JobStatus,
     ProgressUpdate,
@@ -192,6 +193,19 @@ def _get_font(family: str, size: int, custom_path: str | None = None, bold: bool
     elif custom_path:
         logger.warning("Custom font path not found: %s", custom_path)
 
+    system_face = find_system_font_face(family, bold)
+    if system_face:
+        try:
+            logger.info(
+                "Loading system font: %s (face=%d, size=%d)",
+                system_face.path,
+                system_face.index,
+                size,
+            )
+            return ImageFont.truetype(system_face.path, size, index=system_face.index)
+        except Exception as e:
+            logger.warning("Failed to load system font %s: %s", system_face.path, e)
+
     for path in _find_font_candidates(family, bold):
         if os.path.isfile(path):
             try:
@@ -225,6 +239,9 @@ def resolve_font_file(
     """
     if custom_path and os.path.isfile(custom_path):
         return custom_path
+    system_face = find_system_font_face(family, bold)
+    if system_face:
+        return system_face.path
     for path in _find_font_candidates(family, bold):
         if os.path.isfile(path):
             return path

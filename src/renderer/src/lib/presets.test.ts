@@ -4,9 +4,23 @@ import {
   studioToVanilla,
   applyPreset,
   BUILTIN_PRESETS,
+  getSystemFontExportWarning,
   type VanillaPreset,
 } from './presets'
 import { STUDIO_DEFAULTS, type StudioSettings } from '../components/studio/StudioPanel'
+
+describe('getSystemFontExportWarning', () => {
+  test('warns when an installed font can only travel by family name', () => {
+    expect(getSystemFontExportWarning({ font: 'Arial' })).toContain('Arial')
+  })
+
+  test('does not warn for bundled or custom font files', () => {
+    expect(
+      getSystemFontExportWarning({ font: 'Caviar Dreams', customFontPath: '/Fonts/Caviar.ttf' })
+    ).toBeNull()
+    expect(getSystemFontExportWarning({})).toBeNull()
+  })
+})
 
 // Every StudioSettings key the vanilla preset schema round-trips. Render/export
 // settings (resolution/fps/format/renderMode/bitrate/resolutionIsSource) and

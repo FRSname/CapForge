@@ -125,6 +125,22 @@ describe('CapForgeAPI', () => {
       expect(fetchMock.mock.calls[0][1]).toBeUndefined()
     })
 
+    test('getSystemFonts scopes the local token header to its gated route', async () => {
+      vi.stubGlobal('window', {
+        subforge: {
+          getBackendPort: vi.fn().mockResolvedValue(52690),
+          getLocalToken: vi.fn().mockResolvedValue('launch-token'),
+        },
+      })
+      fetchMock.mockResolvedValue(jsonResponse({ fonts: ['Arial', 'Verdana'] }))
+
+      await expect(api.getSystemFonts()).resolves.toEqual(['Arial', 'Verdana'])
+
+      expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:52690/api/fonts/system', {
+        headers: { 'X-CapForge-Local-Token': 'launch-token' },
+      })
+    })
+
     test('propagates the local token as an encoded query param on getVideoInfo', async () => {
       fetchMock.mockResolvedValue(jsonResponse({ width: null, height: null, fps: null }))
       api.setLocalToken('tok en')

@@ -17,7 +17,10 @@ const MAX_FONT_BYTES = 10 * 1024 * 1024
 
 /**
  * Classify how a preset's custom font should travel in an export.
- *  - 'none'    : the preset has no custom font path.
+ *  - 'none'    : the preset has no font family or custom font path.
+ *  - 'system'  : the preset references an installed font by family only. The
+ *                file is not embedded because its redistribution rights are
+ *                unknown, so the renderer must warn before export.
  *  - 'bundled' : the font basename matches a file in the local bundled Fonts dir
  *                — referenced by name only, re-resolved on the target machine.
  *  - 'custom'  : the file at customFontPath is readable — its bytes get embedded.
@@ -28,8 +31,8 @@ const MAX_FONT_BYTES = 10 * 1024 * 1024
  * locally without embedding bytes; the on-disk basename collision means the
  * bundled file is what every machine will resolve to anyway.
  */
-function classifyFont({ customFontPath, bundledFontsDir, fs, path }) {
-  if (!customFontPath) return 'none'
+function classifyFont({ fontFamily, customFontPath, bundledFontsDir, fs, path }) {
+  if (!customFontPath) return fontFamily ? 'system' : 'none'
   const base = path.basename(customFontPath)
   // Bundled basename takes priority — re-resolved locally, no embedding needed.
   if (fs.existsSync(path.join(bundledFontsDir, base))) return 'bundled'

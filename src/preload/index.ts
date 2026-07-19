@@ -15,7 +15,7 @@ export interface PresetSettings {
 }
 
 export type ExportPresetResult =
-  | { filePath: string; fontStatus: 'embedded' | 'bundled' | 'missing' | 'none' }
+  | { filePath: string; fontStatus: 'embedded' | 'bundled' | 'missing' | 'system' | 'none' }
   | { error: string }
 
 export type ImportPresetResult =

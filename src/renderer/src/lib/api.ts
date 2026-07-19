@@ -208,6 +208,15 @@ class CapForgeAPI {
     return res.json() as Promise<T>
   }
 
+  /** GET a specifically auth-gated local route without changing generic GET semantics. */
+  private async getWithLocalToken<T>(path: string): Promise<T> {
+    const headers: Record<string, string> = {}
+    if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
+    const res = await fetch(`${this.base}${path}`, { headers })
+    if (!res.ok) throw await this.handleError(res)
+    return res.json() as Promise<T>
+  }
+
   private async post<T>(path: string, body: unknown): Promise<T> {
     // A subset of POST routes (e.g. /api/export, /api/render-video,
     // /api/export-hyperframes) are auth-gated because they write to a
@@ -264,6 +273,21 @@ class CapForgeAPI {
   }
   getModels() {
     return this.get<string[]>('/api/models')
+  }
+  async getSystemFonts(): Promise<string[]> {
+    // Font pickers can mount before SettingsPanel/useTranscription initialize
+    // the API client (for example when opening an existing project). Resolve
+    // the current backend connection here so this authenticated request does
+    // not race renderer startup.
+    const [port, token] = await Promise.all([
+      window.subforge.getBackendPort(),
+      window.subforge.getLocalToken(),
+    ])
+    this.setPort(port)
+    this.setLocalToken(token)
+    return this.getWithLocalToken<{ fonts: string[] }>('/api/fonts/system').then(
+      (response) => response.fonts ?? []
+    )
   }
   getStatus() {
     return this.get('/api/status')

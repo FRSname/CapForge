@@ -635,6 +635,7 @@ app.whenReady().then(async () => {
 
     // Classify the preset's custom font and build the embedded `font` block.
     const kind = presetIO.classifyFont({
+      fontFamily: preset.font,
       customFontPath: preset.customFontPath,
       bundledFontsDir,
       fs,
@@ -642,7 +643,12 @@ app.whenReady().then(async () => {
     })
     let font = null
     let fontStatus = 'none'
-    if (kind === 'bundled') {
+    if (kind === 'system') {
+      // System font files are not embedded: their redistribution licenses are
+      // unknown. The renderer confirms this portability limitation with the
+      // user before export and reports it again after the file is written.
+      fontStatus = 'system'
+    } else if (kind === 'bundled') {
       font = {
         family: preset.font,
         fileName: path.basename(preset.customFontPath),

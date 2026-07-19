@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { WordOverrides, WordTransition } from '../../types/app'
 import { loadAllFonts, registerFontFromBuffer, type FontInfo } from '../../lib/fonts'
+import { FontCombobox } from '../ui/FontCombobox'
 
 // ── Props ───────────────────────────────────────────────────────
 
@@ -275,11 +276,13 @@ export function WordStylePopup({
       } catch {
         /* best-effort */
       }
-      setFonts((prev) =>
-        prev.some((f) => f.name === name)
-          ? prev
-          : [{ name, path: savedPath, bundled: false }, ...prev]
-      )
+      setFonts((prev) => {
+        const normalized = name.toLocaleLowerCase()
+        return [
+          { name, path: savedPath, source: 'custom' },
+          ...prev.filter((font) => font.name.toLocaleLowerCase() !== normalized),
+        ]
+      })
       setFontFamily(name)
       setFontPath(savedPath)
     } catch {
@@ -333,27 +336,17 @@ export function WordStylePopup({
           <label className="w-20 shrink-0" style={{ color: 'var(--color-text-2)' }}>
             Font
           </label>
-          <select
+          <FontCombobox
+            fonts={fonts}
             value={fontFamily}
-            onChange={(e) => {
-              const name = e.target.value
-              setFontFamily(name)
-              setFontPath(fonts.find((f) => f.name === name)?.path ?? '')
+            emptyLabel="— Global —"
+            onChange={(font) => {
+              setFontFamily(font?.name ?? '')
+              setFontPath(font?.path ?? '')
             }}
-            className="flex-1 min-w-0 bg-[var(--color-surface-2)] border border-[var(--color-border)] rounded px-1.5 py-0.5 text-xs"
-            style={fontFamily ? { fontFamily: `"${fontFamily}", sans-serif` } : undefined}
-          >
-            <option value="">— Global —</option>
-            {fonts.map((f) => (
-              <option
-                key={`${f.name}|${f.path}`}
-                value={f.name}
-                style={{ fontFamily: `"${f.name}", sans-serif` }}
-              >
-                {f.bundled ? f.name : `${f.name} ★`}
-              </option>
-            ))}
-          </select>
+            className="flex-1"
+            ariaLabel="Word font family"
+          />
           <button
             type="button"
             onClick={() => fileRef.current?.click()}
