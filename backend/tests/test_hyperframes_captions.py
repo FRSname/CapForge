@@ -1,5 +1,7 @@
 """Tests for native HyperFrames caption-style install + transcript injection."""
 
+import json
+
 import pytest
 
 from backend.exporters.hyperframes_captions import (
@@ -60,6 +62,27 @@ def test_inject_handles_W_variable_name(tmp_path):
     out = f.read_text()
     assert '"text": "new"' in out and "old" not in out
     assert "var DURATION = 2;" in out
+
+
+def test_inject_survives_non_ascii_transcript(tmp_path):
+    # Regression: json.dumps escapes non-ASCII to \uXXXX; used as a plain
+    # re.sub replacement that raised "bad escape \u" for any accented
+    # transcript (e.g. Czech) the moment a registry style was scaffolded.
+    f = tmp_path / "c.html"
+    f.write_text(_COMPONENT)
+    payload = json.dumps([{"text": "příliš žluťoučký", "start": 0.0, "end": 1.0}])
+    assert "\\u" in payload  # ensure_ascii default really produces the escapes
+    inject_transcript(f, payload, 2.0)
+    out = f.read_text()
+    assert "\\u00ed" in out and "old" not in out  # í survives as its JSON escape
+
+
+def test_inject_editorial_blocks_survives_non_ascii_words(tmp_path):
+    f = tmp_path / "ee.html"
+    f.write_text(_EDITORIAL_STUB)
+    groups = [{"words": [{"word": "žluťoučký", "start": 0.0, "end": 0.5}]}]
+    inject_editorial_blocks(f, groups, 1.0)
+    assert "\\u017e" in f.read_text()  # ž survives as its JSON escape
 
 
 # --- Designed (BLOCKS) components: editorial-emphasis ---

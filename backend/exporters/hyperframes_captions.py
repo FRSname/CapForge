@@ -238,9 +238,13 @@ def inject_transcript(component_path: Path, transcript_json: str, duration: floa
     """
     src = component_path.read_text(encoding="utf-8")
     for var in _TRANSCRIPT_VARS:
+        # Callable replacement: the JSON carries \uXXXX escapes for any
+        # non-ASCII transcript, which re rejects as "bad escape" in a string
+        # replacement.
+        replacement = f"var {var} = {transcript_json};"
         src, n = re.subn(
             rf"var\s+{var}\s*=\s*\[[\s\S]*?\];",
-            f"var {var} = {transcript_json};",
+            lambda _m, _r=replacement: _r,
             src,
             count=1,
         )
@@ -314,9 +318,16 @@ def inject_editorial_blocks(component_path: Path, groups: list[dict], duration: 
     words, blocks = build_editorial_blocks(groups)
     if not words:
         raise CaptionStyleError("No caption words to build the editorial layout.")
-    src, nw = re.subn(r"var\s+W\s*=\s*\[[\s\S]*?\];", "var W = " + json.dumps(words) + ";", src, count=1)
+    # Callable replacements for the same reason as inject_transcript: the JSON
+    # carries \uXXXX escapes for non-ASCII text, which re rejects as "bad
+    # escape" in a string replacement.
+    words_js = "var W = " + json.dumps(words) + ";"
+    blocks_js = "var BLOCKS = " + json.dumps(blocks) + ";"
+    src, nw = re.subn(
+        r"var\s+W\s*=\s*\[[\s\S]*?\];", lambda _m, _r=words_js: _r, src, count=1
+    )
     src, nb = re.subn(
-        r"var\s+BLOCKS\s*=\s*\[[\s\S]*?\];", "var BLOCKS = " + json.dumps(blocks) + ";", src, count=1
+        r"var\s+BLOCKS\s*=\s*\[[\s\S]*?\];", lambda _m, _r=blocks_js: _r, src, count=1
     )
     if not (nw and nb):
         raise CaptionStyleError(
