@@ -35,6 +35,10 @@ export function filterFonts(fonts: FontInfo[], query: string): FontInfo[] {
   })
 }
 
+export function resolveFontSelection(fonts: FontInfo[], value: string): FontInfo | null {
+  return fonts.find((font) => font.name === value) ?? null
+}
+
 export function FontCombobox({
   fonts,
   value,
@@ -52,10 +56,11 @@ export function FontCombobox({
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const popupRef = useRef<HTMLDivElement>(null)
+  const openingSelectionRef = useRef<FontInfo | null>(null)
   const listboxId = useId()
   const optionIdBase = useId()
 
-  const selected = fonts.find((font) => font.name === value)
+  const selected = resolveFontSelection(fonts, value)
   const filtered = useMemo(
     () => (searching ? filterFonts(fonts, query) : fonts),
     [fonts, query, searching]
@@ -86,6 +91,7 @@ export function FontCombobox({
 
   function openPicker() {
     if (disabled || open) return
+    openingSelectionRef.current = resolveFontSelection(fonts, value)
     setOpen(true)
     setQuery(value)
     setSearching(false)
@@ -104,6 +110,15 @@ export function FontCombobox({
     onChange(font)
     closePicker()
     requestAnimationFrame(() => inputRef.current?.blur())
+  }
+
+  function cancelPicker() {
+    // Arrow-key navigation previews through onChange. Escape is a cancellation,
+    // so restore the complete original entry (including path/source), not just
+    // the family name.
+    onChange(openingSelectionRef.current)
+    closePicker()
+    inputRef.current?.blur()
   }
 
   function previewOption(index: number) {
@@ -197,8 +212,7 @@ export function FontCombobox({
           } else if (event.key === 'Escape' && open) {
             event.preventDefault()
             event.stopPropagation()
-            closePicker()
-            inputRef.current?.blur()
+            cancelPicker()
           }
         }}
         className="field-input w-full pr-7 text-xs"

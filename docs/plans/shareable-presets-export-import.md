@@ -117,7 +117,7 @@ plus a pure, testable helper module.
 ### 1a. New file `electron/preset-io.js` (pure functions, CommonJS, no Electron imports)
 Export:
 - Constants above.
-- `classifyFont({ customFontPath, bundledFontsDir, fs, path })` → `'none' | 'bundled' | 'custom' | 'missing'`.
+- `classifyFont({ fontFamily, customFontPath, bundledFontsDir, fs, path })` → `'none' | 'system' | 'bundled' | 'custom' | 'missing'`.
   - `none` if `customFontPath` falsy.
   - `bundled` if `fs.existsSync(path.join(bundledFontsDir, path.basename(customFontPath)))`.
   - `custom` if the file at `customFontPath` is readable.

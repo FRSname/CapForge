@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, test, vi } from 'vitest'
 import type { FontInfo } from '../../lib/fonts'
-import { filterFonts, FontCombobox } from './FontCombobox'
+import { filterFonts, FontCombobox, resolveFontSelection } from './FontCombobox'
 
 const FONTS: FontInfo[] = [
   { name: 'Arial', path: '', source: 'system' },
@@ -25,5 +25,15 @@ describe('FontCombobox', () => {
     expect(filterFonts(FONTS, 'caviar').map((font) => font.name)).toEqual(['Caviar Dreams'])
     expect(filterFonts(FONTS, 'CUSTOM').map((font) => font.name)).toEqual(['My Brand'])
     expect(filterFonts(FONTS, 'installed').map((font) => font.name)).toEqual(['Arial'])
+  })
+
+  test('resolves the complete original selection for Escape rollback', () => {
+    expect(resolveFontSelection(FONTS, 'My Brand')).toEqual({
+      name: 'My Brand',
+      path: '/user/brand.otf',
+      source: 'custom',
+    })
+    expect(resolveFontSelection(FONTS, '')).toBeNull()
+    expect(resolveFontSelection(FONTS, 'Missing Font')).toBeNull()
   })
 })

@@ -87,6 +87,16 @@ export interface VanillaPreset {
   safeZone?: string
 }
 
+/**
+ * System fonts are referenced by family name only; CapForge cannot safely
+ * redistribute arbitrary installed font files with an exported preset.
+ */
+export function getSystemFontExportWarning(preset: VanillaPreset): string | null {
+  const family = preset.font?.trim()
+  if (!family || preset.customFontPath?.trim()) return null
+  return `This preset uses the installed system font "${family}". The font file will not be included, so the preset may look different on a computer without that font. Export anyway?`
+}
+
 const num = (v: string | number | undefined, fallback: number): number => {
   if (v == null) return fallback
   const n = typeof v === 'number' ? v : parseFloat(v)
