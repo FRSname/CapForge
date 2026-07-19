@@ -46,6 +46,7 @@ from backend.exporters.hyperframes_export import export_hyperframes
 from backend.exporters.hyperframes_project import (
     clear_scaffold_fingerprint,
     coauthor_project_dir,
+    detect_coauthor_caption_mismatch,
     ensure_hyperframes_project,
     export_hyperframes_project,
     hyperframes_workspace,
@@ -962,21 +963,35 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             caption_html=current_custom_caption_html,
         )
 
-    def _coauthor_project() -> str:
+    def _coauthor_project() -> tuple[str, Optional[str]]:
         """Resolve the agent-owned project in the stable workspace, refreshing the
         CapForge-owned companions (transcript/captions) WITHOUT regenerating the
-        agent's index.html. Seeds a starter project if the agent hasn't one yet."""
+        agent's index.html. Seeds a starter project if the agent hasn't one yet.
+
+        Returns ``(project_dir, warning)``. ``warning`` is set when a non-classic
+        caption style was installed via ``sync_companions`` but the agent's
+        index.html doesn't reference it (see ``detect_coauthor_caption_mismatch`` —
+        Phase 3.5 of docs/plans/caption-style-visibility-feedback.md); ``None`` on
+        a fresh seed (nothing to mismatch yet) or when the style is 'classic'/
+        already wired.
+        """
         workspace = hyperframes_workspace(current_result.audio_path)
         project_dir = coauthor_project_dir(current_result, workspace)
-        if (project_dir / "index.html").exists():
-            sync_companions(
+        index_html_path = project_dir / "index.html"
+        if index_html_path.exists():
+            sync_result = sync_companions(
                 current_result, config, str(project_dir),
                 source_video_path=current_result.audio_path,
                 custom_groups=custom_groups_dicts,
                 caption_html=current_custom_caption_html,
             )
-            return str(project_dir)
-        return _scaffold(workspace)
+            warning = detect_coauthor_caption_mismatch(
+                index_html_path.read_text(encoding="utf-8"),
+                getattr(config, "caption_style", "classic") or "classic",
+                sync_result.get("captions"),
+            )
+            return str(project_dir), warning
+        return _scaffold(workspace), None
 
     def _work() -> dict:
         # Co-author mode: the agent owns index.html, so render/preview the project
@@ -987,9 +1002,9 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             current_result, hyperframes_workspace(current_result.audio_path)
         )
         if coauthor_active(coauthor_dir):
-            project_dir = _coauthor_project()
+            project_dir, warning = _coauthor_project()
             if not request.render:
-                return {"project": project_dir, "file": None}
+                return {"project": project_dir, "file": None, "warning": warning}
             out_path = str(Path(out_dir) / f"{stem}_hyperframes{ext}")
             file = render_hyperframes_project(
                 project_dir, out_path,
@@ -998,7 +1013,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
                 on_progress=on_progress,
                 cancel_event=cancel_event,
             )
-            return {"project": None, "file": file}
+            return {"project": None, "file": file, "warning": warning}
 
         if not request.render:
             # Open-in-Studio: scaffold into the canonical per-source workspace so
@@ -1006,7 +1021,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             # folder. The Studio serves this dir; the agent re-scaffolds the same
             # dir, so its edits surface on a Studio refresh instead of diverging.
             project_dir = _scaffold(hyperframes_workspace(current_result.audio_path))
-            return {"project": project_dir, "file": None}
+            return {"project": project_dir, "file": None, "warning": None}
 
         # Render-to-file: scaffold into a throwaway temp dir so the user's folder
         # isn't littered with the intermediate composition — only the finished
@@ -1022,7 +1037,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
                 on_progress=on_progress,
                 cancel_event=cancel_event,
             )
-            return {"project": None, "file": file}
+            return {"project": None, "file": file, "warning": None}
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
@@ -1172,12 +1187,25 @@ async def preview_hyperframes_frame(req: dict):
         # companions, never regenerate the composition the agent authored.
         # Durable marker check survives a backend restart mid-session.
         if coauthor_active(project_dir) and (project_dir / "index.html").exists():
-            sync_companions(
+            sync_result = sync_companions(
                 current_result, config, str(project_dir),
                 source_video_path=current_result.audio_path,
                 custom_groups=ui_groups,
                 caption_html=current_custom_caption_html,
             )
+            # Same mismatch this endpoint's render-path counterpart warns about
+            # (Phase 3.5, caption-style-visibility-feedback.md) — but this endpoint
+            # returns raw PNG bytes (an Image, not JSON), so there's no response
+            # field to carry a warning string. The preview itself is already
+            # self-diagnosing (the agent SEES the un-styled frame), so we only log
+            # server-side here rather than reshape the response contract.
+            mismatch = detect_coauthor_caption_mismatch(
+                (project_dir / "index.html").read_text(encoding="utf-8"),
+                getattr(config, "caption_style", "classic") or "classic",
+                sync_result.get("captions"),
+            )
+            if mismatch:
+                logger.warning("Co-author caption style mismatch on preview: %s", mismatch)
             return snapshot_hyperframes_project(str(project_dir), t, on_progress=heartbeat)
         # Default: scaffold into the SAME canonical workspace the Studio serves, so
         # a preview re-generates the open Studio's project (not a separate copy).

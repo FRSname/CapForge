@@ -10,7 +10,7 @@
  */
 
 import { useRef, useState, useCallback } from 'react'
-import { api } from '../lib/api'
+import { api, type HyperframesExportResponse } from '../lib/api'
 import { buildRenderBody, type RenderOverrides } from '../lib/render'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import type { Segment } from '../types/app'
@@ -115,7 +115,7 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
         const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir)
         const res = (await (engine === 'hyperframes'
           ? api.exportHyperframes(body)
-          : api.renderVideo(body))) as { file?: string | null; status?: string }
+          : api.renderVideo(body))) as HyperframesExportResponse & { status?: string }
         // HTTP response only resolves once the render actually finishes.
         stopTimer()
         // A HyperFrames render cancelled mid-flight resolves 200 with
@@ -138,6 +138,11 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
           engine === 'hyperframes' ? 'HyperFrames render complete' : 'Render complete',
           'success'
         )
+        // Co-author mode may install a caption style the agent's index.html never
+        // wires up (Phase 3.5, caption-style-visibility-feedback.md) — the render
+        // still succeeds, so this rides alongside the success toast rather than
+        // replacing it.
+        if (res?.warning) toast(res.warning, 'info')
       } catch (err) {
         stopTimer()
         const msg = err instanceof Error ? err.message : 'Render failed'

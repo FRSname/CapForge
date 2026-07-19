@@ -27,6 +27,20 @@ export interface HyperframesStatus {
   compat_reasons: string[]
 }
 
+/**
+ * `POST /api/export-hyperframes` response. `warning` (Phase 3.5 of
+ * docs/plans/caption-style-visibility-feedback.md) is set only in co-author mode
+ * when a selected registry/custom caption style was installed but the agent's
+ * index.html doesn't reference it — the render/project succeeds but the style is
+ * silently absent. `null`/absent otherwise.
+ */
+export interface HyperframesExportResponse {
+  status?: string
+  project?: string | null
+  file?: string | null
+  warning?: string | null
+}
+
 export interface ProgressUpdate {
   step: 'loading_model' | 'transcribing' | 'aligning' | 'diarizing' | 'exporting' | 'done' | 'error'
   pct: number
@@ -295,7 +309,7 @@ class CapForgeAPI {
 
   /** Generate (and optionally render) a HyperFrames composition from the current result. */
   exportHyperframes(params: unknown) {
-    return this.post('/api/export-hyperframes', params)
+    return this.post<HyperframesExportResponse>('/api/export-hyperframes', params)
   }
 
   /**

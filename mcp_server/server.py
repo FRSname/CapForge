@@ -324,6 +324,49 @@ def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dic
 
 # --- Caption style ------------------------------------------------------
 
+def _add_coauthor_style_hint(result: dict, style_name: str) -> dict:
+    """Append a co-author-mode caveat to a caption-style tool's return dict
+    (Phase 3.5, docs/plans/caption-style-visibility-feedback.md): in co-author
+    mode the agent-owned index.html decides captions, so this setting alone
+    never reaches the render.
+
+    Used by both `set_caption_style` (registry styles) and
+    `set_custom_caption_style` (`style_name='custom'`) — the wired filename
+    differs for the two (registry: `compositions/components/<name>.html`, via
+    `component_rel_path`; custom: `compositions/components/custom-caption.html`,
+    via `CUSTOM_CAPTION_REL`) in `backend/exporters/hyperframes_captions.py`.
+
+    Resilient by design: a failed/unreachable status call falls back to the
+    Phase-2 `result` untouched — this never raises and never blocks the tool
+    response. Skips the extra hint for 'classic' (no component to wire; classic
+    captions are already inline in whatever index.html the agent authored).
+    """
+    if style_name == "classic":
+        return result
+    try:
+        status = _client.get_coauthor()
+    except Exception:
+        return result
+    if not isinstance(status, dict) or not status.get("coauthor"):
+        return result
+    component_rel = (
+        "compositions/components/custom-caption.html"
+        if style_name == "custom"
+        else f"compositions/components/{style_name}.html"
+    )
+    return {
+        **result,
+        "coauthor_active": True,
+        "hint": (
+            result.get("hint", "")
+            + " Co-author mode is active: the agent-owned index.html decides "
+            f"captions — wire {component_rel} into it (data-composition-src), "
+            "or exit co-author mode; otherwise this setting will not appear "
+            "in renders."
+        ),
+    }
+
+
 @mcp.tool()
 def list_caption_styles() -> dict:
     """List caption styles for the HyperFrames render: 'classic' (CapForge's
@@ -344,9 +387,13 @@ def set_caption_style(name: str) -> dict:
     The style only becomes visible via `preview_hyperframes_frame`, the
     HyperFrames Studio, or a HyperFrames render — never end a turn believing
     something visible happened from this call alone.
+
+    If co-author mode is active, this setting ALSO does not reach the render on
+    its own — the co-author project's own index.html decides captions and must be
+    wired by hand (see the `coauthor_active` hint in the return value).
     """
     _client.send_command("set_settings", {"patch": {"captionStyle": name}})
-    return {
+    result = {
         "status": "ok",
         "applied": name,
         "visible_after": "hyperframes_preview_or_render",
@@ -356,6 +403,7 @@ def set_caption_style(name: str) -> dict:
             "user to Render with HyperFrames / open the Studio."
         ),
     }
+    return _add_coauthor_style_hint(result, name)
 
 
 # --- HyperFrames creative library ---------------------------------------
@@ -431,10 +479,14 @@ def set_custom_caption_style(html: str) -> dict:
     render_hyperframes; never end a turn believing something visible happened
     from this call alone. For the design vocabulary behind a strong custom
     look, see `hyperframes_guide`.
+
+    If co-author mode is active, this setting ALSO does not reach the render on
+    its own — the co-author project's own index.html decides captions and must be
+    wired by hand (see the `coauthor_active` hint in the return value).
     """
     result = _client.set_custom_caption(html)
     _client.send_command("set_settings", {"patch": {"captionStyle": "custom"}})
-    return {
+    merged = {
         "status": "ok",
         "visible_after": "hyperframes_preview_or_render",
         "hint": (
@@ -444,6 +496,7 @@ def set_custom_caption_style(html: str) -> dict:
         ),
         **(result if isinstance(result, dict) else {}),
     }
+    return _add_coauthor_style_hint(merged, "custom")
 
 
 # --- Co-author mode: free-form HyperFrames authoring in CapForge's project ---

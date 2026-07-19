@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -744,6 +745,48 @@ def sync_companions(
         # None for classic: captions live in the agent-owned index.html.
         "captions": caption_sub_src,
     }
+
+
+_COMPOSITION_SRC_RE_TEMPLATE = r'data-composition-src\s*=\s*["\'](?:\./)?{rel}["\']'
+
+
+def detect_coauthor_caption_mismatch(
+    index_html_text: str,
+    style_name: str,
+    caption_rel: Optional[str],
+) -> Optional[str]:
+    """Detect the co-author "silent caption style" gap (see CLAUDE.md HyperFrames
+    Integration / docs/plans/caption-style-visibility-feedback.md Phase 3.5).
+
+    In co-author mode the agent owns ``index.html`` and CapForge only refreshes
+    companions via ``sync_companions`` — it never edits ``index.html``. So if a
+    registry/custom caption style was selected (``caption_rel`` non-None, the
+    installed component's project-relative path from ``sync_companions``'s
+    ``captions`` key) but the agent's ``index.html`` never *actually wires it in*
+    (no ``data-composition-src="<caption_rel>"`` attribute — a stray mention in a
+    comment or string doesn't count), the installed component sits on disk unused
+    and the render silently falls back to whatever caption layer (if any) the
+    agent already authored inline. Returns a human-readable warning in that case,
+    else ``None`` (classic style, or the style IS wired in).
+
+    Matches the attribute specifically (regex on ``data-composition-src="..."``,
+    tolerating a leading ``./`` and single/double quotes) rather than a bare
+    substring check, so a leftover ``<!-- TODO: wire caption-x.html -->`` comment
+    can't accidentally suppress a real warning.
+
+    Pure/side-effect-free: does not read or write files, does not touch
+    ``index.html`` — callers pass in the text they already have.
+    """
+    if not caption_rel:
+        return None
+    pattern = _COMPOSITION_SRC_RE_TEMPLATE.format(rel=re.escape(caption_rel))
+    if re.search(pattern, index_html_text):
+        return None
+    return (
+        "Co-author project controls its own captions — the selected style "
+        f"'{style_name}' is installed at {caption_rel} but not referenced by "
+        "index.html. Ask the agent to wire it in, or exit co-author mode."
+    )
 
 
 def export_hyperframes_project(

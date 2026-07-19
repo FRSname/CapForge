@@ -252,7 +252,16 @@ def _preview_setup(m, transcription_result, tmp_path, monkeypatch):
     )
 
     calls: list[str] = []
-    monkeypatch.setattr(m, "sync_companions", lambda *a, **k: calls.append("sync"))
+
+    def _sync(*_a, **_k):
+        calls.append("sync")
+        # Minimal shape matching sync_companions' real return contract (dict with
+        # a "captions" key) — a stub that returned None here previously forced a
+        # defensive isinstance() guard at the call site; keep the stub honest to
+        # the contract instead so both call sites can trust it identically.
+        return {"transcript": "transcript.json", "source": "source.mp4", "captions": None}
+
+    monkeypatch.setattr(m, "sync_companions", _sync)
 
     def _scaffold(*_a, **_k):
         calls.append("scaffold")

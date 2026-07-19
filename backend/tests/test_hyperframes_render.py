@@ -538,3 +538,94 @@ def test_export_endpoint_approval_timeout_returns_cancelled_and_resets_status(
     assert body["message"].strip()
     # Status was never advanced to RENDERING — no stuck-job residue.
     assert main_module.current_status.status == JobStatus.IDLE
+
+
+def _stub_coauthor_project(main_module, monkeypatch, tmp_path, *, captions):
+    """Make the export endpoint take the co-author branch against a fake project
+    dir whose index.html we control, with ``sync_companions`` stubbed to report
+    ``captions`` (mirrors the real ``{"captions": <rel>|None}`` shape)."""
+    project_dir = tmp_path / "clip-hyperframes"
+    project_dir.mkdir(parents=True, exist_ok=True)
+    (project_dir / "index.html").write_text("<html><body>agent-authored</body></html>")
+    monkeypatch.setattr(main_module, "coauthor_active", lambda _project_dir: True)
+    monkeypatch.setattr(main_module, "coauthor_project_dir", lambda *_a, **_k: project_dir)
+    monkeypatch.setattr(
+        main_module, "sync_companions",
+        lambda *a, **k: {"transcript": "transcript.json", "source": "source.wav", "captions": captions},
+    )
+    return project_dir
+
+
+def test_export_endpoint_coauthor_warns_on_unreferenced_style(hf_client, tmp_path, monkeypatch):
+    """Phase 3.5 (caption-style-visibility-feedback.md): co-author render/preview
+    (render:false here) surfaces a warning when the selected style installed via
+    sync_companions isn't referenced by the agent's index.html."""
+    tc, main_module = hf_client
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"\x00" * 32)
+    monkeypatch.setattr(main_module, "current_result", _loaded_result(main_module, str(audio)))
+    _stub_coauthor_project(
+        main_module, monkeypatch, tmp_path,
+        captions="compositions/components/caption-kinetic-slam.html",
+    )
+
+    resp = tc.post(
+        "/api/export-hyperframes",
+        json={
+            "render": False,
+            "use_ui_config": False,
+            "config": {"caption_style": "caption-kinetic-slam"},
+        },
+        headers=HF_TOKEN_HEADERS,
+    )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["warning"] is not None
+    assert "caption-kinetic-slam" in body["warning"]
+    assert "compositions/components/caption-kinetic-slam.html" in body["warning"]
+
+
+def test_export_endpoint_coauthor_no_warning_when_referenced(hf_client, tmp_path, monkeypatch):
+    tc, main_module = hf_client
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"\x00" * 32)
+    monkeypatch.setattr(main_module, "current_result", _loaded_result(main_module, str(audio)))
+    project_dir = _stub_coauthor_project(
+        main_module, monkeypatch, tmp_path,
+        captions="compositions/components/caption-kinetic-slam.html",
+    )
+    # The agent DID wire the component in — no mismatch.
+    (project_dir / "index.html").write_text(
+        '<div data-composition-src="compositions/components/caption-kinetic-slam.html"></div>'
+    )
+
+    resp = tc.post(
+        "/api/export-hyperframes",
+        json={
+            "render": False,
+            "use_ui_config": False,
+            "config": {"caption_style": "caption-kinetic-slam"},
+        },
+        headers=HF_TOKEN_HEADERS,
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["warning"] is None
+
+
+def test_export_endpoint_coauthor_no_warning_for_classic(hf_client, tmp_path, monkeypatch):
+    tc, main_module = hf_client
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"\x00" * 32)
+    monkeypatch.setattr(main_module, "current_result", _loaded_result(main_module, str(audio)))
+    _stub_coauthor_project(main_module, monkeypatch, tmp_path, captions=None)
+
+    resp = tc.post(
+        "/api/export-hyperframes",
+        json={"render": False, "use_ui_config": False, "config": {"caption_style": "classic"}},
+        headers=HF_TOKEN_HEADERS,
+    )
+
+    assert resp.status_code == 200
+    assert resp.json()["warning"] is None
