@@ -324,6 +324,49 @@ def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dic
 
 # --- Caption style ------------------------------------------------------
 
+def _add_coauthor_style_hint(result: dict, style_name: str) -> dict:
+    """Append a co-author-mode caveat to a caption-style tool's return dict
+    (Phase 3.5, docs/plans/caption-style-visibility-feedback.md): in co-author
+    mode the agent-owned index.html decides captions, so this setting alone
+    never reaches the render.
+
+    Used by both `set_caption_style` (registry styles) and
+    `set_custom_caption_style` (`style_name='custom'`) — the wired filename
+    differs for the two (registry: `compositions/components/<name>.html`, via
+    `component_rel_path`; custom: `compositions/components/custom-caption.html`,
+    via `CUSTOM_CAPTION_REL`) in `backend/exporters/hyperframes_captions.py`.
+
+    Resilient by design: a failed/unreachable status call falls back to the
+    Phase-2 `result` untouched — this never raises and never blocks the tool
+    response. Skips the extra hint for 'classic' (no component to wire; classic
+    captions are already inline in whatever index.html the agent authored).
+    """
+    if style_name == "classic":
+        return result
+    try:
+        status = _client.get_coauthor()
+    except Exception:
+        return result
+    if not isinstance(status, dict) or not status.get("coauthor"):
+        return result
+    component_rel = (
+        "compositions/components/custom-caption.html"
+        if style_name == "custom"
+        else f"compositions/components/{style_name}.html"
+    )
+    return {
+        **result,
+        "coauthor_active": True,
+        "hint": (
+            result.get("hint", "")
+            + " Co-author mode is active: the agent-owned index.html decides "
+            f"captions — wire {component_rel} into it (data-composition-src), "
+            "or exit co-author mode; otherwise this setting will not appear "
+            "in renders."
+        ),
+    }
+
+
 @mcp.tool()
 def list_caption_styles() -> dict:
     """List caption styles for the HyperFrames render: 'classic' (CapForge's
@@ -334,14 +377,33 @@ def list_caption_styles() -> dict:
 
 @mcp.tool()
 def set_caption_style(name: str) -> dict:
-    """Set the caption look for the HyperFrames render. Updates the live UI.
+    """Set the caption look for the HyperFrames render. Updates the style dropdown
+    in the UI, but NOT the live Canvas preview panel — that always draws the
+    classic style and cannot render registry styles.
 
     `name` is 'classic' or a registry style from list_caption_styles, e.g.
     'caption-pill-karaoke'. Native styles install on the next HyperFrames
     render/Studio (needs Node 22+) and bring their own animation + grouping.
+    The style only becomes visible via `preview_hyperframes_frame`, the
+    HyperFrames Studio, or a HyperFrames render — never end a turn believing
+    something visible happened from this call alone.
+
+    If co-author mode is active, this setting ALSO does not reach the render on
+    its own — the co-author project's own index.html decides captions and must be
+    wired by hand (see the `coauthor_active` hint in the return value).
     """
     _client.send_command("set_settings", {"patch": {"captionStyle": name}})
-    return {"status": "ok"}
+    result = {
+        "status": "ok",
+        "applied": name,
+        "visible_after": "hyperframes_preview_or_render",
+        "hint": (
+            "No change appears in the live preview panel — registry styles only "
+            "render via HyperFrames. Call preview_hyperframes_frame(t) or ask the "
+            "user to Render with HyperFrames / open the Studio."
+        ),
+    }
+    return _add_coauthor_style_hint(result, name)
 
 
 # --- HyperFrames creative library ---------------------------------------
@@ -411,13 +473,30 @@ def set_custom_caption_style(html: str) -> dict:
 
     The HTML is validated immediately (transcript array, timeline, composition
     root, no banned patterns) — a clear error comes back if anything's missing.
-    Also switches the live caption style to this custom one. Render it with
-    render_hyperframes (or open the Studio) to see it. For the design vocabulary
-    behind a strong custom look, see `hyperframes_guide`.
+    Also switches the style dropdown in the UI to this custom one — but NOT the
+    live Canvas preview panel, which cannot render it. The style only becomes
+    visible via `preview_hyperframes_frame`, the HyperFrames Studio, or
+    render_hyperframes; never end a turn believing something visible happened
+    from this call alone. For the design vocabulary behind a strong custom
+    look, see `hyperframes_guide`.
+
+    If co-author mode is active, this setting ALSO does not reach the render on
+    its own — the co-author project's own index.html decides captions and must be
+    wired by hand (see the `coauthor_active` hint in the return value).
     """
     result = _client.set_custom_caption(html)
     _client.send_command("set_settings", {"patch": {"captionStyle": "custom"}})
-    return {"status": "ok", **(result if isinstance(result, dict) else {})}
+    merged = {
+        "status": "ok",
+        "visible_after": "hyperframes_preview_or_render",
+        "hint": (
+            "No change appears in the live preview panel — custom styles only "
+            "render via HyperFrames. Call preview_hyperframes_frame(t) or ask the "
+            "user to Render with HyperFrames / open the Studio."
+        ),
+        **(result if isinstance(result, dict) else {}),
+    }
+    return _add_coauthor_style_hint(merged, "custom")
 
 
 # --- Co-author mode: free-form HyperFrames authoring in CapForge's project ---
@@ -479,6 +558,27 @@ def sync_captions() -> dict:
     this after `update_words`: transcript edits already update the live CapForge UI
     on their own. Calling it outside co-author mode returns a clear 409, not a fix."""
     return _client.sync_captions()
+
+
+@mcp.tool()
+def install_caption_component(style: str) -> dict:
+    """Install a HyperFrames registry caption component (e.g. 'caption-kinetic-slam',
+    see `list_caption_styles`) into your co-author project — the legitimate way to
+    bring a registry style into a co-authored composition (the CLI passthrough
+    `run_hyperframes_cli` is read-only and cannot run `add`).
+
+    Additive-only: writes `compositions/components/<style>.html` fed with the
+    current transcript, and NEVER touches `index.html`. Wiring it in is still YOUR
+    job: reference it from your composition with `data-composition-src` (the
+    returned `path`), and replace/disable any inline caption layer of your own so
+    captions don't render twice. Returns `{status, path, hint}` — after editing
+    `index.html`, tell the user to refresh the Studio tab to see the change.
+
+    Co-author mode ONLY — enter with `enter_coauthor_mode` first. `style` must be a
+    registry name, not 'classic' or 'custom' (those are CapForge-pipeline caption
+    modes, not installable components) — see `set_caption_style` /
+    `set_custom_caption_style` for those instead."""
+    return _client.install_caption_component(style)
 
 
 @mcp.tool()

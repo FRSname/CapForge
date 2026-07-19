@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 from backend.exporters import hyperframes_project as hp
 from backend.exporters.hyperframes_project import (
+    detect_coauthor_caption_mismatch,
     export_hyperframes_project,
     sync_companions,
 )
@@ -285,3 +286,52 @@ def test_native_caption_style_references_subcomposition(transcription_result, tm
     # Our transcript + duration were injected into the component.
     injected = comp.read_text()
     assert "Hello" in injected and "var DURATION = 8;" not in injected
+
+
+# --- Co-author caption-style mismatch warning (Phase 3.5, ---
+# --- docs/plans/caption-style-visibility-feedback.md) -------------------------
+
+def test_detect_coauthor_caption_mismatch_warns_when_unreferenced():
+    html = "<html><body><div data-composition-id=\"root\"></div></body></html>"
+    warning = detect_coauthor_caption_mismatch(
+        html, "caption-kinetic-slam", "compositions/components/caption-kinetic-slam.html"
+    )
+    assert warning is not None
+    assert "caption-kinetic-slam" in warning
+    assert "compositions/components/caption-kinetic-slam.html" in warning
+    assert "index.html" in warning
+
+
+def test_detect_coauthor_caption_mismatch_none_when_referenced():
+    rel = "compositions/components/caption-kinetic-slam.html"
+    html = f'<div data-composition-src="{rel}"></div>'
+    warning = detect_coauthor_caption_mismatch(html, "caption-kinetic-slam", rel)
+    assert warning is None
+
+
+def test_detect_coauthor_caption_mismatch_none_when_referenced_single_quotes_and_dot_slash():
+    # Tolerate single quotes and a leading './' — still a real wiring, not a
+    # bare-substring false negative.
+    rel = "compositions/components/caption-kinetic-slam.html"
+    html = f"<div data-composition-src='./{rel}'></div>"
+    warning = detect_coauthor_caption_mismatch(html, "caption-kinetic-slam", rel)
+    assert warning is None
+
+
+def test_detect_coauthor_caption_mismatch_warns_when_rel_only_in_comment():
+    # A bare substring check would be fooled by a leftover TODO comment that
+    # merely MENTIONS the path without an actual data-composition-src wiring —
+    # the attribute-aware regex must still warn.
+    rel = "compositions/components/caption-kinetic-slam.html"
+    html = f"<!-- TODO: wire {rel} into the timeline --><div>hi</div>"
+    warning = detect_coauthor_caption_mismatch(html, "caption-kinetic-slam", rel)
+    assert warning is not None
+    assert rel in warning
+
+
+def test_detect_coauthor_caption_mismatch_none_for_classic():
+    # Classic style never installs a sub-composition, so sync_companions'
+    # ``captions`` key is None — nothing to be unreferenced.
+    html = "<html><body><div class=\"captions\"></div></body></html>"
+    warning = detect_coauthor_caption_mismatch(html, "classic", None)
+    assert warning is None

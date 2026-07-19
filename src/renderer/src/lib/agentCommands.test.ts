@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { applySettingsCommand, builtinPresetNames } from './agentCommands'
+import { applySettingsCommand, builtinPresetNames, toastMessageForCommand } from './agentCommands'
 import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
 
 describe('applySettingsCommand', () => {
@@ -57,6 +57,51 @@ describe('applySettingsCommand', () => {
     expect(
       applySettingsCommand(STUDIO_DEFAULTS, { op: 'set_word_overrides', payload: {} })
     ).toBeNull()
+  })
+})
+
+describe('toastMessageForCommand', () => {
+  it('returns the caption-style toast for a non-classic captionStyle patch', () => {
+    const toast = toastMessageForCommand({
+      op: 'set_settings',
+      payload: { patch: { captionStyle: 'caption-kinetic-slam' } },
+    })
+    expect(toast.message).toBe(
+      'Caption style set to caption-kinetic-slam — visible in HyperFrames Studio or render.'
+    )
+    expect(toast.type).toBe('info')
+  })
+
+  it('returns the generic style toast when captionStyle is classic', () => {
+    const toast = toastMessageForCommand({
+      op: 'set_settings',
+      payload: { patch: { captionStyle: 'classic' } },
+    })
+    expect(toast.message).toBe('Agent updated the style.')
+  })
+
+  it('returns the generic style toast when the patch has no captionStyle', () => {
+    const toast = toastMessageForCommand({
+      op: 'set_settings',
+      payload: { patch: { fontSize: 42 } },
+    })
+    expect(toast.message).toBe('Agent updated the style.')
+  })
+
+  it('treats an empty-string captionStyle as absent', () => {
+    const toast = toastMessageForCommand({
+      op: 'set_settings',
+      payload: { patch: { captionStyle: '' } },
+    })
+    expect(toast.message).toBe('Agent updated the style.')
+  })
+
+  it('returns the preset toast for apply_preset even if the preset sets captionStyle', () => {
+    const toast = toastMessageForCommand({
+      op: 'apply_preset',
+      payload: { name: 'tiktok pop', patch: { captionStyle: 'caption-kinetic-slam' } },
+    })
+    expect(toast.message).toBe('Agent applied a preset.')
   })
 })
 

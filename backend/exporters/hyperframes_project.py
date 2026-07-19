@@ -24,6 +24,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import time
 from datetime import datetime, timezone
@@ -632,6 +633,51 @@ def _prepare_caption_style(
     return rel
 
 
+def install_caption_component_for_coauthor(
+    result: TranscriptionResult,
+    config: VideoRenderConfig,
+    project_dir: str,
+    style: str,
+    *,
+    custom_groups: Optional[list[dict]] = None,
+    caption_html: Optional[str] = None,
+    duration: Optional[float] = None,
+) -> str:
+    """Install registry caption component ``style`` into an ACTIVE co-author
+    project and feed it the CURRENT transcript — additive-only: writes/updates
+    only ``compositions/components/<style>.html``, never ``index.html`` or any
+    other companion file (``transcript.json``, the copied source media).
+
+    Before this, a registry component only ever landed in a co-author project as
+    a side effect of ``sync_companions`` during a render — the agent had no way
+    to request one directly, because the CLI passthrough allowlist
+    (``CLI_ALLOWED_SUBCOMMANDS``) is deliberately read-only and excludes ``add``.
+    This calls the SAME flat-style path (``_prepare_caption_style``) every other
+    caller uses by building a throwaway config copy with ``caption_style=style``
+    — the caller is responsible for rejecting 'classic'/'custom' before this is
+    reached (see Phase 5, docs/plans/caption-style-visibility-feedback.md).
+
+    Wiring the installed component into ``index.html`` (via
+    ``data-composition-src``) and removing/disabling any inline caption layer
+    stays the agent's job — this function only ever writes the component file.
+
+    Returns the component's project-relative path.
+    """
+    proj = Path(project_dir)
+    groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    if not groups:
+        raise ValueError("No subtitle data to build the caption component from")
+    total_duration = _resolve_duration(result, groups, None, duration)
+    transcript_json = export_hyperframes(result)
+    style_config = config.model_copy(update={"caption_style": style})
+    rel = _prepare_caption_style(
+        style_config, proj, groups, transcript_json, total_duration, caption_html
+    )
+    if rel is None:  # defensive — caller guarantees style != 'classic'
+        raise ValueError(f"Caption style '{style}' resolved to no component")
+    return rel
+
+
 def _write_companions(
     result: TranscriptionResult,
     config: VideoRenderConfig,
@@ -744,6 +790,48 @@ def sync_companions(
         # None for classic: captions live in the agent-owned index.html.
         "captions": caption_sub_src,
     }
+
+
+_COMPOSITION_SRC_RE_TEMPLATE = r'data-composition-src\s*=\s*["\'](?:\./)?{rel}["\']'
+
+
+def detect_coauthor_caption_mismatch(
+    index_html_text: str,
+    style_name: str,
+    caption_rel: Optional[str],
+) -> Optional[str]:
+    """Detect the co-author "silent caption style" gap (see CLAUDE.md HyperFrames
+    Integration / docs/plans/caption-style-visibility-feedback.md Phase 3.5).
+
+    In co-author mode the agent owns ``index.html`` and CapForge only refreshes
+    companions via ``sync_companions`` — it never edits ``index.html``. So if a
+    registry/custom caption style was selected (``caption_rel`` non-None, the
+    installed component's project-relative path from ``sync_companions``'s
+    ``captions`` key) but the agent's ``index.html`` never *actually wires it in*
+    (no ``data-composition-src="<caption_rel>"`` attribute — a stray mention in a
+    comment or string doesn't count), the installed component sits on disk unused
+    and the render silently falls back to whatever caption layer (if any) the
+    agent already authored inline. Returns a human-readable warning in that case,
+    else ``None`` (classic style, or the style IS wired in).
+
+    Matches the attribute specifically (regex on ``data-composition-src="..."``,
+    tolerating a leading ``./`` and single/double quotes) rather than a bare
+    substring check, so a leftover ``<!-- TODO: wire caption-x.html -->`` comment
+    can't accidentally suppress a real warning.
+
+    Pure/side-effect-free: does not read or write files, does not touch
+    ``index.html`` — callers pass in the text they already have.
+    """
+    if not caption_rel:
+        return None
+    pattern = _COMPOSITION_SRC_RE_TEMPLATE.format(rel=re.escape(caption_rel))
+    if re.search(pattern, index_html_text):
+        return None
+    return (
+        "Co-author project controls its own captions — the selected style "
+        f"'{style_name}' is installed at {caption_rel} but not referenced by "
+        "index.html. Ask the agent to wire it in, or exit co-author mode."
+    )
 
 
 def export_hyperframes_project(

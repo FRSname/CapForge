@@ -180,6 +180,11 @@ export function HyperFramesPanel({
     }
   }
 
+  // Display name for the "preview shows Classic" hint below the Select —
+  // prefer the registry's display title, fall back to the raw style name if
+  // the styles list hasn't loaded yet (best-effort fetch, see the effect above).
+  const styleTitle = styles.find((s) => s.name === captionStyle)?.title ?? captionStyle
+
   return (
     <StudioCard title="HyperFrames ✦" defaultOpen={false}>
       {hfReady === false && (
@@ -358,6 +363,7 @@ export function HyperFramesPanel({
           value={captionStyle}
           onChange={(e) => onCaptionStyleChange(e.target.value)}
           title="Caption look for the HyperFrames render. Classic is CapForge's built-in track; the rest are native HyperFrames styles."
+          aria-describedby={captionStyle !== 'classic' ? 'caption-style-hint' : undefined}
         >
           {styles.length === 0 && <option value="classic">Classic (CapForge)</option>}
           {styles.map((s) => (
@@ -367,6 +373,12 @@ export function HyperFramesPanel({
           ))}
         </Select>
       </div>
+      {captionStyle !== 'classic' && (
+        <p id="caption-style-hint" className="text-2xs mt-1" style={{ color: 'var(--color-text-3)' }}>
+          Preview shows the Classic style — {styleTitle} appears in HyperFrames Studio or the
+          HyperFrames render.
+        </p>
+      )}
     </StudioCard>
   )
 }

@@ -89,12 +89,13 @@ actually reads.
 | `find_semantic_moments` | Find moments by category: `numbers` / `cta` / `speaker_change` (diarization) |
 | `render_hyperframes` | Render captions via HyperFrames → output path |
 | `list_caption_styles` | List caption styles: `classic` + native HyperFrames registry styles |
-| `set_caption_style` | Set the caption look (classic / `caption-pill-karaoke` / …) → live UI |
+| `set_caption_style` | Set the caption look (classic / `caption-pill-karaoke` / …) → UI dropdown; becomes visible only in HyperFrames preview/render |
 | `get_custom_caption_contract` | Contract + starter template for authoring your OWN caption style from scratch |
-| `set_custom_caption_style` | Set a brand-new agent-authored caption style (full HTML); validated on the way in → live UI |
+| `set_custom_caption_style` | Set a brand-new agent-authored caption style (full HTML); validated on the way in → UI dropdown; becomes visible only in HyperFrames preview/render |
 | `enter_coauthor_mode` | Take ownership of the HyperFrames project to author it freely; seeds a working starter, then CapForge stops regenerating index.html |
 | `exit_coauthor_mode` | Hand control back to CapForge's generated composition |
 | `sync_captions` | Refresh the CapForge-owned transcript + captions sub-composition into the co-author project (never touches your index.html) |
+| `install_caption_component` | Install a HyperFrames registry caption component (e.g. `caption-kinetic-slam`) into the co-author project, fed with the current transcript — additive-only, never touches your index.html; wiring it in via `data-composition-src` stays your job |
 | `get_workspace` | The co-author project path + file tree the agent authors in |
 | `read_workspace_file` | Read a text file from the co-author workspace (sandboxed) |
 | `write_workspace_file` | Write/overwrite a file in the co-author workspace (sandboxed: extension allowlist + size cap) |
@@ -129,6 +130,22 @@ command — a pack is placed by copying the folder in, then wired by hand:
      element IDs with 2-3 letters to avoid collisions with your own.
 4. `preview_hyperframes_frame` to check it, then `render_hyperframes` once the
    user approves.
+
+## Registry styles in co-author mode
+
+`set_caption_style` is a CapForge-pipeline knob — in co-author mode it never
+reaches the render, because the agent-owned `index.html` decides captions on
+its own (see the `coauthor_active` hint on that tool's return value). To bring
+a registry look (e.g. "make it Kinetic Slam") into a co-authored composition:
+
+1. `install_caption_component("caption-kinetic-slam")` — installs
+   `compositions/components/caption-kinetic-slam.html` fed with the current
+   transcript. Additive-only; your `index.html` is untouched.
+2. Wire it into `index.html` yourself via `data-composition-src` (the tool's
+   `path` in its response), and remove/disable any inline caption layer you
+   already had so captions don't render twice.
+3. `preview_hyperframes_frame` to confirm the look, then tell the user to
+   refresh the Studio tab to see it before rendering.
 
 ## Creative library (`knowledge/`)
 

@@ -17,7 +17,7 @@ import { api, normalizeResult, type AgentCommand, type RenderApprovalRequest } f
 import type { TranscriptionResult } from '../types/app'
 import type { StudioSettings } from './studio/StudioPanel'
 import type { WordOverrideEdit } from '../lib/project'
-import { applySettingsCommand } from '../lib/agentCommands'
+import { applySettingsCommand, toastMessageForCommand } from '../lib/agentCommands'
 import { useToast } from '../hooks/useToast'
 
 interface AgentLiveSyncProps {
@@ -114,10 +114,8 @@ export function AgentLiveSync({
         const next = applySettingsCommand(settingsRef.current, cmd)
         if (next) {
           applySettingsRef.current(next)
-          toastRef.current(
-            cmd.op === 'apply_preset' ? 'Agent applied a preset.' : 'Agent updated the style.',
-            'info'
-          )
+          const { message, type } = toastMessageForCommand(cmd)
+          toastRef.current(message, type)
         }
       } catch {
         /* ignore malformed command */

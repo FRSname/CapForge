@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import threading
@@ -46,9 +47,11 @@ from backend.exporters.hyperframes_export import export_hyperframes
 from backend.exporters.hyperframes_project import (
     clear_scaffold_fingerprint,
     coauthor_project_dir,
+    detect_coauthor_caption_mismatch,
     ensure_hyperframes_project,
     export_hyperframes_project,
     hyperframes_workspace,
+    install_caption_component_for_coauthor,
     read_coauthor_marker,
     resolve_output_dir,
     seed_coauthor_project,
@@ -962,21 +965,35 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             caption_html=current_custom_caption_html,
         )
 
-    def _coauthor_project() -> str:
+    def _coauthor_project() -> tuple[str, Optional[str]]:
         """Resolve the agent-owned project in the stable workspace, refreshing the
         CapForge-owned companions (transcript/captions) WITHOUT regenerating the
-        agent's index.html. Seeds a starter project if the agent hasn't one yet."""
+        agent's index.html. Seeds a starter project if the agent hasn't one yet.
+
+        Returns ``(project_dir, warning)``. ``warning`` is set when a non-classic
+        caption style was installed via ``sync_companions`` but the agent's
+        index.html doesn't reference it (see ``detect_coauthor_caption_mismatch`` —
+        Phase 3.5 of docs/plans/caption-style-visibility-feedback.md); ``None`` on
+        a fresh seed (nothing to mismatch yet) or when the style is 'classic'/
+        already wired.
+        """
         workspace = hyperframes_workspace(current_result.audio_path)
         project_dir = coauthor_project_dir(current_result, workspace)
-        if (project_dir / "index.html").exists():
-            sync_companions(
+        index_html_path = project_dir / "index.html"
+        if index_html_path.exists():
+            sync_result = sync_companions(
                 current_result, config, str(project_dir),
                 source_video_path=current_result.audio_path,
                 custom_groups=custom_groups_dicts,
                 caption_html=current_custom_caption_html,
             )
-            return str(project_dir)
-        return _scaffold(workspace)
+            warning = detect_coauthor_caption_mismatch(
+                index_html_path.read_text(encoding="utf-8"),
+                getattr(config, "caption_style", "classic") or "classic",
+                sync_result.get("captions"),
+            )
+            return str(project_dir), warning
+        return _scaffold(workspace), None
 
     def _work() -> dict:
         # Co-author mode: the agent owns index.html, so render/preview the project
@@ -987,9 +1004,9 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             current_result, hyperframes_workspace(current_result.audio_path)
         )
         if coauthor_active(coauthor_dir):
-            project_dir = _coauthor_project()
+            project_dir, warning = _coauthor_project()
             if not request.render:
-                return {"project": project_dir, "file": None}
+                return {"project": project_dir, "file": None, "warning": warning}
             out_path = str(Path(out_dir) / f"{stem}_hyperframes{ext}")
             file = render_hyperframes_project(
                 project_dir, out_path,
@@ -998,7 +1015,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
                 on_progress=on_progress,
                 cancel_event=cancel_event,
             )
-            return {"project": None, "file": file}
+            return {"project": None, "file": file, "warning": warning}
 
         if not request.render:
             # Open-in-Studio: scaffold into the canonical per-source workspace so
@@ -1006,7 +1023,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
             # folder. The Studio serves this dir; the agent re-scaffolds the same
             # dir, so its edits surface on a Studio refresh instead of diverging.
             project_dir = _scaffold(hyperframes_workspace(current_result.audio_path))
-            return {"project": project_dir, "file": None}
+            return {"project": project_dir, "file": None, "warning": None}
 
         # Render-to-file: scaffold into a throwaway temp dir so the user's folder
         # isn't littered with the intermediate composition — only the finished
@@ -1022,7 +1039,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
                 on_progress=on_progress,
                 cancel_event=cancel_event,
             )
-            return {"project": None, "file": file}
+            return {"project": None, "file": file, "warning": None}
         finally:
             shutil.rmtree(scratch, ignore_errors=True)
 
@@ -1172,12 +1189,25 @@ async def preview_hyperframes_frame(req: dict):
         # companions, never regenerate the composition the agent authored.
         # Durable marker check survives a backend restart mid-session.
         if coauthor_active(project_dir) and (project_dir / "index.html").exists():
-            sync_companions(
+            sync_result = sync_companions(
                 current_result, config, str(project_dir),
                 source_video_path=current_result.audio_path,
                 custom_groups=ui_groups,
                 caption_html=current_custom_caption_html,
             )
+            # Same mismatch this endpoint's render-path counterpart warns about
+            # (Phase 3.5, caption-style-visibility-feedback.md) — but this endpoint
+            # returns raw PNG bytes (an Image, not JSON), so there's no response
+            # field to carry a warning string. The preview itself is already
+            # self-diagnosing (the agent SEES the un-styled frame), so we only log
+            # server-side here rather than reshape the response contract.
+            mismatch = detect_coauthor_caption_mismatch(
+                (project_dir / "index.html").read_text(encoding="utf-8"),
+                getattr(config, "caption_style", "classic") or "classic",
+                sync_result.get("captions"),
+            )
+            if mismatch:
+                logger.warning("Co-author caption style mismatch on preview: %s", mismatch)
             return snapshot_hyperframes_project(str(project_dir), t, on_progress=heartbeat)
         # Default: scaffold into the SAME canonical workspace the Studio serves, so
         # a preview re-generates the open Studio's project (not a separate copy).
@@ -1390,6 +1420,102 @@ async def coauthor_sync_captions():
     """Refresh ONLY the CapForge-owned companions (transcript + the captions
     sub-composition) in the co-author project — never the agent's index.html."""
     return await _coauthor_sync_captions()
+
+
+async def _coauthor_install_caption_component(style: object) -> dict:
+    """Install a HyperFrames registry caption component into the ACTIVE
+    co-author project (Phase 5, docs/plans/caption-style-visibility-feedback.md).
+
+    Additive-only: writes ``compositions/components/<style>.html`` and feeds it
+    the current transcript, but never touches ``index.html`` — wiring it in via
+    ``data-composition-src`` (and disabling any inline caption layer) stays the
+    agent's job. This is the legitimate replacement for the old side-effect-only
+    path where a component landed in the project only because a render's
+    ``sync_companions`` happened to install it.
+    """
+    if current_result is None:
+        raise HTTPException(status_code=404, detail="No transcription result available")
+    if not isinstance(style, str) or not style.strip():
+        raise HTTPException(status_code=400, detail="Provide `style` (non-empty string).")
+    style = style.strip()
+    # Strict slug check BEFORE anything else touches `style`: it flows into an
+    # f-string path (component_rel_path) and the `npx hyperframes add <style>`
+    # argv, so it must never contain path-traversal segments (e.g. "../evil") or
+    # a leading "-" that could be parsed as a CLI flag (argument injection —
+    # subprocess is list-form so this isn't shell injection, but a malformed
+    # argv could still do something unintended). Deliberately NOT checked
+    # against the live list_caption_styles() catalog: that shells out to the
+    # CLI and the curated fallback can lag the real registry.
+    if not re.match(r"^[a-z0-9][a-z0-9-]{0,63}$", style):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"'{style}' is not a valid caption style name — must be lowercase "
+                "letters, digits, and hyphens only, starting with a letter or "
+                "digit (e.g. 'caption-kinetic-slam')."
+            ),
+        )
+    from backend.exporters.hyperframes_captions import CUSTOM_CAPTION_STYLE
+
+    if style in ("classic", CUSTOM_CAPTION_STYLE):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"'{style}' is a CapForge-pipeline caption mode, not a registry "
+                "component to install. Pick a registry style name instead (e.g. "
+                "'caption-kinetic-slam')."
+            ),
+        )
+    project_dir = coauthor_project_dir(
+        current_result, hyperframes_workspace(current_result.audio_path)
+    )
+    # Same upfront guard as sync_captions — this only makes sense for an active
+    # co-author project, so fail with a clear 409 rather than a confusing error
+    # deeper in the install pipeline.
+    if not coauthor_active(project_dir):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Not in co-author mode — install_caption_component only applies to "
+                "an active co-author project. Call set_coauthor(enable=True) first."
+            ),
+        )
+    config, ui_groups = _agent_frame_inputs()
+    from backend.exporters.hyperframes_captions import CaptionStyleError
+
+    loop = asyncio.get_running_loop()
+    try:
+        rel = await loop.run_in_executor(
+            None,
+            lambda: install_caption_component_for_coauthor(
+                current_result, config, str(project_dir), style,
+                custom_groups=ui_groups, caption_html=current_custom_caption_html,
+            ),
+        )
+    except CaptionStyleError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except (FileNotFoundError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "ok",
+        "path": rel,
+        "hint": (
+            f'Reference it from index.html via data-composition-src="{rel}"; '
+            "replace/disable any inline caption layer to avoid double captions. "
+            "The user must refresh the Studio tab to see changes."
+        ),
+    }
+
+
+@app.post(
+    "/api/agent/coauthor/install-caption-component",
+    dependencies=[Depends(require_agent_token)],
+)
+async def coauthor_install_caption_component(body: dict):
+    """Install a HyperFrames registry caption component (e.g.
+    'caption-kinetic-slam') into the co-author project, additive-only — never
+    touches index.html. See ``_coauthor_install_caption_component``."""
+    return await _coauthor_install_caption_component(body.get("style"))
 
 
 # Ungated UI mirrors — the local renderer (no agent token) drives co-author mode
