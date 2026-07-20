@@ -12,7 +12,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { TranscriptionResult, Segment } from '../../types/app'
+import type { TranscriptionResult, Segment, WordOverrides } from '../../types/app'
 import { buildStudioGroups, fillGroupGaps } from '../../lib/groups'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
@@ -23,7 +23,7 @@ import { AudioPlayer, type AudioPlayerHandle } from '../player/AudioPlayer'
 import { AlignmentNotice } from './AlignmentNotice'
 import { SubtitleEditor } from '../editor/SubtitleEditor'
 import { GroupEditor } from '../editor/GroupEditor'
-import type { WordStyleDefaults } from '../editor/WordStylePopup'
+import { WordStylePopup, type WordStyleDefaults } from '../editor/WordStylePopup'
 import type { StudioSettings } from '../studio/StudioPanel'
 
 interface ResultsScreenProps {
@@ -74,6 +74,14 @@ export function ResultsScreen({
   // Transient: when set, SubtitleEditor scrolls/focuses that segment's text
   // field (used right after a manual "+ Add subtitle" so the user can type).
   const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null)
+  // Timeline double-click on a word in the word lane → style/text popup.
+  // Word identity is positional (groupIdx + wordIdx), not id-based — see the
+  // stale-index guard effect below.
+  const [wordPopup, setWordPopup] = useState<{
+    groupIdx: number
+    wordIdx: number
+    anchorRect: DOMRect
+  } | null>(null)
   const [editorWidth, setEditorWidth] = useState(420)
   // Segment id currently being re-aligned via /api/realign (null = idle).
   const [realigningSegId, setRealigningSegId] = useState<string | null>(null)
@@ -471,6 +479,85 @@ export function ResultsScreen({
     pushUndo()
   }, [pushUndo])
 
+  // Timeline word lane double-click → open the style/text popup for that
+  // word. One undo snapshot per popup "session" (mirrors the drag-start
+  // pattern above) rather than one per keystroke/slider tick — the popup's
+  // onApply fires continuously while it's open. The snapshot itself is taken
+  // lazily on the first real change (see wordPopupUndoPushedRef below) so an
+  // inspect-only open/close (Escape, outside click, no edits) doesn't push a
+  // no-op undo entry.
+  const wordPopupUndoPushedRef = useRef(false)
+  const handleTimelineWordDoubleClick = useCallback(
+    (segId: string, wordIdx: number, rect: DOMRect) => {
+      const groupIdx = groups.findIndex((g) => g.id === segId)
+      if (groupIdx === -1) return
+      wordPopupUndoPushedRef.current = false
+      setWordPopup({ groupIdx, wordIdx, anchorRect: rect })
+    },
+    [groups]
+  )
+
+  // Style override apply/reset for the timeline word popup — same sparse-
+  // storage + groupsEdited mechanics as handleWordEdge (setGroups directly,
+  // flip groupsEdited). The undo snapshot is pushed once, on the first apply
+  // of the popup session (see wordPopupUndoPushedRef above).
+  const applyTimelineWordOverride = useCallback(
+    (gi: number, wi: number, overrides: WordOverrides) => {
+      if (!wordPopupUndoPushedRef.current) {
+        pushUndo()
+        wordPopupUndoPushedRef.current = true
+      }
+      setGroups((prev) =>
+        prev.map((g, idx) =>
+          idx !== gi
+            ? g
+            : {
+                ...g,
+                words: g.words.map((w, j) =>
+                  j !== wi
+                    ? w
+                    : { ...w, overrides: Object.keys(overrides).length ? overrides : undefined }
+                ),
+              }
+        )
+      )
+      setGroupsEdited(true)
+    },
+    [pushUndo]
+  )
+
+  // Text correction from the timeline word popup — preserves start/end/
+  // overrides via spread (SubtitleEditor.tsx's word-edit pattern) and rebuilds
+  // the group's joined text. A boundary-locking edit (Open decision #1): it
+  // flips groupsEdited exactly like GroupEditor/SubtitleEditor text edits.
+  // Same lazy one-snapshot-per-session undo push as applyTimelineWordOverride.
+  const applyTimelineWordText = useCallback(
+    (gi: number, wi: number, newText: string) => {
+      if (!wordPopupUndoPushedRef.current) {
+        pushUndo()
+        wordPopupUndoPushedRef.current = true
+      }
+      setGroups((prev) =>
+        prev.map((g, idx) => {
+          if (idx !== gi) return g
+          const words = g.words.map((w, j) => (j !== wi ? w : { ...w, word: newText }))
+          return { ...g, words, text: words.map((w) => w.word).join(' ') }
+        })
+      )
+      setGroupsEdited(true)
+    },
+    [pushUndo]
+  )
+
+  // Stale-index guard: close the popup if the groups array changed shape
+  // (re-grouping, merge/split, undo/redo) such that the target word no
+  // longer exists — word identity here is positional, not id-based.
+  useEffect(() => {
+    if (wordPopup && !groups[wordPopup.groupIdx]?.words[wordPopup.wordIdx]) {
+      setWordPopup(null)
+    }
+  }, [groups, wordPopup])
+
   // Re-run WhisperX forced alignment on one segment. The backend re-fits word
   // timings to the audio; per-word style overrides are re-attached by index
   // (the backend preserves word count).
@@ -686,8 +773,24 @@ export function ResultsScreen({
           onSegmentEdgeDragStart={handleSegmentEdgeDragStart}
           onWordEdge={handleWordEdge}
           onWordEdgeDragStart={handleWordEdgeDragStart}
+          onWordDoubleClick={handleTimelineWordDoubleClick}
         />
       </div>
+
+      {wordPopup && groups[wordPopup.groupIdx]?.words[wordPopup.wordIdx] && (
+        <WordStylePopup
+          word={groups[wordPopup.groupIdx].words[wordPopup.wordIdx].word}
+          overrides={groups[wordPopup.groupIdx].words[wordPopup.wordIdx].overrides ?? {}}
+          anchorRect={wordPopup.anchorRect}
+          defaults={wordStyleDefaults}
+          onApply={(ov) => applyTimelineWordOverride(wordPopup.groupIdx, wordPopup.wordIdx, ov)}
+          onReset={() => applyTimelineWordOverride(wordPopup.groupIdx, wordPopup.wordIdx, {})}
+          onTextCommit={(newText) =>
+            applyTimelineWordText(wordPopup.groupIdx, wordPopup.wordIdx, newText)
+          }
+          onClose={() => setWordPopup(null)}
+        />
+      )}
     </div>
   )
 }
