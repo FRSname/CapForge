@@ -25,7 +25,25 @@ def _install_fake_whisperx() -> types.ModuleType:
     return fake
 
 
+def _install_fake_huggingface_hub() -> None:
+    """Stub the transitive dependency so this test module stays lightweight."""
+    if "huggingface_hub" in sys.modules:
+        return
+
+    fake_hub = types.ModuleType("huggingface_hub")
+    fake_errors = types.ModuleType("huggingface_hub.errors")
+
+    class FakeLocalEntryNotFoundError(Exception):
+        pass
+
+    fake_hub.snapshot_download = lambda *args, **kwargs: "/hf-cache/default"
+    fake_errors.LocalEntryNotFoundError = FakeLocalEntryNotFoundError
+    sys.modules["huggingface_hub"] = fake_hub
+    sys.modules["huggingface_hub.errors"] = fake_errors
+
+
 FAKE_WX = _install_fake_whisperx()
+_install_fake_huggingface_hub()
 
 import backend.engine.transcriber as transcriber_module  # noqa: E402
 from backend.engine.transcriber import ALIGNMENT_MODELS, Transcriber  # noqa: E402
