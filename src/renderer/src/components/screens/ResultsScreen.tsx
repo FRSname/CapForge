@@ -12,7 +12,12 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { TranscriptionResult, Segment, WordOverrides } from '../../types/app'
+import type {
+  TranscriptionResult,
+  Segment,
+  WordOverrides,
+  GroupPositionOverride,
+} from '../../types/app'
 import { buildStudioGroups, fillGroupGaps } from '../../lib/groups'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
@@ -24,6 +29,7 @@ import { AlignmentNotice } from './AlignmentNotice'
 import { SubtitleEditor } from '../editor/SubtitleEditor'
 import { GroupEditor } from '../editor/GroupEditor'
 import { WordStylePopup, type WordStyleDefaults } from '../editor/WordStylePopup'
+import { GroupPositionPopup } from '../editor/GroupPositionPopup'
 import type { StudioSettings } from '../studio/StudioPanel'
 
 interface ResultsScreenProps {
@@ -80,6 +86,13 @@ export function ResultsScreen({
   const [wordPopup, setWordPopup] = useState<{
     groupIdx: number
     wordIdx: number
+    anchorRect: DOMRect
+  } | null>(null)
+  // Timeline double-click on a group block → position-override popup. Group
+  // identity is positional (groupIdx), not id-based — see the stale-index
+  // guard effect below (mirrors the word popup's guard).
+  const [groupPosPopup, setGroupPosPopup] = useState<{
+    groupIdx: number
     anchorRect: DOMRect
   } | null>(null)
   const [editorWidth, setEditorWidth] = useState(420)
@@ -549,6 +562,45 @@ export function ResultsScreen({
     [pushUndo]
   )
 
+  // Timeline group block double-click → open the position-override popup for
+  // that group. Same lazy one-snapshot-per-session undo pattern as the word
+  // popup above (wordPopupUndoPushedRef) rather than GroupEditor's per-apply
+  // onBeforeEdit — the popup's onApply fires continuously while sliders move.
+  const groupPosUndoPushedRef = useRef(false)
+  const handleTimelineGroupDoubleClick = useCallback(
+    (segId: string, rect: DOMRect) => {
+      const groupIdx = groups.findIndex((g) => g.id === segId)
+      if (groupIdx === -1) return
+      groupPosUndoPushedRef.current = false
+      setGroupPosPopup({ groupIdx, anchorRect: rect })
+    },
+    [groups]
+  )
+
+  // Position-override apply/reset for the timeline group popup — mirrors
+  // GroupEditor's applyPositionOverride (sparse storage: an override with no
+  // keys collapses to undefined) but routes through handleGroupsPositionChange
+  // instead of the boundary-edit path, so groupsEdited is never flipped — a
+  // position override doesn't change group boundaries, and re-grouping must
+  // keep working. The undo snapshot is pushed once, lazily, on the first
+  // apply of the popup session (see groupPosUndoPushedRef above).
+  const applyTimelineGroupPosition = useCallback(
+    (gi: number, override: GroupPositionOverride) => {
+      if (!groupPosUndoPushedRef.current) {
+        pushUndo()
+        groupPosUndoPushedRef.current = true
+      }
+      handleGroupsPositionChange(
+        groups.map((g, idx) =>
+          idx !== gi
+            ? g
+            : { ...g, positionOverride: Object.keys(override).length ? override : undefined }
+        )
+      )
+    },
+    [groups, handleGroupsPositionChange, pushUndo]
+  )
+
   // Stale-index guard: close the popup if the groups array changed shape
   // (re-grouping, merge/split, undo/redo) such that the target word no
   // longer exists — word identity here is positional, not id-based.
@@ -557,6 +609,14 @@ export function ResultsScreen({
       setWordPopup(null)
     }
   }, [groups, wordPopup])
+
+  // Same stale-index guard for the group position popup — group identity is
+  // also positional (groupIdx), not id-based.
+  useEffect(() => {
+    if (groupPosPopup && !groups[groupPosPopup.groupIdx]) {
+      setGroupPosPopup(null)
+    }
+  }, [groups, groupPosPopup])
 
   // Re-run WhisperX forced alignment on one segment. The backend re-fits word
   // timings to the audio; per-word style overrides are re-attached by index
@@ -774,6 +834,7 @@ export function ResultsScreen({
           onWordEdge={handleWordEdge}
           onWordEdgeDragStart={handleWordEdgeDragStart}
           onWordDoubleClick={handleTimelineWordDoubleClick}
+          onGroupDoubleClick={handleTimelineGroupDoubleClick}
         />
       </div>
 
@@ -789,6 +850,18 @@ export function ResultsScreen({
             applyTimelineWordText(wordPopup.groupIdx, wordPopup.wordIdx, newText)
           }
           onClose={() => setWordPopup(null)}
+        />
+      )}
+
+      {groupPosPopup && groups[groupPosPopup.groupIdx] && (
+        <GroupPositionPopup
+          groupLabel={`#${groupPosPopup.groupIdx + 1} ${groups[groupPosPopup.groupIdx].text}`}
+          override={groups[groupPosPopup.groupIdx].positionOverride ?? {}}
+          anchorRect={groupPosPopup.anchorRect}
+          defaults={{ posX: settings.posX, posY: settings.posY }}
+          onApply={(ov) => applyTimelineGroupPosition(groupPosPopup.groupIdx, ov)}
+          onReset={() => applyTimelineGroupPosition(groupPosPopup.groupIdx, {})}
+          onClose={() => setGroupPosPopup(null)}
         />
       )}
     </div>
