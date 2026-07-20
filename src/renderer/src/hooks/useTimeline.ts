@@ -19,6 +19,7 @@ import {
   computeZoomAtPointer,
   computeWheelScroll,
   clampZoom,
+  timeRangeToRect,
 } from '../lib/timelineMath'
 
 const RULER_H = 20
@@ -77,6 +78,10 @@ interface UseTimelineOptions {
   /** Called when zoom or scroll changes so the caller can sync other views. */
   onZoomChange?: (zoom: number, scrollT: number) => void
   onScrollChange?: (scrollT: number, zoom: number) => void
+  /** Double-click on a word in the open word lane. rect = word's on-screen box (viewport coords). */
+  onWordDoubleClick?: (segId: string, wordIdx: number, rect: DOMRect) => void
+  /** Double-click on a group block in the segment track. rect = group's on-screen box (viewport coords). */
+  onGroupDoubleClick?: (segId: string, rect: DOMRect) => void
 }
 
 interface TimelineState {
@@ -100,6 +105,8 @@ export function useTimeline({
   onHover,
   onZoomChange,
   onScrollChange,
+  onWordDoubleClick,
+  onGroupDoubleClick,
 }: UseTimelineOptions) {
   // Zoom + scroll are mutable refs — we don't need React re-renders when they change,
   // the draw function reads them directly.
@@ -684,6 +691,62 @@ export function useTimeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onHover])
 
+  // Phase 1 (timeline-inline-editing): double-click → word/group popup hooks.
+  // Reports hits only — no popup/UI lives here, mirroring every other callback above.
+  const onDoubleClick = useCallback(
+    (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // A drag in flight is never a double-click. movedRef deliberately not checked: it
+      // can be tripped by sub-slop drift on the pair's second click (it is never reset
+      // on mouseup), and the browser's own dblclick movement threshold already gates
+      // large movements.
+      if (dragRef.current || wordDragRef.current) return
+
+      const canvas = canvasRef.current
+      if (!canvas || !duration) return
+      const rect = canvas.getBoundingClientRect()
+      const { zoom, scrollT } = stateRef.current
+      const pps = computePixelsPerSecond(rect.width, duration / zoom)
+
+      // Word lane wins, same priority as onMouseDown.
+      const wordHit = findWordHit(e.clientX, e.clientY)
+      if (wordHit) {
+        if (wordHit.edge === 'body' && selectedSegId) {
+          const seg = segments.find((s) => s.id === selectedSegId)
+          const word = seg?.words[wordHit.wordIdx]
+          if (seg && word) {
+            const { x, w } = timeRangeToRect(
+              word.start,
+              word.end,
+              rect.left,
+              rect.width,
+              scrollT,
+              pps
+            )
+            onWordDoubleClick?.(
+              selectedSegId,
+              wordHit.wordIdx,
+              new DOMRect(x, rect.top + TOTAL_H, w, WORD_TRACK_H)
+            )
+          }
+        }
+        return
+      }
+      // Empty lane space never falls through to the group track behind it.
+      if (isInWordLane(e.clientY)) return
+
+      const hit = findEdge(e.clientX)
+      if (hit && hit.edge === 'body') {
+        const seg = segments.find((s) => s.id === hit.segId)
+        if (seg) {
+          const { x, w } = timeRangeToRect(seg.start, seg.end, rect.left, rect.width, scrollT, pps)
+          onGroupDoubleClick?.(hit.segId, new DOMRect(x, rect.top + RULER_H, w, TRACK_H))
+        }
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    },
+    [segments, duration, selectedSegId, onWordDoubleClick, onGroupDoubleClick]
+  )
+
   // Wheel handling must use a native listener with { passive: false } so that
   // preventDefault() actually stops the page from scrolling/zooming. React's
   // onWheel JSX prop is registered as passive in modern Chrome and would log
@@ -733,7 +796,16 @@ export function useTimeline({
     stateRef.current.scrollT = Math.max(0, scrollT)
   }, [])
 
-  return { draw, onMouseDown, onMouseMove, onMouseUp, onMouseLeave, setZoom, setScroll }
+  return {
+    draw,
+    onMouseDown,
+    onMouseMove,
+    onMouseUp,
+    onMouseLeave,
+    onDoubleClick,
+    setZoom,
+    setScroll,
+  }
 }
 
 // ── Helpers ────────────────────────────────────────────────────────
