@@ -40,6 +40,19 @@ from backend.models.schemas import (  # noqa: E402
     WordSegment,
 )
 
+LT_REPO_ID, LT_REVISION = ALIGNMENT_MODELS["lt"]
+CACHED_LT_MODEL_PATH = "/hf-cache/lithuanian-alignment"
+
+
+@pytest.fixture(autouse=True)
+def _cached_lithuanian_snapshot(monkeypatch):
+    """Keep alignment tests fully offline unless a test overrides the probe."""
+    monkeypatch.setattr(
+        transcriber_module,
+        "snapshot_download",
+        lambda *args, **kwargs: CACHED_LT_MODEL_PATH,
+    )
+
 
 # --- _fill_word_timings (pure interpolation logic) ---
 
@@ -291,20 +304,56 @@ def test_align_model_cached_per_language(monkeypatch, audio_file):
 
 
 def test_lithuanian_selects_configured_alignment_model(monkeypatch):
+    assert ALIGNMENT_MODELS["lt"] == (
+        "m3hrdadfi/wav2vec2-large-xlsr-lithuanian",
+        "d5b27b07dceb75975ccb840370181ff02edc4c90",
+    )
     calls: list[dict] = []
+    snapshot_calls: list[tuple[str, str, bool]] = []
 
     def fake_load(**kwargs):
         calls.append(kwargs)
         return "MODEL", {}
 
+    def fake_snapshot(repo_id, *, revision, local_files_only=False):
+        snapshot_calls.append((repo_id, revision, local_files_only))
+        return CACHED_LT_MODEL_PATH
+
     monkeypatch.setattr(FAKE_WX, "load_align_model", fake_load)
+    monkeypatch.setattr(transcriber_module, "snapshot_download", fake_snapshot)
     Transcriber._load_alignment_model("lt", "cpu")
 
+    assert snapshot_calls == [(LT_REPO_ID, LT_REVISION, True)]
     assert calls == [{
         "language_code": "lt",
         "device": "cpu",
-        "model_name": ALIGNMENT_MODELS["lt"],
+        "model_name": CACHED_LT_MODEL_PATH,
     }]
+
+
+def test_lithuanian_cache_miss_reports_download_before_pinned_snapshot(monkeypatch):
+    snapshot_calls: list[tuple[str, str, bool]] = []
+    progress: list[ProgressUpdate] = []
+
+    def fake_snapshot(repo_id, *, revision, local_files_only=False):
+        snapshot_calls.append((repo_id, revision, local_files_only))
+        if local_files_only:
+            raise transcriber_module.LocalEntryNotFoundError("not cached")
+        return CACHED_LT_MODEL_PATH
+
+    monkeypatch.setattr(transcriber_module, "snapshot_download", fake_snapshot)
+
+    Transcriber._load_alignment_model("lt", "cpu", progress.append)
+
+    assert snapshot_calls == [
+        (LT_REPO_ID, LT_REVISION, True),
+        (LT_REPO_ID, LT_REVISION, False),
+    ]
+    assert any(
+        "Downloading Lithuanian alignment model" in update.message
+        and "~1.2 GB" in update.message
+        for update in progress
+    )
 
 
 def test_english_uses_whisperx_default_alignment_model(monkeypatch):
@@ -315,6 +364,11 @@ def test_english_uses_whisperx_default_alignment_model(monkeypatch):
         return "MODEL", {}
 
     monkeypatch.setattr(FAKE_WX, "load_align_model", fake_load)
+    monkeypatch.setattr(
+        transcriber_module,
+        "snapshot_download",
+        lambda *args, **kwargs: pytest.fail("English must not resolve a custom snapshot"),
+    )
     Transcriber._load_alignment_model("en", "cpu")
 
     assert calls == [{"language_code": "en", "device": "cpu"}]
@@ -390,7 +444,7 @@ def test_realign_lithuanian_uses_configured_alignment_model(
     assert calls == [{
         "language_code": "lt",
         "device": "cpu",
-        "model_name": ALIGNMENT_MODELS["lt"],
+        "model_name": CACHED_LT_MODEL_PATH,
     }]
 
 

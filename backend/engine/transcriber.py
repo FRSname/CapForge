@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import whisperx
+from huggingface_hub import snapshot_download
+from huggingface_hub.errors import LocalEntryNotFoundError
 
 from backend.engine.hardware import detect_hardware
 from backend.models.schemas import (
@@ -35,8 +37,14 @@ DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
 # WhisperX does not provide defaults for every language. Keep CapForge's
 # additions in one place so transcription and edited-caption realignment use
 # exactly the same model selection.
-ALIGNMENT_MODELS: dict[str, str] = {
-    "lt": "m3hrdadfi/wav2vec2-large-xlsr-lithuanian",
+ALIGNMENT_MODELS: dict[str, tuple[str, str]] = {
+    # (repo_id, pinned revision) — verified 2026-07-19; upstream has been
+    # unchanged since 2021-11-04. The pin is security-critical because this
+    # repository currently distributes pickle weights rather than safetensors.
+    "lt": (
+        "m3hrdadfi/wav2vec2-large-xlsr-lithuanian",
+        "d5b27b07dceb75975ccb840370181ff02edc4c90",
+    ),
 }
 
 # Callback type for progress reporting
@@ -111,7 +119,9 @@ class Transcriber:
         model_a = None
         alignment_degraded = False
         try:
-            model_a, metadata = self._load_alignment_model(detected_language, device)
+            model_a, metadata = self._load_alignment_model(
+                detected_language, device, on_progress
+            )
             self._report(on_progress, JobStatus.ALIGNING, 60, "Aligning words…")
             result = whisperx.align(
                 result["segments"], model_a, metadata, audio, device,
@@ -338,17 +348,38 @@ class Transcriber:
         self._align_metadata = metadata
         self._align_lang = normalized_language
 
-    @staticmethod
-    def _load_alignment_model(language: Optional[str], device: str) -> tuple[Any, dict]:
+    @classmethod
+    def _load_alignment_model(
+        cls,
+        language: Optional[str],
+        device: str,
+        on_progress: ProgressCallback = None,
+    ) -> tuple[Any, dict]:
         """Load CapForge's configured aligner or defer to WhisperX's default."""
         normalized_language = language.lower() if language else language
         kwargs: dict[str, Any] = {
             "language_code": normalized_language,
             "device": device,
         }
-        model_name = ALIGNMENT_MODELS.get(normalized_language or "")
-        if model_name:
-            kwargs["model_name"] = model_name
+        model_config = ALIGNMENT_MODELS.get(normalized_language or "")
+        if model_config:
+            repo_id, revision = model_config
+            try:
+                model_path = snapshot_download(
+                    repo_id,
+                    revision=revision,
+                    local_files_only=True,
+                )
+            except LocalEntryNotFoundError:
+                cls._report(
+                    on_progress,
+                    JobStatus.ALIGNING,
+                    55,
+                    "Downloading Lithuanian alignment model from Hugging Face "
+                    "(one-time, ~1.2 GB)…",
+                )
+                model_path = snapshot_download(repo_id, revision=revision)
+            kwargs["model_name"] = model_path
         return whisperx.load_align_model(**kwargs)
 
     @classmethod
