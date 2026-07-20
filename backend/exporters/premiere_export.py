@@ -22,6 +22,7 @@ def export_subforge(result: TranscriptionResult) -> str:
             "language": result.language,
             "audio_path": result.audio_path,
             "duration": result.duration,
+            "alignment_degraded": result.alignment_degraded,
         },
         "segments": [],
     }

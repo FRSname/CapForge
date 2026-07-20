@@ -610,7 +610,7 @@ async def realign_segments(request: RealignRequest) -> RealignResponse:
 
     loop = asyncio.get_running_loop()
     try:
-        segments = await loop.run_in_executor(
+        outcome = await loop.run_in_executor(
             None,
             lambda: transcriber.realign_segments(request.segments, audio_path, language),
         )
@@ -621,7 +621,11 @@ async def realign_segments(request: RealignRequest) -> RealignResponse:
             status_code=500,
             detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
         )
-    return RealignResponse(segments=segments)
+    if outcome.alignment_degraded:
+        # Preserve this warning on the stored result so GET /api/result,
+        # reconnect resync, JSON export, and project saves can surface it.
+        current_result.alignment_degraded = True
+    return outcome
 
 
 # --- Agent endpoints (token-guarded; drive the live UI) ---

@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 import whisperx
+from huggingface_hub import snapshot_download
+from huggingface_hub.errors import LocalEntryNotFoundError
 
 from backend.engine.hardware import detect_hardware
 from backend.models.schemas import (
@@ -17,6 +19,7 @@ from backend.models.schemas import (
     JobStatus,
     ModelSize,
     ProgressUpdate,
+    RealignResponse,
     Segment,
     TranscribeRequest,
     TranscriptionResult,
@@ -30,6 +33,19 @@ logger = logging.getLogger(__name__)
 # This is whisperx 3.8.6's default; we pin it explicitly so a library default change
 # can't silently swap the model.
 DIARIZATION_MODEL = "pyannote/speaker-diarization-community-1"
+
+# WhisperX does not provide defaults for every language. Keep CapForge's
+# additions in one place so transcription and edited-caption realignment use
+# exactly the same model selection.
+ALIGNMENT_MODELS: dict[str, tuple[str, str]] = {
+    # (repo_id, pinned revision) — verified 2026-07-19; upstream has been
+    # unchanged since 2021-11-04. The pin is security-critical because this
+    # repository currently distributes pickle weights rather than safetensors.
+    "lt": (
+        "m3hrdadfi/wav2vec2-large-xlsr-lithuanian",
+        "d5b27b07dceb75975ccb840370181ff02edc4c90",
+    ),
+}
 
 # Callback type for progress reporting
 ProgressCallback = Optional[Callable[[ProgressUpdate], Any]]
@@ -100,20 +116,32 @@ class Transcriber:
         # --- Step 3: Align ---
         self._check_cancelled()
         self._report(on_progress, JobStatus.ALIGNING, 55, "Loading alignment model…")
-        model_a, metadata = whisperx.load_align_model(
-            language_code=detected_language, device=device
-        )
-        self._report(on_progress, JobStatus.ALIGNING, 60, "Aligning words…")
-        result = whisperx.align(
-            result["segments"], model_a, metadata, audio, device,
-            return_char_alignments=False,
-        )
-        self._report(on_progress, JobStatus.ALIGNING, 75, "Word alignment complete")
-
-        # Free alignment model
-        del model_a
-        gc.collect()
-        self._try_cuda_empty_cache()
+        model_a = None
+        alignment_degraded = False
+        try:
+            model_a, metadata = self._load_alignment_model(
+                detected_language, device, on_progress
+            )
+            self._report(on_progress, JobStatus.ALIGNING, 60, "Aligning words…")
+            result = whisperx.align(
+                result["segments"], model_a, metadata, audio, device,
+                return_char_alignments=False,
+            )
+            self._report(on_progress, JobStatus.ALIGNING, 75, "Word alignment complete")
+        except Exception as exc:
+            alignment_degraded = True
+            warning = (
+                f"Forced alignment unavailable for language {detected_language!r}: "
+                f"{exc}. Preserving the transcription with approximate word timings."
+            )
+            logger.warning(warning, exc_info=True)
+            self._report(on_progress, JobStatus.ALIGNING, 75, f"Warning: {warning}")
+            result = self._add_approximate_word_timings(result)
+        finally:
+            if model_a is not None:
+                del model_a
+                gc.collect()
+                self._try_cuda_empty_cache()
 
         # --- Step 4: Diarize (optional) ---
         self._check_cancelled()
@@ -137,7 +165,12 @@ class Transcriber:
 
         # --- Build result ---
         self._report(on_progress, JobStatus.DONE, 95, "Building result…")
-        transcription = self._build_result(result, detected_language, audio_path)
+        transcription = self._build_result(
+            result,
+            detected_language,
+            audio_path,
+            alignment_degraded=alignment_degraded,
+        )
         self._report(on_progress, JobStatus.DONE, 100, "Done")
         return transcription
 
@@ -161,26 +194,54 @@ class Transcriber:
 
     def realign_segments(
         self, segments: list[Segment], audio_path: str, language: str
-    ) -> list[Segment]:
+    ) -> RealignResponse:
         """Re-run WhisperX forced alignment on edited segments.
 
         Used after the user edits a segment's text so every word gets a real
         timestamp instead of one inherited from its neighbor. Returns new
-        Segment objects (1:1 with the input) and never touches the stored
-        transcription result.
+        Segment objects (1:1 with the input) plus whether approximate timings
+        had to be used, and never touches the stored transcription result.
         """
         if not Path(audio_path).is_file():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
         device = self._device or detect_hardware().recommended_device.value
-        self._load_align_model(language, device)
-        audio = whisperx.load_audio(audio_path)
-        return [self._realign_one(seg, audio, device) for seg in segments]
+        try:
+            self._load_align_model(language, device)
+        except Exception as exc:
+            logger.warning(
+                "Forced alignment unavailable for language %r during caption "
+                "realignment: %s. Returning approximate word timings.",
+                language,
+                exc,
+                exc_info=True,
+            )
+            return RealignResponse(
+                segments=[self._approximate_segment_words(seg) for seg in segments],
+                alignment_degraded=True,
+            )
 
-    def _realign_one(self, seg: Segment, audio: Any, device: str) -> Segment:
+        # Only an unavailable alignment model is recoverable. Audio decoding
+        # and alignment errors are real failures and must reach the endpoint's
+        # 500 handler instead of being disguised as successful approximate data.
+        audio = whisperx.load_audio(audio_path)
+        aligned_segments: list[Segment] = []
+        alignment_degraded = False
+        for segment in segments:
+            aligned, segment_degraded = self._realign_one(segment, audio, device)
+            aligned_segments.append(aligned)
+            alignment_degraded = alignment_degraded or segment_degraded
+        return RealignResponse(
+            segments=aligned_segments,
+            alignment_degraded=alignment_degraded,
+        )
+
+    def _realign_one(
+        self, seg: Segment, audio: Any, device: str
+    ) -> tuple[Segment, bool]:
         text = seg.text.strip()
         if not text or seg.end <= seg.start:
-            return seg
+            return seg, False
 
         result = whisperx.align(
             [{"start": seg.start, "end": seg.end, "text": text}],
@@ -192,18 +253,25 @@ class Transcriber:
         raw_words: list[dict] = []
         for sub in result.get("segments", []):
             raw_words.extend(sub.get("words", []))
+        alignment_degraded = not raw_words or any(
+            word.get("start") is None or word.get("end") is None
+            for word in raw_words
+        )
         if not raw_words:
             # Alignment failed outright (e.g. no dictionary characters) —
             # distribute the words evenly across the original window.
             raw_words = [{"word": w} for w in text.split()]
 
         words = self._fill_word_timings(raw_words, seg.start, seg.end)
-        return Segment(
-            start=words[0].start if words else seg.start,
-            end=words[-1].end if words else seg.end,
-            text=seg.text,
-            words=words,
-            speaker=seg.speaker,
+        return (
+            Segment(
+                start=words[0].start if words else seg.start,
+                end=words[-1].end if words else seg.end,
+                text=seg.text,
+                words=words,
+                speaker=seg.speaker,
+            ),
+            alignment_degraded,
         )
 
     # --- Private helpers ---
@@ -265,7 +333,8 @@ class Transcriber:
         self._model_size = model_size
 
     def _load_align_model(self, language: str, device: str) -> None:
-        if self._align_model is not None and self._align_lang == language:
+        normalized_language = language.lower()
+        if self._align_model is not None and self._align_lang == normalized_language:
             return
         if self._align_model is not None:
             del self._align_model
@@ -274,12 +343,79 @@ class Transcriber:
             self._align_lang = None
             gc.collect()
             self._try_cuda_empty_cache()
-        model_a, metadata = whisperx.load_align_model(
-            language_code=language, device=device
-        )
+        model_a, metadata = self._load_alignment_model(normalized_language, device)
         self._align_model = model_a
         self._align_metadata = metadata
-        self._align_lang = language
+        self._align_lang = normalized_language
+
+    @classmethod
+    def _load_alignment_model(
+        cls,
+        language: Optional[str],
+        device: str,
+        on_progress: ProgressCallback = None,
+    ) -> tuple[Any, dict]:
+        """Load CapForge's configured aligner or defer to WhisperX's default."""
+        normalized_language = language.lower() if language else language
+        kwargs: dict[str, Any] = {
+            "language_code": normalized_language,
+            "device": device,
+        }
+        model_config = ALIGNMENT_MODELS.get(normalized_language or "")
+        if model_config:
+            repo_id, revision = model_config
+            try:
+                model_path = snapshot_download(
+                    repo_id,
+                    revision=revision,
+                    local_files_only=True,
+                )
+            except LocalEntryNotFoundError:
+                cls._report(
+                    on_progress,
+                    JobStatus.ALIGNING,
+                    55,
+                    "Downloading Lithuanian alignment model from Hugging Face "
+                    "(one-time, ~1.2 GB)…",
+                )
+                model_path = snapshot_download(repo_id, revision=revision)
+            kwargs["model_name"] = model_path
+        return whisperx.load_align_model(**kwargs)
+
+    @classmethod
+    def _add_approximate_word_timings(cls, raw: dict) -> dict:
+        """Copy a Whisper result and add evenly distributed word timings."""
+        result = dict(raw)
+        result["segments"] = []
+        for raw_segment in raw.get("segments", []):
+            segment = dict(raw_segment)
+            start = float(segment.get("start", 0.0))
+            end = float(segment.get("end", start))
+            words = cls._fill_word_timings(
+                [{"word": word} for word in segment.get("text", "").split()],
+                start,
+                end,
+            )
+            segment["words"] = [word.model_dump(exclude_none=True) for word in words]
+            result["segments"].append(segment)
+        return result
+
+    @classmethod
+    def _approximate_segment_words(cls, seg: Segment) -> Segment:
+        """Return an edited segment with evenly distributed word timings."""
+        text = seg.text.strip()
+        if not text or seg.end <= seg.start:
+            return seg
+        words = cls._fill_word_timings(
+            [{"word": word} for word in text.split()], seg.start, seg.end
+        )
+        return Segment(
+            start=seg.start,
+            end=seg.end,
+            text=seg.text,
+            words=words,
+            speaker=seg.speaker,
+        )
 
     @staticmethod
     def _fill_word_timings(
@@ -335,7 +471,10 @@ class Transcriber:
 
     @staticmethod
     def _build_result(
-        raw: dict, language: Optional[str], audio_path: str
+        raw: dict,
+        language: Optional[str],
+        audio_path: str,
+        alignment_degraded: bool = False,
     ) -> TranscriptionResult:
         segments: list[Segment] = []
         for seg in raw.get("segments", []):
@@ -380,6 +519,7 @@ class Transcriber:
             language=language,
             audio_path=audio_path,
             duration=media_duration,
+            alignment_degraded=alignment_degraded,
         )
 
     @staticmethod

@@ -135,22 +135,26 @@ export function App() {
       api.registerResync(null)
       return
     }
-    api.registerResync(() => ({
-      result: result
-        ? {
-            segments: result.segments,
-            language: result.language,
-            duration: result.duration,
-            audio_path: result.audioPath,
-          }
-        : undefined,
-      uiState: {
-        settings,
-        groups,
-        presets: builtinPresetNames(),
-        render: buildRenderBody(settings, groups, groupsEdited),
-      },
-    }))
+    api.registerResync(() => {
+      const liveResult = projectIORef.current?.gather().transcriptionResult ?? result
+      return {
+        result: liveResult
+          ? {
+              segments: liveResult.segments,
+              language: liveResult.language,
+              duration: liveResult.duration,
+              audio_path: liveResult.audioPath,
+              alignment_degraded: Boolean(liveResult.alignmentDegraded),
+            }
+          : undefined,
+        uiState: {
+          settings,
+          groups,
+          presets: builtinPresetNames(),
+          render: buildRenderBody(settings, groups, groupsEdited),
+        },
+      }
+    })
     return () => api.registerResync(null)
   }, [screen, result, settings, groups, groupsEdited])
 
@@ -203,6 +207,7 @@ export function App() {
           language: tr.language,
           duration: tr.duration,
           audio_path: tr.audioPath,
+          alignment_degraded: Boolean(tr.alignmentDegraded),
         })
         .catch(() => {})
     }
