@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react'
-import type { Segment } from '../types/app'
+import type { Segment, WordOverrides } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import { DEFAULT_PAD_V, CROSSFADE_DUR, DEFAULT_LINE_HEIGHT } from '../lib/renderConstants'
 import {
@@ -169,9 +169,55 @@ export function useSubtitleOverlay({
       const baseSpaceW = ctx.measureText(' ').width
       const effectiveSpaceW = baseSpaceW + 0 // word spacing control can be added here
 
+      // Per-word font resolution — mirrors the word-loop font string construction
+      // at the draw step below (wBold / wFontFamily / wSizeScale → font string).
+      // Centralised here so width + vertical-metric measurement (used for the
+      // highlight pill) both key off the identical font string.
+      const wordFontInfo = (overrides?: WordOverrides) => {
+        const wBold = overrides?.bold ?? fwNum >= 700
+        const wFontFamily = overrides?.font_family ?? fontName
+        const wSizeScale = overrides?.font_size_scale ?? 1
+        const wSize = Math.round(sf * wSizeScale)
+        const wWeight = wBold ? 'bold' : 'normal'
+        const fontStr = `${wWeight} ${wSize}px "${wFontFamily || '-apple-system'}", sans-serif`
+        // Value-level base check: the ctx.font getter normalizes assigned
+        // strings (drops quotes / default weight), so comparing fontStr to
+        // baseFontStr string-wise never matches. Compare the inputs instead.
+        const isBase = wSizeScale === 1 && wBold === (fwNum >= 700) && wFontFamily === fontName
+        return { fontStr, wSize, isBase }
+      }
+
+      // Measure a word's width with ITS OWN font (not the base font) so a
+      // font_size_scale/bold/font_family override affects row splitting,
+      // x-positions, and every geometry derived from wm[].width. Always
+      // restores ctx.font to the base string afterward — leaking a scaled
+      // font into the next measurement is the failure mode this guards against.
+      const measureWordWidth = (word: string, overrides?: WordOverrides) => {
+        const { fontStr, isBase } = wordFontInfo(overrides)
+        if (isBase) return measureWord(word)
+        ctx.font = fontStr
+        const width = measureWord(word)
+        ctx.font = baseFontStr
+        return width
+      }
+
+      // Scaled vertical text height for a word (used by the highlight pill so
+      // its rect hugs a scaled active word instead of the global text height).
+      // Mirrors the per-word metric block in the word-draw loop below.
+      const wordScaledTextH = (overrides?: WordOverrides) => {
+        const { fontStr, wSize, isBase } = wordFontInfo(overrides)
+        if (isBase) return textH
+        ctx.font = fontStr
+        const am = ctx.measureText('Ayg')
+        const wAsc = am.actualBoundingBoxAscent || wSize * 0.8
+        const wDesc = am.actualBoundingBoxDescent || wSize * 0.2
+        ctx.font = baseFontStr
+        return wAsc + wDesc
+      }
+
       const wm = activeGroup.words.map((w) => ({
         word: w.word,
-        width: measureWord(w.word),
+        width: measureWordWidth(w.word, w.overrides),
         start: w.start,
         end: w.end,
         overrides: w.overrides,
@@ -281,6 +327,9 @@ export function useSubtitleOverlay({
             const hlY = wordYPos[ai] + (ov?.pos_offset_y ?? 0)
             let hlX = targetX
             let hlW = m.width
+            // Active word's scaled text height — the pill hugs a font_size_scale
+            // override the same way the word glyph itself is scaled (Defect A fix).
+            let hlH = wordScaledTextH(ov)
             // Slide: lerp the pill from the previous word's raw rect (its x/width,
             // no prev offsets) to the active word's rect — mirrors the backend's
             // _draw_word_list. The backend computes active_idx per wrapped row, so
@@ -292,8 +341,10 @@ export function useSubtitleOverlay({
               const tEase = quadEaseOut(rawT * 2.5)
               const prevX = wordXPos[ai - 1]
               const prevW = wm[ai - 1].width
+              const prevH = wordScaledTextH(wm[ai - 1].overrides)
               hlX = lerp(prevX, targetX, tEase)
               hlW = lerp(prevW, m.width, tEase)
+              hlH = lerp(prevH, hlH, tEase)
             }
             // Backend enforces min pad = stroke + 2 so the pill always clears the
             // stroke; mirror that here so the preview matches.
@@ -311,9 +362,9 @@ export function useSubtitleOverlay({
             roundRect(
               ctx,
               hlX + wHlOffX - wHlPadX,
-              hlY + wHlOffY - textH / 2 - wHlPadY,
+              hlY + wHlOffY - hlH / 2 - wHlPadY,
               hlW + wHlPadX * 2,
-              textH + wHlPadY * 2,
+              hlH + wHlPadY * 2,
               wHlRadius
             )
             ctx.fill()
