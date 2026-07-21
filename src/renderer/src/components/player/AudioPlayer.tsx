@@ -55,10 +55,10 @@ interface AudioPlayerProps {
   onWordEdge?: (segId: string, wordIdx: number, patch: { start: number; end: number }) => void
   /** Called once when a word drag begins (before any movement). */
   onWordEdgeDragStart?: (segId: string, wordIdx: number) => void
-  /** Called on double-click of a word in the open timeline word lane. */
-  onWordDoubleClick?: (segId: string, wordIdx: number, rect: DOMRect) => void
-  /** Called on double-click of a group block in the timeline segment track. */
-  onGroupDoubleClick?: (segId: string, rect: DOMRect) => void
+  /** Called on right-click of a word in the open timeline word lane. */
+  onWordContextMenu?: (segId: string, wordIdx: number, rect: DOMRect) => void
+  /** Called on right-click of a group block in the timeline segment track. */
+  onGroupContextMenu?: (segId: string, rect: DOMRect) => void
 }
 
 export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer(
@@ -75,8 +75,8 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onSegmentEdgeDragStart,
     onWordEdge,
     onWordEdgeDragStart,
-    onWordDoubleClick,
-    onGroupDoubleClick,
+    onWordContextMenu,
+    onGroupContextMenu,
   },
   ref
 ) {
@@ -203,7 +203,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onMouseMove,
     onMouseUp,
     onMouseLeave: onCanvasLeave,
-    onDoubleClick: onCanvasDoubleClick,
+    onContextMenu: onCanvasContextMenu,
     setZoom: setTlZoom,
     setScroll: setTlScroll,
   } = useTimeline({
@@ -223,18 +223,15 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     }, []),
     onZoomChange: (z, s) => syncWaveformRef.current(z, s),
     onScrollChange: (s, z) => syncWaveformRef.current(z, s),
-    onWordDoubleClick,
-    // Selection guard: the double-click's first mouseup toggles selection via
-    // onSelectSegment (useTimeline.ts onMouseUp, ~line 658) — if the group was
-    // already selected, that first click's mouseup deselects it, so by the time
-    // the browser fires dblclick the group can be deselected again. Force
-    // re-select before forwarding so the popup never targets a stale/deselected group.
-    onGroupDoubleClick: useCallback(
+    onWordContextMenu,
+    // Right-click selects the group so the word lane opens and the popup
+    // always targets a selected group.
+    onGroupContextMenu: useCallback(
       (segId: string, rect: DOMRect) => {
         setSelectedGroupId(segId)
-        onGroupDoubleClick?.(segId, rect)
+        onGroupContextMenu?.(segId, rect)
       },
-      [onGroupDoubleClick]
+      [onGroupContextMenu]
     ),
   })
   // Keep refs current every render so WaveSurfer callbacks are never stale.
@@ -457,7 +454,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
             onCanvasLeave()
             setHoverState(null)
           }}
-          onDoubleClick={onCanvasDoubleClick}
+          onContextMenu={onCanvasContextMenu}
         />
         {/* Phase 2: Hover tooltip */}
         {hoverState && (

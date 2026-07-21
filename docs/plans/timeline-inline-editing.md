@@ -189,3 +189,11 @@ Two percent sliders, live-apply, sparse `buildOverride()` (98–105) that omits 
 - Phases 1→2→3 are sequential (2 and 3 depend on 1's callbacks); 2 and 3 are independent of each other and could be parallelized in worktrees, but they both edit `ResultsScreen.tsx` — prefer sequential to avoid conflicts.
 - No backend changes anywhere in this plan. The render config and preview already consume both override types end-to-end.
 - Line numbers verified 2026-07-20 on main @ 0bbc312 — re-verify with the cited greps if main has moved.
+
+## Addendum (2026-07-21)
+
+User feedback: double-click felt clunky. The trigger changed from **double-click to right-click** (`contextmenu`), matching GroupEditor's existing right-click convention:
+
+- `useTimeline.ts`: `onWordDoubleClick`/`onGroupDoubleClick` → `onWordContextMenu`/`onGroupContextMenu`; the returned `onDoubleClick` handler → `onContextMenu`, which calls `e.preventDefault()` first to suppress the native browser context menu over the canvas. `onMouseDown` (and `onMouseUp`, which has an independent seek/deselect path for a "not dragging" release) now guard on `e.button !== 0` so a right-click never starts a drag or triggers the click-to-seek/select path — only the contextmenu handler responds to it.
+- `AudioPlayer.tsx` / `ResultsScreen.tsx`: props and handlers renamed to match (`onWordContextMenu`/`onGroupContextMenu`, `handleTimelineWordContextMenu`/`handleTimelineGroupContextMenu`); wired via React's `onContextMenu` instead of `onDoubleClick`.
+- All other behavior (popup state, lazy undo snapshots, apply/reset paths, stale-index guards) is unchanged.

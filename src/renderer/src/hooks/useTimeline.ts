@@ -78,10 +78,10 @@ interface UseTimelineOptions {
   /** Called when zoom or scroll changes so the caller can sync other views. */
   onZoomChange?: (zoom: number, scrollT: number) => void
   onScrollChange?: (scrollT: number, zoom: number) => void
-  /** Double-click on a word in the open word lane. rect = word's on-screen box (viewport coords). */
-  onWordDoubleClick?: (segId: string, wordIdx: number, rect: DOMRect) => void
-  /** Double-click on a group block in the segment track. rect = group's on-screen box (viewport coords). */
-  onGroupDoubleClick?: (segId: string, rect: DOMRect) => void
+  /** Right-click on a word in the open word lane. rect = word's on-screen box (viewport coords). */
+  onWordContextMenu?: (segId: string, wordIdx: number, rect: DOMRect) => void
+  /** Right-click on a group block in the segment track. rect = group's on-screen box (viewport coords). */
+  onGroupContextMenu?: (segId: string, rect: DOMRect) => void
 }
 
 interface TimelineState {
@@ -105,8 +105,8 @@ export function useTimeline({
   onHover,
   onZoomChange,
   onScrollChange,
-  onWordDoubleClick,
-  onGroupDoubleClick,
+  onWordContextMenu,
+  onGroupContextMenu,
 }: UseTimelineOptions) {
   // Zoom + scroll are mutable refs — we don't need React re-renders when they change,
   // the draw function reads them directly.
@@ -464,6 +464,9 @@ export function useTimeline({
 
   const onMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // Right-click (and middle-click) opens a context menu now, not a drag/select —
+      // only the left button starts a drag or the click-to-select path below.
+      if (e.button !== 0) return
       movedRef.current = false
 
       // Word lane wins: grabbing a word must never fall through to the segment.
@@ -664,6 +667,10 @@ export function useTimeline({
 
   const onMouseUp = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
+      // A right/middle-button release never started a drag (onMouseDown returns
+      // early for it), so without this guard it would fall into the "not
+      // dragging" branch below and seek + deselect right under the context menu.
+      if (e.button !== 0) return
       const segDrag = dragRef.current
       const wasDragging = !!segDrag || !!wordDragRef.current
       dragRef.current = null
@@ -691,14 +698,15 @@ export function useTimeline({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onHover])
 
-  // Phase 1 (timeline-inline-editing): double-click → word/group popup hooks.
+  // Phase 1 (timeline-inline-editing): right-click (contextmenu) → word/group popup hooks.
   // Reports hits only — no popup/UI lives here, mirroring every other callback above.
-  const onDoubleClick = useCallback(
+  const onContextMenu = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
-      // A drag in flight is never a double-click. movedRef deliberately not checked: it
-      // can be tripped by sub-slop drift on the pair's second click (it is never reset
-      // on mouseup), and the browser's own dblclick movement threshold already gates
-      // large movements.
+      // Suppress the native context menu whenever the cursor is over the timeline
+      // canvas — even on a miss, a native menu here is just noise.
+      e.preventDefault()
+
+      // A drag in flight is never a context-menu open.
       if (dragRef.current || wordDragRef.current) return
 
       const canvas = canvasRef.current
@@ -722,7 +730,7 @@ export function useTimeline({
               scrollT,
               pps
             )
-            onWordDoubleClick?.(
+            onWordContextMenu?.(
               selectedSegId,
               wordHit.wordIdx,
               new DOMRect(x, rect.top + TOTAL_H, w, WORD_TRACK_H)
@@ -739,12 +747,12 @@ export function useTimeline({
         const seg = segments.find((s) => s.id === hit.segId)
         if (seg) {
           const { x, w } = timeRangeToRect(seg.start, seg.end, rect.left, rect.width, scrollT, pps)
-          onGroupDoubleClick?.(hit.segId, new DOMRect(x, rect.top + RULER_H, w, TRACK_H))
+          onGroupContextMenu?.(hit.segId, new DOMRect(x, rect.top + RULER_H, w, TRACK_H))
         }
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [segments, duration, selectedSegId, onWordDoubleClick, onGroupDoubleClick]
+    [segments, duration, selectedSegId, onWordContextMenu, onGroupContextMenu]
   )
 
   // Wheel handling must use a native listener with { passive: false } so that
@@ -802,7 +810,7 @@ export function useTimeline({
     onMouseMove,
     onMouseUp,
     onMouseLeave,
-    onDoubleClick,
+    onContextMenu,
     setZoom,
     setScroll,
   }

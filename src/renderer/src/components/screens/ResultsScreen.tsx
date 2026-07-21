@@ -80,7 +80,7 @@ export function ResultsScreen({
   // Transient: when set, SubtitleEditor scrolls/focuses that segment's text
   // field (used right after a manual "+ Add subtitle" so the user can type).
   const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null)
-  // Timeline double-click on a word in the word lane → style/text popup.
+  // Timeline right-click on a word in the word lane → style/text popup.
   // Word identity is positional (groupIdx + wordIdx), not id-based — see the
   // stale-index guard effect below.
   const [wordPopup, setWordPopup] = useState<{
@@ -88,7 +88,7 @@ export function ResultsScreen({
     wordIdx: number
     anchorRect: DOMRect
   } | null>(null)
-  // Timeline double-click on a group block → position-override popup. Group
+  // Timeline right-click on a group block → position-override popup. Group
   // identity is positional (groupIdx), not id-based — see the stale-index
   // guard effect below (mirrors the word popup's guard).
   const [groupPosPopup, setGroupPosPopup] = useState<{
@@ -492,7 +492,7 @@ export function ResultsScreen({
     pushUndo()
   }, [pushUndo])
 
-  // Timeline word lane double-click → open the style/text popup for that
+  // Timeline word lane right-click → open the style/text popup for that
   // word. One undo snapshot per popup "session" (mirrors the drag-start
   // pattern above) rather than one per keystroke/slider tick — the popup's
   // onApply fires continuously while it's open. The snapshot itself is taken
@@ -500,7 +500,7 @@ export function ResultsScreen({
   // inspect-only open/close (Escape, outside click, no edits) doesn't push a
   // no-op undo entry.
   const wordPopupUndoPushedRef = useRef(false)
-  const handleTimelineWordDoubleClick = useCallback(
+  const handleTimelineWordContextMenu = useCallback(
     (segId: string, wordIdx: number, rect: DOMRect) => {
       const groupIdx = groups.findIndex((g) => g.id === segId)
       if (groupIdx === -1) return
@@ -562,12 +562,12 @@ export function ResultsScreen({
     [pushUndo]
   )
 
-  // Timeline group block double-click → open the position-override popup for
+  // Timeline group block right-click → open the position-override popup for
   // that group. Same lazy one-snapshot-per-session undo pattern as the word
   // popup above (wordPopupUndoPushedRef) rather than GroupEditor's per-apply
   // onBeforeEdit — the popup's onApply fires continuously while sliders move.
   const groupPosUndoPushedRef = useRef(false)
-  const handleTimelineGroupDoubleClick = useCallback(
+  const handleTimelineGroupContextMenu = useCallback(
     (segId: string, rect: DOMRect) => {
       const groupIdx = groups.findIndex((g) => g.id === segId)
       if (groupIdx === -1) return
@@ -833,8 +833,8 @@ export function ResultsScreen({
           onSegmentEdgeDragStart={handleSegmentEdgeDragStart}
           onWordEdge={handleWordEdge}
           onWordEdgeDragStart={handleWordEdgeDragStart}
-          onWordDoubleClick={handleTimelineWordDoubleClick}
-          onGroupDoubleClick={handleTimelineGroupDoubleClick}
+          onWordContextMenu={handleTimelineWordContextMenu}
+          onGroupContextMenu={handleTimelineGroupContextMenu}
         />
       </div>
 
