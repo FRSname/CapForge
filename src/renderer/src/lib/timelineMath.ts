@@ -108,3 +108,24 @@ export function computeWheelScroll(
 export function clampZoom(zoom: number): number {
   return Math.max(1, zoom)
 }
+
+/** Viewport x/width for a [startT, endT] time range, clamped to the canvas's
+ *  client rect. Reuses the exact `timeToPixel` conversion the hit-test
+ *  functions use so a double-click popup's anchor rect can never drift from
+ *  what findEdge()/findWordHit() consider a hit. */
+export function timeRangeToRect(
+  startT: number,
+  endT: number,
+  rectLeft: number,
+  rectWidth: number,
+  scrollT: number,
+  pps: number
+): { x: number; w: number } {
+  const rawStartX = timeToPixel(startT, scrollT, pps) + rectLeft
+  const rawEndX = timeToPixel(endT, scrollT, pps) + rectLeft
+  const min = rectLeft
+  const max = rectLeft + rectWidth
+  const x = Math.max(min, Math.min(rawStartX, max))
+  const endX = Math.max(min, Math.min(rawEndX, max))
+  return { x, w: Math.max(endX - x, 0) }
+}

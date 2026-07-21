@@ -55,6 +55,10 @@ interface AudioPlayerProps {
   onWordEdge?: (segId: string, wordIdx: number, patch: { start: number; end: number }) => void
   /** Called once when a word drag begins (before any movement). */
   onWordEdgeDragStart?: (segId: string, wordIdx: number) => void
+  /** Called on right-click of a word in the open timeline word lane. */
+  onWordContextMenu?: (segId: string, wordIdx: number, rect: DOMRect) => void
+  /** Called on right-click of a group block in the timeline segment track. */
+  onGroupContextMenu?: (segId: string, rect: DOMRect) => void
 }
 
 export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(function AudioPlayer(
@@ -71,6 +75,8 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onSegmentEdgeDragStart,
     onWordEdge,
     onWordEdgeDragStart,
+    onWordContextMenu,
+    onGroupContextMenu,
   },
   ref
 ) {
@@ -197,6 +203,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onMouseMove,
     onMouseUp,
     onMouseLeave: onCanvasLeave,
+    onContextMenu: onCanvasContextMenu,
     setZoom: setTlZoom,
     setScroll: setTlScroll,
   } = useTimeline({
@@ -216,6 +223,16 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     }, []),
     onZoomChange: (z, s) => syncWaveformRef.current(z, s),
     onScrollChange: (s, z) => syncWaveformRef.current(z, s),
+    onWordContextMenu,
+    // Right-click selects the group so the word lane opens and the popup
+    // always targets a selected group.
+    onGroupContextMenu: useCallback(
+      (segId: string, rect: DOMRect) => {
+        setSelectedGroupId(segId)
+        onGroupContextMenu?.(segId, rect)
+      },
+      [onGroupContextMenu]
+    ),
   })
   // Keep refs current every render so WaveSurfer callbacks are never stale.
   timelineDrawRef.current = timelineDraw
@@ -437,6 +454,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
             onCanvasLeave()
             setHoverState(null)
           }}
+          onContextMenu={onCanvasContextMenu}
         />
         {/* Phase 2: Hover tooltip */}
         {hoverState && (

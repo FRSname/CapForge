@@ -47,6 +47,10 @@ interface WordStylePopupProps {
   onApply: (overrides: WordOverrides) => void
   onReset: () => void
   onClose: () => void
+  /** When set, shows an editable text field for the word above the style
+   *  controls; called on commit (Enter/blur) with the trimmed new text.
+   *  Omitted → no text field renders (existing call sites unaffected). */
+  onTextCommit?: (newText: string) => void
 }
 
 // Vanilla's word-level transitions.
@@ -80,9 +84,11 @@ export function WordStylePopup({
   onApply,
   onReset,
   onClose,
+  onTextCommit,
 }: WordStylePopupProps) {
   // Local edit state — only committed on Apply. Reflect the override if set,
   // otherwise fall back to the global default for nice initial values.
+  const [textDraft, setTextDraft] = useState(word)
   const [textColor, setTextColor] = useState(overrides.text_color ?? defaults.textColor)
   const [activeColor, setActiveColor] = useState(
     overrides.active_word_color ?? defaults.activeColor
@@ -161,6 +167,13 @@ export function WordStylePopup({
   // Close on outside click or Escape.
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
+      // The font combobox portals its dropdown list to document.body, so it
+      // sits outside popupRef in the DOM tree. Containment against popupRef
+      // alone would treat a mousedown on one of its options as an "outside"
+      // click and close this popup before FontCombobox's own onSelect (which
+      // fires on click) commits the selection. Ignore any portaled popover.
+      const el = e.target instanceof Element ? e.target : null
+      if (el?.closest('[data-cf-popover]')) return
       if (popupRef.current && !popupRef.current.contains(e.target as Node)) onClose()
     }
     function onKey(e: KeyboardEvent) {
@@ -255,6 +268,15 @@ export function WordStylePopup({
     return next
   }
 
+  // Commit the text field — on Enter and on blur. Trims; ignores empty or
+  // unchanged commits so an accidental Enter/blur doesn't emit a no-op edit.
+  function commitText() {
+    if (!onTextCommit) return
+    const trimmed = textDraft.trim()
+    if (!trimmed || trimmed === word) return
+    onTextCommit(trimmed)
+  }
+
   function handleApply() {
     onApply(buildOverrides())
     onClose()
@@ -301,6 +323,26 @@ export function WordStylePopup({
       </div>
 
       <div className="flex flex-col gap-2 overflow-y-auto pr-1 min-h-0">
+        {onTextCommit && (
+          <div className="flex items-center gap-2">
+            <label className="w-20 shrink-0" style={{ color: 'var(--color-text-2)' }}>
+              Text
+            </label>
+            <input
+              type="text"
+              value={textDraft}
+              onChange={(e) => setTextDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  commitText()
+                }
+              }}
+              onBlur={commitText}
+              className="flex-1 min-w-0 bg-[var(--color-surface-2)] border border-[var(--color-border)] rounded px-1.5 py-0.5 text-xs"
+            />
+          </div>
+        )}
         <ColorRow label="Text color" value={textColor} onChange={setTextColor} />
         <ColorRow label="Active color" value={activeColor} onChange={setActiveColor} />
 

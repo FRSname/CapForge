@@ -57,7 +57,7 @@ No test suite exists yet. The project has no linter or formatter configured.
 - `components/editor/` — SubtitleEditor (text view), GroupEditor (groups view), WordStylePopup (per-word overrides)
 - `components/player/AudioPlayer.tsx` — video/audio player with WaveSurfer waveform, canvas timeline, subtitle overlay
 - `hooks/useSubtitleOverlay.ts` — Canvas 2D subtitle preview renderer (must match backend's Pillow rendering)
-- `hooks/useTimeline.ts` — canvas-based zoomable timeline with segment drag
+- `hooks/useTimeline.ts` — canvas-based zoomable timeline with segment drag and a word lane; right-click a word to open WordStylePopup (text correction + per-word overrides), right-click a group to open GroupPositionPopup — both popups live in ResultsScreen
 - `lib/render.ts` — builds the snake_case render config from React StudioSettings for the backend
 - `lib/groups.ts` — word grouping logic (split segments into N-word display groups)
 - `lib/presets.ts` — serialize/deserialize presets to/from StudioSettings

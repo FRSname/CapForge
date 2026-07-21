@@ -10,6 +10,7 @@ import {
   computeZoomAtPointer,
   computeWheelScroll,
   clampZoom,
+  timeRangeToRect,
 } from './timelineMath'
 
 // ── niceStep ─────────────────────────────────────────────────────
@@ -234,5 +235,34 @@ describe('clampZoom', () => {
 
   test('floors a negative zoom to 1', () => {
     expect(clampZoom(-10)).toBe(1)
+  })
+})
+
+// ── timeRangeToRect ──────────────────────────────────────────────
+
+describe('timeRangeToRect', () => {
+  // rectLeft=0, rectWidth=800, scrollT=5, pps=80 -> visible window [5,15]
+  test('computes x/w for a range fully inside the visible window', () => {
+    expect(timeRangeToRect(10, 12, 0, 800, 5, 80)).toEqual({ x: 400, w: 160 })
+  })
+
+  test('offsets by a non-zero rectLeft', () => {
+    expect(timeRangeToRect(10, 12, 50, 800, 5, 80)).toEqual({ x: 450, w: 160 })
+  })
+
+  test('clamps the start edge to rectLeft when startT is scrolled off-screen left', () => {
+    expect(timeRangeToRect(2, 6, 0, 800, 5, 80)).toEqual({ x: 0, w: 80 })
+  })
+
+  test('clamps the end edge to the right side of the rect when endT overflows', () => {
+    expect(timeRangeToRect(14, 20, 0, 800, 5, 80)).toEqual({ x: 720, w: 80 })
+  })
+
+  test('returns zero width (never negative) when the range is entirely off-screen right', () => {
+    expect(timeRangeToRect(20, 22, 0, 800, 5, 80)).toEqual({ x: 800, w: 0 })
+  })
+
+  test('returns zero width (never negative) when the range is entirely off-screen left', () => {
+    expect(timeRangeToRect(-5, -2, 0, 800, 5, 80)).toEqual({ x: 0, w: 0 })
   })
 })
