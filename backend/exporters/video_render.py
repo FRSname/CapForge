@@ -430,6 +430,27 @@ def _draw_word_list(
         word_x_positions.append(wx)
         wx += wm["width"] + effective_space_w
 
+    # Small font cache for per-word scaled fonts: (family, size, bold) → font.
+    # Shared by the highlight pill (below) and the word-draw loop further down
+    # so a scaled word and its pill always resolve to the identical font.
+    _font_cache: dict[tuple, ImageFont.FreeTypeFont] = {}
+
+    def _resolve_scaled_font(
+        w_font_family: str, w_scale: float, w_bold: bool, w_font_path: str | None,
+    ) -> tuple[ImageFont.FreeTypeFont, tuple, float]:
+        """Look up (or rasterize + cache) a word's scaled font. Returns the
+        unscaled (font, bbox, text_h) untouched when no override applies."""
+        needs_new_font = (w_scale != 1.0 or w_bold != config.bold or w_font_family != config.font_family)
+        if not needs_new_font:
+            return font, bbox, text_h
+        base_size = font.size if hasattr(font, "size") else config.font_size
+        cache_key = (w_font_family, round(base_size * w_scale), w_bold)
+        if cache_key not in _font_cache:
+            _font_cache[cache_key] = _get_font(w_font_family, cache_key[1], w_font_path, w_bold)
+        w_font = _font_cache[cache_key]
+        w_bbox = draw.textbbox((0, 0), "Ayg", font=w_font)
+        return w_font, w_bbox, w_bbox[3] - w_bbox[1]
+
     # Draw sliding highlight BEFORE words so it sits behind the text.
     # Highlight is per-active-word, so per-word overrides for the active word's
     # effective transition + sub-settings apply here.
@@ -450,6 +471,16 @@ def _draw_word_list(
         h_rad   = w_hl_radius
         hl_alpha = anim_alpha * w_hl_opac
 
+        # Active word's scaled text height — the pill must hug the word as
+        # rendered (font_size_scale override), not the group's global height.
+        active_w_scale       = float(active_ov.get("font_size_scale", 1.0))
+        active_w_bold        = bool(active_ov["bold"]) if "bold" in active_ov else config.bold
+        active_w_font_family = active_ov.get("font_family") or config.font_family
+        active_w_font_path   = active_ov.get("custom_font_path") or getattr(config, "custom_font_path", None)
+        _, _, active_text_h  = _resolve_scaled_font(
+            active_w_font_family, active_w_scale, active_w_bold, active_w_font_path,
+        )
+
         if True:
             hl_off_x = float(active_ov.get("pos_offset_x", 0))
             hl_off_y = float(active_ov.get("pos_offset_y", 0))
@@ -466,9 +497,21 @@ def _draw_word_list(
                 t_ease    = 1.0 - (1.0 - min(max(raw_t * 2.5, 0.0), 1.0)) ** 2
                 hl_x = prev_x + (target_x - prev_x) * t_ease
                 hl_w = prev_w + (target_w - prev_w) * t_ease
+
+                prev_wm     = word_metrics[active_idx - 1]
+                prev_ov     = prev_wm.get("overrides") or {}
+                prev_w_scale       = float(prev_ov.get("font_size_scale", 1.0))
+                prev_w_bold        = bool(prev_ov["bold"]) if "bold" in prev_ov else config.bold
+                prev_w_font_family = prev_ov.get("font_family") or config.font_family
+                prev_w_font_path   = prev_ov.get("custom_font_path") or getattr(config, "custom_font_path", None)
+                _, _, prev_text_h  = _resolve_scaled_font(
+                    prev_w_font_family, prev_w_scale, prev_w_bold, prev_w_font_path,
+                )
+                hl_h = prev_text_h + (active_text_h - prev_text_h) * t_ease
             else:
                 hl_x = target_x
                 hl_w = target_w
+                hl_h = active_text_h
 
             # Pill-only offset: applied post-lerp (after jump/slide resolves hl_x)
             # so the pill translates rigidly during slide instead of lerping the
@@ -482,14 +525,11 @@ def _draw_word_list(
             _draw_rounded_rect(
                 pill_draw if pill_draw is not None else draw,
                 (hl_x - h_pad,
-                 center_y - text_h / 2 - h_pad_v + hl_off_y + w_hl_off_y,
+                 center_y - hl_h / 2 - h_pad_v + hl_off_y + w_hl_off_y,
                  hl_x + hl_w + h_pad,
-                 center_y + text_h / 2 + h_pad_v + hl_off_y + w_hl_off_y),
+                 center_y + hl_h / 2 + h_pad_v + hl_off_y + w_hl_off_y),
                 h_rad, hl_rgba,
             )
-
-    # Small font cache for per-word scaled fonts: (size, bold) → font
-    _font_cache: dict[tuple, ImageFont.FreeTypeFont] = {}
 
     for i, wm in enumerate(word_metrics):
         is_active = wm["start"] <= current_time < wm["end"]
@@ -523,19 +563,7 @@ def _draw_word_list(
         if w_ul_color is None or w_ul_color == "":
             w_ul_color = ul_color_hex
         w_bounce_px     = text_h * w_bounce
-        needs_new_font  = (w_scale != 1.0 or w_bold != config.bold or w_font_family != config.font_family)
-        if needs_new_font:
-            base_size = font.size if hasattr(font, "size") else config.font_size
-            cache_key = (w_font_family, round(base_size * w_scale), w_bold)
-            if cache_key not in _font_cache:
-                _font_cache[cache_key] = _get_font(w_font_family, cache_key[1], w_font_path, w_bold)
-            w_font = _font_cache[cache_key]
-            w_bbox = draw.textbbox((0, 0), "Ayg", font=w_font)
-            w_text_h = w_bbox[3] - w_bbox[1]
-        else:
-            w_font   = font
-            w_bbox   = bbox
-            w_text_h = text_h
+        w_font, w_bbox, w_text_h = _resolve_scaled_font(w_font_family, w_scale, w_bold, w_font_path)
 
         # --- colour ---
         if w_word_trans == "crossfade":

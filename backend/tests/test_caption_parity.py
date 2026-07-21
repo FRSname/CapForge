@@ -268,6 +268,61 @@ def test_highlight_offset_parity(source_video):
     )
 
 
+def _scaled_word_group() -> list[dict]:
+    """One 3-word group where the ACTIVE highlight word ("brave") carries a
+    font_size_scale override — Defect A/B's dedicated fixture
+    (word-scale-highlight-pill-parity.md): the pill must grow to hug the
+    word as rendered (scaled height AND scaled width), not the group's
+    global text metrics. "Hello" stays scale 1.0 so the slide variant below
+    has a differently-sized previous word to lerp from."""
+    words = [
+        {"word": "Hello", "start": 0.0, "end": 0.75},
+        {"word": "brave", "start": 0.75, "end": 1.5,
+         "overrides": {"font_size_scale": 1.5}},
+        {"word": "world", "start": 1.5, "end": 2.5},
+    ]
+    return [{"text": "Hello brave world", "start": 0.0, "end": 2.5, "words": words}]
+
+
+@_run
+def test_word_scale_highlight_parity(source_video):
+    """Defect A/B (word-scale-highlight-pill-parity.md): a per-word
+    font_size_scale override on the ACTIVE highlight word must grow the pill
+    to match the word's rendered size — not the group's global text height/
+    width — identically in Pillow and HyperFrames. Snapshot at t=1.0, mid-way
+    through the scaled word 'brave' (active 0.75-1.5)."""
+    pillow_png, hf_png = _render_both(
+        _result(), _config(word_transition="highlight"), source_video,
+        custom_groups=_scaled_word_group(), t=1.0,
+    )
+    mean, notable = _diff(pillow_png, hf_png)
+    assert mean < MEAN_MAX, f"word scale highlight: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, (
+        f"word scale highlight: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+
+@_run
+def test_word_scale_highlight_slide_parity(source_video):
+    """Slide variant of the scaled-word pill: the pill HEIGHT (and the
+    already-scaled width) must lerp from the previous word's rect to the
+    active (scaled) word's rect using the same t_ease as the x/width lerp.
+    Snapshot at t=0.9, 20% into scaled word 'brave' (0.75-1.5): raw_t=0.2 ->
+    t_ease=0.75, so the pill sits mid-slide between 'Hello' (scale 1.0) and
+    'brave' (scale 1.5) — a renderer using the wrong (global or unscaled)
+    height at either tween end would land pixels elsewhere."""
+    pillow_png, hf_png = _render_both(
+        _result(),
+        _config(word_transition="highlight", highlight_animation="slide"),
+        source_video, custom_groups=_scaled_word_group(), t=0.9,
+    )
+    mean, notable = _diff(pillow_png, hf_png)
+    assert mean < MEAN_MAX, f"word scale slide: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, (
+        f"word scale slide: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+
 @_run
 def test_word_override_parity(source_video):
     """D1: per-word overrides — a size-scaled word, a recolored word, a per-word
@@ -282,6 +337,21 @@ def test_word_override_parity(source_video):
     mean, notable = _diff(pillow_png, hf_png)
     assert mean < MEAN_MAX, f"overrides: mean diff {mean:.2f} >= {MEAN_MAX}"
     assert notable < NOTABLE_FRAC_MAX, f"overrides: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+
+    # Gap closed (word-scale-highlight-pill-parity.md Phase 4 #3): the same
+    # group's "Big" word (font_size_scale=1.5) has no word_transition override
+    # of its own, so it inherits the global 'highlight' mode. t=1.9 above
+    # samples word 3 ("under"), long after "Big" (active 0.0-0.75) has ended —
+    # so the scaled-word-ACTIVE pill was never asserted. Snapshot mid-word here.
+    pillow_png2, hf_png2 = _render_both(
+        _result(), _config(word_transition="highlight"), source_video,
+        custom_groups=_override_groups(), t=0.375,
+    )
+    mean2, notable2 = _diff(pillow_png2, hf_png2)
+    assert mean2 < MEAN_MAX, f"overrides (scaled word active): mean diff {mean2:.2f} >= {MEAN_MAX}"
+    assert notable2 < NOTABLE_FRAC_MAX, (
+        f"overrides (scaled word active): {notable2:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
 
 
 @_run
