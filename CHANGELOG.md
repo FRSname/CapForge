@@ -1,5 +1,37 @@
 # Changelog
 
+## CapForge v2.4.0
+
+### New Features
+
+**Lithuanian transcription support**
+WhisperX word-level alignment now works for Lithuanian, a language that previously produced broken timing. The alignment model revision is pinned so results stay reproducible across runs, and if alignment quality degrades for any language the app now shows a persistent notice in the results view rather than failing silently.
+
+**Searchable system font picker**
+The font picker — both the main caption font and per-word font overrides — now lists every font installed on your system, not just the fonts bundled with CapForge, and lets you search by name instead of scrolling a long list. System fonts don't embed into exported `.cfpreset` files, so exporting a preset that uses one now shows a warning.
+
+**Timeline inline editing**
+Right-click a word in the timeline's word lane to open the same text-correction and style popup available in the Text/Groups views, or right-click a group block to adjust its position — without leaving the timeline. Right-click was chosen over double-click because it opens in one gesture and doesn't race the existing click-to-select behavior.
+
+**Caption-style visibility hints**
+When a HyperFrames caption style other than Classic is selected — by you or a connected Claude agent — the app now shows a hint that the style only appears in the HyperFrames preview and render, not the live Canvas preview. In co-author mode, where the agent's own project decides what's rendered, a warning now appears if an installed caption style is never actually wired up, and the agent gained a new tool to install registry caption styles into a co-authored project.
+
+### Fixes
+
+**Per-word scale now matches the highlight pill**
+Scaling an individual word's font size from the per-word style popup now scales the highlight-effect pill behind it to match, across the Canvas preview, the classic Pillow export, and the HyperFrames engine. Previously the pill stayed at the global size while the word itself scaled.
+
+**Non-ASCII registry caption crash**
+Scaffolding a HyperFrames registry caption style with an accented or non-Latin transcript, such as Czech, used to crash. Fixed.
+
+**Per-word font picker closing before selection committed**
+Picking a font from the per-word style popup's searchable dropdown sometimes did nothing, because the popup closed itself before the selection registered. Fixed.
+
+### Internal
+
+**Alignment tests no longer depend on live Hugging Face calls**
+The Lithuanian alignment test suite was decoupled from live network calls to Hugging Face, so it stays fast and reliable in CI regardless of external service availability.
+
 ## CapForge v2.3.0
 
 ### New Features
