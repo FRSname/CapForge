@@ -456,13 +456,16 @@ function __capBuild(tl, CFG, GROUPS){
       var wHlOffX = o.highlight_offset_x != null ? o.highlight_offset_x : (CFG.hlOffX||0);
       var wHlOffY = o.highlight_offset_y != null ? o.highlight_offset_y : (CFG.hlOffY||0);
       m.hlPadX = wHlPadX;  // slide tween re-derives the padded rect from this
+      m.hlPadY = wHlPadY;  // slide tween re-derives the padded rect from this
       m.hlOffX = wHlOffX;  // slide tween adds this to BOTH from/to (rigid translate)
+      m.hlOffY = wHlOffY;  // slide tween adds this to BOTH from/to (rigid translate)
       var p = document.createElement('div'); p.className='cw-pill';
       p.style.left = (m.x + m.ox - wHlPadX + wHlOffX) + 'px';
-      // Pill height stays BASE textH even for scaled words (Pillow uses text_h).
-      p.style.top = (m.cyc + m.oy - textH/2 - wHlPadY + wHlOffY) + 'px';
+      // Pill hugs the ACTIVE word's own (scaled) text height (Pillow: active_text_h
+      // via _resolve_scaled_font) — not the group's global textH.
+      p.style.top = (m.cyc + m.oy - m.textH/2 - wHlPadY + wHlOffY) + 'px';
       p.style.width = (m.width + wHlPadX*2) + 'px';
-      p.style.height = (textH + wHlPadY*2) + 'px';
+      p.style.height = (m.textH + wHlPadY*2) + 'px';
       p.style.background = CFG.activeColor;  // global — Pillow never recolors the pill per word
       p.style.borderRadius = (o.highlight_radius != null ? o.highlight_radius : CFG.hlRadius) + 'px';
       p.style.opacity = '0';
@@ -551,16 +554,26 @@ function __capBuild(tl, CFG, GROUPS){
         tl.set(m.pill, { opacity: (o.highlight_opacity != null ? o.highlight_opacity : CFG.hlOpacity) }, m.s);
         if(CFG.hlAnim === 'slide' && m.prev){
           // Pillow slide (video_render.py _draw_word_list): pill lerps from the
-          // PREVIOUS word's raw rect (prev x/width — no prev offsets) to the
-          // active word's rect, BOTH padded with the ACTIVE word's padding,
-          // with t_ease = 1 - (1 - clamp(raw_t*2.5, 0, 1))^2 — a quadratic
-          // ease-out finishing at 40% of the word duration. GSAP 'power1.out'
-          // IS that quad curve (power2.out would be cubic); duration dur/2.5
-          // makes tween progress == clamp(raw_t*2.5). First word of a row and
-          // jump mode keep the static mkPill rect (m.prev is row-local).
+          // PREVIOUS word's raw rect (prev x/width/textH — no prev pos offsets)
+          // to the active word's rect (its own, possibly font_size_scale'd,
+          // textH), BOTH padded with the ACTIVE word's padding and offset
+          // (m.hlPadX/Y, m.hlOffX/Y — rigid, applied to both endpoints, never
+          // lerped), with t_ease = 1 - (1 - clamp(raw_t*2.5, 0, 1))^2 — a
+          // quadratic ease-out finishing at 40% of the word duration. GSAP
+          // 'power1.out' IS that quad curve (power2.out would be cubic);
+          // duration dur/2.5 makes tween progress == clamp(raw_t*2.5). First
+          // word of a row and jump mode keep the static mkPill rect (m.prev is
+          // row-local). m.prev is the previous word's own metrics object (same
+          // reference populated earlier in the position pass), so
+          // m.prev.textH/.cyc are already the previous word's scaled values —
+          // no separate capture needed.
           tl.fromTo(m.pill,
-            { left: (m.prev.x - m.hlPadX + m.hlOffX) + 'px', width: (m.prev.width + m.hlPadX*2) + 'px' },
+            { left: (m.prev.x - m.hlPadX + m.hlOffX) + 'px', width: (m.prev.width + m.hlPadX*2) + 'px',
+              top: (m.prev.cyc + m.oy - m.prev.textH/2 - m.hlPadY + m.hlOffY) + 'px',
+              height: (m.prev.textH + m.hlPadY*2) + 'px' },
             { left: (m.x + m.ox - m.hlPadX + m.hlOffX) + 'px', width: (m.width + m.hlPadX*2) + 'px',
+              top: (m.cyc + m.oy - m.textH/2 - m.hlPadY + m.hlOffY) + 'px',
+              height: (m.textH + m.hlPadY*2) + 'px',
               duration: Math.max((m.e - m.s) / 2.5, 0.001), ease: 'power1.out', overwrite: 'auto' }, m.s);
         }
         tl.set(w, { color: hlText }, m.s);
