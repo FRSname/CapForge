@@ -3,6 +3,15 @@ import { describe, expect, test, vi } from 'vitest'
 import type { FontInfo } from '../../lib/fonts'
 import { filterFonts, FontCombobox, resolveFontSelection } from './FontCombobox'
 
+// Invariant: the portaled dropdown (rendered only while `open`, via
+// createPortal to document.body) must always carry `data-cf-popover` — any
+// ancestor popup with its own document-level outside-click closer relies on
+// that marker to avoid treating a click on an option as "outside" (see
+// WordStylePopup's onMouseDown guard). This static-markup harness never sets
+// `open` to true (that requires a real click + effect run under jsdom), so it
+// cannot render the portal or assert the attribute — documenting the
+// invariant here instead of forcing a fake test.
+
 const FONTS: FontInfo[] = [
   { name: 'Arial', path: '', source: 'system' },
   { name: 'Caviar Dreams', path: '/bundle/caviar.ttf', source: 'bundled' },

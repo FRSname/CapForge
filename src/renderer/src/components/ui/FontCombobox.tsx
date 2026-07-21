@@ -236,10 +236,15 @@ export function FontCombobox({
         />
       </svg>
 
+      {/* Portaled to document.body (below), so any ancestor popup with its own
+          "outside click closes" handler must ignore clicks in here via
+          [data-cf-popover] — otherwise a mousedown on an option looks like an
+          outside click to the ancestor and closes it before onSelect commits. */}
       {open &&
         createPortal(
           <div
             ref={popupRef}
+            data-cf-popover=""
             style={popupStyle}
             className="pop-in flex flex-col overflow-hidden rounded-md border border-[var(--color-border-2)] bg-[var(--color-surface-2)] shadow-2xl"
           >

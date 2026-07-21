@@ -13,6 +13,16 @@
  * harness has no jsdom/testing-library, so it cannot simulate the
  * Enter/blur commit interactions. See the session report for what remains
  * unverified by automated tests.
+ *
+ * Invariant (outside-click vs. portaled FontCombobox dropdown): the
+ * component's document-level `mousedown` outside-click closer must ignore
+ * any element inside `[data-cf-popover]` — FontCombobox portals its option
+ * list to document.body, outside this popup's own `popupRef`, so without the
+ * guard a mousedown on a font option would close/unmount this popup before
+ * FontCombobox's `onClick`-based selection commits. Exercising that requires
+ * a real mousedown dispatched at document level plus the dropdown actually
+ * open (jsdom + testing-library), which this renderToStaticMarkup harness
+ * cannot do — skipped here rather than faked.
  */
 
 import { renderToStaticMarkup } from 'react-dom/server'

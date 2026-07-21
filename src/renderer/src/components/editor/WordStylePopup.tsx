@@ -167,6 +167,13 @@ export function WordStylePopup({
   // Close on outside click or Escape.
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
+      // The font combobox portals its dropdown list to document.body, so it
+      // sits outside popupRef in the DOM tree. Containment against popupRef
+      // alone would treat a mousedown on one of its options as an "outside"
+      // click and close this popup before FontCombobox's own onSelect (which
+      // fires on click) commits the selection. Ignore any portaled popover.
+      const el = e.target instanceof Element ? e.target : null
+      if (el?.closest('[data-cf-popover]')) return
       if (popupRef.current && !popupRef.current.contains(e.target as Node)) onClose()
     }
     function onKey(e: KeyboardEvent) {
