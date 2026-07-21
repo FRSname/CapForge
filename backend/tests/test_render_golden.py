@@ -129,6 +129,15 @@ SCENARIOS: dict[str, tuple[dict, list[str], float]] = {
         GROUP_WORDS,
         1.75,
     ),
+    # Highlight pill on a SCALED active word — same t/words as highlight_word2
+    # so the two goldens are directly comparable: the pill must grow to hug
+    # word 2 ("frames") rendered at font_size_scale=1.6, not the group's
+    # global text height (Defect A, docs/plans/word-scale-highlight-pill-parity.md).
+    "highlight_word_scale": (
+        {"word_transition": "highlight"},
+        GROUP_WORDS,
+        1.75,
+    ),
     # Static "none" mode: all words in base text_color, no active-word treatment.
     # Same t as highlight_word2 so the two goldens are directly comparable.
     "none_static": ({"word_transition": "none"}, GROUP_WORDS, 1.75),
@@ -154,6 +163,12 @@ GROUP_OVERRIDES: dict[str, dict] = {
     "group_pos_top": {"position_x": 0.5, "position_y": 0.15},
 }
 
+# Scenario name -> {word index: per-word "overrides" dict}. Mirrors the shape
+# _draw_word_list reads off each word dict (video_render.py: `wm.get("overrides")`).
+WORD_OVERRIDES: dict[str, dict[int, dict]] = {
+    "highlight_word_scale": {1: {"font_size_scale": 1.6}},
+}
+
 
 def render_scenario(name: str) -> Image.Image:
     """Render one scenario to an RGBA frame using the bundled font."""
@@ -163,6 +178,8 @@ def render_scenario(name: str) -> Image.Image:
     config = build_config(**overrides)
     group = build_group(words)
     group.update(GROUP_OVERRIDES.get(name, {}))
+    for word_idx, word_ov in WORD_OVERRIDES.get(name, {}).items():
+        group["words"][word_idx]["overrides"] = word_ov
     font = _get_font(config.font_family, config.font_size,
                      config.custom_font_path, bold=config.bold)
     # Guard: never bake goldens with Pillow's bitmap fallback font.

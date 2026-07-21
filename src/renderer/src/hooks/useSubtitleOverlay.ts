@@ -183,7 +183,7 @@ export function useSubtitleOverlay({
         // Value-level base check: the ctx.font getter normalizes assigned
         // strings (drops quotes / default weight), so comparing fontStr to
         // baseFontStr string-wise never matches. Compare the inputs instead.
-        const isBase = wSizeScale === 1 && wBold === (fwNum >= 700) && wFontFamily === fontName
+        const isBase = wSizeScale === 1 && wBold === fwNum >= 700 && wFontFamily === fontName
         return { fontStr, wSize, isBase }
       }
 
