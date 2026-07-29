@@ -10,6 +10,7 @@
  *   lastOutputDir    string   — last directory used for export
  *   lastPreset       string   — last selected style preset name
  *   lastInputPath    string   — last audio/video file opened
+ *   favoriteFonts    string[] — font families pinned to the top of the picker
  *
  * Missing keys return `undefined`; callers should have their own defaults.
  */

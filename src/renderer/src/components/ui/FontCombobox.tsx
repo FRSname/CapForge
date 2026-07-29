@@ -8,7 +8,7 @@ import {
   type CSSProperties,
 } from 'react'
 import { createPortal } from 'react-dom'
-import type { FontInfo, FontSource } from '../../lib/fonts'
+import { sortFavoritesFirst, type FontInfo, type FontSource } from '../../lib/fonts'
 
 interface FontComboboxProps {
   fonts: FontInfo[]
@@ -18,7 +18,13 @@ interface FontComboboxProps {
   disabled?: boolean
   ariaLabel?: string
   className?: string
+  /** Starred family names, pinned to the top of the list. */
+  favorites?: ReadonlySet<string>
+  /** Omit to hide the star affordance entirely. */
+  onToggleFavorite?: (fontName: string) => void
 }
+
+const NO_FAVORITES: ReadonlySet<string> = new Set()
 
 const SOURCE_LABELS: Record<FontSource, string> = {
   system: 'Installed',
@@ -47,6 +53,8 @@ export function FontCombobox({
   disabled = false,
   ariaLabel = 'Font',
   className = '',
+  favorites = NO_FAVORITES,
+  onToggleFavorite,
 }: FontComboboxProps) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -61,9 +69,17 @@ export function FontCombobox({
   const optionIdBase = useId()
 
   const selected = resolveFontSelection(fonts, value)
+  // Favorites reorder the list the user is looking at, so pinning happens
+  // *after* the search filter — a query still narrows to matches, and the
+  // matching favorites simply lead. Keeping filterFonts pure also keeps it
+  // independently testable.
   const filtered = useMemo(
-    () => (searching ? filterFonts(fonts, query) : fonts),
-    [fonts, query, searching]
+    () => sortFavoritesFirst(searching ? filterFonts(fonts, query) : fonts, favorites),
+    [fonts, query, searching, favorites]
+  )
+  const favoriteCount = useMemo(
+    () => filtered.filter((font) => favorites.has(font.name)).length,
+    [filtered, favorites]
   )
   const showEmptyOption =
     !searching ||
@@ -276,6 +292,12 @@ export function FontCombobox({
                   selected={font.name === value}
                   active={activeOptionIndex === index + optionOffset}
                   fontFamily={font.name}
+                  favorite={favorites.has(font.name)}
+                  // Separates the pinned bucket from the rest of the catalog.
+                  dividerAfter={favoriteCount > 0 && index === favoriteCount - 1}
+                  onToggleFavorite={
+                    onToggleFavorite ? () => onToggleFavorite(font.name) : undefined
+                  }
                   onPointerMove={() => setActiveIndex(index + optionOffset)}
                   onSelect={() => selectFont(font)}
                 />
@@ -303,6 +325,9 @@ interface FontOptionProps {
   selected: boolean
   active: boolean
   fontFamily?: string
+  favorite?: boolean
+  dividerAfter?: boolean
+  onToggleFavorite?: () => void
   onPointerMove?: () => void
   onSelect: () => void
 }
@@ -314,36 +339,67 @@ function FontOption({
   selected,
   active,
   fontFamily,
+  favorite = false,
+  dividerAfter = false,
+  onToggleFavorite,
   onPointerMove,
   onSelect,
 }: FontOptionProps) {
+  // The star is a sibling button, not a child of the option: nesting one
+  // interactive element inside another is invalid HTML and breaks the click
+  // target. role="presentation" keeps the wrapper transparent to assistive
+  // tech so the option stays an effective child of the listbox.
   return (
-    <button
-      id={id}
-      type="button"
-      role="option"
-      aria-selected={selected}
-      onMouseDown={(event) => event.preventDefault()}
-      onPointerMove={onPointerMove}
-      onClick={onSelect}
-      className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs"
+    <div
+      role="presentation"
+      className="flex w-full items-center"
       style={{
         background: active ? 'var(--color-surface-3)' : 'transparent',
-        color: 'var(--color-text)',
+        borderBottom: dividerAfter ? '1px solid var(--color-border)' : undefined,
       }}
+      onPointerMove={onPointerMove}
     >
-      <span className="w-3 shrink-0 text-center" style={{ color: 'var(--color-accent)' }}>
-        {selected ? '✓' : ''}
-      </span>
-      <span
-        className="min-w-0 flex-1 truncate"
-        style={fontFamily ? { fontFamily: `"${fontFamily}", sans-serif` } : undefined}
+      <button
+        id={id}
+        type="button"
+        role="option"
+        aria-selected={selected}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onSelect}
+        className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2.5 text-left text-xs"
+        style={{ background: 'transparent', color: 'var(--color-text)' }}
       >
-        {label}
-      </span>
-      <span className="shrink-0 text-2xs" style={{ color: 'var(--color-text-3)' }}>
-        {sourceLabel}
-      </span>
-    </button>
+        <span className="w-3 shrink-0 text-center" style={{ color: 'var(--color-accent)' }}>
+          {selected ? '✓' : ''}
+        </span>
+        <span
+          className="min-w-0 flex-1 truncate"
+          style={fontFamily ? { fontFamily: `"${fontFamily}", sans-serif` } : undefined}
+        >
+          {label}
+        </span>
+        <span className="shrink-0 text-2xs" style={{ color: 'var(--color-text-3)' }}>
+          {sourceLabel}
+        </span>
+      </button>
+      {onToggleFavorite && (
+        <button
+          type="button"
+          aria-label={favorite ? `Unfavorite ${label}` : `Favorite ${label}`}
+          aria-pressed={favorite}
+          title={favorite ? 'Remove from favorites' : 'Pin to the top of the list'}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            // Must not select the font or close the portal dropdown.
+            event.stopPropagation()
+            onToggleFavorite()
+          }}
+          className="shrink-0 px-2 py-1.5 text-xs leading-none"
+          style={{ color: favorite ? '#D4952A' : 'var(--color-text-3)' }}
+        >
+          {favorite ? '★' : '☆'}
+        </button>
+      )}
+    </div>
   )
 }

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { mergeFontCatalogs } from './fonts'
+import { mergeFontCatalogs, sortFavoritesFirst, type FontInfo } from './fonts'
 
 describe('mergeFontCatalogs', () => {
   test('merges and alphabetizes installed, bundled, and custom fonts', () => {
@@ -32,5 +32,33 @@ describe('mergeFontCatalogs', () => {
 
   test('ignores blank installed-family names', () => {
     expect(mergeFontCatalogs(['', '   '], [], [])).toEqual([])
+  })
+})
+
+describe('sortFavoritesFirst', () => {
+  const font = (name: string): FontInfo => ({ name, path: '', source: 'system' })
+  const catalog = [font('Arial'), font('Inter'), font('Montserrat'), font('Verdana')]
+
+  test('pins favorites to the top, preserving order within each bucket', () => {
+    const result = sortFavoritesFirst(catalog, new Set(['Montserrat', 'Arial']))
+
+    expect(result.map((f) => f.name)).toEqual(['Arial', 'Montserrat', 'Inter', 'Verdana'])
+  })
+
+  test('returns the list untouched when there are no favorites', () => {
+    expect(sortFavoritesFirst(catalog, new Set())).toBe(catalog)
+  })
+
+  test('ignores favorites that are not installed — no phantom rows', () => {
+    const result = sortFavoritesFirst(catalog, new Set(['Uninstalled Font']))
+
+    expect(result).toBe(catalog)
+    expect(result).toHaveLength(catalog.length)
+  })
+
+  test('matching is exact, not case- or substring-based', () => {
+    const result = sortFavoritesFirst(catalog, new Set(['inter']))
+
+    expect(result.map((f) => f.name)).toEqual(['Arial', 'Inter', 'Montserrat', 'Verdana'])
   })
 })

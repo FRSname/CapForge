@@ -88,6 +88,25 @@ export function mergeFontCatalogs(
 }
 
 /**
+ * Reorder so favorited families come first, each bucket keeping its incoming
+ * order (which `mergeFontCatalogs` already sorted alphabetically).
+ *
+ * Favorites are an ordering hint *over* the real catalog, never a source of
+ * rows: a favorite that is no longer installed simply doesn't appear, so an
+ * uninstalled font can't linger as a phantom entry.
+ */
+export function sortFavoritesFirst(fonts: FontInfo[], favorites: ReadonlySet<string>): FontInfo[] {
+  if (favorites.size === 0) return fonts
+  const favored: FontInfo[] = []
+  const rest: FontInfo[] = []
+  for (const font of fonts) {
+    if (favorites.has(font.name)) favored.push(font)
+    else rest.push(font)
+  }
+  return favored.length === 0 ? fonts : [...favored, ...rest]
+}
+
+/**
  * Load installed, bundled, and user fonts. Only bundled/user files need
  * FontFace registration; Chromium already knows how to render system fonts.
  */

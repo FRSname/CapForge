@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import type { WordOverrides, WordTransition } from '../../types/app'
 import { loadAllFonts, registerFontFromBuffer, type FontInfo } from '../../lib/fonts'
 import { FontCombobox } from '../ui/FontCombobox'
+import { useFavoriteFonts } from '../../hooks/useFavoriteFonts'
 
 // ── Props ───────────────────────────────────────────────────────
 
@@ -86,6 +87,9 @@ export function WordStylePopup({
   onClose,
   onTextCommit,
 }: WordStylePopupProps) {
+  // Shared with the global font picker, so a star set in either place shows in
+  // both and pins the family to the top of this list too.
+  const { favorites, toggle: toggleFavorite } = useFavoriteFonts()
   // Local edit state — only committed on Apply. Reflect the override if set,
   // otherwise fall back to the global default for nice initial values.
   const [textDraft, setTextDraft] = useState(word)
@@ -388,6 +392,8 @@ export function WordStylePopup({
             }}
             className="flex-1"
             ariaLabel="Word font family"
+            favorites={favorites}
+            onToggleFavorite={toggleFavorite}
           />
           <button
             type="button"

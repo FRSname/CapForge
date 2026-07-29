@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadAllFonts, registerFontFromBuffer, type FontInfo } from '../../lib/fonts'
 import { FontCombobox } from './FontCombobox'
+import { useFavoriteFonts } from '../../hooks/useFavoriteFonts'
 
 interface FontPickerProps {
   value: string
@@ -16,6 +17,7 @@ interface FontPickerProps {
 }
 
 export function FontPicker({ value, onChange }: FontPickerProps) {
+  const { favorites, toggle: toggleFavorite } = useFavoriteFonts()
   const [fonts, setFonts] = useState<FontInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -101,6 +103,8 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
         onChange={(font) => onChange(font?.name ?? '', font?.path ?? '')}
         disabled={loading || busy}
         ariaLabel="Font family"
+        favorites={favorites}
+        onToggleFavorite={toggleFavorite}
       />
 
       {/* Delete (only for user-added fonts, only when one is selected) */}
