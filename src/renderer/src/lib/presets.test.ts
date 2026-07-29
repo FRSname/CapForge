@@ -44,7 +44,6 @@ const ROUND_TRIP_KEYS: (keyof StudioSettings)[] = [
   'textOffsetY',
   'textAlignH',
   'textAlignV',
-  'wordsPerGroup',
   'lines',
   'posX',
   'posY',
@@ -85,6 +84,9 @@ const RENDER_KEYS = [
   'format',
   'renderMode',
   'bitrate',
+  // Grouping is a per-project setting, not a style. Applying it from a preset
+  // forced a group rebuild that discarded manually edited group end times.
+  'wordsPerGroup',
 ] as const
 
 describe('studioToVanilla → vanillaToStudio round-trip', () => {
@@ -161,6 +163,33 @@ describe('studioToVanilla → vanillaToStudio round-trip', () => {
       expect(restored[key], `render key "${key}" must stay at defaults`).toEqual(
         STUDIO_DEFAULTS[key]
       )
+    }
+  })
+
+  test('applying a preset never changes wordsPerGroup', () => {
+    // Grouping stays a per-project setting: a preset that re-chunked groups
+    // forced a rebuild that threw away manually edited group end times.
+    const current: StudioSettings = { ...STUDIO_DEFAULTS, wordsPerGroup: 7 }
+
+    const applied = applyPreset(current, { wpg: '2', textColor: '#ABCDEF' })
+
+    expect(applied.wordsPerGroup).toBe(7)
+    // …while style keys from the same preset still apply.
+    expect(applied.textColor).toBe('#ABCDEF')
+  })
+
+  test('legacy presets carrying wpg still parse without throwing', () => {
+    expect(vanillaToStudio({ wpg: '4' }).wordsPerGroup).toBeUndefined()
+    expect(() => applyPreset(STUDIO_DEFAULTS, { wpg: 'nonsense' })).not.toThrow()
+  })
+
+  test('serialized presets no longer write a wpg key', () => {
+    expect(studioToVanilla({ ...STUDIO_DEFAULTS, wordsPerGroup: 5 }).wpg).toBeUndefined()
+  })
+
+  test('builtin presets carry no grouping value', () => {
+    for (const preset of BUILTIN_PRESETS) {
+      expect(preset.settings.wpg, `builtin "${preset.name}" must not set wpg`).toBeUndefined()
     }
   })
 

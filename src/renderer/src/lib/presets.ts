@@ -34,6 +34,13 @@ export interface VanillaPreset {
   /** Legacy (vanilla-era) — no StudioSettings equivalent; parsed but ignored. */
   padV?: string | number
   radius?: string | number
+  /**
+   * Legacy — presets no longer own grouping. Still parsed so previously saved
+   * presets and exported `.cfpreset` files keep loading, but never applied and
+   * never written back. Words-per-group is a per-project setting: applying it
+   * from a preset forced a group rebuild that discarded manually edited group
+   * end times (see docs/plans/font-list-preset-restore-fixes.md).
+   */
   wpg?: string | number
   lines?: string | number
   posX?: string | number
@@ -133,7 +140,7 @@ export function vanillaToStudio(p: VanillaPreset): Partial<StudioSettings> {
     out.textAlignV = p.textAlignV
   }
 
-  if (p.wpg != null) out.wordsPerGroup = num(p.wpg, STUDIO_DEFAULTS.wordsPerGroup)
+  // `p.wpg` is deliberately not applied — see the field's doc comment.
   if (p.lines != null) out.lines = num(p.lines, STUDIO_DEFAULTS.lines)
   if (p.posX != null) out.posX = num(p.posX, STUDIO_DEFAULTS.posX)
   if (p.posY != null) out.posY = num(p.posY, STUDIO_DEFAULTS.posY)
@@ -217,7 +224,6 @@ export function studioToVanilla(s: StudioSettings): VanillaPreset {
     bgColor: s.bgColor,
     bgOpacity: String(s.bgOpacity),
     radius: String(s.bgRadius),
-    wpg: String(s.wordsPerGroup),
     lines: String(s.lines),
     posX: String(s.posX),
     posY: String(s.posY),
@@ -280,7 +286,6 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       bgColor: '#000000',
       bgOpacity: '85',
       radius: '10',
-      wpg: '4',
       lines: '1',
       posX: '50',
       posY: '88',
@@ -304,7 +309,6 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       bgColor: '#000000',
       bgOpacity: '0',
       radius: '8',
-      wpg: '3',
       lines: '1',
       posX: '50',
       posY: '82',
@@ -328,7 +332,6 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       bgColor: '#000000',
       bgOpacity: '0',
       radius: '6',
-      wpg: '5',
       lines: '2',
       posX: '50',
       posY: '90',
@@ -352,7 +355,6 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       bgColor: '#1A1A2E',
       bgOpacity: '90',
       radius: '20',
-      wpg: '4',
       lines: '1',
       posX: '50',
       posY: '84',
@@ -380,7 +382,6 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       bgColor: '#0A0010',
       bgOpacity: '88',
       radius: '14',
-      wpg: '4',
       lines: '1',
       posX: '50',
       posY: '86',
@@ -404,7 +405,6 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       bgColor: '#000000',
       bgOpacity: '70',
       radius: '4',
-      wpg: '6',
       lines: '2',
       posX: '50',
       posY: '92',
@@ -428,7 +428,6 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
       bgColor: '#111111',
       bgOpacity: '92',
       radius: '12',
-      wpg: '4',
       lines: '1',
       posX: '50',
       posY: '84',
