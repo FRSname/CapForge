@@ -45,6 +45,40 @@ def test_family_list_is_unique_and_sorted(monkeypatch):
     assert system_fonts.list_system_font_families() == ["alpha", "Zulu"]
 
 
+def test_family_list_omits_private_dot_prefixed_families(monkeypatch):
+    """macOS system-internal faces (".LastResort", ".* PUA") never reach the picker."""
+
+    faces = (
+        system_fonts.SystemFontFace("Inter", "Regular", "/inter.ttf"),
+        system_fonts.SystemFontFace(".LastResort", "Regular", "/last-resort.ttf"),
+        system_fonts.SystemFontFace(".Geeza Pro PUA", "Regular", "/geeza.ttf"),
+        system_fonts.SystemFontFace(".Keyboard", "Regular", "/keyboard.ttf"),
+    )
+    monkeypatch.setattr(system_fonts, "system_font_faces", lambda: faces)
+
+    assert system_fonts.list_system_font_families() == ["Inter"]
+
+
+def test_private_family_predicate():
+    assert system_fonts.is_private_family(".LastResort")
+    assert system_fonts.is_private_family("  .Aqua Kana")
+    assert not system_fonts.is_private_family("Inter")
+    # A dot elsewhere in the name is not the private marker.
+    assert not system_fonts.is_private_family("B612 Mono v1.1")
+
+
+def test_resolver_still_resolves_private_families(monkeypatch):
+    """Filtering is display-only — a project that already references a private
+    family must keep rendering, so find_system_font_face stays unfiltered."""
+
+    faces = (system_fonts.SystemFontFace(".LastResort", "Regular", "/last-resort.ttf"),)
+    monkeypatch.setattr(system_fonts, "system_font_faces", lambda: faces)
+
+    resolved = system_fonts.find_system_font_face(".LastResort")
+
+    assert resolved is not None and resolved.path == "/last-resort.ttf"
+
+
 def test_resolver_prefers_requested_weight_and_upright_face(monkeypatch):
     faces = (
         system_fonts.SystemFontFace("Example", "Regular", "/regular.ttf"),

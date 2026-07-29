@@ -23,6 +23,20 @@ BOLD_STYLE_TOKENS = ("bold", "black", "heavy", "semibold", "semi bold", "demi")
 ITALIC_STYLE_TOKENS = ("italic", "oblique")
 REGULAR_STYLE_TOKENS = ("regular", "normal", "roman", "book")
 
+# Apple marks system-internal faces with a leading dot in the *family name*
+# (".LastResort", ".Keyboard", ".Aqua Kana", the whole ".* PUA" set) — 73 of the
+# 380 families on a stock macOS install. They are not meant for user selection
+# and mostly render as blanks or fallback glyphs, so they are hidden from the
+# picker. Display filter only: resolution (find_system_font_face) stays
+# unfiltered so a project that already references one keeps rendering.
+PRIVATE_FAMILY_PREFIX = "."
+
+
+def is_private_family(family: str) -> bool:
+    """True for system-internal families that should not be offered to users."""
+
+    return family.strip().startswith(PRIVATE_FAMILY_PREFIX)
+
 
 @dataclass(frozen=True)
 class SystemFontFace:
@@ -152,10 +166,16 @@ def system_font_faces() -> tuple[SystemFontFace, ...]:
 
 
 def list_system_font_families() -> list[str]:
-    """Return unique installed family names sorted for display."""
+    """Return unique installed family names sorted for display.
+
+    System-internal families (see `is_private_family`) are omitted — the picker
+    should only offer faces a user can meaningfully choose.
+    """
 
     families: dict[str, str] = {}
     for face in system_font_faces():
+        if is_private_family(face.family):
+            continue
         families.setdefault(face.family.casefold(), face.family)
     return sorted(families.values(), key=str.casefold)
 
