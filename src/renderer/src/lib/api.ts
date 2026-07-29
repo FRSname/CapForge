@@ -11,6 +11,44 @@ export interface ApiError extends Error {
   raw?: string
 }
 
+/** One entry of FastAPI's 422 `detail` array. */
+interface ValidationIssue {
+  loc?: unknown[]
+  msg?: string
+}
+
+/** How many field errors to name before summarising the rest. */
+const MAX_REPORTED_ISSUES = 3
+
+/**
+ * Turn FastAPI's 422 `detail` array into something a user can act on.
+ *
+ * `[{loc: ["body","config","max_width"], msg: "Input should be a valid number"}]`
+ * becomes `config.max_width: Input should be a valid number`. The leading
+ * "body"/"query" segment is dropped — it names the request part, not a field.
+ */
+export function formatValidationDetail(detail: unknown[]): string {
+  const issues = detail.filter(
+    (item): item is ValidationIssue => typeof item === 'object' && item !== null
+  )
+  if (issues.length === 0) return ''
+
+  const described = issues.slice(0, MAX_REPORTED_ISSUES).map((issue) => {
+    const path = Array.isArray(issue.loc)
+      ? issue.loc
+          .filter((part) => part !== 'body' && part !== 'query' && part !== 'path')
+          .join('.')
+      : ''
+    const msg = issue.msg ?? 'is invalid'
+    return path ? `${path}: ${msg}` : msg
+  })
+
+  const remaining = issues.length - described.length
+  return remaining > 0
+    ? `${described.join('; ')} (+${remaining} more)`
+    : described.join('; ')
+}
+
 export interface TranscribeParams {
   audio_path: string
   language?: string
@@ -198,6 +236,11 @@ class CapForgeAPI {
       err.hint = detail.hint ?? ''
       err.raw = detail.raw ?? ''
       err.message = detail.hint ? `${detail.title} — ${detail.hint}` : detail.title
+    } else if (Array.isArray(detail)) {
+      // FastAPI validation failure (422). Without this the user only ever sees
+      // the bare status phrase "Unprocessable Entity", which says nothing about
+      // which field the backend rejected.
+      err.message = formatValidationDetail(detail) || res.statusText
     } else {
       err.message = typeof detail === 'string' ? detail : res.statusText
     }

@@ -213,6 +213,77 @@ describe('buildRenderBody — custom groups', () => {
   })
 })
 
+describe('older project files (restore → render)', () => {
+  // A project saved by an earlier build has no value for fields added since.
+  // A plain missing field is harmless — JSON.stringify omits it and the backend
+  // default applies. But `undefined / 100` is NaN, which serializes to null,
+  // which Pydantic rejects on a non-Optional float → an opaque HTTP 422
+  // ("Unprocessable Entity") the moment the user hits Render.
+  const RECENTLY_ADDED: (keyof typeof STUDIO_DEFAULTS)[] = [
+    'maxWidth',
+    'bgOpacity',
+    'posX',
+    'posY',
+    'animDuration',
+    'captionStyle',
+    'tracking',
+    'resolution',
+  ]
+
+  const olderProjectSettings = () => {
+    const settings: Record<string, unknown> = { ...STUDIO_DEFAULTS }
+    for (const key of RECENTLY_ADDED) delete settings[key]
+    return settings as unknown as typeof STUDIO_DEFAULTS
+  }
+
+  test('every numeric config value stays finite when fields are missing', () => {
+    const { config } = buildRenderBody(olderProjectSettings(), [], false)
+
+    for (const [key, value] of Object.entries(config)) {
+      if (typeof value !== 'number') continue
+      expect(Number.isFinite(value), `config.${key} must be finite, got ${value}`).toBe(true)
+    }
+  })
+
+  test('no config value survives JSON round-trip as null', () => {
+    // This is the exact failure the backend saw: NaN → JSON null → 422.
+    const { config } = buildRenderBody(olderProjectSettings(), [], false)
+    const roundTripped = JSON.parse(JSON.stringify(config)) as Record<string, unknown>
+
+    const nulled = Object.entries(roundTripped)
+      .filter(([key, value]) => value === null && config[key] !== null)
+      .map(([key]) => key)
+
+    expect(nulled).toEqual([])
+  })
+
+  test('a missing resolution falls back instead of throwing', () => {
+    const settings = { ...STUDIO_DEFAULTS } as Record<string, unknown>
+    delete settings.resolution
+
+    // Destructuring `undefined` would throw before any request is sent.
+    const { config } = buildRenderBody(settings as unknown as typeof STUDIO_DEFAULTS, [], false)
+
+    expect(config.resolution_w).toBe(STUDIO_DEFAULTS.resolution[0])
+    expect(config.resolution_h).toBe(STUDIO_DEFAULTS.resolution[1])
+  })
+
+  test('percentage fields fall back to the studio defaults, not zero', () => {
+    const { config } = buildRenderBody(olderProjectSettings(), [], false)
+
+    expect(config.max_width).toBe(STUDIO_DEFAULTS.maxWidth / 100)
+    expect(config.position_x).toBe(STUDIO_DEFAULTS.posX / 100)
+    expect(config.position_y).toBe(STUDIO_DEFAULTS.posY / 100)
+    expect(config.animation_duration).toBe(STUDIO_DEFAULTS.animDuration / 100)
+  })
+
+  test('merging a partial project over defaults restores every key', () => {
+    const merged = { ...STUDIO_DEFAULTS, ...olderProjectSettings() }
+
+    expect(Object.keys(merged).sort()).toEqual(Object.keys(STUDIO_DEFAULTS).sort())
+  })
+})
+
 describe('dirname', () => {
   test('strips the last path segment for POSIX and Windows separators', () => {
     expect(dirname('/a/b/c.mp4')).toBe('/a/b')

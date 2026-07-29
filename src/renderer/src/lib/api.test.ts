@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { api, normalizeResult, type TranscriptionResult } from './api'
+import { api, formatValidationDetail, normalizeResult, type TranscriptionResult } from './api'
 
 /** Minimal fetch Response stand-in — only the members api.ts actually reads. */
 function jsonResponse(
@@ -477,5 +477,40 @@ describe('CapForgeAPI', () => {
 
       expect(normalizeResult(raw).alignmentDegraded).toBe(false)
     })
+  })
+})
+
+describe('formatValidationDetail', () => {
+  test('names the rejected field instead of a bare status phrase', () => {
+    // The exact 422 an older project produced: undefined/100 → NaN → null.
+    const detail = [
+      {
+        type: 'float_type',
+        loc: ['body', 'config', 'max_width'],
+        msg: 'Input should be a valid number',
+        input: null,
+      },
+    ]
+
+    expect(formatValidationDetail(detail)).toBe(
+      'config.max_width: Input should be a valid number'
+    )
+  })
+
+  test('joins several issues and summarises the overflow', () => {
+    const detail = Array.from({ length: 5 }, (_, i) => ({
+      loc: ['body', 'config', `field_${i}`],
+      msg: 'bad',
+    }))
+
+    expect(formatValidationDetail(detail)).toBe(
+      'config.field_0: bad; config.field_1: bad; config.field_2: bad (+2 more)'
+    )
+  })
+
+  test('falls back gracefully on shapes it does not recognise', () => {
+    expect(formatValidationDetail([])).toBe('')
+    expect(formatValidationDetail(['not an object'])).toBe('')
+    expect(formatValidationDetail([{ msg: 'no loc at all' }])).toBe('no loc at all')
   })
 })

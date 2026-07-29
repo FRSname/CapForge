@@ -15,6 +15,7 @@ import type { StudioSettings } from './components/studio/StudioPanel'
 import { Button } from './components/ui/Button'
 import { AgentLiveSync } from './components/AgentLiveSync'
 import { ToastProvider } from './hooks/useToast'
+import { ToastRelay } from './components/ui/ToastRelay'
 import { useSettingsUndo } from './hooks/useSettingsUndo'
 import { useAutosave } from './hooks/useAutosave'
 
@@ -25,6 +26,9 @@ export function App() {
   const [settings, setSettings] = useState<StudioSettings>({ ...STUDIO_DEFAULTS })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  // App sits above ToastProvider, so failures raised here are relayed into the
+  // toast system by <ToastRelay> below rather than reported directly.
+  const [restoreWarning, setRestoreWarning] = useState<string | null>(null)
 
   // Published from ResultsScreen — forwarded to StudioPanel for render/export.
   const [groups, setGroups] = useState<Segment[]>([])
@@ -196,6 +200,8 @@ export function App() {
     if (savedPath) await window.subforge.autosaveClear()
   }, [])
 
+  const handleRestoreWarningShown = useCallback(() => setRestoreWarning(null), [])
+
   // ── Project restore (shared by Open and crash-recovery) ─────────
   const restoreFromProjectFile = useCallback(async (file: ProjectFile) => {
     // Push transcription to backend so render/export work.
@@ -209,13 +215,24 @@ export function App() {
           audio_path: tr.audioPath,
           alignment_degraded: Boolean(tr.alignmentDegraded),
         })
-        .catch(() => {})
+        .catch((err) => {
+          // Never swallow this. Without the transcript the backend cannot
+          // render or export, and every later failure looks unrelated.
+          setRestoreWarning(
+            `Project loaded, but the backend could not be updated: ${
+              err instanceof Error ? err.message : String(err)
+            }. Rendering may fail.`
+          )
+        })
     }
 
     setFilePath(file.selectedFilePath)
     setResult(file.transcriptionResult)
     setResultsSessionId((n) => n + 1)
-    setSettings(file.studioSettings)
+    // Merge over defaults: a project saved by an older build has no value for
+    // fields added since, and buildRenderBody() divides some of them — which
+    // yields NaN → JSON null → a 422 from the backend at render time.
+    setSettings({ ...STUDIO_DEFAULTS, ...file.studioSettings })
     setScreen('results')
 
     pendingRestore.current = file
@@ -303,6 +320,7 @@ export function App() {
 
   return (
     <ToastProvider>
+      <ToastRelay message={restoreWarning} onShown={handleRestoreWarningShown} />
       <div className="flex flex-col h-full" style={{ background: 'var(--color-bg)' }}>
         <TitleBar
           screen={screen}

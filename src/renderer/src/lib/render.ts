@@ -8,7 +8,22 @@
 
 import type { Segment } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
+import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
 import { DEFAULT_PAD_V, CROSSFADE_DUR } from './renderConstants'
+
+/**
+ * Convert a 0–100 UI percentage to the 0–1 fraction the backend expects.
+ *
+ * The guard is load-bearing, not defensive noise. A project saved by an older
+ * build lacks fields added since, and `undefined / 100` is `NaN`, which
+ * `JSON.stringify` serializes as `null` — which Pydantic rejects on a
+ * non-Optional float, surfacing as an opaque HTTP 422 "Unprocessable Entity"
+ * at render time. A plain missing field is harmless by comparison (JSON omits
+ * it, so the backend default applies); only arithmetic turns it fatal.
+ */
+function pct(value: number | undefined, fallback: number): number {
+  return (Number.isFinite(value) ? (value as number) : fallback) / 100
+}
 
 /** Cross-platform dirname — strips the last path segment (handles \ and /). */
 export function dirname(filePath: string): string {
@@ -60,7 +75,9 @@ export function buildRenderBody(
   outputDir?: string
 ): RenderBody {
   const renderMode = overrides.renderMode ?? settings.renderMode
-  const [resW, resH] = overrides.resolution ?? settings.resolution
+  // Destructure defensively: an older project may have no `resolution` at all,
+  // and destructuring `undefined` throws before the request is ever sent.
+  const [resW, resH] = overrides.resolution ?? settings.resolution ?? STUDIO_DEFAULTS.resolution
   const fps = overrides.fps ?? settings.fps
   const bitrate = overrides.bitrate ?? settings.bitrate
   // Baked quick-render defaults to MP4; overlay defaults to whatever the user picked.
@@ -84,7 +101,7 @@ export function buildRenderBody(
     active_word_color: settings.activeColor,
 
     bg_color: settings.bgColor,
-    bg_opacity: settings.bgOpacity / 100,
+    bg_opacity: pct(settings.bgOpacity, STUDIO_DEFAULTS.bgOpacity),
     bg_padding_h: settings.marginH,
     bg_padding_v: settings.marginV ?? DEFAULT_PAD_V,
     bg_corner_radius: settings.bgRadius,
@@ -99,11 +116,11 @@ export function buildRenderBody(
     words_per_group: settings.wordsPerGroup,
     caption_style: settings.captionStyle ?? 'classic',
     lines: settings.lines,
-    max_width: settings.maxWidth / 100,
+    max_width: pct(settings.maxWidth, STUDIO_DEFAULTS.maxWidth),
     line_height: settings.lineHeight,
 
-    position_x: settings.posX / 100,
-    position_y: settings.posY / 100,
+    position_x: pct(settings.posX, STUDIO_DEFAULTS.posX),
+    position_y: pct(settings.posY, STUDIO_DEFAULTS.posY),
 
     resolution_w: resW,
     resolution_h: resH,
@@ -114,7 +131,7 @@ export function buildRenderBody(
     video_bitrate: bitrate,
 
     animation: settings.animationType,
-    animation_duration: settings.animDuration / 100,
+    animation_duration: pct(settings.animDuration, STUDIO_DEFAULTS.animDuration),
     word_transition: settings.wordStyle,
     // Pinned crossfade ramp, shared with the HTML caption renderer (HyperFrames)
     // so the three renderers don't drift. Canvas/Pillow read CROSSFADE_DUR directly.
