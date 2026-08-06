@@ -6,7 +6,7 @@
  * color-chip preview, the preset name, and a delete icon for user presets.
  */
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { StudioSettings } from './StudioPanel'
 import {
   BUILTIN_PRESETS,
@@ -16,51 +16,39 @@ import {
   type BuiltinPreset,
   type VanillaPreset,
 } from '../../lib/presets'
+import type { UserPreset } from '../../hooks/useUserPresets'
 import { useToast } from '../../hooks/useToast'
 
 interface PresetPickerProps {
   settings: StudioSettings
   onChange: (next: StudioSettings) => void
+  /** User preset library — owned by App (see useUserPresets). */
+  userPresets: UserPreset[]
+  /** Re-read the library after this picker saves/deletes/imports. */
+  onPresetsChanged: () => Promise<void>
+  /**
+   * Report the canonical name of a preset the user just applied, so the
+   * agent-facing `appliedPreset` mirror reflects manual picks too. Without
+   * this the mirror would still name an agent-applied preset after the user
+   * has switched to another one by hand.
+   */
+  onPresetApplied?: (name: string) => void
 }
 
-interface UserPreset {
-  name: string
-  settings: VanillaPreset
-}
-
-export function PresetPicker({ settings, onChange }: PresetPickerProps) {
+export function PresetPicker({
+  settings,
+  onChange,
+  userPresets,
+  onPresetsChanged: refresh,
+  onPresetApplied,
+}: PresetPickerProps) {
   const [open, setOpen] = useState(false)
-  const [userPresets, setUserPresets] = useState<UserPreset[]>([])
   const [busy, setBusy] = useState(false)
   const [saving, setSaving] = useState(false)
   const [saveName, setSaveName] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const saveInputRef = useRef<HTMLInputElement>(null)
   const { toast } = useToast()
-
-  // ── Load user presets once on mount (and after save/delete) ─────
-  const refresh = useCallback(async () => {
-    if (!window.subforge?.listPresets) return
-    try {
-      const names = await window.subforge.listPresets()
-      const loaded: UserPreset[] = []
-      for (const n of names) {
-        try {
-          const s = await window.subforge.loadPreset(n)
-          if (s) loaded.push({ name: n, settings: s as VanillaPreset })
-        } catch {
-          /* skip broken entry */
-        }
-      }
-      setUserPresets(loaded)
-    } catch {
-      // Preset API unavailable — leave userPresets empty.
-    }
-  }, [])
-
-  useEffect(() => {
-    refresh()
-  }, [refresh])
 
   // ── Close on outside click or Escape (pattern: WordStylePopup) ───
   useEffect(() => {
@@ -82,11 +70,13 @@ export function PresetPicker({ settings, onChange }: PresetPickerProps) {
   // ── Actions ──────────────────────────────────────────────────────
   const applyBuiltin = (tpl: BuiltinPreset) => {
     onChange(applyPreset(settings, tpl.settings))
+    onPresetApplied?.(tpl.name)
     setOpen(false)
   }
 
   const applyUser = (p: UserPreset) => {
     onChange(applyPreset(settings, p.settings))
+    onPresetApplied?.(p.name)
     setOpen(false)
   }
 
