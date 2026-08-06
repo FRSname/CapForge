@@ -170,8 +170,12 @@ current_hf_cancel: Optional[threading.Event] = None
 # this is just a cache the renderer pushes to via PUT /api/ui-state.
 current_ui_state: Optional[dict] = None
 
-# Commands the agent may relay to the renderer over /ws/control.
-AGENT_COMMAND_OPS = {"set_settings", "apply_preset", "set_word_overrides"}
+# Commands the agent may relay to the renderer over the control socket
+# (/ws/progress — there is no separate /ws/control endpoint).
+# `load_video` imports a file into the open app and starts transcription — it is
+# the entry point of an agent-driven batch run, and unlike the others it is
+# handled on every screen (the app is typically idle on the drop screen).
+AGENT_COMMAND_OPS = {"set_settings", "apply_preset", "set_word_overrides", "load_video"}
 
 # Render-approval gate. An agent-triggered final HyperFrames render must be
 # approved by the human in the app before it starts — the agent should preview +
@@ -682,15 +686,38 @@ async def agent_get_ui_state():
 
 @app.post("/api/agent/command", dependencies=[Depends(require_agent_token)])
 async def agent_command(cmd: dict):
-    """Relay a style/emphasis command to the renderer over /ws/control.
+    """Relay a style/emphasis/import command to the renderer over /ws/progress.
 
     Fire-and-forget: the renderer applies it to its own state (the source of
     truth for style); the agent can re-read /api/agent/ui-state to confirm.
+    `apply_preset` is confirmable that way — the renderer echoes the applied
+    name back as `appliedPreset`, which the MCP tool polls for before returning.
+
+    Ops that cannot be confirmed by a later read validate here instead, so a bad
+    call fails at the agent's request rather than vanishing into a broadcast.
     """
     op = cmd.get("op")
     if op not in AGENT_COMMAND_OPS:
         raise HTTPException(status_code=400, detail=f"Unknown command op: {op!r}")
-    await broadcast_event({"type": "agent_command", "op": op, "payload": cmd.get("payload", {})})
+
+    payload = cmd.get("payload", {}) or {}
+
+    if op == "load_video":
+        # Validate here rather than broadcasting a command the renderer would
+        # drop silently. A bad path is the agent's most likely mistake in a
+        # batch run, and it must fail loudly at the call it made.
+        path = payload.get("path")
+        if not isinstance(path, str) or not path.strip():
+            raise HTTPException(status_code=400, detail="load_video requires a 'path' string")
+        if not os.path.isfile(path):
+            raise HTTPException(status_code=400, detail=f"File not found: {path}")
+        if not ws_clients:
+            raise HTTPException(
+                status_code=409,
+                detail="Open CapForge to load a video — no UI is connected.",
+            )
+
+    await broadcast_event({"type": "agent_command", "op": op, "payload": payload})
     return {"status": "ok"}
 
 
