@@ -110,6 +110,10 @@ class CapForgeClient:
         # Headless-Chrome capture can take a while.
         return self._request("POST", "/api/export-hyperframes", json=payload, timeout=_LONG_TIMEOUT)
 
+    def render_video(self, payload: dict) -> Any:
+        # Classic Pillow render — minutes for a long clip, so no short timeout.
+        return self._request("POST", "/api/render-video", json=payload, timeout=_LONG_TIMEOUT)
+
     def list_caption_styles(self) -> Any:
         return self._request("GET", "/api/caption-styles")
 
