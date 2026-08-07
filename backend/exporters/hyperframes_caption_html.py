@@ -133,10 +133,12 @@ _WORD_OVERRIDE_KEYS = (
     "scale_factor", "underline_thickness", "underline_color", "underline_offset_y",
     "underline_width", "highlight_padding_x", "highlight_padding_y",
     "highlight_radius", "highlight_opacity", "highlight_offset_x", "highlight_offset_y",
-    # Per-word background box (docs/plans/per-word-background.md). Fallbacks when
-    # unset: color/opacity/radius/width_extra/height_extra → CFG.bgColor/bgOpacity/
-    # bgRadius/bgWidthExtra/bgHeightExtra, padding_h/v → CFG.padH/padV, offset_x/y
-    # → 0 (no global equivalent). None is a path, so none is HTML-excluded.
+    # Per-word background box (docs/plans/per-word-background.md). ``word_bg_opacity``
+    # is the ENABLE FLAG and NEVER inherits: absent or <= 0 means no box, so it must
+    # not fall back to CFG.bgOpacity. The rest do inherit when unset: color/radius/
+    # width_extra/height_extra → CFG.bgColor/bgRadius/bgWidthExtra/bgHeightExtra,
+    # padding_h/v → CFG.padH/padV, offset_x/y → 0 (no global equivalent). None is a
+    # path, so none is HTML-excluded.
     "word_bg_opacity", "word_bg_color", "word_bg_radius", "word_bg_padding_h",
     "word_bg_padding_v", "word_bg_width_extra", "word_bg_height_extra",
     "word_bg_offset_x", "word_bg_offset_y",
@@ -196,6 +198,7 @@ def caption_css(config: VideoRenderConfig) -> str:
     .cgroup {{ position: absolute; left: 0; top: 0; width: 100%; height: 100%; opacity: 0; visibility: hidden; }}
     .cbubble {{ position: absolute; left: 0; top: 0; }}
     .cbubble-bg {{ position: absolute; }}
+    .cw-bg {{ position: absolute; }}
     .cw {{
       position: absolute;
       white-space: nowrap;
@@ -456,6 +459,47 @@ function __capBuild(tl, CFG, GROUPS){
     // Helper makers (appended to bubble; absolute, resolution coords). Each
     // reads the word's own overrides with CFG fallbacks — mirroring Pillow's
     // active-word pill/underline semantics (video_render.py _draw_word_list).
+
+    // Per-word background box: the group background box (.cbubble-bg above)
+    // scoped to ONE word's extents — docs/plans/per-word-background.md. Stacking
+    // is group bg → word box → highlight pill → words (§0.5), and unlike
+    // pill/underline/etc it is transition-INDEPENDENT: never gate it on m.mode.
+    // Static, so no anim alpha here (accepted delta: CLAUDE.md → Accepted deltas, §0.6).
+    function mkWordBg(m){
+      var o = m.o;
+      // Enable gate: presence AND value. Opacity alone does NOT inherit — an absent
+      // key must not box every word whenever the global bg is on; the rest DO inherit.
+      var opacity = o.word_bg_opacity;
+      if(opacity == null || opacity <= 0) return;
+      var color   = o.word_bg_color || CFG.bgColor;            // "" means unset
+      var radius  = o.word_bg_radius != null ? o.word_bg_radius : CFG.bgRadius;
+      // Pad clamp + strokePad*2 below double-count the stroke like the group box (per-word-background.md §0.4).
+      var wPadH   = Math.max(o.word_bg_padding_h != null ? o.word_bg_padding_h : CFG.padH, sStroke + 2);
+      var wPadV   = Math.max(o.word_bg_padding_v != null ? o.word_bg_padding_v : CFG.padV, sStroke + 2);
+      var wExtra  = o.word_bg_width_extra  != null ? o.word_bg_width_extra  : bgWidthExtra;
+      var hExtra  = o.word_bg_height_extra != null ? o.word_bg_height_extra : bgHeightExtra;
+      var offX    = o.word_bg_offset_x != null ? o.word_bg_offset_x : 0;  // no global
+      var offY    = o.word_bg_offset_y != null ? o.word_bg_offset_y : 0;  // equivalent
+      // Height from the word's OWN (scaled) text height, like the pill.
+      var boxW = m.width + wPadH*2 + strokePad*2 + wExtra;
+      var boxH = m.textH + wPadV*2 + strokePad*2 + hExtra;
+      // Degenerate/empty rects: Canvas + Pillow skip identically (§0.7).
+      if(m.width <= 0 || boxW <= 0 || boxH <= 0) return;
+      // Centred on the word as drawn (m.cyc is row-local), then nudged.
+      var bcx = m.x + m.ox + m.width/2 + offX;
+      var bcy = m.cyc + m.oy + offY;
+      var b = document.createElement('div'); b.className='cw-bg';
+      b.style.left = (bcx - boxW/2) + 'px';
+      b.style.top = (bcy - boxH/2) + 'px';
+      b.style.width = boxW + 'px';
+      b.style.height = boxH + 'px';
+      b.style.background = color;
+      b.style.borderRadius = radius + 'px';
+      b.style.opacity = String(opacity);
+      // Under the words; the .cw-pill branch is defensive — none exists on this pass.
+      bubble.insertBefore(b, bubble.querySelector('.cw-pill') || bubble.querySelector('.cw'));
+    }
+
     function mkPill(m){
       var o = m.o;
       var wHlPadX = Math.max(o.highlight_padding_x != null ? o.highlight_padding_x : CFG.hlPadX, sStroke + 2);
@@ -508,6 +552,10 @@ function __capBuild(tl, CFG, GROUPS){
       bubble.appendChild(k);
       return k;
     }
+
+    // Boxes first, so they land under the overlays below. Runs over EVERY word,
+    // not just the active one; mkWordBg self-gates and keeps no state.
+    wm.forEach(mkWordBg);
 
     // Per-word effective transition (Pillow: w_word_trans) picks the overlay —
     // pill only for effective-'highlight' words, underline for 'underline',
