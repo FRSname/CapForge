@@ -17,6 +17,7 @@ import { AgentLiveSync } from './components/AgentLiveSync'
 import { ToastProvider } from './hooks/useToast'
 import { useSettingsUndo } from './hooks/useSettingsUndo'
 import { useAutosave } from './hooks/useAutosave'
+import { useUserPresets } from './hooks/useUserPresets'
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('file')
@@ -53,6 +54,16 @@ export function App() {
   // keeping the previous video's when a project is opened over an existing one.
   const [resultsSessionId, setResultsSessionId] = useState(0)
 
+  // User preset library, owned here so the UI-state mirror can publish the
+  // names to the MCP agent and `apply_preset` can resolve against them.
+  const { userPresets, refresh: refreshUserPresets } = useUserPresets()
+
+  // Canonical name of the preset the current style is based on. STICKY: survives
+  // later set_settings patches and manual edits, and only changes when another
+  // preset is applied or the session resets. The MCP `apply_preset` tool polls
+  // the mirror for this to confirm the apply landed before rendering.
+  const [appliedPreset, setAppliedPreset] = useState<string | null>(null)
+
   // Settings undo — wraps setSettings so every UI change is undoable.
   const settingsUndo = useSettingsUndo(settings, setSettings)
   const handleSettingsChange = useCallback(
@@ -86,8 +97,42 @@ export function App() {
     setGroups([])
     setGroupsEdited(false)
     setSourceVideoInfo(null)
+    setAppliedPreset(null)
     window.subforge.autosaveClear()
   }
+
+  /**
+   * Agent-driven import (op: `load_video`) — the entry point of a batch run.
+   *
+   * Returns null on success, or a human-readable reason on refusal.
+   *
+   * Replacing an already-loaded project resets the same state `handleNew` does.
+   * That reset is the batch-safety requirement: without it video 2 inherits
+   * video 1's groups, groupsEdited, resolution and per-group position overrides,
+   * and every later output is silently wrong.
+   *
+   * Only filePath + screen are set; ProgressScreen self-starts the transcription
+   * from filePath and its onDone → handleTranscribeDone completes the transition.
+   */
+  const handleLoadVideo = useCallback(
+    (path: string): string | null => {
+      if (!path) return 'Agent sent load_video with no path.'
+      if (screen === 'progress') {
+        return 'Agent tried to load a video while a job is already running.'
+      }
+      setResult(null)
+      setSettings({ ...STUDIO_DEFAULTS })
+      setGroups([])
+      setGroupsEdited(false)
+      setSourceVideoInfo(null)
+      setAppliedPreset(null)
+      pendingRestore.current = null
+      setFilePath(path)
+      setScreen('progress')
+      return null
+    },
+    [screen]
+  )
 
   // ── Groups published from ResultsScreen ─────────────────────────
   const handleGroupsUpdate = useCallback((g: Segment[], edited: boolean) => {
@@ -110,14 +155,23 @@ export function App() {
   // /api/render-frame renders with the live style. `render` is the snake_case
   // body (the casing bridge lives only in buildRenderBody). Debounced — settings
   // churn during edits.
+  // Mirrors on EVERY screen (not just results) so the agent can see where the
+  // app is and which presets exist before a video is loaded — `list_presets`
+  // and `load_video` both have to work from the drop screen.
   useEffect(() => {
-    if (screen !== 'results') return
     const t = setTimeout(() => {
       api
         .putUiState({
+          screen,
           settings,
           groups,
+          // Kept for back-compat: existing agent prompts read `presets`.
           presets: builtinPresetNames(),
+          presetsDetail: {
+            builtin: builtinPresetNames(),
+            user: userPresets.map((p) => p.name),
+          },
+          appliedPreset,
           render: buildRenderBody(settings, groups, groupsEdited),
         })
         .catch(() => {
@@ -125,18 +179,19 @@ export function App() {
         })
     }, 300)
     return () => clearTimeout(t)
-  }, [screen, settings, groups, groupsEdited])
+  }, [screen, settings, groups, groupsEdited, userPresets, appliedPreset])
 
   // Resync-after-reconnect: give the API layer a snapshot of the live result +
   // UI state so that if the backend crashes/restarts, the control socket's reopen
   // handler can re-push what the backend lost (mirrors the two effects above).
   useEffect(() => {
-    if (screen !== 'results') {
-      api.registerResync(null)
-      return
-    }
     api.registerResync(() => {
-      const liveResult = projectIORef.current?.gather().transcriptionResult ?? result
+      // No project open (drop/progress screen): re-push UI state only. The
+      // `result` half is genuinely absent, not lost, so it must stay undefined.
+      const liveResult =
+        screen === 'results'
+          ? (projectIORef.current?.gather().transcriptionResult ?? result)
+          : null
       return {
         result: liveResult
           ? {
@@ -148,15 +203,21 @@ export function App() {
             }
           : undefined,
         uiState: {
+          screen,
           settings,
           groups,
           presets: builtinPresetNames(),
+          presetsDetail: {
+            builtin: builtinPresetNames(),
+            user: userPresets.map((p) => p.name),
+          },
+          appliedPreset,
           render: buildRenderBody(settings, groups, groupsEdited),
         },
       }
     })
     return () => api.registerResync(null)
-  }, [screen, result, settings, groups, groupsEdited])
+  }, [screen, result, settings, groups, groupsEdited, userPresets, appliedPreset])
 
   // ── Source video info probe ─────────────────────────────────────
   // Runs once per result.audioPath — auto-sets resolution + fps.
@@ -216,6 +277,8 @@ export function App() {
     setResult(file.transcriptionResult)
     setResultsSessionId((n) => n + 1)
     setSettings(file.studioSettings)
+    // A restored project's style came from the file, not from a preset.
+    setAppliedPreset(null)
     setScreen('results')
 
     pendingRestore.current = file
@@ -387,17 +450,23 @@ export function App() {
             groupsEdited={groupsEdited}
             audioPath={result?.audioPath ?? filePath ?? ''}
             sourceVideoInfo={sourceVideoInfo}
+            userPresets={userPresets}
+            onPresetsChanged={refreshUserPresets}
+            onPresetApplied={setAppliedPreset}
           />
         </main>
 
         <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
         <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         <AgentLiveSync
-          active={screen === 'results'}
+          resultsActive={screen === 'results'}
           settings={settings}
+          userPresets={userPresets}
           applyResult={handleApplyAgentResult}
           applySettings={handleSettingsChange}
           applyWordOverrides={handleApplyWordOverrides}
+          onPresetApplied={setAppliedPreset}
+          loadVideo={handleLoadVideo}
         />
       </div>
     </ToastProvider>

@@ -76,11 +76,14 @@ actually reads.
 | `get_transcript` | Transcript with segment + word indices |
 | `update_words` | Replace tokens (spelling/homophone fixes) → live UI |
 | `remove_filler_words` | Drop um/uh/er… (timing preserved) → live UI |
-| `transcribe` | Start a transcription (blocks until done) |
+| `load_video` | Load a video into the **open app** and start transcribing — the entry point of a batch run |
+| `transcribe` | Start a transcription headlessly, bypassing the UI (blocks until done) |
 | `export` | Export current transcript (srt/ass/json/…) |
-| `get_ui_state` | Current style + display groups + preset names |
+| `get_ui_state` | Current screen + style + display groups + preset names + resolved render config |
+| `list_presets` | Style presets available in the app: `{user, builtin}` |
 | `set_style` | Change global style (camelCase StudioSettings patch) → live UI |
-| `apply_preset` | Apply a built-in style preset by name → live UI |
+| `apply_preset` | Apply a **user-saved or built-in** style preset by name → live UI; blocks until the app confirms |
+| `render` | Render the final video with the CLASSIC (Pillow) engine → output path. No approval gate |
 | `emphasize` | Style individual words (size/animation/color) → live UI |
 | `render_frame` | CLASSIC (Pillow) frame at time `t` (composited over video) — agent SEES it |
 | `preview_hyperframes_frame` | ONE HyperFrames frame at `t` (native/custom caption) — fast preview, agent SEES it |
@@ -102,6 +105,39 @@ actually reads.
 | `import_into_workspace` | Import an effect pack (folder: a top-level `<name>.html` + optional README/registry-item.json + assets) into the workspace, layout preserved |
 | `run_hyperframes_cli` | Run an allowlisted HyperFrames CLI check (lint/inspect/compositions/info/docs) in the workspace — the dev loop |
 | `hyperframes_guide` | The HyperFrames **creative library** — caption craft, motion, type, the text-highlight vocabulary, transitions, palettes. Call with no topic for the operating model + index, then a topic id to pull on demand |
+
+## Batch runs (a folder of videos, one style)
+
+CapForge must be **open** — the app owns the style, presets and fonts, and the
+agent drives the visible UI. Per video:
+
+```
+load_video("/clips/01.mp4")        # app moves to the progress screen
+poll get_status() until done       # transcription runs in the app
+remove_filler_words()              # any transcript cleanup
+apply_preset("Mettro")             # user preset; returns only once confirmed
+render()                           # writes next to the source video
+```
+
+Two ordering rules make this reliable:
+
+1. **`apply_preset` before `render`, and check its status.** The app applies the
+   preset and mirrors its state back on a short debounce; `apply_preset` polls
+   for that echo and returns `{"status": "ok", "applied": …}` only once it
+   lands. A `"unconfirmed"` status means the style is *not* what you think it
+   is — read the `hint` and fix it rather than rendering. `set_style` tweaks
+   after a preset are fine; the preset stays the recorded basis.
+2. **One video at a time.** `load_video` refuses while a job is running, and
+   resets the previous video's groups, style and overrides when it accepts a new
+   one, so nothing leaks between items.
+
+`render` uses the classic Pillow engine and needs no approval. `render_hyperframes`
+is the other engine and deliberately **blocks on a human Approve/Cancel prompt**,
+so it is not suitable for an unattended loop.
+
+To find preset names first: `list_presets()` → `{"user": [...], "builtin": [...]}`.
+User presets are the ones saved from the app's Presets menu, and are the only
+ones that can carry a custom font.
 
 ## Effect packs (co-author mode)
 

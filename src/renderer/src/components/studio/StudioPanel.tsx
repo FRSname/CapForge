@@ -9,6 +9,7 @@ import { ExportFooter } from './ExportFooter'
 import { CustomRenderPanel } from './CustomRenderPanel'
 import { HyperFramesPanel } from './HyperFramesPanel'
 import { PresetPicker } from './PresetPicker'
+import type { UserPreset } from '../../hooks/useUserPresets'
 import { RenderProgressModal } from './RenderProgressModal'
 import { TypographyCard } from './sections/TypographyCard'
 import { ColorsCard } from './sections/ColorsCard'
@@ -178,6 +179,12 @@ interface StudioPanelProps {
   audioPath?: string
   /** Probed source video info — drives quick-render resolution/fps. */
   sourceVideoInfo?: VideoInfo | null
+  /** User preset library — owned by App so the agent mirror can publish it. */
+  userPresets?: UserPreset[]
+  /** Re-read the preset library after PresetPicker saves/deletes/imports. */
+  onPresetsChanged?: () => Promise<void>
+  /** Report a manual preset pick so the agent-facing mirror stays truthful. */
+  onPresetApplied?: (name: string) => void
 }
 
 export { DEFAULTS as STUDIO_DEFAULTS }
@@ -206,6 +213,9 @@ export function StudioPanel({
   groupsEdited = false,
   audioPath = '',
   sourceVideoInfo = null,
+  userPresets = [],
+  onPresetsChanged,
+  onPresetApplied,
 }: StudioPanelProps) {
   const [internalS, setInternalS] = useState<StudioSettings>({ ...DEFAULTS })
   const [outputDir, setOutputDir] = useState<string>('')
@@ -272,6 +282,9 @@ export function StudioPanel({
             if (onChange) onChange(next)
             else setInternalS(next)
           }}
+          userPresets={userPresets}
+          onPresetsChanged={onPresetsChanged ?? (async () => {})}
+          onPresetApplied={onPresetApplied}
         />
       </div>
 
