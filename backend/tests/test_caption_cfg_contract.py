@@ -174,11 +174,10 @@ PILLOW_HONORED_OVERRIDE_KEYS = frozenset({
     # Per-word background box (docs/plans/per-word-background.md). Not
     # VideoRenderConfig fields — they ride the per-word overrides dict — so they
     # get no _SENTINELS entry (that table mirrors EXPECTED_IN_CAP_CFG).
-    # PENDING: Pillow does NOT read these yet — the video_render.py reads land
-    # in Phase 3 of that plan, so until then this block is declared-ahead and the
-    # "mirror of what Pillow reads" claim above is aspirational for these 9 keys.
-    # Nothing here catches that: this file only diffs two hand-maintained sets
-    # (_WORD_OVERRIDE_KEYS vs. this one), it never introspects video_render.py.
+    # Pillow reads these in ``_draw_word_bg_boxes()`` inside _draw_word_list;
+    # the pixels are pinned by the per-word background golden in test_render_golden.py
+    # (this file only diffs two hand-maintained sets, it never introspects
+    # video_render.py, so it is not evidence that any renderer honours a key).
     "word_bg_opacity",
     "word_bg_color",
     "word_bg_radius",

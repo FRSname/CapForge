@@ -451,6 +451,75 @@ def _draw_word_list(
         w_bbox = draw.textbbox((0, 0), "Ayg", font=w_font)
         return w_font, w_bbox, w_bbox[3] - w_bbox[1]
 
+    def _draw_word_bg_boxes() -> None:
+        """Draw the per-word background boxes: the group background box scoped
+        to a single word's extents.
+
+        Painted on the SAME pill layer and BEFORE the highlight pill, giving
+        the stacking order ``group bg → word box → highlight pill → words``;
+        never on the text/shadow layer, so a box never feeds the drop shadow.
+        Unlike highlight_*/underline_*/bounce_*/scale_* this is transition
+        *independent* — never gate it on ``effective_transition``.
+
+        CONTRACT: the per-word background keys read here belong to the authoritative
+        per-word override set (``_WORD_OVERRIDE_KEYS`` in
+        hyperframes_caption_html.py / ``PILLOW_HONORED_OVERRIDE_KEYS`` in
+        tests/test_caption_cfg_contract.py — see the "--- per-word overrides ---"
+        marker in the word loop below). See docs/plans/per-word-background.md.
+        """
+        box_draw = pill_draw if pill_draw is not None else draw
+        for i, wm in enumerate(word_metrics):
+            ov = wm.get("overrides") or {}
+            # Enable gate: presence AND value — ``word_bg_opacity`` is the one
+            # field that must NOT inherit from ``config.bg_opacity``, or every
+            # word of every existing project would sprout a box.
+            opacity = ov.get("word_bg_opacity")
+            if opacity is None or float(opacity) <= 0:
+                continue
+            opacity = float(opacity)
+            # Everything else inherits its global ``bg_*`` counterpart through
+            # ``.get(key, default)`` — never ``or``, so an explicit 0 survives
+            # (``word_bg_color`` excepted: "" means unset, as on Canvas).
+            color   = ov.get("word_bg_color") or config.bg_color
+            radius  = int(ov.get("word_bg_radius", config.bg_corner_radius))
+            # Clamp + the doubled ``outline_sw`` below: same deliberate stroke
+            # double-count as the group box (bg_w/bg_h in _render_frame).
+            pad_h   = max(float(ov.get("word_bg_padding_h", config.bg_padding_h)), outline_sw + 2)
+            pad_v   = max(float(ov.get("word_bg_padding_v", config.bg_padding_v)), outline_sw + 2)
+            w_extra = float(ov.get("word_bg_width_extra",  getattr(config, "bg_width_extra",  0)))
+            h_extra = float(ov.get("word_bg_height_extra", getattr(config, "bg_height_extra", 0)))
+            off_x   = float(ov.get("word_bg_offset_x", 0))
+            off_y   = float(ov.get("word_bg_offset_y", 0))
+
+            # Height from the word's OWN scaled font so the box hugs a
+            # font_size_scale word (Pillow analogue of Canvas `wordScaledTextH`).
+            _, _, box_text_h = _resolve_scaled_font(
+                ov.get("font_family") or config.font_family,
+                float(ov.get("font_size_scale", 1.0)),
+                bool(ov["bold"]) if "bold" in ov else config.bold,
+                ov.get("custom_font_path") or getattr(config, "custom_font_path", None),
+            )
+
+            box_w = wm["width"] + pad_h * 2 + outline_sw * 2 + w_extra
+            box_h = box_text_h  + pad_v * 2 + outline_sw * 2 + h_extra
+            # Load-bearing, not cosmetic: the inherited bg_*_extra reach -50 and
+            # PIL raises on an inverted rect (docs/plans/per-word-background.md).
+            if wm["width"] <= 0 or box_w <= 0 or box_h <= 0:
+                continue
+
+            # Centred on the word as drawn (row-local via center_y), then nudged.
+            cx = word_x_positions[i] + float(ov.get("pos_offset_x", 0)) + wm["width"] / 2 + off_x
+            cy = center_y + float(ov.get("pos_offset_y", 0)) + off_y
+
+            _draw_rounded_rect(
+                box_draw,
+                (cx - box_w / 2, cy - box_h / 2, cx + box_w / 2, cy + box_h / 2),
+                radius,
+                _hex_to_rgba(color, opacity * anim_alpha),
+            )
+
+    _draw_word_bg_boxes()
+
     # Draw sliding highlight BEFORE words so it sits behind the text.
     # Highlight is per-active-word, so per-word overrides for the active word's
     # effective transition + sub-settings apply here.
@@ -540,10 +609,13 @@ def _draw_word_list(
 
         # --- per-word overrides ---
         # CONTRACT: the override keys read below are the authoritative set Pillow
-        # honors. They are mirrored (minus ``custom_font_path`` — paths must not
-        # leak into HTML) by ``_WORD_OVERRIDE_KEYS`` in hyperframes_caption_html.py
-        # and pinned by PILLOW_HONORED_OVERRIDE_KEYS in tests/test_caption_cfg_contract.py.
-        # Add/remove an ``ov[...]`` read here → update BOTH of those.
+        # honors, together with the ``highlight_*`` reads in the pill block above
+        # and the per-word background reads in ``_draw_word_bg_boxes()`` above it
+        # (docs/plans/per-word-background.md). They are mirrored (minus
+        # ``custom_font_path`` — paths must not leak into HTML) by
+        # ``_WORD_OVERRIDE_KEYS`` in hyperframes_caption_html.py and pinned by
+        # PILLOW_HONORED_OVERRIDE_KEYS in tests/test_caption_cfg_contract.py.
+        # Add/remove an ``ov[...]`` read anywhere here → update BOTH of those.
         ov = wm.get("overrides") or {}
         w_text_color    = _hex_to_rgba(ov["text_color"],        anim_alpha) if "text_color"        in ov else text_color_base
         w_active_color  = _hex_to_rgba(ov["active_word_color"], anim_alpha) if "active_word_color"  in ov else active_color_base

@@ -115,6 +115,10 @@ def build_group(words: list[str], start: float = 1.0, word_dur: float = 0.5) -> 
 GROUP_WORDS = ["Golden", "frames", "guard", "parity"]
 WRAP_WORDS = ["Subtitle", "golden", "frames", "keep", "the",
               "preview", "and", "render", "honest"]
+# GROUP_WORDS + a 5th word that carries an explicit value for every geometry
+# key (see WORD_OVERRIDES["word_bg_box"][4]). Its own list so the other goldens,
+# which share GROUP_WORDS, stay byte-identical.
+WORD_BG_WORDS = GROUP_WORDS + ["boxed"]
 
 # name -> (config_overrides, group_words, t)
 SCENARIOS: dict[str, tuple[dict, list[str], float]] = {
@@ -154,6 +158,27 @@ SCENARIOS: dict[str, tuple[dict, list[str], float]] = {
     # The override lives on the GROUP dict (CustomGroup.position_x/y), not on
     # the config — see GROUP_OVERRIDES below.
     "group_pos_top": ({}, GROUP_WORDS, 2.25),
+    # Per-word background boxes over a 2-line group, on top of a NON-DEFAULT
+    # global background (colour/radius/padding/extras all off their defaults)
+    # so the inherit-from-global rule is what the pixels pin. The global
+    # bg_opacity is deliberately > 0: if the enable gate ever regressed to
+    # `word_bg_opacity ?? bg_opacity`, EVERY word would sprout a box and this
+    # golden would fail. See WORD_OVERRIDES + docs/plans/per-word-background.md.
+    "word_bg_box": (
+        {
+            "lines": 2,
+            "bg_opacity": 0.5,
+            "bg_color": "#2E5FCC",
+            "bg_corner_radius": 8,
+            "bg_padding_h": 10,
+            "bg_padding_v": 6,
+            "bg_width_extra": 8,
+            "bg_height_extra": 4,
+            "position_y": 0.5,
+        },
+        WORD_BG_WORDS,
+        2.25,
+    ),
 }
 
 # Scenario name -> extra keys merged into the group dict (per-group overrides).
@@ -167,24 +192,76 @@ GROUP_OVERRIDES: dict[str, dict] = {
 # _draw_word_list reads off each word dict (video_render.py: `wm.get("overrides")`).
 WORD_OVERRIDES: dict[str, dict[int, dict]] = {
     "highlight_word_scale": {1: {"font_size_scale": 1.6}},
+    # Row 1 = ["Golden", "frames", "guard"], row 2 = ["parity", "boxed"] (lines=2).
+    # Word 1 ("Golden") sets NOTHING — it must stay boxless even though the
+    # global background is on (the enable gate is presence-based).
+    "word_bg_box": {
+        # Word 2: enabled + a non-default radius and colour of its own.
+        1: {"word_bg_opacity": 0.9, "word_bg_color": "#E23E57", "word_bg_radius": 24},
+        # Word 3: a box on a SCALED word — it must hug the scaled glyphs, not
+        # the group's global text height.
+        2: {"font_size_scale": 1.4, "word_bg_opacity": 0.8, "word_bg_color": "#1FA97A"},
+        # Word 4: ONLY opacity — colour, radius, padding H/V and both extras all
+        # inherit the (non-default) global bg_* values above.
+        3: {"word_bg_opacity": 0.85},
+        # Word 5: every geometry key set EXPLICITLY as a per-word override, with
+        # mutually distinct values so a transposed read (padding_h ← padding_v,
+        # offset_x ← offset_y, width_extra ← height_extra, or any cross-key mixup)
+        # visibly moves the box. Words 2-4 exercise these keys only through
+        # inheritance, which cannot catch a transposition. Each value is proven
+        # to matter by test_word_background_geometry_key_is_pinned_by_golden.
+        4: {
+            "word_bg_opacity": 0.95,
+            "word_bg_color": "#8A2BE2",
+            "word_bg_radius": 3,
+            "word_bg_padding_h": 22,
+            "word_bg_padding_v": 4,
+            "word_bg_width_extra": 18,
+            "word_bg_height_extra": -6,
+            "word_bg_offset_x": 15,
+            "word_bg_offset_y": -10,
+        },
+    },
 }
 
+# The six geometry keys word 5 of the word_bg_box scenario sets explicitly.
+WORD_BG_GEOMETRY_KEYS = (
+    "word_bg_padding_h", "word_bg_padding_v",
+    "word_bg_width_extra", "word_bg_height_extra",
+    "word_bg_offset_x", "word_bg_offset_y",
+)
 
-def render_scenario(name: str) -> Image.Image:
-    """Render one scenario to an RGBA frame using the bundled font."""
+
+def render_variant(
+    name: str,
+    word_overrides: dict[int, dict],
+    config_overrides: dict | None = None,
+    words: list[str] | None = None,
+) -> Image.Image:
+    """Render a scenario with a REPLACED per-word override map, optionally
+    patching the config or the word list too.
+
+    This is how the sanity tests render an otherwise byte-identical frame with
+    exactly one feature removed, so a pixel diff isolates that feature.
+    """
     if not FONT_PATH.is_file():
         raise FileNotFoundError(f"Bundled test font missing: {FONT_PATH}")
-    overrides, words, t = SCENARIOS[name]
-    config = build_config(**overrides)
-    group = build_group(words)
+    overrides, scenario_words, t = SCENARIOS[name]
+    config = build_config(**{**overrides, **(config_overrides or {})})
+    group = build_group(words if words is not None else scenario_words)
     group.update(GROUP_OVERRIDES.get(name, {}))
-    for word_idx, word_ov in WORD_OVERRIDES.get(name, {}).items():
+    for word_idx, word_ov in word_overrides.items():
         group["words"][word_idx]["overrides"] = word_ov
     font = _get_font(config.font_family, config.font_size,
                      config.custom_font_path, bold=config.bold)
     # Guard: never bake goldens with Pillow's bitmap fallback font.
     assert isinstance(font, ImageFont.FreeTypeFont), "custom font failed to load"
     return _render_frame(config, font, group, t)
+
+
+def render_scenario(name: str) -> Image.Image:
+    """Render one scenario to an RGBA frame using the bundled font."""
+    return render_variant(name, WORD_OVERRIDES.get(name, {}))
 
 
 # ---------------------------------------------------------------------------
@@ -250,6 +327,98 @@ def test_word_wrap_scenario_actually_wraps() -> None:
     unwrapped = _render_frame(config, font, build_group(words), t)
     mean_diff, _ = diff_stats(wrapped, unwrapped)
     assert mean_diff > 0.1, "expected word_wrap scenario to produce multiple rows"
+
+
+def test_word_background_boxes_draw() -> None:
+    """Sanity: the per-word background boxes must actually change the frame.
+
+    Without this, a golden baked from a no-op implementation would pass forever.
+    Renders the word_bg_box scenario with and without the per-word overrides —
+    the only difference between the two is the ``word_bg_*`` keys, so any
+    difference proves _draw_word_list honoured them.
+    """
+    with_boxes = render_scenario("word_bg_box")
+    overrides, words, t = SCENARIOS["word_bg_box"]
+    config = build_config(**overrides)
+    group = build_group(words)
+    # Keep the font_size_scale override so ONLY the word_bg_* keys differ.
+    group["words"][2]["overrides"] = {"font_size_scale": 1.4}
+    font = _get_font(config.font_family, config.font_size,
+                     config.custom_font_path, bold=config.bold)
+    without_boxes = _render_frame(config, font, group, t)
+    mean_diff, _ = diff_stats(with_boxes, without_boxes)
+    assert mean_diff > 0.1, "expected the per-word background boxes to be drawn"
+
+
+@pytest.mark.parametrize("key", WORD_BG_GEOMETRY_KEYS)
+def test_word_background_geometry_key_is_pinned_by_golden(key: str) -> None:
+    """Each geometry key must move pixels ON ITS OWN as a per-word override.
+
+    Word 5 of the golden scenario sets padding_h/v, width/height_extra and
+    offset_x/y explicitly, with mutually distinct values. This drops ONE key at
+    a time (the word then falls back to the global bg_* geometry for it) and
+    demands the resulting frame trip ``test_golden_frame``'s own tolerances —
+    proving the golden pins that key rather than only its inherited value.
+    Per-key (not just all-six-at-once) so a transposed read — offset_x ←
+    offset_y, padding_h ← padding_v, width_extra ← height_extra — cannot hide
+    behind the other five still being correct.
+    """
+    word_5 = WORD_OVERRIDES["word_bg_box"][4]
+    without_key = {
+        **WORD_OVERRIDES["word_bg_box"],
+        4: {k: v for k, v in word_5.items() if k != key},
+    }
+    mean_diff, max_diff = diff_stats(
+        render_scenario("word_bg_box"), render_variant("word_bg_box", without_key),
+    )
+    trips_golden = not (mean_diff < MAX_MEAN_DIFF and max_diff < MAX_PIXEL_DIFF)
+    assert trips_golden, (
+        f"dropping the per-word {key} left the frame within the golden's "
+        f"tolerances (mean {mean_diff:.3f} < {MAX_MEAN_DIFF}, max {max_diff} < "
+        f"{MAX_PIXEL_DIFF}) — the golden would pass with or without it, so it "
+        f"pins nothing and a transposed read of it stays invisible."
+    )
+
+
+# (case id, word list, config overrides, overrides for word index 1) — one case
+# per clause of the degenerate-rect guard so none of the three is dead in tests.
+DEGENERATE_CASES = [
+    # box_h <= 0 via the inherited global bg_height_extra floor (-50).
+    ("height", WORD_BG_WORDS, {"bg_height_extra": -50}, {"word_bg_opacity": 0.9}),
+    # box_w <= 0 via a PER-WORD width_extra floor on a narrow word.
+    ("width", ["a", "b", "c"], {}, {"word_bg_opacity": 0.9, "word_bg_width_extra": -50}),
+    # Zero-extent word: box_w and box_h both stay > 0, so only the width guard
+    # can skip it — without it the word would paint a free-floating blob.
+    ("empty_word", ["Golden", "", "guard"], {}, {"word_bg_opacity": 0.9}),
+]
+
+
+@pytest.mark.parametrize(
+    "words,config_overrides,word_ov",
+    [case[1:] for case in DEGENERATE_CASES],
+    ids=[case[0] for case in DEGENERATE_CASES],
+)
+def test_word_background_skips_degenerate_rect(
+    words: list[str], config_overrides: dict, word_ov: dict,
+) -> None:
+    """A degenerate box must be SKIPPED — not merely survive without crashing.
+
+    PIL's ``rounded_rectangle`` raises ValueError on an inverted rect, so the
+    <= 0 guard is load-bearing: bg_width_extra/bg_height_extra are user-settable
+    down to -50 and are inherited by every enabled word box. Asserting only "does
+    not raise" would also pass for an over-eager guard that skipped EVERY box, so
+    the frame is compared against the same render with ``word_bg_opacity``
+    removed and must be pixel-identical: the box is skipped, nothing else is.
+    """
+    skipped = render_variant("word_bg_box", {1: word_ov}, config_overrides, words)
+    disabled_ov = {k: v for k, v in word_ov.items() if k != "word_bg_opacity"}
+    disabled = render_variant("word_bg_box", {1: disabled_ov}, config_overrides, words)
+    _, max_diff = diff_stats(skipped, disabled)
+    assert max_diff == 0, (
+        f"a degenerate word box changed the frame by up to {max_diff}/255 — it "
+        f"must be skipped outright, leaving the frame identical to the same "
+        f"render with word_bg_opacity unset."
+    )
 
 
 def test_group_position_override_moves_caption() -> None:
