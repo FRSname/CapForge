@@ -429,11 +429,15 @@ In `src/renderer/src/components/editor/WordStylePopup.tsx`:
             backend/exporters/hyperframes_caption_html.py \
             backend/tests/test_caption_cfg_contract.py \
             backend/exporters/video_render.py; do
-     printf '%s: ' "$f"; grep -o 'word_bg_[a-z_]*' "$f" | sort -u | wc -l
+     printf '%s: ' "$f"
+     grep -oE 'word_bg_(opacity|color|radius|padding_[hv]|width_extra|height_extra|offset_[xy])' \
+       "$f" | sort -u | wc -l
    done
    ```
-   All must agree at 9. (Use `grep -o … | sort -u | wc -l`, **not** `grep -c` — the latter counts
-   lines, so packed key lists and comment mentions both skew it.)
+   All must agree at 9. Two traps, both hit during execution: use `grep -o … | sort -u | wc -l`,
+   **not** `grep -c` (which counts *lines*, so packed key lists and comment mentions skew it); and
+   match the **exact nine key names**, not the bare `word_bg_` prefix — `video_render.py` defines
+   a function `_draw_word_bg_boxes()` that a prefix grep counts as a tenth key.
 2. **Anti-pattern grep — no pass-through-layer leak, no preset leak:**
    ```bash
    grep -rn "word_bg" src/renderer/src/lib/presets.ts src/renderer/src/lib/render.ts backend/models/schemas.py
