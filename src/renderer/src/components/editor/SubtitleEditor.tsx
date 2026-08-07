@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Segment, Word } from '../../types/app'
+import { retimeWords, tokenize } from '../../lib/wordTiming'
 
 interface SubtitleEditorProps {
   segments: Segment[]
@@ -196,13 +197,7 @@ export function SubtitleEditor({
   function handleTextEdit(segIdx: number, newText: string) {
     onBeforeEdit?.()
     const seg = segments[segIdx]
-    const words = newText.split(/\s+/).filter(Boolean)
-    const newWords = words.map((word, i) => {
-      if (i < seg.words.length) return { ...seg.words[i], word }
-      const last = seg.words[seg.words.length - 1]
-      if (last) return { ...last, word }
-      return { word, start: seg.start, end: seg.end }
-    })
+    const newWords = remapWordsFromText(seg, newText)
     onChange(
       segments.map((s, si) => (si !== segIdx ? s : { ...s, text: newText, words: newWords }))
     )
@@ -740,16 +735,13 @@ function formatTimePrecise(s: number): string {
   return `${m}:${sec}`
 }
 
+/**
+ * Re-derive a segment's words from edited text. Timings are matched by an LCS
+ * diff of the word text, so every word the user did not touch keeps its exact
+ * timing — see `lib/wordTiming.ts` for the invariant.
+ */
 function remapWordsFromText(seg: Segment, text: string): Word[] {
-  return text
-    .split(/\s+/)
-    .filter(Boolean)
-    .map((word, i) => {
-      if (i < seg.words.length) return { ...seg.words[i], word }
-      const last = seg.words[seg.words.length - 1]
-      if (last) return { ...last, word }
-      return { word, start: seg.start, end: seg.end }
-    })
+  return retimeWords(seg.words, tokenize(text), { start: seg.start, end: seg.end })
 }
 
 function parseTimePrecise(str: string): number {
