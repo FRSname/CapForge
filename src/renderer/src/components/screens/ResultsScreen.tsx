@@ -19,6 +19,7 @@ import type {
   GroupPositionOverride,
 } from '../../types/app'
 import { buildStudioGroups, fillGroupGaps } from '../../lib/groups'
+import { joinWords, retimeWords, tokenize } from '../../lib/wordTiming'
 import { DEFAULT_PAD_V } from '../../lib/renderConstants'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
@@ -88,6 +89,9 @@ export function ResultsScreen({
     groupIdx: number
     wordIdx: number
     anchorRect: DOMRect
+    /** Word count of the target group when the popup opened. A text commit that
+     *  splits the word changes it, invalidating wordIdx. */
+    wordCount: number
   } | null>(null)
   // Timeline right-click on a group block → position-override popup. Group
   // identity is positional (groupIdx), not id-based — see the stale-index
@@ -122,12 +126,15 @@ export function ResultsScreen({
 
   const prevWpg = useRef(settings.wordsPerGroup)
   const prevSegCount = useRef(segments.length)
+  const countWords = (segs: Segment[]): number => segs.reduce((n, s) => n + s.words.length, 0)
+  const prevWordCount = useRef(countWords(segments))
   useEffect(() => {
     // Skip when undo/redo is restoring state — groups are already set from the snapshot.
     if (isRestoringRef.current) {
       isRestoringRef.current = false
       prevWpg.current = settings.wordsPerGroup
       prevSegCount.current = segments.length
+      prevWordCount.current = countWords(segments)
       return
     }
 
@@ -135,12 +142,19 @@ export function ResultsScreen({
     prevWpg.current = settings.wordsPerGroup
     const segCountChanged = segments.length !== prevSegCount.current
     prevSegCount.current = segments.length
+    // A word added or removed inside a segment leaves the segment count alone
+    // but shifts the flat word pool the sync branch below walks.
+    const wordCount = countWords(segments)
+    const wordCountChanged = wordCount !== prevWordCount.current
+    prevWordCount.current = wordCount
+    const structureChanged = segCountChanged || wordCountChanged
 
-    if (groupsEdited && !wpgChanged && !segCountChanged) {
-      // Groups were manually edited, wpg unchanged, and no segments added/removed —
-      // preserve group boundaries but sync updated word data from the new segments.
-      // The word-index sync is only safe when the total word pool is stable; adding
-      // or removing a segment shifts the pool and misaligns the wi counter.
+    if (groupsEdited && !wpgChanged && !structureChanged) {
+      // Groups were manually edited, wpg unchanged, and no segments or words
+      // added/removed — preserve group boundaries but sync updated word data from
+      // the new segments. The word-index sync is only safe when the total word pool
+      // is stable; adding or removing a segment *or a word* shifts the pool and
+      // misaligns the wi counter, so both are excluded via structureChanged.
       const allWords = segments.flatMap((s) => s.words)
       // wi must live inside the updater so React Strict Mode's double-invocation
       // of the updater function starts fresh each time rather than indexing past
@@ -169,11 +183,13 @@ export function ResultsScreen({
           }
         })
       })
-    } else if (groupsEdited && !wpgChanged && segCountChanged) {
-      // Segment count changed (add/delete/split) while user had manual edits.
-      // Rebuild structure from scratch but restore manually-dragged start/end for
-      // any group whose ID survived the change. Group IDs are ${seg.id}:${offset},
+    } else if (groupsEdited && !wpgChanged && structureChanged) {
+      // Segment or word count changed (add/delete/split) while user had manual
+      // edits. Rebuild structure from scratch but restore manually-dragged start/end
+      // for any group whose ID survived the change. Group IDs are ${seg.id}:${offset},
       // so segments that weren't touched keep stable IDs and their timing is preserved.
+      // Within the *edited* segment a word insert shifts the ${offset} of every later
+      // chunk, so those groups rebuild fresh — correct, their contents really changed.
       setGroups((prev) => {
         const oldById = new Map(prev.map((g) => [g.id, g]))
         return buildStudioGroups(segments, settings.wordsPerGroup).map((g) => {
@@ -506,7 +522,7 @@ export function ResultsScreen({
       const groupIdx = groups.findIndex((g) => g.id === segId)
       if (groupIdx === -1) return
       wordPopupUndoPushedRef.current = false
-      setWordPopup({ groupIdx, wordIdx, anchorRect: rect })
+      setWordPopup({ groupIdx, wordIdx, anchorRect: rect, wordCount: groups[groupIdx].words.length })
     },
     [groups]
   )
@@ -554,8 +570,19 @@ export function ResultsScreen({
       setGroups((prev) =>
         prev.map((g, idx) => {
           if (idx !== gi) return g
-          const words = g.words.map((w, j) => (j !== wi ? w : { ...w, word: newText }))
-          return { ...g, words, text: words.map((w) => w.word).join(' ') }
+          const target = g.words[wi]
+          if (!target) return g
+          const tokens = tokenize(newText)
+          // One token in, one token out — the common typo fix. Spread so the
+          // word keeps its exact timing and overrides.
+          const replacement =
+            tokens.length === 1
+              ? [{ ...target, word: tokens[0] }]
+              : // Typing two words splits this word: retime strictly inside its
+                // own span so no neighbour moves (lib/wordTiming.ts).
+                retimeWords([target], tokens, { start: target.start, end: target.end })
+          const words = [...g.words.slice(0, wi), ...replacement, ...g.words.slice(wi + 1)]
+          return { ...g, words, text: joinWords(words) }
         })
       )
       setGroupsEdited(true)
@@ -604,9 +631,13 @@ export function ResultsScreen({
 
   // Stale-index guard: close the popup if the groups array changed shape
   // (re-grouping, merge/split, undo/redo) such that the target word no
-  // longer exists — word identity here is positional, not id-based.
+  // longer exists — word identity here is positional, not id-based. A text
+  // commit that splits the word into two also invalidates wordIdx without
+  // removing it, so the group's word count is checked too.
   useEffect(() => {
-    if (wordPopup && !groups[wordPopup.groupIdx]?.words[wordPopup.wordIdx]) {
+    if (!wordPopup) return
+    const group = groups[wordPopup.groupIdx]
+    if (!group?.words[wordPopup.wordIdx] || group.words.length !== wordPopup.wordCount) {
       setWordPopup(null)
     }
   }, [groups, wordPopup])
