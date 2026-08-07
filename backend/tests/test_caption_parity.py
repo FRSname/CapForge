@@ -123,6 +123,17 @@ def _content_bbox(img: Image.Image) -> tuple[int, int, int, int]:
     return bbox
 
 
+def _color_pixel_count(img: Image.Image, hex_color: str, tol: int = 12) -> int:
+    """Number of pixels within `tol` per channel of `hex_color`. Used to assert
+    an element is still VISIBLE (i.e. not buried under a later-drawn layer) —
+    a stacking-order check the mean/notable tolerances are too coarse for, since
+    a single mis-layered element covers only a few percent of the frame."""
+    want = Image.new("RGB", img.size, hex_color)
+    r, g, b = ImageChops.difference(img, want).split()
+    worst = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    return sum(worst.histogram()[: tol + 1])
+
+
 def _diff(pillow_png: bytes, hf_png: bytes) -> tuple[float, float]:
     a = Image.open(io.BytesIO(pillow_png)).convert("RGB")
     b = Image.open(io.BytesIO(hf_png)).convert("RGB")
@@ -351,6 +362,147 @@ def test_word_override_parity(source_video):
     assert mean2 < MEAN_MAX, f"overrides (scaled word active): mean diff {mean2:.2f} >= {MEAN_MAX}"
     assert notable2 < NOTABLE_FRAC_MAX, (
         f"overrides (scaled word active): {notable2:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+
+# Active word "three" carries both a word box and the highlight pill. The two
+# colours must stay far apart so `_color_pixel_count` can tell "pill on top of
+# box" (correct) from "box on top of pill" (a stacking regression) — see
+# test_word_background_parity.
+_WORD_BG_ACTIVE_BOX_COLOR = "#0B1020"   # near-black word box
+_WORD_BG_PILL_COLOR = "#F5C842"         # gold pill, = _config()'s active_word_color
+
+
+def _word_bg_groups() -> list[dict]:
+    """One 6-word group (wrapped to 2 rows of 3 by ``lines=2``) covering every
+    per-word background case from docs/plans/per-word-background.md Phase 5a.
+
+    Row 1 — "one" / "two" / "three":
+      * ``one``   inactive, fully explicit box (own colour/radius/padding) plus
+        ``word_bg_offset_x/y`` — the two keys with no global counterpart.
+      * ``two``   boxless, and deliberately ``font_size_scale`` 1.5. It is the
+        enable-gate probe: the gate is presence AND value, so an unset word must
+        stay boxless even though the global background is on. Scaled to 1.5 it
+        sits in the narrow band where a leaked box (scaled text height + the
+        inherited padding/extra) would clear ``three``'s box and push the caption
+        bbox top out by ~6px — past the 3px extent budget — while its bare glyphs
+        stay ~11px inside it. The Pillow side of the gate is pinned by the
+        ``word_bg_box`` golden; this is what pins the HTML runtime's copy.
+      * ``three`` ACTIVE at the sampled t, with a box padded WIDER and TALLER
+        than the highlight pill on every side — the pill must sit on top of it
+        (group bg → word box → pill → words). Pinned by the pill-visibility
+        assertion in the test, not by the diff alone.
+
+    Row 2 — "four" / "five" / "six":
+      * ``four`` ``font_size_scale`` + a box, exercising the per-word scaled text
+        height (Canvas ``wordScaledTextH`` / Pillow ``_resolve_scaled_font`` /
+        HTML ``m.textH``) AND row-locality: the box must land on row 2's centre.
+      * ``five`` boxless spacer.
+      * ``six``  sets ONLY ``word_bg_opacity`` — colour, radius, padding and the
+        width/height extras all inherit from the (deliberately non-default)
+        global ``bg_*`` config, which is the plan's core inheritance rule.
+
+    Extent teeth (why the offsets and paddings are the values they are): the
+    boxes are tuned so a WORD box — not the group box — owns each edge of the
+    caption bounding box, which is the one assertion in ``_diff`` sharp enough to
+    catch few-px drift. ``one``'s negative ``word_bg_offset_x`` owns left,
+    ``three``'s wide explicit padding owns top+right, and ``four`` — which sets
+    no geometry of its own, so its box is sized by the inherited
+    ``bg_padding_v`` / ``bg_height_extra`` and its own scaled text height — owns
+    bottom. Both the inheritance rule and the scaled height are therefore
+    measured by the 3px extent budget, not merely eyeballed. Every owned edge
+    clears the group box by >=8px.
+
+    Layout note (load-bearing, not cosmetic): the boxes are placed so that no two
+    pill-layer elements overlap, and the pill is made opaque by the caller. Pillow
+    paints boxes and pills onto one shared RGBA ``pill_layer`` with
+    ``ImageDraw.rounded_rectangle``, which REPLACES pixels, while the HTML runtime
+    stacks independent divs that alpha-blend. Two *translucent* pill-layer shapes
+    on top of each other would therefore differ legitimately — the same accepted
+    delta CLAUDE.md documents for overlapping translucent pixels — and that is not
+    what this fixture is measuring. Keep the boxes separated (word ``two``/``five``
+    are the spacers) and the pill opaque if you retune it.
+    """
+    words = [
+        {"word": "one", "start": 0.0, "end": 0.5, "overrides": {
+            "word_bg_opacity": 0.8, "word_bg_color": "#7A1FA2", "word_bg_radius": 6,
+            "word_bg_padding_h": 12, "word_bg_padding_v": 8,
+            "word_bg_offset_x": -22, "word_bg_offset_y": -10,
+        }},
+        {"word": "two", "start": 0.5, "end": 1.0, "overrides": {"font_size_scale": 1.5}},
+        {"word": "three", "start": 1.0, "end": 1.5, "overrides": {
+            "word_bg_opacity": 0.9, "word_bg_color": _WORD_BG_ACTIVE_BOX_COLOR,
+            "word_bg_padding_h": 30, "word_bg_padding_v": 26,
+        }},
+        {"word": "four", "start": 1.5, "end": 2.0, "overrides": {
+            "font_size_scale": 1.3, "word_bg_opacity": 0.8,
+        }},
+        {"word": "five", "start": 2.0, "end": 2.5},
+        {"word": "six", "start": 2.5, "end": 3.0, "overrides": {"word_bg_opacity": 0.7}},
+    ]
+    return [{"text": "one two three four five six", "start": 0.0, "end": 3.0, "words": words}]
+
+
+@_run
+def test_word_background_parity(source_video):
+    """Phase 5a (docs/plans/per-word-background.md): the per-word background box
+    must be identical in Pillow and the HyperFrames runtime — geometry, the
+    inheritance chain onto the global ``bg_*`` fields, and its place in the
+    stack (group bg → word box → highlight pill → words).
+
+    The global background is pushed OFF its defaults on every field a word box
+    can inherit (colour, radius, both paddings, both extras), so the "opacity
+    only" word ``six`` genuinely pins the inheritance rule: a renderer that fell
+    back to the schema defaults instead — e.g. ``bg_padding_h`` 40 rather than
+    22 — would mis-size that box by 18px per side, far outside every tolerance
+    here.
+
+    Sampled at t=1.2, frame-aligned at 30fps and mid-way through word 3 "three"
+    (1.0-1.5) so its box carries the highlight pill, and past the 0.3s entry fade
+    so the group sits at full opacity (a mid-entry frame over translucent boxes
+    is a documented accepted delta — CLAUDE.md → Accepted deltas).
+
+    ``highlight_opacity=1.0`` and ``line_height=1.7`` are deliberate: see the
+    layout note on ``_word_bg_groups`` — they keep the shared Pillow pill layer
+    free of overlapping translucent shapes so the assertion measures the word
+    box, not PIL's replace-vs-blend semantics.
+    """
+    pillow_png, hf_png = _render_both(
+        _result(words_per_group_six=True),
+        _config(words_per_group=6, lines=2, line_height=1.7, position_y=0.75,
+                word_transition="highlight", highlight_opacity=1.0,
+                highlight_padding_x=20, highlight_padding_y=16,
+                bg_color="#1E4B8F", bg_corner_radius=34,
+                bg_padding_h=22, bg_padding_v=10,
+                bg_width_extra=14, bg_height_extra=6),
+        source_video, custom_groups=_word_bg_groups(), t=1.2,
+    )
+    mean, notable = _diff(pillow_png, hf_png)
+    assert mean < MEAN_MAX, f"word background: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, (
+        f"word background: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+    # Stacking order (group bg → word box → pill → words), asserted directly.
+    # `three`'s box is opaque-ish near-black and strictly larger than its pill on
+    # every side, so if either renderer drew the box AFTER the pill the pill
+    # would vanish. That covers only ~3% of the frame, which the mean/notable
+    # budgets above are deliberately too coarse to catch — verified by mutation:
+    # swapping the HTML runtime's insertBefore for appendChild passes _diff and
+    # fails here. Absolute floor catches BOTH renderers regressing together; the
+    # ratio catches just one of them.
+    counts = {}
+    for label, png in (("pillow", pillow_png), ("hyperframes", hf_png)):
+        img = Image.open(io.BytesIO(png)).convert("RGB")
+        counts[label] = _color_pixel_count(img, _WORD_BG_PILL_COLOR)
+        assert counts[label] > 5000, (
+            f"stacking: {label} shows only {counts[label]} highlight-pill pixels — "
+            f"the word background box was drawn on top of the pill"
+        )
+    lo, hi = min(counts.values()), max(counts.values())
+    assert hi - lo <= hi * 0.15, (
+        f"stacking: pill visibility disagrees between renderers {counts} — one of "
+        f"them layers the per-word background box against the pill differently"
     )
 
 
