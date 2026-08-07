@@ -6,6 +6,7 @@ import {
   splitGroup,
   moveWord,
   reorderGroup,
+  restoreManualGroupState,
 } from './groups'
 import type { Segment, Word } from '../types/app'
 
@@ -301,5 +302,104 @@ describe('reorderGroup', () => {
     expect(reorderGroup(groups, 1, 2)).toBe(groups) // immediately after itself
     expect(reorderGroup(groups, -1, 0)).toBe(groups)
     expect(reorderGroup(groups, 0, 99)).toBe(groups)
+  })
+})
+
+// ── restoreManualGroupState ──────────────────────────────────────
+//
+// Regression cover for the desync a user hit after merging two words: the
+// rebuild restored a group's manually-dragged bounds even though re-chunking
+// had changed which words the group holds.
+
+describe('restoreManualGroupState', () => {
+  /** One segment of six 0.5 s words at 1 s spacing, chunked three per group. */
+  const sixWords = (): Segment => ({
+    id: 's0',
+    start: 0,
+    end: 5.5,
+    text: 'a b c d e f',
+    words: ['a', 'b', 'c', 'd', 'e', 'f'].map((x, i) => word(x, i, i + 0.5)),
+  })
+
+  test('restores manual bounds when the chunk words are unchanged', () => {
+    const rebuilt = buildStudioGroups([sixWords()], 3)
+    const previous = rebuilt.map((g, i) => (i === 0 ? { ...g, end: 2.9 } : g))
+
+    const result = restoreManualGroupState(rebuilt, previous)
+    expect(result[0].end).toBe(2.9)
+  })
+
+  test('drops stale bounds when a word merge re-chunked the group', () => {
+    const seg = sixWords()
+    const previous = buildStudioGroups([seg], 3).map((g, i) => (i === 0 ? { ...g, end: 2.9 } : g))
+
+    // Merge "b"+"c" into "bc": group s0:0 becomes [a, bc, d] — different words,
+    // so the 2.9 bound no longer describes it and must not be restored.
+    const merged: Segment = {
+      ...seg,
+      text: 'a bc d e f',
+      words: [word('a', 0, 0.5), word('bc', 1, 2.5), ...seg.words.slice(3)],
+    }
+    const result = restoreManualGroupState(buildStudioGroups([merged], 3), previous)
+
+    expect(result[0].words.map((w) => w.word)).toEqual(['a', 'bc', 'd'])
+    // The bound the user actually saw break: the group ended before its own
+    // last word started.
+    expect(result[0].end).toBeGreaterThanOrEqual(result[0].words[2].start)
+    expect(result[0].end).toBe(3.5)
+  })
+
+  test('every group ends at or after its own last word starts', () => {
+    const seg = sixWords()
+    const previous = buildStudioGroups([seg], 3).map((g) => ({ ...g, start: g.start, end: g.end }))
+    const merged: Segment = {
+      ...seg,
+      text: 'a bc d e f',
+      words: [word('a', 0, 0.5), word('bc', 1, 2.5), ...seg.words.slice(3)],
+    }
+    const result = restoreManualGroupState(buildStudioGroups([merged], 3), previous)
+
+    for (const g of result) {
+      expect(g.start).toBeLessThanOrEqual(g.words[0].start)
+      expect(g.end).toBeGreaterThanOrEqual(g.words[g.words.length - 1].start)
+    }
+  })
+
+  test('keeps a position override even when the chunk changed', () => {
+    const seg = sixWords()
+    const previous = buildStudioGroups([seg], 3).map((g, i) =>
+      i === 0 ? { ...g, positionOverride: { position_x: 0.25 } } : g
+    )
+    const merged: Segment = {
+      ...seg,
+      text: 'a bc d e f',
+      words: [word('a', 0, 0.5), word('bc', 1, 2.5), ...seg.words.slice(3)],
+    }
+    const result = restoreManualGroupState(buildStudioGroups([merged], 3), previous)
+    expect(result[0].positionOverride).toEqual({ position_x: 0.25 })
+  })
+
+  test('restores per-word overrides only for unchanged chunks', () => {
+    const seg = sixWords()
+    const previous = buildStudioGroups([seg], 3).map((g, i) =>
+      i === 0
+        ? { ...g, words: g.words.map((w, j) => (j === 0 ? { ...w, overrides: { bold: true } } : w)) }
+        : g
+    )
+    const merged: Segment = {
+      ...seg,
+      text: 'a bc d e f',
+      words: [word('a', 0, 0.5), word('bc', 1, 2.5), ...seg.words.slice(3)],
+    }
+    const changed = restoreManualGroupState(buildStudioGroups([merged], 3), previous)
+    expect(changed[0].words[0].overrides).toBeUndefined()
+
+    const unchanged = restoreManualGroupState(buildStudioGroups([seg], 3), previous)
+    expect(unchanged[0].words[0].overrides).toEqual({ bold: true })
+  })
+
+  test('leaves groups alone when there is nothing saved', () => {
+    const rebuilt = buildStudioGroups([sixWords()], 3)
+    expect(restoreManualGroupState(rebuilt, [])).toEqual(rebuilt)
   })
 })
