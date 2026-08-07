@@ -313,6 +313,49 @@ export function useSubtitleOverlay({
       const hlOffsetX = settings.highlightOffsetX ?? 0
       const hlOffsetY = settings.highlightOffsetY ?? 0
 
+      // ── Per-word background boxes (drawn BEFORE the highlight pill) ──
+      // The Background card's BG function scoped to one word: the same rounded
+      // rect as the group background, sized to a single word's extents.
+      // Transition-independent; decoration only, never mutates layout state.
+      // See docs/plans/per-word-background.md
+      wm.forEach((m, i) => {
+        const ov = m.overrides
+        // Enable gate: presence AND value. Opacity alone does NOT inherit — an
+        // absent key must not box every word whenever the global bg is on.
+        const wBgOpacity = ov?.word_bg_opacity
+        if (wBgOpacity == null || wBgOpacity <= 0) return
+        const wBgColor = ov?.word_bg_color || bgColor
+        const wBgRadius = ov?.word_bg_radius ?? sr
+        // The min-pad clamp (stroke never clipped) and the strokePad*2 below are
+        // BOTH intentional — the group box double-counts the stroke the same way.
+        const wBgPadH = Math.max(ov?.word_bg_padding_h ?? padH, sStroke + 2)
+        const wBgPadV = Math.max(ov?.word_bg_padding_v ?? padV, sStroke + 2)
+        const wBgWExtra = ov?.word_bg_width_extra ?? bgWidthExtra
+        const wBgHExtra = ov?.word_bg_height_extra ?? bgHeightExtra
+        const wBgOffX = ov?.word_bg_offset_x ?? 0
+        const wBgOffY = ov?.word_bg_offset_y ?? 0
+
+        const wBgTextH = wordScaledTextH(ov)
+        const boxW = m.width + wBgPadH * 2 + strokePad * 2 + wBgWExtra
+        const boxH = wBgTextH + wBgPadV * 2 + strokePad * 2 + wBgHExtra
+        // Degenerate-rect guard: the extras reach -50 and are inherited, so a
+        // short word can compute a <= 0 box (PIL raises on an inverted rect) and
+        // an empty word would paint a free-floating blob. Pillow + HTML must too.
+        if (m.width <= 0 || boxW <= 0 || boxH <= 0) return
+        // Centred on the word's drawn position, then nudged by the box offsets.
+        // With strokePad / extras at 0 this reduces exactly to the pill rect:
+        //   (x - padH, y - h/2 - padV, w + padH*2, h + padV*2).
+        const boxCX = wordXPos[i] + (ov?.pos_offset_x ?? 0) + m.width / 2 + wBgOffX
+        const boxCY = wordYPos[i] + (ov?.pos_offset_y ?? 0) + wBgOffY
+
+        ctx.save()
+        ctx.globalAlpha = wBgOpacity * animAlpha
+        ctx.fillStyle = wBgColor
+        roundRect(ctx, boxCX - boxW / 2, boxCY - boxH / 2, boxW, boxH, wBgRadius)
+        ctx.fill()
+        ctx.restore()
+      })
+
       // ── Highlight pill (drawn BEFORE words) ─────────────────────
       // The highlight is per-active-word, so per-word overrides for the active
       // word's effective transition + sub-settings apply here.
