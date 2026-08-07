@@ -200,3 +200,52 @@ function finalizeBounds(g: Segment): Segment {
     text: g.words.map((w) => w.word).join(' '),
   }
 }
+
+/**
+ * Carry the user's manual group state across a rebuild from source segments.
+ *
+ * Group IDs are `${seg.id}:${wordOffset}`, so an ID surviving a rebuild does
+ * **not** guarantee the chunk still holds the same words: adding, merging or
+ * deleting a word inside a segment shifts every later chunk's contents while
+ * some IDs stay the same. Restoring manually-dragged `start`/`end` onto a
+ * re-chunked group desyncs it — the group can end before its own last word
+ * starts.
+ *
+ * So manual timing and per-word overrides are restored only when the rebuilt
+ * chunk's words are byte-identical to the saved group's (same text and same
+ * timings, in the same order); otherwise the chunk genuinely changed and the
+ * freshly derived bounds are the correct ones. `positionOverride` is a
+ * group-level placement choice rather than a timing claim, so it rides the ID
+ * alone — matching what a full rebuild does.
+ */
+export function restoreManualGroupState(rebuilt: Segment[], previous: Segment[]): Segment[] {
+  if (previous.length === 0) return rebuilt
+  const savedById = new Map(previous.map((g) => [g.id, g]))
+
+  return rebuilt.map((g) => {
+    const saved = savedById.get(g.id)
+    if (!saved) return g
+
+    const withPosition = saved.positionOverride
+      ? { ...g, positionOverride: saved.positionOverride }
+      : g
+
+    const sameWords =
+      saved.words.length === g.words.length &&
+      saved.words.every(
+        (w, j) =>
+          w.word === g.words[j].word && w.start === g.words[j].start && w.end === g.words[j].end
+      )
+    if (!sameWords) return withPosition
+
+    return {
+      ...withPosition,
+      start: saved.start,
+      end: saved.end,
+      words: g.words.map((w, j) => {
+        const ov = saved.words[j]?.overrides
+        return ov ? { ...w, overrides: ov } : w
+      }),
+    }
+  })
+}

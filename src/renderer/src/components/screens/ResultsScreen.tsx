@@ -18,7 +18,7 @@ import type {
   WordOverrides,
   GroupPositionOverride,
 } from '../../types/app'
-import { buildStudioGroups, fillGroupGaps } from '../../lib/groups'
+import { buildStudioGroups, fillGroupGaps, restoreManualGroupState } from '../../lib/groups'
 import { joinWords, retimeWords, tokenize } from '../../lib/wordTiming'
 import { DEFAULT_PAD_V } from '../../lib/renderConstants'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
@@ -184,33 +184,14 @@ export function ResultsScreen({
         })
       })
     } else if (groupsEdited && !wpgChanged && structureChanged) {
-      // Segment or word count changed (add/delete/split) while user had manual
-      // edits. Rebuild structure from scratch but restore manually-dragged start/end
-      // for any group whose ID survived the change. Group IDs are ${seg.id}:${offset},
-      // so segments that weren't touched keep stable IDs and their timing is preserved.
-      // Within the *edited* segment a word insert shifts the ${offset} of every later
-      // chunk, so those groups rebuild fresh — correct, their contents really changed.
-      setGroups((prev) => {
-        const oldById = new Map(prev.map((g) => [g.id, g]))
-        return buildStudioGroups(segments, settings.wordsPerGroup).map((g) => {
-          const saved = oldById.get(g.id)
-          if (!saved) return g
-          // Restore manual timing, per-word overrides AND the position override
-          // for any group whose ID survived the segment change. buildStudioGroups
-          // re-chunks untouched segments identically, so word index j maps to the
-          // same word.
-          return {
-            ...g,
-            start: saved.start,
-            end: saved.end,
-            positionOverride: saved.positionOverride,
-            words: g.words.map((w, j) => {
-              const ov = saved.words[j]?.overrides
-              return ov ? { ...w, overrides: ov } : w
-            }),
-          }
-        })
-      })
+      // Segment or word count changed (add/delete/split/merge) while the user had
+      // manual edits. Rebuild structure from scratch, then restore manual timing
+      // only for groups whose words survived byte-identical — a surviving ID is
+      // NOT enough, because editing a word inside a segment shifts every later
+      // chunk's contents while some IDs stay put. See restoreManualGroupState().
+      setGroups((prev) =>
+        restoreManualGroupState(buildStudioGroups(segments, settings.wordsPerGroup), prev)
+      )
     } else {
       // Rebuild from scratch — no manual edits or wpg changed. Position
       // overrides don't set groupsEdited (they don't change boundaries), so
