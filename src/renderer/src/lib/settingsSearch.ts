@@ -138,11 +138,6 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
   { label: 'Offset Y', cardId: 'colors', keywords: ['shadow offset', 'shadow position'] },
   // Layout
   { label: 'Words/Grp', cardId: 'layout', keywords: ['words per group', 'group', 'chunk'] },
-  {
-    label: 'Fill gaps',
-    cardId: 'layout',
-    keywords: ['gap', 'stretch', 'continuous', 'hold', 'silence'],
-  },
   { label: 'Lines', cardId: 'layout', keywords: ['rows', 'line count', 'multiline'] },
   { label: 'X Pos', cardId: 'layout', keywords: ['position', 'horizontal'] },
   { label: 'Y Pos', cardId: 'layout', keywords: ['position', 'vertical'] },

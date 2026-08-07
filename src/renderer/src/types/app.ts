@@ -73,6 +73,12 @@ export interface Word {
   end: number
   score?: number
   overrides?: WordOverrides
+  /** Stable per-word identity, minted on ingest (`lib/wordIds.ts`). Survives text
+   *  edits, re-grouping and project save/load, and is what lets `reconcileGroups`
+   *  match a manually-regrouped word back to its source segment word instead of
+   *  falling back to array position. Optional: words loaded from an older project
+   *  file or straight off the backend have none until `ensureWordIds` runs. */
+  wid?: string
 }
 
 /** A subtitle segment (one block of text). */
