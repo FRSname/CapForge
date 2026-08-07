@@ -184,11 +184,17 @@ export function retimeWords(
       const spans = distribute(added, removed[0].start, removed[removed.length - 1].end)
       const sameCount = removed.length === added.length
       added.forEach((token, k) => {
+        // One-for-one rewrite ("teh" → "the") is the same word slot, so it keeps
+        // both its styling and its identity (`wid`, lib/wordIds.ts) — losing the
+        // id would read as delete+insert to reconcileGroups and could move the
+        // word out of the group the user put it in.
         const carried = sameCount ? removed[k].overrides : undefined
+        const carriedId = sameCount ? removed[k].wid : undefined
         push({
           word: token,
           start: spans[k].start,
           end: spans[k].end,
+          ...(carriedId ? { wid: carriedId } : {}),
           ...(carried ? { overrides: carried } : {}),
         })
       })

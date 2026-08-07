@@ -18,8 +18,9 @@ import type {
   WordOverrides,
   GroupPositionOverride,
 } from '../../types/app'
-import { buildStudioGroups, fillGroupGaps, restoreManualGroupState } from '../../lib/groups'
+import { buildStudioGroups, fillGroupGaps, reconcileGroups } from '../../lib/groups'
 import { joinWords, retimeWords, tokenize } from '../../lib/wordTiming'
+import { adoptWordIds, ensureWordIds, withWordIds } from '../../lib/wordIds'
 import { DEFAULT_PAD_V } from '../../lib/renderConstants'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
@@ -60,8 +61,10 @@ export function ResultsScreen({
   projectIORef,
   onUndoRedoChange,
 }: ResultsScreenProps) {
-  // Segments are mutable (user can edit timing + word overrides)
-  const [segments, setSegments] = useState<Segment[]>(result.segments)
+  // Segments are mutable (user can edit timing + word overrides). Every word is
+  // given a stable `wid` on the way in — group membership is reconciled by that
+  // id, never by array position (see reconcileGroups / lib/wordIds.ts).
+  const [segments, setSegments] = useState<Segment[]>(() => ensureWordIds(result.segments))
   const [currentTime, setCurrentTime] = useState(0)
   const [seekTarget, setSeekTarget] = useState<number | null>(null)
   const [view, setView] = useState<EditorView>('text')
@@ -69,8 +72,10 @@ export function ResultsScreen({
   // Display groups — held as state (not useMemo) so manual merge/split edits
   // from GroupEditor stick. The useEffect below re-derives them whenever the
   // source segments or wpg change, matching vanilla's behaviour.
+  // Derived from the id'd `segments` above, never from `result.segments` — the
+  // two must share one word-id set or reconcileGroups can match nothing.
   const [groups, setGroups] = useState<Segment[]>(() =>
-    buildStudioGroups(result.segments, settings.wordsPerGroup)
+    buildStudioGroups(segments, settings.wordsPerGroup)
   )
   // True once the user manually merges/splits/reorders groups — flag is sent
   // to the backend so renderSubtitleVideo uses `custom_groups` instead of
@@ -124,74 +129,40 @@ export function ResultsScreen({
     onUndoRedoChange?.({ undo, redo, canUndo, canRedo })
   }, [canUndo, canRedo, undo, redo, onUndoRedoChange])
 
+  /**
+   * Every write to `segments` goes through here so freshly introduced words get
+   * a `wid` before reconcileGroups sees them. `ensureWordIds` is reference-stable,
+   * so this costs nothing when the words already carry ids. Undo/redo restores
+   * through the raw setter — its snapshots are already id'd.
+   */
+  const commitSegments = useCallback(
+    (next: Segment[] | ((prev: Segment[]) => Segment[])): void => {
+      setSegments((prev) => ensureWordIds(typeof next === 'function' ? next(prev) : next))
+    },
+    []
+  )
+
   const prevWpg = useRef(settings.wordsPerGroup)
-  const prevSegCount = useRef(segments.length)
-  const countWords = (segs: Segment[]): number => segs.reduce((n, s) => n + s.words.length, 0)
-  const prevWordCount = useRef(countWords(segments))
   useEffect(() => {
     // Skip when undo/redo is restoring state — groups are already set from the snapshot.
     if (isRestoringRef.current) {
       isRestoringRef.current = false
       prevWpg.current = settings.wordsPerGroup
-      prevSegCount.current = segments.length
-      prevWordCount.current = countWords(segments)
       return
     }
 
     const wpgChanged = settings.wordsPerGroup !== prevWpg.current
     prevWpg.current = settings.wordsPerGroup
-    const segCountChanged = segments.length !== prevSegCount.current
-    prevSegCount.current = segments.length
-    // A word added or removed inside a segment leaves the segment count alone
-    // but shifts the flat word pool the sync branch below walks.
-    const wordCount = countWords(segments)
-    const wordCountChanged = wordCount !== prevWordCount.current
-    prevWordCount.current = wordCount
-    const structureChanged = segCountChanged || wordCountChanged
 
-    if (groupsEdited && !wpgChanged && !structureChanged) {
-      // Groups were manually edited, wpg unchanged, and no segments or words
-      // added/removed — preserve group boundaries but sync updated word data from
-      // the new segments. The word-index sync is only safe when the total word pool
-      // is stable; adding or removing a segment *or a word* shifts the pool and
-      // misaligns the wi counter, so both are excluded via structureChanged.
-      const allWords = segments.flatMap((s) => s.words)
-      // wi must live inside the updater so React Strict Mode's double-invocation
-      // of the updater function starts fresh each time rather than indexing past
-      // the end of allWords on the second call (which would return prev unchanged).
-      setGroups((prev) => {
-        let wi = 0
-        return prev.map((g) => {
-          const count = g.words.length
-          const slice = allWords.slice(wi, wi + count)
-          wi += count
-          if (slice.length === 0) return g
-          // Per-word style overrides are authored only in the Groups editor and
-          // live solely on the group word (never on the source segment word), so
-          // carry them forward by index — the sync refreshes word text/timing
-          // while the user's styling persists.
-          const updated = slice.map((w, j) => {
-            const prevOv = g.words[j]?.overrides
-            return prevOv ? { ...w, overrides: prevOv } : w
-          })
-          // Preserve g.start / g.end — manual timeline drags live there and
-          // must not be overwritten by word-level timestamps from segments.
-          return {
-            ...g,
-            text: updated.map((w) => w.word).join(' '),
-            words: updated,
-          }
-        })
-      })
-    } else if (groupsEdited && !wpgChanged && structureChanged) {
-      // Segment or word count changed (add/delete/split/merge) while the user had
-      // manual edits. Rebuild structure from scratch, then restore manual timing
-      // only for groups whose words survived byte-identical — a surviving ID is
-      // NOT enough, because editing a word inside a segment shifts every later
-      // chunk's contents while some IDs stay put. See restoreManualGroupState().
-      setGroups((prev) =>
-        restoreManualGroupState(buildStudioGroups(segments, settings.wordsPerGroup), prev)
-      )
+    if (groupsEdited && !wpgChanged) {
+      // The user has arranged these groups by hand. Membership is theirs, not a
+      // function of document order, so words are matched back to the segments by
+      // `wid` and stay in the group the user put them in — a word moved to a
+      // non-adjacent group, a reordered group, a merge or a split all survive an
+      // edit to the source segments. NEVER re-slice a flat word pool by index
+      // here: that silently restores document order, which is the bug this
+      // replaced (docs/plans/fill-gaps-resets-custom-groups.md).
+      setGroups((prev) => reconcileGroups(prev, segments, settings.wordsPerGroup))
     } else {
       // Rebuild from scratch — no manual edits or wpg changed. Position
       // overrides don't set groupsEdited (they don't change boundaries), so
@@ -359,7 +330,12 @@ export function ResultsScreen({
         // the new `result` prop — only manually-edited groups need restoring.
         // Do NOT add a setSegments mirror here.
         if (file.studioGroups && file.studioGroups.length > 0) {
-          setGroups(file.studioGroups)
+          // A project saved before word ids existed restores groups whose words
+          // have none, while `segments` minted its own set on mount. Adopt the
+          // segments' ids by matching text+timing so the restored manual grouping
+          // is still reconcilable; a project saved after this change already has
+          // matching ids on both sides and passes through untouched.
+          setGroups(adoptWordIds(file.studioGroups, segments))
           // Only mark edited when boundaries were actually edited — groups
           // saved solely for position overrides keep auto-grouping semantics.
           if (file.customGroupsEdited) setGroupsEdited(true)
@@ -369,7 +345,7 @@ export function ResultsScreen({
         // Replace the live transcript with the agent's edit. pushUndo first so
         // the user can revert. setSegmentsEdited re-publishes derived groups.
         pushUndo()
-        setSegments(agentResult.segments)
+        commitSegments(agentResult.segments)
         if (agentResult.alignmentDegraded) setAlignmentDegraded(true)
         setSegmentsEdited(true)
       },
@@ -430,11 +406,11 @@ export function ResultsScreen({
       words: [],
     }
     pushUndo()
-    setSegments((prev) => [...prev, newSeg].sort((a, b) => a.start - b.start))
+    commitSegments((prev) => [...prev, newSeg].sort((a, b) => a.start - b.start))
     setSegmentsEdited(true)
     setView('text')
     setFocusSegmentId(newSeg.id)
-  }, [currentTime, pushUndo])
+  }, [currentTime, pushUndo, commitSegments])
 
   // Timeline edge-drag: adjust a group's start/end time or move the whole block.
   const handleSegmentEdge = useCallback(
@@ -560,8 +536,19 @@ export function ResultsScreen({
             tokens.length === 1
               ? [{ ...target, word: tokens[0] }]
               : // Typing two words splits this word: retime strictly inside its
-                // own span so no neighbour moves (lib/wordTiming.ts).
-                retimeWords([target], tokens, { start: target.start, end: target.end })
+                // own span so no neighbour moves (lib/wordTiming.ts). The first
+                // piece keeps the original `wid` so the group still anchors to a
+                // word the segments know about; the extras get fresh ids. This
+                // edit is group-only (segments are untouched), so a later
+                // segments edit still refreshes the first piece's text from the
+                // source and drops the extras — the same divergence the previous
+                // index-based sync had, deliberately not widened here.
+                withWordIds(
+                  retimeWords([target], tokens, {
+                    start: target.start,
+                    end: target.end,
+                  }).map((w, k) => (k === 0 && target.wid ? { ...w, wid: target.wid } : w))
+                )
           const words = [...g.words.slice(0, wi), ...replacement, ...g.words.slice(wi + 1)]
           return { ...g, words, text: joinWords(words) }
         })
@@ -653,7 +640,7 @@ export function ResultsScreen({
         // Snapshot only after the backend succeeded — a failed request leaves
         // both the segments and the undo stack untouched.
         pushUndo()
-        setSegments((prev) =>
+        commitSegments((prev) =>
           prev.map((s) => {
             if (s.id !== segId) return s
             return {
@@ -661,9 +648,17 @@ export function ResultsScreen({
               start: aligned.start,
               end: aligned.end,
               text: aligned.text,
+              // Word ids ride the same index carry as overrides — the backend
+              // preserves word count, and re-fitting timings must not read as
+              // "every word deleted and re-inserted" to reconcileGroups, which
+              // would collapse the segment's groups into one.
               words: aligned.words.map((w, i) => {
-                const overrides = s.words[i]?.overrides
-                return overrides ? { ...w, overrides } : { ...w }
+                const prevWord = s.words[i]
+                return {
+                  ...w,
+                  ...(prevWord?.wid ? { wid: prevWord.wid } : {}),
+                  ...(prevWord?.overrides ? { overrides: prevWord.overrides } : {}),
+                }
               }),
             }
           })
@@ -682,7 +677,7 @@ export function ResultsScreen({
         setRealigningSegId(null)
       }
     },
-    [segments, realigningSegId, result.language, pushUndo, toast]
+    [segments, realigningSegId, result.language, pushUndo, toast, commitSegments]
   )
 
   const handleResizeMouseDown = useCallback(
@@ -815,7 +810,7 @@ export function ResultsScreen({
             currentTime={currentTime}
             onSeek={handleSeek}
             onChange={(next: Segment[]) => {
-              setSegments(next)
+              commitSegments(next)
               setSegmentsEdited(true)
             }}
             onBeforeEdit={pushUndo}
