@@ -133,6 +133,13 @@ _WORD_OVERRIDE_KEYS = (
     "scale_factor", "underline_thickness", "underline_color", "underline_offset_y",
     "underline_width", "highlight_padding_x", "highlight_padding_y",
     "highlight_radius", "highlight_opacity", "highlight_offset_x", "highlight_offset_y",
+    # Per-word background box (docs/plans/per-word-background.md). Fallbacks when
+    # unset: color/opacity/radius/width_extra/height_extra → CFG.bgColor/bgOpacity/
+    # bgRadius/bgWidthExtra/bgHeightExtra, padding_h/v → CFG.padH/padV, offset_x/y
+    # → 0 (no global equivalent). None is a path, so none is HTML-excluded.
+    "word_bg_opacity", "word_bg_color", "word_bg_radius", "word_bg_padding_h",
+    "word_bg_padding_v", "word_bg_width_extra", "word_bg_height_extra",
+    "word_bg_offset_x", "word_bg_offset_y",
 )
 
 

@@ -171,6 +171,23 @@ PILLOW_HONORED_OVERRIDE_KEYS = frozenset({
     "highlight_opacity",
     "highlight_offset_x",
     "highlight_offset_y",
+    # Per-word background box (docs/plans/per-word-background.md). Not
+    # VideoRenderConfig fields — they ride the per-word overrides dict — so they
+    # get no _SENTINELS entry (that table mirrors EXPECTED_IN_CAP_CFG).
+    # PENDING: Pillow does NOT read these yet — the video_render.py reads land
+    # in Phase 3 of that plan, so until then this block is declared-ahead and the
+    # "mirror of what Pillow reads" claim above is aspirational for these 9 keys.
+    # Nothing here catches that: this file only diffs two hand-maintained sets
+    # (_WORD_OVERRIDE_KEYS vs. this one), it never introspects video_render.py.
+    "word_bg_opacity",
+    "word_bg_color",
+    "word_bg_radius",
+    "word_bg_padding_h",
+    "word_bg_padding_v",
+    "word_bg_width_extra",
+    "word_bg_height_extra",
+    "word_bg_offset_x",
+    "word_bg_offset_y",
 })
 
 # Honored by Pillow but DELIBERATELY excluded from the HTML payload: a local path

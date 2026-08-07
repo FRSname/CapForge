@@ -30,6 +30,19 @@ export interface WordOverrides {
   underline_width?: number
   bounce_strength?: number
   scale_factor?: number
+  // Per-word background box — the Background card's BG function scoped to one
+  // word. Every field falls back to the matching GLOBAL bg_* config value when
+  // unset; word_bg_opacity > 0 is what enables the box at all.
+  // See docs/plans/per-word-background.md.
+  word_bg_opacity?: number       // 0–1 (NOT 0–100). > 0 enables. Global: bg_opacity
+  word_bg_color?: string         // hex. Global: bg_color
+  word_bg_radius?: number        // px. Global: bg_corner_radius
+  word_bg_padding_h?: number     // px, clamped to >= stroke_width + 2. Global: bg_padding_h
+  word_bg_padding_v?: number     // px, clamped to >= stroke_width + 2. Global: bg_padding_v
+  word_bg_width_extra?: number   // px. Global: bg_width_extra
+  word_bg_height_extra?: number  // px. Global: bg_height_extra
+  word_bg_offset_x?: number      // px, default 0 — no global equivalent
+  word_bg_offset_y?: number      // px, default 0 — no global equivalent
 }
 
 export type WordTransition =
