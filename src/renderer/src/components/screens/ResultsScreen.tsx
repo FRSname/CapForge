@@ -19,6 +19,7 @@ import type {
   GroupPositionOverride,
 } from '../../types/app'
 import { buildStudioGroups, fillGroupGaps } from '../../lib/groups'
+import { DEFAULT_PAD_V } from '../../lib/renderConstants'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
 import { useUndoRedo } from '../../hooks/useUndoRedo'
@@ -707,6 +708,16 @@ export function ResultsScreen({
       underlineColor: settings.underlineColor,
       bounceStrength: settings.bounceStrength,
       scaleFactor: settings.scaleFactor,
+      // Global Background-card values the "Word background" block inherits.
+      // bgOpacity stays in its 0–100 StudioSettings unit — WordStylePopup is
+      // the only place that converts it to word_bg_opacity's 0–1 unit.
+      bgOpacity: settings.bgOpacity,
+      bgColor: settings.bgColor,
+      bgRadius: settings.bgRadius,
+      bgWidthExtra: settings.bgWidthExtra,
+      bgHeightExtra: settings.bgHeightExtra,
+      marginH: settings.marginH,
+      marginV: settings.marginV ?? DEFAULT_PAD_V,
     }),
     [
       settings.textColor,
@@ -723,6 +734,13 @@ export function ResultsScreen({
       settings.underlineColor,
       settings.bounceStrength,
       settings.scaleFactor,
+      settings.bgOpacity,
+      settings.bgColor,
+      settings.bgRadius,
+      settings.bgWidthExtra,
+      settings.bgHeightExtra,
+      settings.marginH,
+      settings.marginV,
     ]
   )
 
