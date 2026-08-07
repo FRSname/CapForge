@@ -186,7 +186,16 @@ word_bg_offset_y?: number      // px, default 0 — no global equivalent
 Effective-value rule, identical in all three renderers:
 
 ```
-opacity   = ov.word_bg_opacity   ?? cfg.bg_opacity        // and: skip entirely if <= 0
+// ⚠️ ENABLE GATE — corrected during execution. opacity does NOT inherit.
+//    Draw the box only when word_bg_opacity is PRESENT and > 0:
+//        if (ov.word_bg_opacity == null) skip
+//        if (ov.word_bg_opacity <= 0)    skip
+//    (The original table read `opacity = ov.word_bg_opacity ?? cfg.bg_opacity`,
+//     which contradicts this plan's own opening line — "absent or 0 does not
+//     draw" — and would give EVERY word in EVERY existing project a redundant
+//     box over the group box the moment the global bg is on. All three
+//     renderers gate on presence.)
+opacity   = ov.word_bg_opacity                            // present && > 0, no fallback
 color     = ov.word_bg_color     ?? cfg.bg_color
 radius    = ov.word_bg_radius    ?? cfg.bg_corner_radius
 padH      = max(ov.word_bg_padding_h ?? cfg.bg_padding_h, stroke + 2)
@@ -196,11 +205,36 @@ hExtra    = ov.word_bg_height_extra ?? cfg.bg_height_extra
 offX/offY = ov.word_bg_offset_x/y   ?? 0
 ```
 
-⚠️ **Enable-gate subtlety:** because opacity inherits, a word with *only* `word_bg_color` set
-would inherit the global `bg_opacity` and silently gain a box. That is why the box is gated on
-`word_bg_opacity` specifically, and why the popup writes an explicit `word_bg_opacity` the
-moment the user enables the word background (Phase 5b). Renderers must check the **resolved**
-opacity, not merely key presence.
+⚠️ **Enable-gate subtlety (clarified during execution):** `word_bg_opacity` is the *enable flag*,
+so it is the one field that must **not** inherit. If it did, a word with only `word_bg_color` set
+— and, worse, every word with **no overrides at all** — would resolve to the global `bg_opacity`
+and silently gain a box. The gate is therefore **presence AND value**:
+
+```
+if (ov.word_bg_opacity == null) skip   // not enabled for this word
+if (ov.word_bg_opacity <= 0)    skip   // explicitly disabled
+```
+
+Presence alone is not enough (an explicit `0` must not draw), and value alone is not enough
+(an absent key must not draw). This is why the popup writes an explicit `word_bg_opacity` the
+moment the user enables the word background (Phase 5b). The other eight fields *do* inherit
+normally — they only ever matter once the gate has already passed.
+
+⚠️ **Degenerate-rect clamp (added during execution) — required in all three renderers.**
+`bgWidthExtra` / `bgHeightExtra` are user-settable down to `-50` (`BackgroundCard.tsx:51,63`) and
+are inherited by default. The *group* box is immune because its content width is a whole row; a
+**single word** is not — a 20px word with `padH=8`, `bg_width_extra=-50` gives
+`boxW = 20 + 16 + 0 - 50 = -14`. Canvas silently fills an inverted path, but **PIL's
+`rounded_rectangle` raises `ValueError` when `x1 < x0`** — i.e. this is a hard render crash in
+Phase 3, not a cosmetic glitch. Every renderer must skip the box when the computed width or
+height is `<= 0`, and skip zero-width words (an empty/whitespace word would otherwise paint a
+free-floating blob, since this loop covers all words, unlike the pill).
+
+⚠️ **Stroke allowance is deliberately double-counted.** The box applies both the min-pad clamp
+(`pad >= stroke + 2`) *and* `strokePad*2` from the group-box formula, so with an outline set the
+word box is `2 × stroke_width` larger than the highlight pill's tighter rect. That is what the
+group box does, and it is intentional — **copy it verbatim into Pillow and the HTML runtime**
+rather than "fixing" it, or Phase 5a parity breaks.
 
 ---
 
