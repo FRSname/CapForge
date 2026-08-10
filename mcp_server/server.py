@@ -10,6 +10,7 @@ The agent operates the *running* CapForge app: edits go through the token-guarde
 
 from __future__ import annotations
 
+import time
 from typing import Literal, Optional
 
 from mcp.server.fastmcp import FastMCP, Image
@@ -21,6 +22,12 @@ from .knowledge import TopicNotFound, read_index, read_topic
 
 mcp = FastMCP("capforge")
 _client = CapForgeClient()
+
+# `apply_preset` confirms via the UI-state mirror, which the renderer pushes on a
+# 300ms debounce. Poll a little faster than that, and give up well before an
+# agent would consider the call hung.
+_APPLY_PRESET_POLL = 0.2
+_APPLY_PRESET_TIMEOUT = 5.0
 
 
 class WordEdit(BaseModel):
@@ -172,6 +179,26 @@ def transcribe(
 
 
 @mcp.tool()
+def load_video(path: str) -> dict:
+    """Load a video into the open CapForge app and start transcribing it.
+
+    This is how a batch run begins each video: it drives the visible app the way
+    dropping a file in would, so the transcript, style and render all stay in the
+    UI where you can watch and correct them.
+
+    Returns immediately once the app accepts the file — transcription runs in the
+    background. Poll `get_status()` until it reports done, then use
+    `get_transcript()`. Replacing an already-loaded video resets the previous
+    project's groups and style, so nothing leaks between batch items.
+
+    Errors if the path is not a file, if a job is already running, or if CapForge
+    is not open. Prefer this over `transcribe`, which bypasses the UI.
+    """
+    _client.send_command("load_video", {"path": path})
+    return {"status": "ok", "loading": path, "next": "poll get_status() until done"}
+
+
+@mcp.tool()
 def export(formats: list[str], output_dir: str = "output") -> dict:
     """Export the current transcript (e.g. ["srt_word", "ass", "json"])."""
     return _client.export({"formats": formats, "output_dir": output_dir})
@@ -183,11 +210,39 @@ def export(formats: list[str], output_dir: str = "output") -> dict:
 def get_ui_state() -> dict:
     """Current renderer style + display groups + available preset names.
 
-    Returns `{settings, groups, presets}`. Use `settings` (camelCase keys) with
-    `set_style`, `presets` with `apply_preset`, and `groups` (with word indices)
-    with `emphasize`.
+    Returns `{screen, settings, groups, presets, presetsDetail, appliedPreset,
+    render}`. Use `settings` (camelCase keys) with `set_style`, `presetsDetail`
+    with `apply_preset`, and `groups` (with word indices) with `emphasize`.
+
+    `screen` is "file" (nothing loaded), "progress" (transcribing) or "results".
+    `appliedPreset` names the preset the current style is based on — it is
+    sticky, surviving later `set_style` tweaks. `render` is the resolved
+    snake_case render body the `render` tool submits.
     """
     return _client.get_ui_state()
+
+
+def _preset_names(state: dict) -> dict:
+    """Split the mirrored preset names into user/builtin, tolerating old shapes."""
+    detail = state.get("presetsDetail") or {}
+    if detail:
+        return {
+            "user": list(detail.get("user") or []),
+            "builtin": list(detail.get("builtin") or []),
+        }
+    # Older renderer: only the flat builtin list was mirrored.
+    return {"user": [], "builtin": list(state.get("presets") or [])}
+
+
+@mcp.tool()
+def list_presets() -> dict:
+    """Style presets available in the open app.
+
+    Returns `{"user": [...], "builtin": [...]}`. User presets are the ones saved
+    from the Presets menu in the app (including any imported `.cfpreset`); they
+    may carry a custom font. Either kind can be passed to `apply_preset`.
+    """
+    return _preset_names(_client.get_ui_state())
 
 
 @mcp.tool()
@@ -204,13 +259,51 @@ def set_style(patch: dict) -> dict:
 
 @mcp.tool()
 def apply_preset(name: str) -> dict:
-    """Apply a built-in style preset by name (see `get_ui_state().presets`).
+    """Apply a style preset by name — user-saved or built-in (see `list_presets`).
 
-    Names include: YouTube Bold, TikTok Pop, Minimal White, Highlight Pill,
+    Matching is case-insensitive; a user preset wins over a built-in of the same
+    name. Built-ins are: YouTube Bold, TikTok Pop, Minimal White, Highlight Pill,
     Karaoke Neon, Subtitles (Clean), Reveal Dark.
+
+    Blocks until the app confirms the preset was applied, so it is safe to call
+    `render` immediately afterwards. Returns `{"status": "ok", "applied": name}`
+    on success, or `{"status": "unconfirmed", ...}` — check the hint, the usual
+    cause is a name that matches no preset, or the app not being on a loaded
+    project (style commands need the results screen).
     """
     _client.send_command("apply_preset", {"name": name})
-    return {"status": "ok"}
+
+    # The renderer applies the preset, then mirrors its state back on a 300ms
+    # debounce. Poll for the echo rather than sleeping a fixed amount — this is
+    # the whole reason a batch run can trust `render` to use the right style.
+    deadline = time.monotonic() + _APPLY_PRESET_TIMEOUT
+    state: dict = {}
+    while time.monotonic() < deadline:
+        time.sleep(_APPLY_PRESET_POLL)
+        try:
+            state = _client.get_ui_state() or {}
+        except Exception:
+            continue  # backend restarting; the client retries auth itself
+        applied = state.get("appliedPreset")
+        if isinstance(applied, str) and applied.strip().lower() == name.strip().lower():
+            return {"status": "ok", "applied": applied}
+
+    names = _preset_names(state) if state else {"user": [], "builtin": []}
+    known = [*names["user"], *names["builtin"]]
+    if known and not any(n.strip().lower() == name.strip().lower() for n in known):
+        hint = f"No preset named {name!r}. Available: {', '.join(known)}"
+    elif state.get("screen") and state.get("screen") != "results":
+        hint = (
+            f"The app is on the {state['screen']!r} screen. Load a video first — "
+            "style commands only apply to an open project."
+        )
+    else:
+        hint = (
+            "The app did not confirm the preset within "
+            f"{_APPLY_PRESET_TIMEOUT:g}s. Check CapForge is open, then re-read "
+            "get_ui_state() before rendering."
+        )
+    return {"status": "unconfirmed", "requested": name, "hint": hint}
 
 
 @mcp.tool()
@@ -288,6 +381,43 @@ def find_semantic_moments(kind: str) -> dict:
     seconds and `word_id` (plus `speaker` for speaker_change).
     """
     return _client.find_semantic_moments(kind)
+
+
+@mcp.tool()
+def render(output_dir: str = "") -> dict:
+    """Render the FINAL video with the classic engine. Blocks for minutes.
+
+    This is the deliverable, not a preview — check the look with `render_frame`
+    first. Unlike `render_hyperframes` it needs no user approval, which is what
+    makes it usable for a batch run.
+
+    Uses exactly the style the app currently shows, including any preset applied
+    with `apply_preset`, per-word emphasis, and manual group edits. Confirm the
+    preset applied (i.e. `apply_preset` returned "ok") before calling.
+
+    `output_dir` defaults to the folder holding the source video. Returns
+    `{"status": "ok", "file": "<absolute path>"}`, or status "cancelled" if the
+    user cancelled it in the app.
+    """
+    state = _client.get_ui_state() or {}
+    body = state.get("render")
+    if not isinstance(body, dict) or not body.get("config"):
+        return {
+            "status": "error",
+            "hint": (
+                "CapForge has no render config yet — open a video in the app "
+                "(or use load_video) and wait for transcription to finish."
+            ),
+        }
+
+    # Submit the mirrored body verbatim: it is the renderer's own resolved
+    # snake_case config plus custom_groups (manual group edits + per-group
+    # position overrides). Rebuilding it here would duplicate the casing bridge
+    # that deliberately lives only in the renderer's render.ts.
+    payload = dict(body)
+    if output_dir:
+        payload["output_dir"] = output_dir
+    return _client.render_video(payload)
 
 
 @mcp.tool()

@@ -176,8 +176,11 @@ export function buildRenderBody(
       start: g.start,
       end: g.end,
       // Pass words through as-is so per-word `overrides` (text_color, bold,
-      // font_family, word_transition, etc.) reach the backend verbatim.
-      words: g.words.map((w) => ({ ...w })),
+      // font_family, word_transition, etc.) reach the backend verbatim. `wid` is
+      // renderer-only bookkeeping (lib/wordIds.ts) — CustomGroup.words is an
+      // untyped dict list, so it would otherwise ride all the way into the
+      // HyperFrames caption payload for nothing.
+      words: g.words.map(({ wid: _wid, ...w }) => w),
       // Sparse per-group position override — 0–1 fractions, same units as
       // config.position_x/position_y
       ...(g.positionOverride?.position_x != null && { position_x: g.positionOverride.position_x }),

@@ -179,6 +179,15 @@ describe('buildRenderBody — custom groups', () => {
     })
   })
 
+  test('strips the renderer-only word id from the payload', () => {
+    const idd: Segment[] = [
+      { ...groups[0], words: groups[0].words.map((w, i) => ({ ...w, wid: `w${i}` })) },
+    ]
+    const body = buildRenderBody(STUDIO_DEFAULTS, idd, true)
+    expect(body.custom_groups![0].words.every((w) => !('wid' in w))).toBe(true)
+    expect(body.custom_groups![0].words[0]).toMatchObject({ word: 'hello' })
+  })
+
   test('sends groups when only a position override exists, even with groupsEdited=false', () => {
     const overridden: Segment[] = [
       { ...groups[0], positionOverride: { position_x: 0.5, position_y: 0.15 } },

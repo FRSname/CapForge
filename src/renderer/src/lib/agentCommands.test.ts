@@ -1,6 +1,18 @@
 import { describe, it, expect } from 'vitest'
-import { applySettingsCommand, builtinPresetNames, toastMessageForCommand } from './agentCommands'
+import {
+  applySettingsCommand,
+  builtinPresetNames,
+  resolvePreset,
+  toastMessageForCommand,
+} from './agentCommands'
 import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
+import type { UserPreset } from '../hooks/useUserPresets'
+import type { VanillaPreset } from './presets'
+
+/** A minimal user preset — enough for name resolution + a visible style delta. */
+function userPreset(name: string, settings: Partial<VanillaPreset> = {}): UserPreset {
+  return { name, settings: { fontSize: '77', textColor: '#ABCDEF', ...settings } as VanillaPreset }
+}
 
 describe('applySettingsCommand', () => {
   it('merges known keys for set_settings', () => {
@@ -58,6 +70,64 @@ describe('applySettingsCommand', () => {
       applySettingsCommand(STUDIO_DEFAULTS, { op: 'set_word_overrides', payload: {} })
     ).toBeNull()
   })
+
+  it('applies a user preset by name', () => {
+    const next = applySettingsCommand(
+      STUDIO_DEFAULTS,
+      { op: 'apply_preset', payload: { name: 'My Style' } },
+      [userPreset('My Style')]
+    )
+    expect(next?.fontSize).toBe(77)
+  })
+
+  it('prefers a user preset over a builtin of the same name', () => {
+    const mine = userPreset('TikTok Pop', { fontSize: '13' })
+    const next = applySettingsCommand(
+      STUDIO_DEFAULTS,
+      { op: 'apply_preset', payload: { name: 'TikTok Pop' } },
+      [mine]
+    )
+    expect(next?.fontSize).toBe(13)
+  })
+
+  it('still falls back to builtins when the user library has no match', () => {
+    const next = applySettingsCommand(
+      STUDIO_DEFAULTS,
+      { op: 'apply_preset', payload: { name: 'TikTok Pop' } },
+      [userPreset('Something Else')]
+    )
+    expect(next).not.toBeNull()
+    expect(next).not.toEqual(STUDIO_DEFAULTS)
+  })
+})
+
+describe('resolvePreset', () => {
+  const presets = [userPreset('My Style'), userPreset('Bold Yellow')]
+
+  it('matches case-insensitively and ignores surrounding whitespace', () => {
+    expect(resolvePreset('  my style  ', presets)?.name).toBe('My Style')
+  })
+
+  it('returns the canonical saved spelling, not what was asked for', () => {
+    // This is what the MCP apply_preset ack compares against.
+    expect(resolvePreset('BOLD YELLOW', presets)?.name).toBe('Bold Yellow')
+  })
+
+  it('reports which library a match came from', () => {
+    expect(resolvePreset('My Style', presets)?.source).toBe('user')
+    expect(resolvePreset('TikTok Pop', presets)?.source).toBe('builtin')
+  })
+
+  it('returns null for an unknown, empty or nullish name', () => {
+    expect(resolvePreset('nope', presets)).toBeNull()
+    expect(resolvePreset('   ', presets)).toBeNull()
+    expect(resolvePreset(undefined, presets)).toBeNull()
+    expect(resolvePreset(null, presets)).toBeNull()
+  })
+
+  it('falls back to builtins when no user library is passed', () => {
+    expect(resolvePreset('Minimal White')?.source).toBe('builtin')
+  })
 })
 
 describe('toastMessageForCommand', () => {
@@ -102,6 +172,11 @@ describe('toastMessageForCommand', () => {
       payload: { name: 'tiktok pop', patch: { captionStyle: 'caption-kinetic-slam' } },
     })
     expect(toast.message).toBe('Agent applied a preset.')
+  })
+
+  it('names the preset when the resolved name is known', () => {
+    const toast = toastMessageForCommand({ op: 'apply_preset', payload: { name: 'my style' } }, 'My Style')
+    expect(toast.message).toBe('Agent applied the "My Style" preset.')
   })
 })
 

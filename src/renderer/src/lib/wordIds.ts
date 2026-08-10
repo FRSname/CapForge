@@ -1,0 +1,100 @@
+/**
+ * Stable per-word identity.
+ *
+ * Display groups are user-editable: a word can be dragged into a group it does
+ * not belong to in document order, and groups can be reordered outright. That
+ * membership can only survive an edit to the source segments if a group word can
+ * be matched back to its segment word by *identity* — matching by array position
+ * silently restores document order, which is the bug this module exists to kill
+ * (see `reconcileGroups` in `lib/groups.ts`).
+ *
+ * Ids are opaque and session-minted. Nothing may parse them, sort by them, or
+ * derive them from a word's text, index or timing — those are exactly the
+ * positional assumptions being replaced. They are persisted with the project
+ * (they ride the word objects) and stripped from the backend render payload in
+ * `lib/render.ts`.
+ */
+
+import type { Segment, Word } from '../types/app'
+
+let counter = 0
+
+/**
+ * Mint a fresh word id. The counter keeps ids unique within a session; the
+ * random suffix keeps them from colliding with ids restored from a saved
+ * project, whose counter started over.
+ */
+export function newWordId(): string {
+  counter += 1
+  return `w${counter.toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+/**
+ * Give every word in `words` an id, minting only for those that lack one.
+ *
+ * Returns the **same array reference** when nothing had to be minted, so callers
+ * can use this defensively on every write without churning React identities.
+ */
+export function withWordIds(words: readonly Word[]): Word[] {
+  if (words.every((w) => w.wid)) return words as Word[]
+  return words.map((w) => (w.wid ? w : { ...w, wid: newWordId() }))
+}
+
+/** Identity key for a word as it exists in both a segment and a derived group. */
+function wordKey(w: Word): string {
+  return `${w.word}\u0000${w.start}\u0000${w.end}`
+}
+
+/**
+ * Stamp restored groups with the ids their source segment words already carry.
+ *
+ * A project saved before word ids existed restores groups whose words have none,
+ * while `segments` minted a fresh set on mount. Minting independently for the
+ * groups would leave the two sides sharing no ids at all, so the user's manual
+ * grouping would be thrown away by the first reconcile. A group word *is* its
+ * segment word — same text, same timings — so match on that and adopt the id.
+ *
+ * Repeated text with repeated timings is handed out first-come (a queue per key)
+ * rather than aliased. A group word that matches nothing (group-only text edit)
+ * gets a fresh id.
+ */
+export function adoptWordIds(groups: readonly Segment[], segments: readonly Segment[]): Segment[] {
+  if (groups.every((g) => g.words.every((w) => w.wid))) return groups as Segment[]
+
+  const pool = new Map<string, string[]>()
+  for (const seg of segments) {
+    for (const w of seg.words) {
+      if (!w.wid) continue
+      const key = wordKey(w)
+      const queue = pool.get(key)
+      if (queue) queue.push(w.wid)
+      else pool.set(key, [w.wid])
+    }
+  }
+
+  return groups.map((g) => ({
+    ...g,
+    words: g.words.map((w) => {
+      if (w.wid) return w
+      const queue = pool.get(wordKey(w))
+      return { ...w, wid: queue?.shift() ?? newWordId() }
+    }),
+  }))
+}
+
+/**
+ * Give every word in every segment (or group — same shape) an id.
+ *
+ * Reference-stable like `withWordIds`: unchanged segments come back as the same
+ * objects, and an already-id'd array comes back untouched.
+ */
+export function ensureWordIds(segments: readonly Segment[]): Segment[] {
+  let changed = false
+  const next = segments.map((seg) => {
+    const words = withWordIds(seg.words)
+    if (words === seg.words) return seg
+    changed = true
+    return { ...seg, words }
+  })
+  return changed ? next : (segments as Segment[])
+}

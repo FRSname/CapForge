@@ -10,6 +10,9 @@
  *   4. Font family (font_family + custom_font_path) — pick a Bold variant here
  *      if you want bold for a single word
  *   5. Animation  (word_transition)
+ *   6. Word background (word_bg_*) — a background box scoped to this word.
+ *      Transition-independent; untouched sub-fields inherit the global bg_*
+ *      config. See docs/plans/per-word-background.md.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -38,6 +41,17 @@ export interface WordStyleDefaults {
   underlineColor?: string
   bounceStrength?: number
   scaleFactor?: number
+  // Global Background-card values — the inherited values shown (but not saved)
+  // by the "Word background" block. Optional: a call site that omits them gets
+  // the WORD_BG_FALLBACKS below.
+  /** 0–100, the StudioSettings unit — NOT the 0–1 unit of word_bg_opacity. */
+  bgOpacity?: number
+  bgColor?: string
+  bgRadius?: number
+  bgWidthExtra?: number
+  bgHeightExtra?: number
+  marginH?: number
+  marginV?: number
 }
 
 interface WordStylePopupProps {
@@ -71,6 +85,29 @@ const TRANSITIONS: Array<[WordTransition | '', string]> = [
 // Popup dimensions used for viewport clamping (approximate).
 const POPUP_W = 280
 const POPUP_H = 480
+
+// Inherited values shown by the "Word background" block when the call site
+// doesn't pass the globals. Mirrors STUDIO_DEFAULTS (StudioPanel.tsx) — kept
+// local so this popup doesn't pull the whole studio panel into its import graph.
+const WORD_BG_FALLBACKS = {
+  color: '#D4952A',
+  radius: 16,
+  widthExtra: 0,
+  heightExtra: 0,
+  marginH: 8,
+  marginV: 8,
+} as const
+
+/** Opacity (0–1) written when the user enables a word background while the
+ *  global BG opacity is 0 (the STUDIO_DEFAULT) — inheriting 0 would enable an
+ *  invisible box. */
+const WORD_BG_ENABLE_OPACITY = 0.9
+
+/** Percent conversion for word_bg_opacity, which is stored 0–1 but shown 0–100.
+ *  This popup is the ONLY place in the codebase that converts this key — the
+ *  per-word override blob reaches the backend verbatim (no /100 in render.ts).
+ *  See docs/plans/per-word-background.md §0.1 (unit trap). */
+const WORD_BG_OPACITY_PCT = 100
 
 // Re-export for call sites that want a single import path.
 export type { WordOverrides } from '../../types/app'
@@ -132,6 +169,31 @@ export function WordStylePopup({
     overrides.bounce_strength ?? defaults.bounceStrength ?? 0.3
   )
   const [sFactor, setSFactor] = useState(overrides.scale_factor ?? defaults.scaleFactor ?? 1.2)
+
+  // Per-word background box — transition-independent (see
+  // docs/plans/per-word-background.md Phase 5b).
+  //
+  // Every sub-field is `undefined` until the user touches it, and `undefined`
+  // is what keeps the key ABSENT from the saved overrides so it inherits the
+  // matching global bg_* value at render time. Never store `null` here: Pillow
+  // reads these with `float(ov.get(key, default))`, which RAISES on an explicit
+  // JSON null (Canvas's `??` would tolerate it) — an omitted key is the only
+  // shape that is safe in all three renderers.
+  const [bgEnabled, setBgEnabled] = useState(overrides.word_bg_opacity != null)
+  /** 0–1, NOT 0–100. Presence of this key is the renderers' enable gate. */
+  const [bgOpacity, setBgOpacity] = useState<number | undefined>(overrides.word_bg_opacity)
+  const [bgColor, setBgColor] = useState<string | undefined>(overrides.word_bg_color)
+  const [bgRadius, setBgRadius] = useState<number | undefined>(overrides.word_bg_radius)
+  const [bgPadH, setBgPadH] = useState<number | undefined>(overrides.word_bg_padding_h)
+  const [bgPadV, setBgPadV] = useState<number | undefined>(overrides.word_bg_padding_v)
+  const [bgWidthExtra, setBgWidthExtra] = useState<number | undefined>(
+    overrides.word_bg_width_extra
+  )
+  const [bgHeightExtra, setBgHeightExtra] = useState<number | undefined>(
+    overrides.word_bg_height_extra
+  )
+  const [bgOffX, setBgOffX] = useState<number | undefined>(overrides.word_bg_offset_x)
+  const [bgOffY, setBgOffY] = useState<number | undefined>(overrides.word_bg_offset_y)
 
   const [fonts, setFonts] = useState<FontInfo[]>([])
   const popupRef = useRef<HTMLDivElement>(null)
@@ -197,6 +259,32 @@ export function WordStylePopup({
   // Used to decide which sub-settings UI to show.
   const effectiveTransition: WordTransition | '' = transition || (defaults.wordTransition ?? '')
 
+  // Global BG opacity converted into word_bg_opacity's 0–1 unit (§0.1 unit trap).
+  const globalBgOpacity = (defaults.bgOpacity ?? 0) / WORD_BG_OPACITY_PCT
+  /** What the enable toggle writes: the global look, or a visible 0.9 when the
+   *  global background is off. */
+  const enableBgOpacity = globalBgOpacity > 0 ? globalBgOpacity : WORD_BG_ENABLE_OPACITY
+
+  // Enabling writes an EXPLICIT word_bg_opacity because presence — not value —
+  // is the enable gate; the other eight fields stay absent so they inherit.
+  // Disabling drops all nine keys by resetting every field to `undefined`.
+  function handleBgEnabledChange(enabled: boolean) {
+    setBgEnabled(enabled)
+    if (enabled) {
+      setBgOpacity((prev) => prev ?? enableBgOpacity)
+      return
+    }
+    setBgOpacity(undefined)
+    setBgColor(undefined)
+    setBgRadius(undefined)
+    setBgPadH(undefined)
+    setBgPadV(undefined)
+    setBgWidthExtra(undefined)
+    setBgHeightExtra(undefined)
+    setBgOffX(undefined)
+    setBgOffY(undefined)
+  }
+
   // Live preview — re-apply on every state change so the editor reflects
   // edits without the user clicking Apply. The Apply button is now just an
   // explicit "I'm done" close action.
@@ -229,6 +317,16 @@ export function WordStylePopup({
     ulColor,
     bStrength,
     sFactor,
+    bgEnabled,
+    bgOpacity,
+    bgColor,
+    bgRadius,
+    bgPadH,
+    bgPadV,
+    bgWidthExtra,
+    bgHeightExtra,
+    bgOffX,
+    bgOffY,
   ])
 
   function buildOverrides(): WordOverrides {
@@ -268,6 +366,25 @@ export function WordStylePopup({
     }
     if (effectiveTransition === 'scale') {
       if (sFactor !== (defaults.scaleFactor ?? 1.2)) next.scale_factor = sFactor
+    }
+
+    // Per-word background box. NOT gated on effectiveTransition — the box is
+    // transition-independent. `word_bg_opacity` is the enable gate, so it is
+    // written explicitly whenever the toggle is on; every other key is written
+    // ONLY when the user actually moved that control (state !== undefined), so
+    // untouched fields stay absent and keep inheriting the global bg_* value.
+    // A key is either present with a real value or omitted entirely — never
+    // assigned null/undefined (Pillow's float(ov.get(k, d)) raises on null).
+    if (bgEnabled) {
+      next.word_bg_opacity = bgOpacity ?? enableBgOpacity
+      if (bgColor !== undefined) next.word_bg_color = bgColor
+      if (bgRadius !== undefined) next.word_bg_radius = bgRadius
+      if (bgPadH !== undefined) next.word_bg_padding_h = bgPadH
+      if (bgPadV !== undefined) next.word_bg_padding_v = bgPadV
+      if (bgWidthExtra !== undefined) next.word_bg_width_extra = bgWidthExtra
+      if (bgHeightExtra !== undefined) next.word_bg_height_extra = bgHeightExtra
+      if (bgOffX !== undefined) next.word_bg_offset_x = bgOffX
+      if (bgOffY !== undefined) next.word_bg_offset_y = bgOffY
     }
     return next
   }
@@ -498,6 +615,93 @@ export function WordStylePopup({
             />
           </SubSettings>
         )}
+
+        {/* Per-word background box — the Background card's BG function scoped
+          to one word. Deliberately NOT wrapped in an `effectiveTransition`
+          guard like the blocks above: the box is transition-independent.
+          Sub-controls show the inherited global value but only save once
+          touched — see buildOverrides(). */}
+        <SubSettings title="Word background">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <span className="w-20 shrink-0" style={{ color: 'var(--color-text-2)' }}>
+              Enabled
+            </span>
+            <input
+              type="checkbox"
+              checked={bgEnabled}
+              onChange={(e) => handleBgEnabledChange(e.target.checked)}
+              className="cursor-pointer accent-[var(--color-accent)]"
+            />
+          </label>
+
+          {bgEnabled && (
+            <>
+              <NumberRow
+                label="BG opacity"
+                // ⚠️ Unit trap: stored 0–1, shown 0–100 %. This is the only
+                // conversion site for word_bg_opacity in the codebase.
+                value={Math.round((bgOpacity ?? enableBgOpacity) * WORD_BG_OPACITY_PCT)}
+                onChange={(v) => setBgOpacity(v / WORD_BG_OPACITY_PCT)}
+                min={0}
+                max={100}
+              />
+              <ColorRow
+                label="BG color"
+                value={bgColor ?? defaults.bgColor ?? WORD_BG_FALLBACKS.color}
+                onChange={setBgColor}
+              />
+              <NumberRow
+                label="BG radius"
+                value={bgRadius ?? defaults.bgRadius ?? WORD_BG_FALLBACKS.radius}
+                onChange={setBgRadius}
+                min={0}
+                max={80}
+              />
+              <NumberRow
+                label="BG width +"
+                value={bgWidthExtra ?? defaults.bgWidthExtra ?? WORD_BG_FALLBACKS.widthExtra}
+                onChange={setBgWidthExtra}
+                min={-50}
+                max={200}
+              />
+              <NumberRow
+                label="BG height +"
+                value={bgHeightExtra ?? defaults.bgHeightExtra ?? WORD_BG_FALLBACKS.heightExtra}
+                onChange={setBgHeightExtra}
+                min={-50}
+                max={200}
+              />
+              <NumberRow
+                label="Margin H"
+                value={bgPadH ?? defaults.marginH ?? WORD_BG_FALLBACKS.marginH}
+                onChange={setBgPadH}
+                min={0}
+                max={25}
+              />
+              <NumberRow
+                label="Margin V"
+                value={bgPadV ?? defaults.marginV ?? WORD_BG_FALLBACKS.marginV}
+                onChange={setBgPadV}
+                min={0}
+                max={50}
+              />
+              <NumberRow
+                label="Offset X"
+                value={bgOffX ?? 0}
+                onChange={setBgOffX}
+                min={-100}
+                max={100}
+              />
+              <NumberRow
+                label="Offset Y"
+                value={bgOffY ?? 0}
+                onChange={setBgOffY}
+                min={-100}
+                max={100}
+              />
+            </>
+          )}
+        </SubSettings>
 
         {/* Position offsets — additive to the row layout, in px. */}
         <SubSettings title="Position offset">

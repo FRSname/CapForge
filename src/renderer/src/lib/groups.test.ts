@@ -6,7 +6,10 @@ import {
   splitGroup,
   moveWord,
   reorderGroup,
+  restoreManualGroupState,
+  reconcileGroups,
 } from './groups'
+import { ensureWordIds } from './wordIds'
 import type { Segment, Word } from '../types/app'
 
 // ── Fixtures ─────────────────────────────────────────────────────
@@ -301,5 +304,292 @@ describe('reorderGroup', () => {
     expect(reorderGroup(groups, 1, 2)).toBe(groups) // immediately after itself
     expect(reorderGroup(groups, -1, 0)).toBe(groups)
     expect(reorderGroup(groups, 0, 99)).toBe(groups)
+  })
+})
+
+// ── restoreManualGroupState ──────────────────────────────────────
+//
+// Regression cover for the desync a user hit after merging two words: the
+// rebuild restored a group's manually-dragged bounds even though re-chunking
+// had changed which words the group holds.
+
+describe('restoreManualGroupState', () => {
+  /** One segment of six 0.5 s words at 1 s spacing, chunked three per group. */
+  const sixWords = (): Segment => ({
+    id: 's0',
+    start: 0,
+    end: 5.5,
+    text: 'a b c d e f',
+    words: ['a', 'b', 'c', 'd', 'e', 'f'].map((x, i) => word(x, i, i + 0.5)),
+  })
+
+  test('restores manual bounds when the chunk words are unchanged', () => {
+    const rebuilt = buildStudioGroups([sixWords()], 3)
+    const previous = rebuilt.map((g, i) => (i === 0 ? { ...g, end: 2.9 } : g))
+
+    const result = restoreManualGroupState(rebuilt, previous)
+    expect(result[0].end).toBe(2.9)
+  })
+
+  test('drops stale bounds when a word merge re-chunked the group', () => {
+    const seg = sixWords()
+    const previous = buildStudioGroups([seg], 3).map((g, i) => (i === 0 ? { ...g, end: 2.9 } : g))
+
+    // Merge "b"+"c" into "bc": group s0:0 becomes [a, bc, d] — different words,
+    // so the 2.9 bound no longer describes it and must not be restored.
+    const merged: Segment = {
+      ...seg,
+      text: 'a bc d e f',
+      words: [word('a', 0, 0.5), word('bc', 1, 2.5), ...seg.words.slice(3)],
+    }
+    const result = restoreManualGroupState(buildStudioGroups([merged], 3), previous)
+
+    expect(result[0].words.map((w) => w.word)).toEqual(['a', 'bc', 'd'])
+    // The bound the user actually saw break: the group ended before its own
+    // last word started.
+    expect(result[0].end).toBeGreaterThanOrEqual(result[0].words[2].start)
+    expect(result[0].end).toBe(3.5)
+  })
+
+  test('every group ends at or after its own last word starts', () => {
+    const seg = sixWords()
+    const previous = buildStudioGroups([seg], 3).map((g) => ({ ...g, start: g.start, end: g.end }))
+    const merged: Segment = {
+      ...seg,
+      text: 'a bc d e f',
+      words: [word('a', 0, 0.5), word('bc', 1, 2.5), ...seg.words.slice(3)],
+    }
+    const result = restoreManualGroupState(buildStudioGroups([merged], 3), previous)
+
+    for (const g of result) {
+      expect(g.start).toBeLessThanOrEqual(g.words[0].start)
+      expect(g.end).toBeGreaterThanOrEqual(g.words[g.words.length - 1].start)
+    }
+  })
+
+  test('keeps a position override even when the chunk changed', () => {
+    const seg = sixWords()
+    const previous = buildStudioGroups([seg], 3).map((g, i) =>
+      i === 0 ? { ...g, positionOverride: { position_x: 0.25 } } : g
+    )
+    const merged: Segment = {
+      ...seg,
+      text: 'a bc d e f',
+      words: [word('a', 0, 0.5), word('bc', 1, 2.5), ...seg.words.slice(3)],
+    }
+    const result = restoreManualGroupState(buildStudioGroups([merged], 3), previous)
+    expect(result[0].positionOverride).toEqual({ position_x: 0.25 })
+  })
+
+  test('restores per-word overrides only for unchanged chunks', () => {
+    const seg = sixWords()
+    const previous = buildStudioGroups([seg], 3).map((g, i) =>
+      i === 0
+        ? { ...g, words: g.words.map((w, j) => (j === 0 ? { ...w, overrides: { bold: true } } : w)) }
+        : g
+    )
+    const merged: Segment = {
+      ...seg,
+      text: 'a bc d e f',
+      words: [word('a', 0, 0.5), word('bc', 1, 2.5), ...seg.words.slice(3)],
+    }
+    const changed = restoreManualGroupState(buildStudioGroups([merged], 3), previous)
+    expect(changed[0].words[0].overrides).toBeUndefined()
+
+    const unchanged = restoreManualGroupState(buildStudioGroups([seg], 3), previous)
+    expect(unchanged[0].words[0].overrides).toEqual({ bold: true })
+  })
+
+  test('leaves groups alone when there is nothing saved', () => {
+    const rebuilt = buildStudioGroups([sixWords()], 3)
+    expect(restoreManualGroupState(rebuilt, [])).toEqual(rebuilt)
+  })
+})
+
+// ── reconcileGroups ──────────────────────────────────────────────
+//
+// The contract these pin: manual group membership is the user's decision and
+// must survive an edit to the source segments. Matching by array position
+// silently restores document order — that was the bug
+// (docs/plans/fill-gaps-resets-custom-groups.md).
+
+/** A segment whose words all carry stable ids. */
+const idSegment = (id = 's1', base = 0): Segment => ensureWordIds([makeSegment(id, base)])[0]
+
+/** Rewrite one word's text in place, keeping its id and timing. */
+const editText = (seg: Segment, index: number, text: string): Segment => {
+  const words = seg.words.map((w, i) => (i === index ? { ...w, word: text } : w))
+  return { ...seg, words, text: words.map((w) => w.word).join(' ') }
+}
+
+/** Drop one word from a segment. */
+const deleteWord = (seg: Segment, index: number): Segment => {
+  const words = seg.words.filter((_, i) => i !== index)
+  return { ...seg, words, text: words.map((w) => w.word).join(' ') }
+}
+
+/** Insert a new (id-less, so freshly minted) word after `index`. */
+const insertAfter = (seg: Segment, index: number, text: string): Segment => {
+  const at = seg.words[index]
+  const fresh = word(text, at.end, at.end + 0.25)
+  const words = [...seg.words.slice(0, index + 1), fresh, ...seg.words.slice(index + 1)]
+  return ensureWordIds([{ ...seg, words, text: words.map((w) => w.word).join(' ') }])[0]
+}
+
+const membership = (groups: Segment[]): string[][] => groups.map((g) => g.words.map((w) => w.word))
+
+describe('reconcileGroups', () => {
+  test('a word moved to a non-adjacent group stays there across a text edit', () => {
+    const seg = idSegment()
+    // 3 groups of 2: [the quick] [brown fox] [jumps over]
+    const moved = moveWord(buildStudioGroups([seg], 2), 0, 0, 2)
+    expect(membership(moved)).toEqual([['quick'], ['brown', 'fox'], ['the', 'jumps', 'over']])
+
+    const after = reconcileGroups(moved, [editText(seg, 5, 'Over,')], 2)
+    expect(membership(after)).toEqual([['quick'], ['brown', 'fox'], ['the', 'jumps', 'Over,']])
+  })
+
+  test('reordered groups stay reordered across a text edit', () => {
+    const seg = idSegment()
+    const reordered = reorderGroup(buildStudioGroups([seg], 2), 2, 0)
+    expect(membership(reordered)).toEqual([['jumps', 'over'], ['the', 'quick'], ['brown', 'fox']])
+
+    const after = reconcileGroups(reordered, [editText(seg, 0, 'The')], 2)
+    expect(membership(after)).toEqual([['jumps', 'over'], ['The', 'quick'], ['brown', 'fox']])
+  })
+
+  test('merged groups survive a word being inserted', () => {
+    const seg = idSegment()
+    const merged = mergeGroups(buildStudioGroups([seg], 2), 0)
+    expect(membership(merged)).toEqual([['the', 'quick', 'brown', 'fox'], ['jumps', 'over']])
+
+    const after = reconcileGroups(merged, [insertAfter(seg, 1, 'very')], 2)
+    expect(membership(after)).toEqual([['the', 'quick', 'very', 'brown', 'fox'], ['jumps', 'over']])
+  })
+
+  test('merged groups survive a word being deleted', () => {
+    const seg = idSegment()
+    const merged = mergeGroups(buildStudioGroups([seg], 2), 0)
+
+    const after = reconcileGroups(merged, [deleteWord(seg, 2)], 2)
+    expect(membership(after)).toEqual([['the', 'quick', 'fox'], ['jumps', 'over']])
+  })
+
+  test('a deleted word leaves every other group untouched', () => {
+    const seg = idSegment()
+    const groups = buildStudioGroups([seg], 2)
+
+    const after = reconcileGroups(groups, [deleteWord(seg, 3)], 2)
+    expect(membership(after)).toEqual([['the', 'quick'], ['brown'], ['jumps', 'over']])
+  })
+
+  test('an inserted word lands in its predecessor group, not at a chunk boundary', () => {
+    const seg = idSegment()
+    const groups = buildStudioGroups([seg], 2)
+
+    const after = reconcileGroups(groups, [insertAfter(seg, 3, 'quickly')], 2)
+    expect(membership(after)).toEqual([
+      ['the', 'quick'],
+      ['brown', 'fox', 'quickly'],
+      ['jumps', 'over'],
+    ])
+  })
+
+  test('a group whose words are unchanged keeps a stretched end (the Fill gaps case)', () => {
+    const seg = idSegment()
+    const filled = fillGroupGaps(buildStudioGroups([seg], 2))
+    const stretched = { ...filled[0], end: 99 }
+    const previous = [stretched, ...filled.slice(1)]
+
+    // Edit a word in a *different* group — group 0's word set is untouched.
+    const after = reconcileGroups(previous, [editText(seg, 5, 'Over,')], 2)
+    expect(after[0].end).toBe(99)
+    expect(after[0].start).toBe(filled[0].start)
+  })
+
+  test('a group whose word set changed gets bounds recomputed', () => {
+    const seg = idSegment()
+    const previous = buildStudioGroups([seg], 2).map((g, i) => (i === 1 ? { ...g, end: 99 } : g))
+
+    const after = reconcileGroups(previous, [deleteWord(seg, 3)], 2)
+    expect(after[1].words.map((w) => w.word)).toEqual(['brown'])
+    expect(after[1].end).toBe(seg.words[2].end)
+  })
+
+  test('per-word overrides and per-group position overrides survive', () => {
+    const seg = idSegment()
+    const previous = buildStudioGroups([seg], 2).map((g, i) =>
+      i === 1
+        ? {
+            ...g,
+            positionOverride: { position_x: 0.25 },
+            words: g.words.map((w, j) => (j === 0 ? { ...w, overrides: { bold: true } } : w)),
+          }
+        : g
+    )
+
+    const after = reconcileGroups(previous, [editText(seg, 0, 'The')], 2)
+    expect(after[1].positionOverride).toEqual({ position_x: 0.25 })
+    expect(after[1].words[0].overrides).toEqual({ bold: true })
+  })
+
+  test('a group emptied by deletions is dropped', () => {
+    const seg = idSegment()
+    const groups = buildStudioGroups([seg], 2)
+
+    const edited = deleteWord(deleteWord(seg, 2), 2) // removes 'brown' and 'fox'
+    const after = reconcileGroups(groups, [edited], 2)
+    expect(membership(after)).toEqual([['the', 'quick'], ['jumps', 'over']])
+  })
+
+  test('words from a newly added segment start their own group', () => {
+    const first = idSegment('s1')
+    const groups = buildStudioGroups([first], 2)
+    const second = idSegment('s2', 10)
+
+    const after = reconcileGroups(groups, [first, second], 2)
+    expect(membership(after).slice(0, 3)).toEqual([
+      ['the', 'quick'],
+      ['brown', 'fox'],
+      ['jumps', 'over'],
+    ])
+    // The new segment's words never get absorbed into the last existing group.
+    expect(after[2].words).toHaveLength(2)
+    expect(after.slice(3).flatMap((g) => g.words.map((w) => w.word))).toEqual([
+      'the',
+      'quick',
+      'brown',
+      'fox',
+      'jumps',
+      'over',
+    ])
+  })
+
+  test('falls back to a document-order rebuild when word ids are missing', () => {
+    const plain = makeSegment('s1')
+    const merged = mergeGroups(buildStudioGroups([plain], 2), 0)
+    const idd = ensureWordIds([plain])
+
+    const after = reconcileGroups(merged, idd, 2)
+    expect(membership(after)).toEqual(membership(buildStudioGroups(idd, 2)))
+  })
+
+  test('an empty previous list rebuilds from the segments', () => {
+    const seg = idSegment()
+    expect(membership(reconcileGroups([], [seg], 3))).toEqual([
+      ['the', 'quick', 'brown'],
+      ['fox', 'jumps', 'over'],
+    ])
+  })
+
+  test('regression: move a word, Fill gaps, then edit text — nothing snaps back', () => {
+    const seg = idSegment()
+    const moved = moveWord(buildStudioGroups([seg], 2), 0, 0, 2)
+    const baked = fillGroupGaps(moved)
+    const bakedEnds = baked.map((g) => g.end)
+
+    const after = reconcileGroups(baked, [editText(seg, 3, 'Fox')], 2)
+    expect(membership(after)).toEqual([['quick'], ['brown', 'Fox'], ['the', 'jumps', 'over']])
+    expect(after.map((g) => g.end)).toEqual(bakedEnds)
   })
 })
