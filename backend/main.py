@@ -27,6 +27,7 @@ from fastapi import (
 from fastapi.middleware.cors import CORSMiddleware
 
 from fastapi.responses import FileResponse
+from pydantic import ValidationError
 
 from backend.agent_bridge import (
     discovery_path,
@@ -761,6 +762,16 @@ async def render_approval(body: dict):
 
 # --- Vision QA: single-frame render so the agent can SEE its output ---
 
+def _describe_validation_errors(exc: ValidationError) -> str:
+    """Render a Pydantic ValidationError as a short ``field (reason)`` list."""
+    parts = []
+    for err in exc.errors():
+        loc = ".".join(str(p) for p in err.get("loc", ()))
+        msg = err.get("msg", "invalid")
+        parts.append(f"{loc} ({msg})" if loc else msg)
+    return ", ".join(parts) or "unknown field"
+
+
 def _agent_frame_inputs() -> tuple[VideoRenderConfig, Optional[list]]:
     """Resolve the (config, custom_groups) the renderer last mirrored."""
     if current_result is None:
@@ -771,7 +782,29 @@ def _agent_frame_inputs() -> tuple[VideoRenderConfig, Optional[list]]:
             status_code=409,
             detail="No render config mirrored yet — open the results screen in CapForge",
         )
-    config = VideoRenderConfig(**render["config"])
+    try:
+        config = VideoRenderConfig(**render["config"])
+    except ValidationError as exc:
+        # A mirrored config that fails validation is bad CLIENT state, not a server
+        # fault, so it must not surface as a 500. The known cause: a project saved
+        # by an older build restored without merging STUDIO_DEFAULTS, where
+        # `undefined / 100` is NaN, which JSON-serializes to null, which a
+        # non-Optional float rejects (the same defect that shows up as a 422 on
+        # /api/render-video). Letting it escape returned a bare "Internal Server
+        # Error" that reads as "the backend is stuck" and sends debugging the wrong
+        # way — so name the offending field and say what refreshes the mirror.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "title": "The mirrored render config is not valid",
+                "hint": (
+                    f"Invalid: {_describe_validation_errors(exc)}. This usually means "
+                    "the project was saved by an older CapForge build. Change any "
+                    "style control in the app to re-mirror a valid config."
+                ),
+                "raw": str(exc),
+            },
+        ) from exc
     return config, render.get("custom_groups")
 
 
