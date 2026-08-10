@@ -97,7 +97,27 @@ def test_nan_null_numeric_field_returns_409_naming_the_field(client, main_module
     assert res.status_code == 409, f"expected 409, got {res.status_code}"
     detail = res.json()["detail"]
     assert "position_y" in detail["hint"], detail
-    assert "older CapForge build" in detail["hint"]
+    assert "set_style" in detail["hint"]
+
+
+def test_out_of_range_value_names_the_field_and_does_not_blame_the_mirror(
+    client, main_module
+):
+    """The other live failure: a value that is present but out of range.
+
+    `shadow_opacity` is a 0-1 fraction on the config but the UI's `bgOpacity`
+    next to it is 0-100, so an agent writing 90 by analogy lands here. The hint
+    must NOT tell the user to re-mirror: the bad value lives in the app's own
+    style, so touching an unrelated control faithfully reproduces it.
+    """
+    _mirror(main_module, {"shadow_opacity": 90})
+
+    res = _post_frame(client)
+
+    assert res.status_code == 409, f"expected 409, got {res.status_code}"
+    hint = res.json()["detail"]["hint"]
+    assert "shadow_opacity" in hint, hint
+    assert "re-mirroring reproduces it" in hint, hint
 
 
 def test_guard_does_not_swallow_the_missing_mirror_case(client, main_module):

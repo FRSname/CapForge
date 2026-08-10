@@ -11,6 +11,7 @@ import type { StudioSettings } from '../components/studio/StudioPanel'
 import type { ToastType } from '../hooks/useToast'
 import type { UserPreset } from '../hooks/useUserPresets'
 import { BUILTIN_PRESETS, applyPreset, type VanillaPreset } from './presets'
+import { isNumericSetting, sanitizeSettingValue } from './settingsSanitize'
 
 /** A preset matched by name, carrying its canonical (as-saved) spelling. */
 export interface ResolvedPreset {
@@ -53,7 +54,11 @@ export function resolvePreset(
  *
  * `set_settings` merges only keys that already exist on StudioSettings, so an
  * agent can't inject arbitrary fields and the allow-list stays in sync with the
- * interface automatically.
+ * interface automatically. Numeric keys additionally go through
+ * `sanitizeSettingValue` — an agent writing a value the backend's schema
+ * rejects (most often a 0–100 percentage into a 0–1 fraction field like
+ * `shadowOpacity`) would otherwise poison the mirrored render config and every
+ * later render with it.
  *
  * `userPresets` is optional so existing callers/tests that only care about
  * built-ins keep working; pass the live library to make user presets reachable.
@@ -68,10 +73,17 @@ export function applySettingsCommand(
     const next: StudioSettings = { ...settings }
     let changed = false
     for (const [key, value] of Object.entries(patch)) {
-      if (key in settings) {
+      if (!(key in settings)) continue
+      if (isNumericSetting(key)) {
+        // Unusable as a number (null, "abc", NaN) — drop the key so the current
+        // valid value survives instead of writing something unrenderable.
+        const clean = sanitizeSettingValue(key, value)
+        if (clean == null) continue
+        ;(next as unknown as Record<string, unknown>)[key] = clean
+      } else {
         ;(next as unknown as Record<string, unknown>)[key] = value
-        changed = true
       }
+      changed = true
     }
     return changed ? next : null
   }

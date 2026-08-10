@@ -252,6 +252,13 @@ def set_style(patch: dict) -> dict:
     `patch` uses camelCase StudioSettings keys (see `get_ui_state().settings`),
     e.g. {"fontSize": 84}, {"posY": 70}, {"textColor": "#FFFFFF"},
     {"wordStyle": "highlight"}, {"animationType": "pop"}. Unknown keys are ignored.
+
+    UNITS ARE NOT UNIFORM. `bgOpacity`, `maxWidth`, `posX`, `posY` and
+    `animDuration` are 0–100; `shadowOpacity`, `highlightOpacity` and
+    `bounceStrength` are 0–1 fractions. Read the current value from
+    `get_ui_state().settings` first and match its scale. Out-of-range numbers are
+    clamped by the app (a 0–1 field given 90 is read as 90%), so re-read the
+    state if the exact value matters.
     """
     _client.send_command("set_settings", {"patch": patch})
     return {"status": "ok"}

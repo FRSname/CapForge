@@ -1,5 +1,39 @@
 # Changelog
 
+## CapForge v2.5.0
+
+This release is mostly about trusting your edits. Correcting a word in the transcript, or rearranging caption groups by hand, used to quietly undo work elsewhere — that whole class of desync is gone. Plus per-word background boxes, and the agent tooling needed to run a batch end to end.
+
+### New Features
+
+**Per-word background boxes**
+The Background card's box can now be scoped to a single word. The per-word style popup gained a "Word background" section with its own enable toggle: switch it on for a word and it gets its own box, while colour, radius, padding and opacity you don't touch keep inheriting the global Background settings. Boxes sit under the highlight pill and hug scaled words, and render identically in the live preview, the classic export and the HyperFrames engine.
+
+**Agent batch control**
+A connected Claude agent can now drive a full batch: load a video into the open app, clean up the transcript, apply one of *your* saved presets, and render the deliverable — new `load_video`, `list_presets` and classic `render` tools. Presets resolve against your own library first and built-ins second, and applying one waits for the app to confirm which preset actually landed, so a batch run can't render the next video with the previous one's style. The classic render tool has no approval gate, which is what makes unattended runs possible.
+
+### Fixes
+
+**Correcting a word no longer desyncs the rest of the caption**
+Adding a word, or splitting one in two, used to shift the timing of every later word in the segment. Word timings are now reconciled by matching text rather than by position: words you didn't touch keep their exact original timing and their per-word styling, and only the run you edited is re-timed, inside its own span. An inserted word takes the silence between its neighbours when there is any, otherwise it borrows from the end of the word before it — at most one neighbour ever moves.
+
+**Custom groups survive edits to the transcript**
+Manually arranged caption groups — a word dragged into a non-adjacent group, a reordered group, a merge or a split — were thrown away the moment anything changed in the source transcript, most visibly as "Fill gaps resets my custom groups". Groups are now tracked by word identity instead of by position, so your arrangement survives, and a group you haven't touched keeps its exact start and end — which is what preserves a manual timeline drag and the baked "Fill gaps" end time.
+
+**An agent setting shadow opacity could break every later render**
+The style settings don't all share one scale — background opacity is a percentage, shadow and highlight opacity are fractions. An agent that set shadow opacity to 90 by analogy with the background left the project in a state the renderer refuses, and because the bad value was saved into the preset, re-applying it or nudging another control reproduced it. Out-of-range values are now repaired wherever style comes in from outside the app's own controls — agent commands, presets, and opened projects — and a value written on the wrong scale is read as the percentage it obviously was. Renders that fail validation anyway now say which field is wrong and what to do about it, instead of suggesting a refresh that can't help.
+
+**Merging two words could drop a caption early**
+After merging words, a group could keep timing bounds from before the edit and disappear before its own last word had finished. Manual timing is now only restored when the group's words are genuinely unchanged.
+
+### Internal
+
+**Per-word background pinned by parity tests**
+The new word box is covered by a golden frame plus a five-scenario cross-renderer parity run — stacking under the highlight pill, inheritance from a non-default global background, scaled words, and second-row placement — each verified by deliberately breaking the implementation to confirm the test catches it.
+
+**Source files readable in diffs again**
+Two internal sentinel values were written as literal NUL bytes, which made git classify `wordTiming.ts` and `wordIds.ts` as binary and suppress their diffs and blame. Same runtime behaviour, now written as escape sequences.
+
 ## CapForge v2.4.0
 
 ### New Features

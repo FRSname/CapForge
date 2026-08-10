@@ -38,6 +38,44 @@ describe('applySettingsCommand', () => {
     ).toBeNull()
   })
 
+  it('rescales a percentage an agent wrote into a 0-1 fraction field', () => {
+    // StudioSettings mixes units: the agent reads bgOpacity as 0-100 and
+    // writes shadowOpacity the same way. Unguarded, 90 reaches the backend
+    // verbatim and Pydantic rejects it (le=1.0) — the render just fails.
+    const next = applySettingsCommand(STUDIO_DEFAULTS, {
+      op: 'set_settings',
+      payload: { patch: { shadowOpacity: 90 } },
+    })
+    expect(next?.shadowOpacity).toBe(0.9)
+  })
+
+  it('keeps percentage-unit fields on their own scale', () => {
+    const next = applySettingsCommand(STUDIO_DEFAULTS, {
+      op: 'set_settings',
+      payload: { patch: { bgOpacity: 90, posY: 70 } },
+    })
+    expect(next?.bgOpacity).toBe(90)
+    expect(next?.posY).toBe(70)
+  })
+
+  it('drops a numeric key whose value is not a number, keeping the current one', () => {
+    const next = applySettingsCommand(STUDIO_DEFAULTS, {
+      op: 'set_settings',
+      payload: { patch: { fontSize: 'big', textColor: '#00FF00' } },
+    })
+    expect(next?.fontSize).toBe(STUDIO_DEFAULTS.fontSize)
+    expect(next?.textColor).toBe('#00FF00')
+  })
+
+  it('returns null when the only known key had an unusable value', () => {
+    expect(
+      applySettingsCommand(STUDIO_DEFAULTS, {
+        op: 'set_settings',
+        payload: { patch: { fontSize: null } },
+      })
+    ).toBeNull()
+  })
+
   it('does not mutate the input settings', () => {
     const before = STUDIO_DEFAULTS.fontSize
     applySettingsCommand(STUDIO_DEFAULTS, {

@@ -8,6 +8,7 @@
 
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
+import { sanitizeSettings } from './settingsSanitize'
 
 // Vanilla preset shape — fields are strings/booleans as stored on disk.
 // Presets are STYLE-ONLY: render/export settings (resolution/fps/format/
@@ -446,8 +447,13 @@ export const BUILTIN_PRESETS: BuiltinPreset[] = [
  * from the current session — even when a legacy preset carries them — so
  * loading a preset never clobbers the auto-detected source resolution.
  * Style keys the preset doesn't specify are also left untouched (sparse apply).
+ *
+ * The result is range-sanitized: a preset is external data (saved by an older
+ * build, written by an agent that got a unit wrong, or imported from someone
+ * else's `.cfpreset`), and an out-of-range value in it would otherwise be
+ * faithfully reproduced on every apply and rejected by the backend at render.
  */
 export function applyPreset(current: StudioSettings, preset: VanillaPreset): StudioSettings {
   const patch = vanillaToStudio(preset)
-  return { ...current, ...patch }
+  return sanitizeSettings({ ...current, ...patch })
 }

@@ -4,6 +4,7 @@ import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from './lib/proje
 import { api, type VideoInfo } from './lib/api'
 import { builtinPresetNames } from './lib/agentCommands'
 import { buildRenderBody } from './lib/render'
+import { sanitizeSettings } from './lib/settingsSanitize'
 import { TitleBar } from './components/TitleBar/TitleBar'
 import { DropZoneScreen } from './components/screens/DropZoneScreen'
 import { ProgressScreen } from './components/screens/ProgressScreen'
@@ -292,8 +293,10 @@ export function App() {
     setResultsSessionId((n) => n + 1)
     // Merge over defaults: a project saved by an older build has no value for
     // fields added since, and buildRenderBody() divides some of them — which
-    // yields NaN → JSON null → a 422 from the backend at render time.
-    setSettings({ ...STUDIO_DEFAULTS, ...file.studioSettings })
+    // yields NaN → JSON null → a 422 from the backend at render time. Sanitize
+    // for the mirror image of that: a value that IS present but out of the
+    // backend's range (e.g. a shadowOpacity of 90 saved before this guard).
+    setSettings(sanitizeSettings({ ...STUDIO_DEFAULTS, ...file.studioSettings }))
     // A restored project's style came from the file, not from a preset.
     setAppliedPreset(null)
     setScreen('results')

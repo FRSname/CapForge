@@ -308,6 +308,23 @@ describe('applyPreset', () => {
     expect(next.fps).toBe(60)
   })
 
+  test('repairs an out-of-range value already saved in the preset', () => {
+    // A preset saved while the style held shadowOpacity: 90 (see the
+    // set_settings unit trap) would otherwise reproduce the bad value on every
+    // apply — which is why "change a control to re-mirror" never fixed it.
+    const next = applyPreset(STUDIO_DEFAULTS, { shadowOpacity: '90', textColor: '#123456' })
+
+    expect(next.shadowOpacity).toBe(0.9)
+    expect(next.textColor).toBe('#123456')
+  })
+
+  test('does not rescale a preset field that is legitimately 0-100', () => {
+    const next = applyPreset(STUDIO_DEFAULTS, { bgOpacity: '90', posY: '88' })
+
+    expect(next.bgOpacity).toBe(90)
+    expect(next.posY).toBe(88)
+  })
+
   test('every built-in preset applies onto defaults without breaking the shape', () => {
     for (const preset of BUILTIN_PRESETS) {
       const next = applyPreset(STUDIO_DEFAULTS, preset.settings)

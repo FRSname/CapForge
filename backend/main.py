@@ -798,9 +798,12 @@ def _agent_frame_inputs() -> tuple[VideoRenderConfig, Optional[list]]:
             detail={
                 "title": "The mirrored render config is not valid",
                 "hint": (
-                    f"Invalid: {_describe_validation_errors(exc)}. This usually means "
-                    "the project was saved by an older CapForge build. Change any "
-                    "style control in the app to re-mirror a valid config."
+                    f"Invalid: {_describe_validation_errors(exc)}. The bad value is "
+                    "in the app's current style, so re-mirroring reproduces it — set "
+                    "the named field explicitly (set_style) or apply a different "
+                    "preset. Watch the units: bg_opacity/max_width/position_* are "
+                    "0-1 in this config but 0-100 in the UI's settings, while "
+                    "shadow_opacity/highlight_opacity are 0-1 in both."
                 ),
                 "raw": str(exc),
             },
