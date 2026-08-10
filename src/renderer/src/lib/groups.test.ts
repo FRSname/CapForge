@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import {
   buildStudioGroups,
+  closeGroupGaps,
   fillGroupGaps,
   mergeGroups,
   splitGroup,
@@ -187,6 +188,292 @@ describe('fillGroupGaps', () => {
   })
 })
 
+// ── closeGroupGaps ─────────────────────────────────────────────────
+//
+// The derived pass: close only *short* gaps (so real pauses still clear the
+// screen), never bridge a speaker change, never touch a group whose end the
+// user placed by hand, and hold the very last caption past its final word.
+
+describe('closeGroupGaps', () => {
+  /** One group, one word spanning its full bounds. */
+  const grp = (id: string, start: number, end: number, extra: Partial<Segment> = {}): Segment => ({
+    id,
+    start,
+    end,
+    text: id,
+    words: [word(id, start, end)],
+    ...extra,
+  })
+
+  test('closes a gap at or below the threshold', () => {
+    // Arrange — a 0.09 s gap, well inside the 0.25 s threshold.
+    const groups = [grp('a', 1.8, 2.31), grp('b', 2.4, 3.0)]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(2.4)
+  })
+
+  test('leaves a gap longer than the threshold alone', () => {
+    // Arrange — a 0.55 s pause the viewer should see as a break.
+    const groups = [grp('a', 1.8, 2.31), grp('b', 2.86, 3.4)]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(2.31)
+  })
+
+  test('closes a gap exactly equal to the threshold (inclusive boundary)', () => {
+    // Arrange — gap is exactly 0.25 s.
+    const groups = [grp('a', 0, 1), grp('b', 1.25, 2)]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(1.25)
+  })
+
+  test('is idempotent for gap closing (deliberately excludes the tail hold)', () => {
+    // Arrange — the tail hold is NOT idempotent by design, so it is off here.
+    const groups = [grp('a', 0, 1), grp('b', 1.1, 2), grp('c', 2.9, 3.5)]
+
+    // Act
+    const once = closeGroupGaps(groups, 0.25, 0)
+    const twice = closeGroupGaps(once, 0.25, 0)
+
+    // Assert
+    expect(twice).toEqual(once)
+  })
+
+  test('never bridges a speaker change', () => {
+    // Arrange — a 0.02 s gap, but a different speaker on each side.
+    const groups = [
+      grp('a', 0, 1, { speaker: 'SPEAKER_00' }),
+      grp('b', 1.02, 2, { speaker: 'SPEAKER_01' }),
+    ]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(1)
+  })
+
+  test('closes a short gap between two groups of the same speaker', () => {
+    // Arrange — same 0.02 s gap, same speaker.
+    const groups = [
+      grp('a', 0, 1, { speaker: 'SPEAKER_00' }),
+      grp('b', 1.02, 2, { speaker: 'SPEAKER_00' }),
+    ]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(1.02)
+  })
+
+  test('never changes group count, text, start times, words or overrides', () => {
+    // Arrange — two segments 0.1 s apart, so the cross-segment boundary carries
+    // a genuine sub-threshold gap and the rewriting branch is actually taken.
+    // (Groups derived from one segment abut exactly, which would make this a
+    // no-op test.)
+    const groups = buildStudioGroups([makeSegment('s1'), makeSegment('s2', 3.1)], 2).map((g, i) =>
+      i === 1
+        ? {
+            ...g,
+            positionOverride: { position_x: 0.25 },
+            words: g.words.map((w, j) => (j === 0 ? { ...w, overrides: { bold: true } } : w)),
+          }
+        : g
+    )
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 1.0)
+
+    // Assert — the pass really did move ends (guards the fixture itself)…
+    expect(closed[2].end).toBe(3.1)
+    expect(closed[closed.length - 1].end).toBe(groups[groups.length - 1].end + 1.0)
+    // …while leaving everything except `end` alone.
+    expect(closed).toHaveLength(groups.length)
+    expect(closed.map((g) => g.text)).toEqual(groups.map((g) => g.text))
+    expect(closed.map((g) => g.start)).toEqual(groups.map((g) => g.start))
+    expect(closed.map((g) => g.words)).toEqual(groups.map((g) => g.words))
+    expect(closed[1].positionOverride).toEqual({ position_x: 0.25 })
+    expect(closed[1].words[0].overrides).toEqual({ bold: true })
+  })
+
+  test('holds the final group for lastGroupHold past its original end', () => {
+    // Arrange
+    const groups = [grp('a', 0, 1), grp('b', 1.1, 2)]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 1.0)
+
+    // Assert
+    expect(closed[1].end).toBe(3)
+  })
+
+  test('does not hold the final group when lastGroupHold is 0', () => {
+    // Arrange
+    const groups = [grp('a', 0, 1), grp('b', 1.1, 2)]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[1].end).toBe(2)
+  })
+
+  test('does not apply the hold to any group but the last', () => {
+    // Arrange — a long gap so nothing is closed either.
+    const groups = [grp('a', 0, 1), grp('b', 5, 6), grp('c', 9, 10)]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 1.0)
+
+    // Assert
+    expect(closed.map((g) => g.end)).toEqual([1, 6, 11])
+  })
+
+  test('leaves a boundary alone when a word timing is not finite', () => {
+    // Arrange — a 0.1 s gap, but the first group's last word has no end.
+    const groups: Segment[] = [
+      { id: 'a', start: 0, end: 1, text: 'a', words: [word('a', 0, NaN)] },
+      grp('b', 1.1, 2),
+    ]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(1)
+  })
+
+  test("leaves a boundary alone when the *next* group's first word start is not finite", () => {
+    // Arrange — same 0.1 s gap, but this time it is `b`'s side of the boundary
+    // that has no timing. Guard 06 checks both words, not just `a`'s.
+    const groups: Segment[] = [
+      grp('a', 0, 1),
+      { id: 'b', start: 1.1, end: 2, text: 'b', words: [word('b', NaN, 2)] },
+    ]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(1)
+  })
+
+  test('skips a malformed group with no words array instead of throwing', () => {
+    // Arrange — an old project file whose group lost its `words`. The cast is
+    // the point: TypeScript says this cannot happen, the data says otherwise.
+    const groups = [
+      { id: 'a', start: 0, end: 1, text: 'a' } as unknown as Segment,
+      grp('b', 1.1, 2),
+    ]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(1)
+    expect(closed[1].end).toBe(2)
+  })
+
+  test('never shortens an end when groups overlap', () => {
+    // Arrange — a negative gap (out-of-order/overlapping groups).
+    const groups = [grp('a', 0, 5), grp('b', 3, 6)]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(5)
+  })
+
+  test('threshold 0 disables closing but still applies the hold', () => {
+    // Arrange — the two dials are independent.
+    const groups = [grp('a', 0, 1), grp('b', 1.1, 2)]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0, 1.0)
+
+    // Assert
+    expect(closed[0].end).toBe(1)
+    expect(closed[1].end).toBe(3)
+  })
+
+  test('never extends a group whose end was edited by hand', () => {
+    // Arrange — a 0.1 s gap the user deliberately carved out.
+    const groups = [grp('a', 0, 1, { endEdited: true }), grp('b', 1.1, 2)]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(1)
+  })
+
+  test('still closes the gap into an endEdited group (the flag exempts a, not b)', () => {
+    // Arrange — only the *second* group carries a hand-placed end.
+    const groups = [grp('a', 0, 1), grp('b', 1.1, 2, { endEdited: true })]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 0)
+
+    // Assert
+    expect(closed[0].end).toBe(1.1)
+  })
+
+  test('does not hold the final group when its end was edited by hand', () => {
+    // Arrange
+    const groups = [grp('a', 0, 1), grp('b', 1.1, 2, { endEdited: true })]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 1.0)
+
+    // Assert
+    expect(closed[1].end).toBe(2)
+  })
+
+  test('preserves endEdited on every returned group', () => {
+    // Arrange
+    const groups = [
+      grp('a', 0, 1, { endEdited: true }),
+      grp('b', 1.1, 2),
+      grp('c', 2.05, 3, { endEdited: true }),
+    ]
+
+    // Act
+    const closed = closeGroupGaps(groups, 0.25, 1.0)
+
+    // Assert
+    expect(closed.map((g) => g.endEdited)).toEqual([true, undefined, true])
+  })
+
+  test('returns an empty array for an empty input', () => {
+    expect(closeGroupGaps([], 0.25, 1.0)).toEqual([])
+  })
+
+  test('does not mutate the input array or its group objects', () => {
+    // Arrange
+    const groups = [grp('a', 0, 1), grp('b', 1.1, 2)]
+    const before = JSON.parse(JSON.stringify(groups))
+
+    // Act
+    closeGroupGaps(groups, 0.25, 1.0)
+
+    // Assert
+    expect(groups).toEqual(before)
+  })
+})
+
 // ── mergeGroups ──────────────────────────────────────────────────
 
 describe('mergeGroups', () => {
@@ -212,6 +499,20 @@ describe('mergeGroups', () => {
     const before = JSON.parse(JSON.stringify(groups))
     mergeGroups(groups, 0)
     expect(groups).toEqual(before)
+  })
+
+  test('drops endEdited because the merged bounds come from its words', () => {
+    // Arrange — both halves claim a hand-placed end.
+    const groups = buildStudioGroups([makeSegment('s1')], 3).map((g) => ({
+      ...g,
+      endEdited: true,
+    }))
+
+    // Act
+    const merged = mergeGroups(groups, 0)
+
+    // Assert
+    expect(merged[0].endEdited).toBeUndefined()
   })
 })
 
@@ -243,6 +544,21 @@ describe('splitGroup', () => {
     const split = splitGroup(buildStudioGroups([seg], 6), 0, 3)
     expect(split[0].words[0].overrides).toEqual({ bold: true })
     expect(split[1].words[2].overrides).toEqual({ text_color: '#00FF00' })
+  })
+
+  test('drops endEdited on both halves because their bounds come from words', () => {
+    // Arrange
+    const groups = buildStudioGroups([makeSegment('s1')], 6).map((g) => ({
+      ...g,
+      endEdited: true,
+    }))
+
+    // Act
+    const split = splitGroup(groups, 0, 3)
+
+    // Assert
+    expect(split[0].endEdited).toBeUndefined()
+    expect(split[1].endEdited).toBeUndefined()
   })
 })
 
@@ -278,6 +594,37 @@ describe('moveWord', () => {
     expect(moveWord(groups, 0, 0, 0)).toBe(groups)
     expect(moveWord(groups, 0, 99, 1)).toBe(groups)
     expect(moveWord(groups, 99, 0, 0)).toBe(groups)
+  })
+
+  test('clears endEdited on both groups whose bounds were recomputed', () => {
+    // Arrange — moveWord spreads the old group objects, so the flag would
+    // otherwise survive a membership change (finalizeBounds must clear it).
+    const groups = buildStudioGroups([makeSegment('s1')], 3).map((g) => ({
+      ...g,
+      endEdited: true,
+    }))
+
+    // Act — move "brown" from the first group into the second.
+    const next = moveWord(groups, 0, 2, 1)
+
+    // Assert
+    expect(next[0].endEdited).toBeUndefined()
+    expect(next[1].endEdited).toBeUndefined()
+  })
+
+  test('clears endEdited on the surviving group when the source empties out', () => {
+    // Arrange — [the quick brown][fox][jumps over], every group hand-ended.
+    const groups = splitGroup(buildStudioGroups([makeSegment('s1')], 3), 1, 1).map((g) => ({
+      ...g,
+      endEdited: true,
+    }))
+
+    // Act — the lone word in group 1 moves out, so group 1 disappears.
+    const next = moveWord(groups, 1, 0, 2)
+
+    // Assert
+    expect(next).toHaveLength(2)
+    expect(next[1].endEdited).toBeUndefined()
   })
 })
 
@@ -404,6 +751,30 @@ describe('restoreManualGroupState', () => {
     const rebuilt = buildStudioGroups([sixWords()], 3)
     expect(restoreManualGroupState(rebuilt, [])).toEqual(rebuilt)
   })
+
+  test('carries endEdited only when the chunk words are byte-identical', () => {
+    // Arrange — a saved group with a hand-placed end.
+    const seg = sixWords()
+    const previous = buildStudioGroups([seg], 3).map((g, i) =>
+      i === 0 ? { ...g, end: 2.9, endEdited: true } : g
+    )
+    // The same segment re-chunked after merging "b"+"c" — group s0:0 now holds
+    // different words, so the timing claim no longer describes it.
+    const merged: Segment = {
+      ...seg,
+      text: 'a bc d e f',
+      words: [word('a', 0, 0.5), word('bc', 1, 2.5), ...seg.words.slice(3)],
+    }
+
+    // Act
+    const unchanged = restoreManualGroupState(buildStudioGroups([seg], 3), previous)
+    const changed = restoreManualGroupState(buildStudioGroups([merged], 3), previous)
+
+    // Assert
+    expect(unchanged[0].endEdited).toBe(true)
+    expect(unchanged[0].end).toBe(2.9)
+    expect(changed[0].endEdited).toBeUndefined()
+  })
 })
 
 // ── reconcileGroups ──────────────────────────────────────────────
@@ -514,6 +885,36 @@ describe('reconcileGroups', () => {
     const after = reconcileGroups(previous, [deleteWord(seg, 3)], 2)
     expect(after[1].words.map((w) => w.word)).toEqual(['brown'])
     expect(after[1].end).toBe(seg.words[2].end)
+  })
+
+  test('keeps endEdited when the word set is unchanged', () => {
+    // Arrange — group 0 has a hand-placed end; the edit lands in group 2.
+    const seg = idSegment()
+    const previous = buildStudioGroups([seg], 2).map((g, i) =>
+      i === 0 ? { ...g, end: 9, endEdited: true } : g
+    )
+
+    // Act
+    const after = reconcileGroups(previous, [editText(seg, 5, 'Over,')], 2)
+
+    // Assert
+    expect(after[0].endEdited).toBe(true)
+    expect(after[0].end).toBe(9)
+  })
+
+  test('clears endEdited when the word set changed', () => {
+    // Arrange — group 1 has a hand-placed end and is about to lose a word.
+    const seg = idSegment()
+    const previous = buildStudioGroups([seg], 2).map((g, i) =>
+      i === 1 ? { ...g, end: 99, endEdited: true } : g
+    )
+
+    // Act — delete "fox", so group 1 becomes ["brown"] and bounds recompute.
+    const after = reconcileGroups(previous, [deleteWord(seg, 3)], 2)
+
+    // Assert
+    expect(after[1].words.map((w) => w.word)).toEqual(['brown'])
+    expect(after[1].endEdited).toBeUndefined()
   })
 
   test('per-word overrides and per-group position overrides survive', () => {

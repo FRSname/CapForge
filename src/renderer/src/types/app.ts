@@ -92,6 +92,12 @@ export interface Segment {
   /** Group-only: set when the user pins this group's caption position away
    *  from the global StudioSettings position. Never set on source segments. */
   positionOverride?: GroupPositionOverride
+  /** Group-only: set when the user placed this group's `end` by hand (timeline
+   *  right-edge/body drag, or the Groups editor's end-time field). Exempts the
+   *  group from automatic gap closing and from the final-group hold, so a
+   *  deliberately carved-out gap survives. Cleared whenever the group's bounds are
+   *  recomputed from its words. Never set on source segments. */
+  endEdited?: boolean
 }
 
 /** Top-level transcription result from the backend. */
