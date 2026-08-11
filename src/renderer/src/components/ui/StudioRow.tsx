@@ -11,6 +11,40 @@ interface StudioRowProps {
   onChange: (value: number) => void
   /** Tooltip for the label — for settings whose terse label needs a sentence. */
   title?: string
+  /**
+   * The highest value this setting may ever hold, in this row's own units —
+   * NOT the slider's visual range. `max` bounds the drag; `commitMax` bounds
+   * what may be *stored*, and the two are deliberately allowed to differ.
+   *
+   * OPT-IN, default absent: for most rows the slider max is only a
+   * *recommended* range and typing a bigger number is a deliberate escape
+   * hatch (posX/posY past the frame, an oversized maxWidth, …), so with this
+   * prop omitted a typed value is clamped to `min` only, exactly as before.
+   *
+   * Set it on rows whose setting has a hard backend limit — a
+   * `Field(..., le=…)` on `VideoRenderConfig` — so a typed-in value can't store
+   * a config Pydantic will reject at render time (422 on /api/render-video).
+   * UI writes do not pass through `sanitizeSettings`, so this row is the only
+   * guard on that path. Express the bound in the row's units (a row that shows
+   * a 0–1 fraction as a percentage passes 100, not 1) and keep it in step with
+   * the schema, the same mirroring contract `lib/settingsSanitize.ts` documents.
+   */
+  commitMax?: number
+}
+
+/**
+ * The value a manual (typed) edit should commit, or `null` when the draft isn't
+ * a usable number and the edit must be dropped.
+ *
+ * Extracted as a pure function because the frontend test environment is `node`,
+ * not jsdom — there are no DOM events to simulate a blur/Enter with, so this is
+ * where the clamp contract is actually pinned.
+ */
+export function clampCommittedValue(raw: number, min: number, commitMax?: number): number | null {
+  if (!Number.isFinite(raw)) return null
+  const lowered = Math.max(min, raw)
+  if (commitMax == null || !Number.isFinite(commitMax)) return lowered
+  return Math.min(commitMax, lowered)
 }
 
 export function StudioRow({
@@ -23,6 +57,7 @@ export function StudioRow({
   def,
   onChange,
   title,
+  commitMax,
 }: StudioRowProps) {
   const value = Number.isFinite(rawValue) ? rawValue : def
   const display = step < 1 ? value.toFixed(2).replace(/\.?0+$/, '') : String(Math.round(value))
@@ -40,9 +75,12 @@ export function StudioRow({
   function commitEdit() {
     setEditing(false)
     const n = Number(draft)
-    if (!Number.isFinite(n)) return
-    // Only clamp to min — allow values above slider max for manual override
-    onChange(Math.max(min, step < 1 ? n : Math.round(n)))
+    // Always clamp to min; apply an upper bound only when the caller declared
+    // one (see `commitMax` above — the default keeps the over-max manual
+    // override, and the slider's `max` never limits a typed value).
+    const next = clampCommittedValue(step < 1 ? n : Math.round(n), min, commitMax)
+    if (next == null) return
+    onChange(next)
   }
 
   return (

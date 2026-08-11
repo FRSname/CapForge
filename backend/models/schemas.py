@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -175,6 +175,19 @@ class VideoRenderConfig(BaseModel):
     animation_duration: float = Field(0.12, ge=0.0, description="Animation in/out duration in seconds")
     word_transition: str = Field("instant", description="Word highlight style: instant, crossfade, highlight, underline, bounce, scale, karaoke, reveal, none")
     crossfade_duration: float = Field(0.06, ge=0.0, description="Crossfade ramp seconds (shared by Canvas/Pillow/HTML renderers; mirrors renderConstants.CROSSFADE_DUR)")
+    # RSVP ("speed reading") options. reading_mode is a LAYOUT axis orthogonal to
+    # word_transition: 'rsvp' replaces wrapping with one unwrapped line that slides
+    # so each word's Optimal Recognition Point sits on a fixed pivot column. While
+    # it is active `lines` is forced to 1, text_align_h/v no longer position the
+    # line (the pivot does) and word_transition is unused (RSVP owns word
+    # colouring); the group entry/exit `animation` still applies.
+    reading_mode: Literal["wrap", "rsvp"] = Field("wrap", description="Caption layout mode: 'wrap' (rows of wrapped words) or 'rsvp' (single sliding line, ORP pinned to a pivot column)")
+    rsvp_pivot_x: float = Field(0.35, ge=0.0, le=1.0, description="RSVP pivot/focus column as a fraction of the caption band width (0=left, 1=right)")
+    rsvp_focus_color: str = Field("#E4851F", description="RSVP focus-glyph color (hex) — the one letter pinned to the pivot column")
+    rsvp_context_opacity: float = Field(0.75, ge=0.0, le=1.0, description="Opacity of the non-active (context) words in the RSVP line")
+    rsvp_slide_duration: float = Field(0.06, ge=0.0, le=1.0, description="RSVP line slide duration in SECONDS (eased with power1.out at each word boundary)")
+    rsvp_edge_fade: float = Field(0.12, ge=0.0, le=0.5, description="RSVP edge fade width as a fraction of the caption band width, applied at both ends")
+    rsvp_reticle: bool = Field(True, description="Draw the RSVP reticle (rule + notch above and below the line) at the pivot column")
     # Highlight options
     highlight_radius: int = Field(16, ge=0, description="Corner radius of the highlight pill")
     highlight_padding_x: int = Field(6, ge=0, description="Horizontal padding around the highlight box")

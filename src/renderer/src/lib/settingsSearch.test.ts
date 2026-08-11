@@ -77,6 +77,23 @@ describe('filterSettings', () => {
     expect(result!.matchedLabels.has('Hold last')).toBe(true)
   })
 
+  test('keyword "spritz" surfaces the whole Reading card', () => {
+    const result = filterSettings('spritz')
+
+    expect(result).not.toBeNull()
+    expect(result!.matchedCards.has('reading')).toBe(true)
+    expect(result!.matchedLabels.has('Reading mode')).toBe(true)
+    expect(result!.matchedLabels.has('Focus column')).toBe(true)
+  })
+
+  test('keyword "orp" surfaces the focus rows in Reading', () => {
+    const result = filterSettings('orp')
+
+    expect(result).not.toBeNull()
+    expect(result!.matchedLabels.has('Focus column')).toBe(true)
+    expect(result!.matchedLabels.has('Focus color')).toBe(true)
+  })
+
   test('keyword "tiktok" surfaces the Safe zones row in Layout', () => {
     const result = filterSettings('tiktok')
 

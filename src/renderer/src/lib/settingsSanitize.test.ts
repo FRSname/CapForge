@@ -1,9 +1,12 @@
 import { describe, it, expect } from 'vitest'
-import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
+import { STUDIO_DEFAULTS, type StudioSettings } from '../components/studio/StudioPanel'
 import { buildRenderBody } from './render'
 import {
   NUMERIC_SETTING_SPECS,
+  coerceNonNumericSettingValue,
   isNumericSetting,
+  isSanitizedNonNumericSetting,
+  sanitizeNonNumericSettingValue,
   sanitizeSettingValue,
   sanitizeSettings,
 } from './settingsSanitize'
@@ -84,6 +87,106 @@ describe('sanitizeSettingValue', () => {
   })
 })
 
+describe('sanitizeSettingValue — RSVP dials', () => {
+  it('reads a percentage written into rsvpContextOpacity as a percentage', () => {
+    // Same mistake as shadowOpacity: the field is a 0-1 fraction, so an agent
+    // (or an old preset) writing 90 means 90%.
+    expect(sanitizeSettingValue('rsvpContextOpacity', 90)).toBe(0.9)
+    expect(sanitizeSettingValue('rsvpContextOpacity', 0.75)).toBe(0.75)
+    expect(sanitizeSettingValue('rsvpContextOpacity', 400)).toBe(1)
+    expect(sanitizeSettingValue('rsvpContextOpacity', -1)).toBe(0)
+  })
+
+  it('leaves rsvpSlideDuration unscaled — it is seconds, not a fraction', () => {
+    // The regression a `fraction: true` spec would cause: the heuristic fires
+    // above 1, so a 1.5s slide would be re-read as 0.015s (1 itself is safe).
+    expect(sanitizeSettingValue('rsvpSlideDuration', 1)).toBe(1)
+    expect(sanitizeSettingValue('rsvpSlideDuration', 0.06)).toBe(0.06)
+    expect(sanitizeSettingValue('rsvpSlideDuration', 0)).toBe(0)
+    // ...and out-of-range values are clamped to the backend Field bound (le=1),
+    // never rescaled — 1.5 becomes 1, not 0.015.
+    expect(sanitizeSettingValue('rsvpSlideDuration', 1.5)).toBe(1)
+    expect(sanitizeSettingValue('rsvpSlideDuration', 4)).toBe(1)
+  })
+
+  it('keeps the band percentages on the 0-100 scale', () => {
+    expect(sanitizeSettingValue('rsvpPivotX', 35)).toBe(35)
+    expect(sanitizeSettingValue('rsvpPivotX', 140)).toBe(100)
+    expect(sanitizeSettingValue('rsvpEdgeFade', 12)).toBe(12)
+    // rsvp_edge_fade is Field(..., le=0.5) once pct()'d, so 50 is the UI max.
+    expect(sanitizeSettingValue('rsvpEdgeFade', 90)).toBe(50)
+  })
+})
+
+describe('sanitizeNonNumericSettingValue', () => {
+  it('falls back to wrap for an unknown readingMode', () => {
+    // An unknown mode would be rejected by the backend Literal at render time.
+    expect(sanitizeNonNumericSettingValue('readingMode', 'turbo')).toBe('wrap')
+    expect(sanitizeNonNumericSettingValue('readingMode', 42)).toBe('wrap')
+    expect(sanitizeNonNumericSettingValue('readingMode', null)).toBe('wrap')
+  })
+
+  it('accepts both readingMode values, case/whitespace tolerantly', () => {
+    expect(sanitizeNonNumericSettingValue('readingMode', 'rsvp')).toBe('rsvp')
+    expect(sanitizeNonNumericSettingValue('readingMode', ' RSVP ')).toBe('rsvp')
+    expect(sanitizeNonNumericSettingValue('readingMode', 'wrap')).toBe('wrap')
+  })
+
+  it('falls back to the default focus color for a malformed hex', () => {
+    expect(sanitizeNonNumericSettingValue('rsvpFocusColor', 'orange')).toBe('#E4851F')
+    expect(sanitizeNonNumericSettingValue('rsvpFocusColor', '#12345')).toBe('#E4851F')
+    expect(sanitizeNonNumericSettingValue('rsvpFocusColor', '')).toBe('#E4851F')
+    expect(sanitizeNonNumericSettingValue('rsvpFocusColor', '#0af')).toBe('#0af')
+    expect(sanitizeNonNumericSettingValue('rsvpFocusColor', '#123456')).toBe('#123456')
+  })
+
+  it('coerces rsvpReticle to a real boolean', () => {
+    expect(sanitizeNonNumericSettingValue('rsvpReticle', false)).toBe(false)
+    expect(sanitizeNonNumericSettingValue('rsvpReticle', 'false')).toBe(false)
+    expect(sanitizeNonNumericSettingValue('rsvpReticle', 'true')).toBe(true)
+    expect(sanitizeNonNumericSettingValue('rsvpReticle', 'maybe')).toBe(true)
+  })
+
+  it('returns undefined for keys it does not repair', () => {
+    // The pre-existing colour/enum settings deliberately still pass through.
+    expect(sanitizeNonNumericSettingValue('textColor', 'nonsense')).toBeUndefined()
+    expect(sanitizeNonNumericSettingValue('textAlignH', 'sideways')).toBeUndefined()
+  })
+})
+
+describe('coerceNonNumericSettingValue', () => {
+  it('returns undefined instead of a default for an invalid value', () => {
+    // The live-patch reading: applySettingsCommand skips the key so the user's
+    // current value survives, rather than being reset by an agent's typo.
+    expect(coerceNonNumericSettingValue('readingMode', 'turbo')).toBeUndefined()
+    expect(coerceNonNumericSettingValue('readingMode', null)).toBeUndefined()
+    expect(coerceNonNumericSettingValue('rsvpFocusColor', 'orange')).toBeUndefined()
+    expect(coerceNonNumericSettingValue('rsvpReticle', 'maybe')).toBeUndefined()
+  })
+
+  it('coerces a valid value exactly as the repairing sanitizer does', () => {
+    expect(coerceNonNumericSettingValue('readingMode', ' RSVP ')).toBe('rsvp')
+    expect(coerceNonNumericSettingValue('rsvpFocusColor', '#0af')).toBe('#0af')
+    expect(coerceNonNumericSettingValue('rsvpReticle', 'false')).toBe(false)
+    expect(coerceNonNumericSettingValue('rsvpReticle', true)).toBe(true)
+  })
+
+  it('returns undefined for keys it does not know', () => {
+    expect(coerceNonNumericSettingValue('textColor', '#123456')).toBeUndefined()
+  })
+})
+
+describe('isSanitizedNonNumericSetting', () => {
+  it('names exactly the RSVP non-numeric fields', () => {
+    expect(isSanitizedNonNumericSetting('readingMode')).toBe(true)
+    expect(isSanitizedNonNumericSetting('rsvpFocusColor')).toBe(true)
+    expect(isSanitizedNonNumericSetting('rsvpReticle')).toBe(true)
+    expect(isSanitizedNonNumericSetting('textColor')).toBe(false)
+    expect(isSanitizedNonNumericSetting('rsvpPivotX')).toBe(false)
+    expect(isSanitizedNonNumericSetting('nonsense')).toBe(false)
+  })
+})
+
 describe('isNumericSetting', () => {
   it('agrees with the spec table', () => {
     expect(isNumericSetting('shadowOpacity')).toBe(true)
@@ -112,6 +215,62 @@ describe('sanitizeSettings', () => {
     expect(dirty.shadowOpacity).toBe(90)
   })
 
+  it('repairs the non-numeric RSVP fields too', () => {
+    const dirty = {
+      ...STUDIO_DEFAULTS,
+      readingMode: 'turbo' as unknown as StudioSettings['readingMode'],
+      rsvpFocusColor: 'orange',
+      rsvpContextOpacity: 90,
+    }
+
+    const clean = sanitizeSettings(dirty)
+
+    expect(clean.readingMode).toBe('wrap')
+    expect(clean.rsvpFocusColor).toBe('#E4851F')
+    expect(clean.rsvpContextOpacity).toBe(0.9)
+  })
+
+  it('round-trips a saved project through the restore shape', () => {
+    // Mirrors App.tsx's restoreFromProjectFile:
+    //   sanitizeSettings({ ...STUDIO_DEFAULTS, ...file.studioSettings })
+    // Project save/load is a whole-object copy, so the RSVP fields ride along
+    // without an allowlist — but a pre-RSVP project must still land on the
+    // defaults rather than undefined/NaN.
+    const legacyProject = { ...STUDIO_DEFAULTS } as Record<string, unknown>
+    for (const key of [
+      'readingMode',
+      'rsvpPivotX',
+      'rsvpFocusColor',
+      'rsvpContextOpacity',
+      'rsvpSlideDuration',
+      'rsvpEdgeFade',
+      'rsvpReticle',
+    ]) {
+      delete legacyProject[key]
+    }
+
+    const restoredLegacy = sanitizeSettings({
+      ...STUDIO_DEFAULTS,
+      ...(legacyProject as unknown as StudioSettings),
+    })
+    expect(restoredLegacy.readingMode).toBe('wrap')
+    expect(restoredLegacy.rsvpPivotX).toBe(STUDIO_DEFAULTS.rsvpPivotX)
+    expect(restoredLegacy.rsvpFocusColor).toBe(STUDIO_DEFAULTS.rsvpFocusColor)
+    expect(restoredLegacy.rsvpReticle).toBe(true)
+
+    const saved: StudioSettings = {
+      ...STUDIO_DEFAULTS,
+      readingMode: 'rsvp',
+      rsvpPivotX: 42,
+      rsvpFocusColor: '#00FF00',
+      rsvpContextOpacity: 0.4,
+      rsvpSlideDuration: 0.12,
+      rsvpEdgeFade: 20,
+      rsvpReticle: false,
+    }
+    expect(sanitizeSettings({ ...STUDIO_DEFAULTS, ...saved })).toEqual(saved)
+  })
+
   it('produces a render config the backend schema accepts', () => {
     // End-to-end shape of the bug: settings -> buildRenderBody -> the field
     // that Pydantic rejected with "Input should be less than or equal to 1".
@@ -136,6 +295,16 @@ describe('spec table', () => {
   it('never marks a seconds-valued setting as a fraction', () => {
     expect(NUMERIC_SETTING_SPECS.gapCloseThreshold?.fraction).toBeUndefined()
     expect(NUMERIC_SETTING_SPECS.lastGroupHold?.fraction).toBeUndefined()
+    expect(NUMERIC_SETTING_SPECS.rsvpSlideDuration?.fraction).toBeUndefined()
+  })
+
+  it('marks exactly the three genuine 0-1 fraction fields', () => {
+    const fractionKeys = Object.entries(NUMERIC_SETTING_SPECS)
+      .filter(([, spec]) => spec?.fraction)
+      .map(([key]) => key)
+      .sort()
+
+    expect(fractionKeys).toEqual(['highlightOpacity', 'rsvpContextOpacity', 'shadowOpacity'])
   })
 
   it('leaves every default value unchanged', () => {

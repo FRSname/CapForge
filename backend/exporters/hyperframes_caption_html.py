@@ -102,6 +102,17 @@ def caption_cfg(config: VideoRenderConfig) -> dict:
         "ulWidth": config.underline_width,
         "bounceStrength": config.bounce_strength,
         "scaleFactor": config.scale_factor,
+        # RSVP reading mode. Emitted unconditionally (a caption_cfg key that
+        # appears only in one mode is exactly the drift test_caption_cfg_contract
+        # exists to catch). posX/pivot units: rsvpPivotX and rsvpEdgeFade are
+        # already 0-1 fractions of the caption band, rsvpSlideDuration is SECONDS.
+        "readingMode": config.reading_mode,
+        "rsvpPivotX": config.rsvp_pivot_x,
+        "rsvpFocusColor": config.rsvp_focus_color,
+        "rsvpContextOpacity": config.rsvp_context_opacity,
+        "rsvpSlideDuration": config.rsvp_slide_duration,
+        "rsvpEdgeFade": config.rsvp_edge_fade,
+        "rsvpReticle": bool(config.rsvp_reticle),
     }
 
 

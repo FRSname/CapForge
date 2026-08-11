@@ -75,6 +75,14 @@ const ROUND_TRIP_KEYS: (keyof StudioSettings)[] = [
   'shadowOffsetX',
   'shadowOffsetY',
   'safeZone',
+  // Reading mode (RSVP) — an RSVP look is a visual style, so a preset carries it.
+  'readingMode',
+  'rsvpPivotX',
+  'rsvpFocusColor',
+  'rsvpContextOpacity',
+  'rsvpSlideDuration',
+  'rsvpEdgeFade',
+  'rsvpReticle',
 ]
 
 const RENDER_KEYS = [
@@ -145,6 +153,15 @@ describe('studioToVanilla → vanillaToStudio round-trip', () => {
       shadowOffsetX: -2,
       shadowOffsetY: 5,
       safeZone: 'tiktok',
+      readingMode: 'rsvp',
+      rsvpPivotX: 42,
+      rsvpFocusColor: '#00FF00',
+      // 0-1 fraction and plain seconds respectively — a preset that rescaled
+      // either would fail this round-trip.
+      rsvpContextOpacity: 0.4,
+      rsvpSlideDuration: 0.12,
+      rsvpEdgeFade: 20,
+      rsvpReticle: false,
       // Render settings — the round-trip must NOT carry these.
       resolution: [808, 1440],
       resolutionIsSource: true,
@@ -227,6 +244,23 @@ describe('vanillaToStudio', () => {
     expect(patch.textAlignV).toBeUndefined()
     expect(patch.highlightAnim).toBeUndefined()
     expect(vanillaToStudio({ highlightAnim: 'slide' }).highlightAnim).toBe('slide')
+  })
+
+  test('an unknown readingMode is dropped, the two real ones are read', () => {
+    // A bad value must not reach VideoRenderConfig.reading_mode's Literal.
+    expect(vanillaToStudio({ readingMode: 'turbo' } as VanillaPreset).readingMode).toBeUndefined()
+    expect(vanillaToStudio({ readingMode: 'rsvp' }).readingMode).toBe('rsvp')
+    expect(vanillaToStudio({ readingMode: 'wrap' }).readingMode).toBe('wrap')
+  })
+
+  test('the RSVP dials keep their units through a preset', () => {
+    // rsvpContextOpacity is a 0-1 fraction and rsvpSlideDuration plain seconds;
+    // neither may be rescaled on the way in.
+    expect(vanillaToStudio({ rsvpContextOpacity: '0.4' }).rsvpContextOpacity).toBe(0.4)
+    expect(vanillaToStudio({ rsvpSlideDuration: '0.12' }).rsvpSlideDuration).toBe(0.12)
+    expect(vanillaToStudio({ rsvpPivotX: '42' }).rsvpPivotX).toBe(42)
+    expect(vanillaToStudio({ rsvpEdgeFade: '20' }).rsvpEdgeFade).toBe(20)
+    expect(vanillaToStudio({ rsvpReticle: false }).rsvpReticle).toBe(false)
   })
 
   test('render/export keys are never applied, even when valid ("WxH" included)', () => {

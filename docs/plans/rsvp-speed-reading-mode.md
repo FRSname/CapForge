@@ -147,8 +147,8 @@ Sources: `StudioPanel.tsx`, `AnimationCard.tsx`, `LayoutCard.tsx`, `render.ts`,
   diverge from Pillow's float accumulation and blow the 3px parity tolerance.
 - **Do not** mark `rsvp_slide_duration` as `fraction: true` in `NUMERIC_SETTING_SPECS` — it is
   **plain seconds**, same unit contract as `gapCloseThreshold`/`lastGroupHold`
-  (`settingsSanitize.ts:48-57`). Marking it `fraction` would re-read a legitimate `0.06` fine
-  but a future `1` as `0.01`.
+  (`settingsSanitize.ts:48-57`). The percentage heuristic fires on `raw > 1`, so marking it
+  `fraction` leaves `0.06` and `1` alone but re-reads a future `1.5` as `0.015`.
 - **Do not** forget `SCAFFOLD_VERSION` — byte-identical inputs would serve a stale preview
   runtime (CLAUDE.md → HyperFrames Integration).
 - **Do not** duplicate the ORP table by hand in three places without the shared literal test
@@ -197,9 +197,11 @@ depends on it agreeing byte-for-byte across three languages.
      assert against the data rather than the function.
 2. Create `backend/exporters/rsvp.py` with the identical three functions in Python
    (`orp_index`, `focus_offset`, `line_offset_at`) and the same table constant.
-3. Add the same three functions to the embedded JS in
-   `hyperframes_caption_html.py`'s `CAPTION_RUNTIME_JS`, as a small `RSVP` helper object placed
-   above the timeline-construction block (601-669).
+3. Add the same three functions to the embedded caption-runtime JS as a small helper object
+   spliced in above the timeline-construction block. **As shipped**, that block lives in its own
+   module — `backend/exporters/hyperframes_rsvp_runtime.py` (`RSVP_RUNTIME_JS`, extracted because
+   `hyperframes_caption_html.py` had reached the 800-line limit) — and it declares a `__capRsvp`
+   global, matching the runtime's other `__cap*` names, not `RSVP`.
 4. Create the **shared literal fixture** `backend/tests/fixtures/rsvp_orp_cases.json`:
    a list of `{ "token": "...", "index": N }` covering at minimum every token measured from the
    reference clip (`eliminates`→3, `surprising`→3, `concept`→2, `movements`→2, `amount`→2,
@@ -220,8 +222,11 @@ depends on it agreeing byte-for-byte across three languages.
 
 - `npm test -- rsvp` — TS core green.
 - `.venv-dev/bin/python -m pytest backend/tests/test_rsvp_core.py -q` — Python core green.
-- Both suites read `backend/tests/fixtures/rsvp_orp_cases.json`:
-  `grep -rn "rsvp_orp_cases.json" src backend` returns **two** test files.
+- The suites read the shared fixtures rather than hand-written expectations. **As shipped**,
+  Phase 1 landed **four** fixtures (`rsvp_orp_cases.json`, `rsvp_focus_offset_cases.json`,
+  `rsvp_focus_slices_cases.json`, `rsvp_line_offset_cases.json`) read by **three** suites:
+  `src/renderer/src/lib/rsvp.test.ts`, `src/renderer/src/lib/rsvp.embedded.test.ts` (the
+  embedded JS runtime) and `backend/tests/test_rsvp_core.py`.
 - `npm run typecheck` clean.
 
 ### Anti-pattern guards
