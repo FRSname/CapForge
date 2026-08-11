@@ -40,7 +40,7 @@ export const END_MATCH_EPSILON = 1e-6
  * harmless: those ends already meet the next group's start, so gap closing is a
  * no-op on them either way, and the last group is left alone by that bake.
  */
-export function adoptEndEdited(groups: readonly Segment[]): Segment[] {
+export function adoptEndEdited(groups: Segment[]): Segment[] {
   const isHandPlaced = (g: Segment): boolean => {
     if (g.endEdited) return false // already claimed — nothing to retrofit
     if (g.words.length === 0) return false // no natural end to compare against
@@ -49,6 +49,6 @@ export function adoptEndEdited(groups: readonly Segment[]): Segment[] {
     return Math.abs(g.end - natural) > END_MATCH_EPSILON
   }
 
-  if (!groups.some(isHandPlaced)) return groups as Segment[]
+  if (!groups.some(isHandPlaced)) return groups
   return groups.map((g) => (isHandPlaced(g) ? { ...g, endEdited: true } : g))
 }

@@ -195,11 +195,9 @@ export function ResultsScreen({
    * hold per edit. So `groups` stays raw and every edit surface keeps using it;
    * only the preview and the render payload read this.
    *
-   * Cosmetic consequence, decided deliberately (plan §4.4): the Groups editor and
-   * the timeline show a group's *original* end while the preview holds the caption
-   * longer. That asymmetry is the point — raw ends are the drag/edit target, so
-   * they must stay honest. v1 ships without a "held extension" ghost on the
-   * timeline; revisit only if QA says the difference confuses people.
+   * Deliberate cosmetic consequence: the Groups editor and the timeline show a
+   * group's *original* end while the preview holds the caption longer. Raw ends
+   * are the drag/edit target, so they must stay honest.
    */
   const displayGroups = useMemo(
     () => closeGroupGaps(groups, settings.gapCloseThreshold, settings.lastGroupHold),
@@ -209,11 +207,9 @@ export function ResultsScreen({
   // Publish groups + edited state to App for StudioPanel. The *display* groups go
   // up, so a render that takes the `custom_groups` path (groupsEdited or a position
   // override — see render.ts) ships closed gaps too; the backend applies the same
-  // pass itself only on the other path, inside `_build_groups`. `displayGroups` is
-  // a useMemo and `onGroupsUpdate` is App's `handleGroupsUpdate`, a `useCallback`
-  // with an empty dep list, so this effect re-runs exactly when the groups change
-  // — App stores the array without feeding anything back here (ResultsScreen owns
-  // `groups` and takes no groups prop), so there is no loop.
+  // pass itself only on the other path, inside `_build_groups`.
+  // Requires `onGroupsUpdate` to be referentially stable, or this effect re-runs
+  // on every App render.
   useEffect(() => {
     onGroupsUpdate(displayGroups, groupsEdited || segmentsEdited)
   }, [displayGroups, groupsEdited, segmentsEdited, onGroupsUpdate])
@@ -492,16 +488,10 @@ export function ResultsScreen({
   // is a claim. Flagging it here would silently exempt the group from gap
   // closing forever because someone nudged a word.
   //
-  // The converse also holds: it does not *clear* an existing `endEdited` either,
-  // which is a deliberate deviation from the plan's "the flag dies whenever
-  // bounds are recomputed" rule. That rule is about `finalizeBounds`, which
-  // re-derives a group's bounds from its whole word list and so discards
-  // whatever the user placed. Here the end is only ever *widened*
-  // (`Math.max(g.end, patch.end)`), so a claimed end is never contradicted — it
-  // is either kept verbatim or pushed out to contain a word that now ends later.
-  // Revoking the claim on that would mean a word nudge silently re-closes a gap
-  // the user carved out on purpose. `resetEndEdit` in GroupEditor stays the one
-  // way back out.
+  // It does not *clear* an existing `endEdited` either: the end is only ever
+  // widened here (`Math.max`), so a hand-placed end is never contradicted, and
+  // revoking the claim would let a word nudge silently re-close a gap the user
+  // carved out on purpose. `resetEndEdit` in GroupEditor is the one way out.
   const handleWordEdge = useCallback(
     (segId: string, wordIdx: number, patch: { start: number; end: number }) => {
       setGroups((prev) =>
@@ -850,7 +840,7 @@ export function ResultsScreen({
               }}
               onClick={handleFillGaps}
               disabled={groups.length < 2}
-              title="Close EVERY gap, ignoring the “hold captions across gaps shorter than…” threshold — every caption is stretched to the start of the next group, including across real pauses. Short gaps are already closed automatically; use this to bake the rest, then shorten individual group end times to carve deliberate gaps back out."
+              title="Close EVERY gap, ignoring the “Gap close” slider in the Layout card — every caption is stretched to the start of the next group, including across real pauses. Short gaps are already closed automatically; use this to bake the rest, then shorten individual group end times to carve deliberate gaps back out."
             >
               Close all gaps
             </button>

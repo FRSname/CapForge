@@ -232,6 +232,13 @@ export function GroupEditor({
   // back on the group's last word, so automatic gap closing and the final-group
   // hold apply again. Without this an accidental two-pixel timeline drag would
   // exempt a group forever.
+  //
+  // Considered trade, not an oversight: this routes through `onChange`, so the
+  // control whose whole purpose is "give this group back to the automatic pass"
+  // also flips `groupsEdited` (→ the render takes the `custom_groups` path).
+  // Harmless in the realistic path — whatever set `endEdited` set that flag too
+  // — except for a legacy project whose flag was inferred on restore
+  // (`lib/endEdited.ts` `adoptEndEdited`) and never edited since.
   const resetEndEdit = useCallback(
     (gi: number) => {
       const g = groups[gi]

@@ -3,14 +3,14 @@
 ``_close_group_gaps`` (``backend/exporters/video_render.py``) is the mirror of
 ``closeGroupGaps`` (``src/renderer/src/lib/groups.ts``). The two implementations
 must agree **case for case**, so this module mirrors the TypeScript suite in
-``src/renderer/src/lib/groups.test.ts`` one test at a time, and finishes with a
-cross-check against a literal transcription of the documented TS rules applied
-to a shared hand-written fixture.
+``src/renderer/src/lib/groups.gaps.test.ts`` one test at a time, and finishes
+with a shared fixture + literal expected-ends table duplicated verbatim in that
+same TS suite.
 
-Four TS cases have no backend counterpart on purpose: the hand-placed-end
-exemption is driven by a frontend-only per-group flag, and such a group reaches
-the backend as ``custom_groups`` (which bypasses ``_build_groups`` entirely),
-so there is nothing to exempt here.
+The TS cases covering the **hand-placed-end exemption** have no backend
+counterpart on purpose: that rule is driven by a frontend-only per-group flag,
+and such a group reaches the backend as ``custom_groups`` (which bypasses the
+pass entirely — see ``groups_for_render``), so there is nothing to exempt here.
 
 Pure dicts — no ``TranscriptionResult``, no audio, no model, no fixtures.
 """
@@ -22,7 +22,11 @@ import math
 
 import pytest
 
-from backend.exporters.video_render import _build_groups, _close_group_gaps
+from backend.exporters.video_render import (
+    _build_groups,
+    _close_group_gaps,
+    groups_for_render,
+)
 from backend.models.schemas import (
     Segment,
     TranscriptionResult,
@@ -343,12 +347,12 @@ def _two_segment_result() -> TranscriptionResult:
     )
 
 
-def test_build_groups_defaults_leave_timings_untouched():
-    # Arrange — the load-bearing 0.0 defaults keep every existing caller identical.
+def test_build_groups_with_the_dials_off_leaves_timings_untouched():
+    # Arrange — 0.0/0.0 is the pass disabled: pre-gap-closing behaviour verbatim.
     result = _two_segment_result()
 
     # Act
-    groups = _build_groups(result, 2)
+    groups = _build_groups(result, 2, 0.0, 0.0)
 
     # Assert
     assert [g["end"] for g in groups] == [1.0, 2.0]
@@ -387,7 +391,7 @@ def test_build_groups_carries_the_speaker_on_the_no_words_fallback():
     )
 
     # Act
-    groups = _build_groups(result, 3)
+    groups = _build_groups(result, 3, THRESHOLD, 0.0)
 
     # Assert
     assert groups[0]["speaker"] == "SPEAKER_00"
@@ -408,52 +412,36 @@ def test_the_config_defaults_close_gaps_and_hold_the_tail():
     assert groups[-1]["end"] == pytest.approx(3.0)
 
 
-# --- Cross-check against the documented TypeScript rules ---------------------
+def test_groups_for_render_applies_the_pass_only_on_the_build_path():
+    # Arrange — the helper every production render path goes through. Its whole
+    # contract is this branch: `custom_groups` arrive already closed by the
+    # frontend, so re-running the non-idempotent tail hold would double it.
+    config = VideoRenderConfig()
+    result = _two_segment_result()
+    custom = [group("only", 0.0, 1.0)]
+
+    # Act
+    built = groups_for_render(result, config, None)
+    passed_through = groups_for_render(result, config, custom)
+
+    # Assert
+    assert [g["end"] for g in built] == [pytest.approx(1.1), pytest.approx(3.0)]
+    assert passed_through is custom  # verbatim — no second application
 
 
-def _ts_reference(groups: list[dict], threshold: float, last_group_hold: float) -> list[dict]:
-    """A literal transcription of `closeGroupGaps` (`lib/groups.ts`), written
-    from the TS source rather than from the Python implementation, so the two
-    can be diffed. The hand-placed-end exemption is omitted: backend group dicts
-    never carry that frontend-only flag (such groups arrive as `custom_groups`)."""
-
-    def is_finite(value):  # Number.isFinite: no coercion, bool is not a number
-        return (
-            isinstance(value, (int, float))
-            and not isinstance(value, bool)
-            and math.isfinite(value)
-        )
-
-    def closed_end(a, b):
-        if b is None:
-            return a["end"]
-        a_words = a.get("words") or []
-        b_words = b.get("words") or []
-        a_last_end = a_words[-1].get("end") if a_words else None
-        b_first_start = b_words[0].get("start") if b_words else None
-        if not is_finite(a_last_end) or not is_finite(b_first_start):
-            return a["end"]
-        if a.get("speaker") != b.get("speaker"):
-            return a["end"]
-        gap = b["start"] - a["end"]
-        return b["start"] if gap > 0 and gap <= threshold else a["end"]
-
-    if not groups:
-        return []
-    last_index = len(groups) - 1
-    out = []
-    for i, g in enumerate(groups):
-        end = closed_end(g, groups[i + 1] if i + 1 <= last_index else None)
-        if i == last_index and last_group_hold > 0:
-            end = max(end, g["end"] + last_group_hold)
-        out.append({**g, "end": end})
-    return out
-
-
+# --- Shared parity table -----------------------------------------------------
+#
+# Twin: `PARITY_FIXTURE` / `PARITY_CASES` in `src/renderer/src/lib/groups.gaps.test.ts`.
+# The two suites run the same fixture through the same dial settings and assert
+# the same literal ends, so a rule that changes on one side and not the other
+# fails loudly on the side that did not change. Edit these two tables together.
+#
 # Every branch of the algorithm in one array: a closable gap, an exactly-on-the-
 # threshold gap, an over-threshold pause, a speaker change, an overlap, both
 # sides of the non-finite-timing guard, an already-closed boundary, and a tail
-# to hold.
+# to hold. (The TS-only hand-placed-end exemption is not represented: backend
+# group dicts never carry that frontend-only flag — such groups arrive as
+# `custom_groups` and bypass the pass entirely — so it has TS-side tests only.)
 SHARED_FIXTURE = [
     # 0 → 0.05s gap into #1: closes at any threshold >= 0.05.
     group("closable", 0.00, 1.00, speaker="SPEAKER_00"),
@@ -482,44 +470,32 @@ SHARED_FIXTURE = [
 ]
 
 
-@pytest.mark.parametrize(
-    "threshold,hold",
-    [(0.25, 1.0), (0.25, 0.0), (0.0, 1.0), (0.0, 0.0), (0.6, 2.5)],
-)
-def test_matches_the_documented_typescript_rules_for_a_shared_fixture(threshold, hold):
+# (threshold, hold, the end each fixture group carries afterwards). Spelled out
+# rather than computed, so a rule change shows up as a readable diff.
+#
+#                    closable  boundary  pause  pre-chg  post-chg  overlap  no-tim  closed  tail
+PARITY_CASES = [
+    # Shipped defaults.
+    (0.25, 1.0, [1.05, 2.25, 3.00, 4.00, 5.20, 6.00, 6.50, 7.00, 9.00]),
+    # Hold off: only the tail differs from the row above.
+    (0.25, 0.0, [1.05, 2.25, 3.00, 4.00, 5.20, 6.00, 6.50, 7.00, 8.00]),
+    # Closing off, hold on — the two dials are independent.
+    (0.0, 1.0, [1.00, 2.00, 3.00, 4.00, 5.20, 6.00, 6.50, 7.00, 9.00]),
+    # Both off: the pass is a no-op on every end.
+    (0.0, 0.0, [1.00, 2.00, 3.00, 4.00, 5.20, 6.00, 6.50, 7.00, 8.00]),
+    # 0.6 does NOT close the "pause" boundary: `3.60 - 3.00` is
+    # 0.6000000000000001 in IEEE754. JS floats do the same thing, so the two
+    # implementations still agree — a fixture quirk, not a rule.
+    (0.6, 2.5, [1.05, 2.25, 3.00, 4.00, 5.20, 6.00, 6.50, 7.00, 10.50]),
+    # …and 0.65 does, proving that boundary is threshold-gated, not guard-blocked.
+    (0.65, 0.0, [1.05, 2.25, 3.60, 4.00, 5.20, 6.00, 6.50, 7.00, 8.00]),
+]
+
+
+@pytest.mark.parametrize("threshold,hold,expected", PARITY_CASES)
+def test_the_shared_parity_fixture_produces_the_expected_ends(threshold, hold, expected):
     # Arrange / Act
-    produced = _close_group_gaps(SHARED_FIXTURE, threshold, hold)
-    expected = _ts_reference(SHARED_FIXTURE, threshold, hold)
-
-    # Assert — same ends, group for group.
-    assert [g["end"] for g in produced] == [g["end"] for g in expected]
-
-
-def test_the_shared_fixture_exercises_every_branch():
-    # Arrange / Act — the ends the documented rules produce at the shipped defaults.
-    out = _close_group_gaps(SHARED_FIXTURE, THRESHOLD, HOLD)
-
-    # Assert — spelled out so a rule change shows up as a readable diff.
-    assert [g["end"] for g in out] == [
-        pytest.approx(1.05),  # closable      — gap 0.05 <= 0.25
-        pytest.approx(2.25),  # boundary      — gap 0.25 == threshold (inclusive)
-        pytest.approx(3.00),  # pause         — gap 0.60 > threshold
-        pytest.approx(4.00),  # pre-change    — speaker change never bridged
-        pytest.approx(5.20),  # post-change   — gap -0.20, never shortened
-        pytest.approx(6.00),  # overlapping   — successor's word start is None
-        pytest.approx(6.50),  # no-timing     — own last word end is None
-        pytest.approx(7.00),  # already-closed — gap 0.0 fails `gap > 0`
-        pytest.approx(9.00),  # tail          — 8.00 + 1.00 hold
-    ]
-
-
-def test_the_shared_fixture_closes_the_real_pause_at_a_wider_threshold():
-    # Arrange / Act — proves #2's boundary is threshold-gated, not guard-blocked.
-    # 0.65, not 0.6: `3.60 - 3.00` is 0.6000000000000001 in IEEE754, so an exact
-    # 0.6 threshold does NOT close it. JS floats do the same thing, so the two
-    # implementations still agree — this is a fixture quirk, not a rule.
-    out = _close_group_gaps(SHARED_FIXTURE, 0.65, 0.0)
+    out = _close_group_gaps(SHARED_FIXTURE, threshold, hold)
 
     # Assert
-    assert out[2]["end"] == pytest.approx(3.60)
-    assert out[3]["end"] == pytest.approx(4.00)  # still never bridges the speaker
+    assert [g["end"] for g in out] == [pytest.approx(e) for e in expected]

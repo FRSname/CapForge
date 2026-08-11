@@ -62,8 +62,8 @@ export function buildStudioGroups(segments: Segment[], wordsPerGroup: number): S
  * Stretch each group's end to the next group's start so captions persist
  * through silence gaps — **every** gap, however long, with no guards. This is
  * the manual "Close all gaps" button, not the automatic pass; for the derived,
- * threshold-limited version see `closeGroupGaps` below. (There is no backend
- * counterpart to this function — gap filling on this path is frontend-only and
+ * threshold-limited version see `closeGroupGaps` below. (*This* function has no
+ * backend twin — unlike `closeGroupGaps`, this bake is frontend-only and
  * reaches the render because `handleFillGaps` flips `groupsEdited`, the
  * operative trigger for `render.ts` sending `custom_groups` on this path.
  * `positionOverride` is a second, independent trigger in the same condition.)
@@ -97,6 +97,14 @@ export function fillGroupGaps(groups: Segment[]): Segment[] {
 /**
  * Close the *short* gaps between caption groups, and hold the final caption
  * past its last word. The automatic counterpart to `fillGroupGaps`.
+ *
+ * **This one has a backend twin**: `_close_group_gaps` in
+ * `backend/exporters/video_render.py` (applied inside `_build_groups`, i.e. on
+ * the path that re-chunks from the stored transcription instead of taking
+ * `custom_groups`). The two must agree case for case and change in lockstep —
+ * as must their suites, `groups.gaps.test.ts` and
+ * `backend/tests/test_group_gap_closing.py`, which share a fixture and a
+ * literal expected-ends table.
  *
  * A caption that blinks off for two frames between groups reads as a flicker,
  * while a real pause should still clear the screen — so only a gap of at most
@@ -340,7 +348,7 @@ type Bucket = {
  * 4. Groups left with no words are dropped (as `moveWord` already does).
  * 5. Bounds: a group whose word ids are unchanged keeps `start`/`end`
  *    **verbatim** — that is what preserves a manual timeline drag and the
- *    stretched end baked by "Fill gaps". A group whose word set changed gets
+ *    stretched end baked by "Close all gaps". A group whose word set changed gets
  *    bounds recomputed from its words (`finalizeBounds` semantics, matching the
  *    stale-bounds fix in 90c2e7a).
  * 6. `speaker` and `positionOverride` ride the group.

@@ -183,7 +183,9 @@ def test_overlay_mov_alpha_is_premultiplied(tmp_path):
     # Recompute the exact straight-alpha frame that was piped into ffmpeg for
     # this position (frame 0 -> t=0.0s) — the same call render_subtitle_video
     # makes internally via _FrameSource.render_frame_bytes().
-    groups = _build_groups(result, config.words_per_group)
+    # 0.0/0.0 — the gap-closing dials off, so the recomputed frame matches the
+    # single-group fixture exactly as it did before the dials existed.
+    groups = _build_groups(result, config.words_per_group, 0.0, 0.0)
     font = _get_font(config.font_family, config.font_size, config.custom_font_path, bold=config.bold)
     original = _render_frame(config, font, groups[0], 0.0)
 
@@ -307,7 +309,9 @@ def test_overlay_mov_saturated_color_premultiply_and_tags(tmp_path):
     decoded = _decode_first_frame_rgba(output_path, W, H)
     assert decoded.size == (W, H)
 
-    groups = _build_groups(result, config.words_per_group)
+    # 0.0/0.0 — the gap-closing dials off, so the recomputed frame matches the
+    # single-group fixture exactly as it did before the dials existed.
+    groups = _build_groups(result, config.words_per_group, 0.0, 0.0)
     font = _get_font(config.font_family, config.font_size, config.custom_font_path, bold=config.bold)
     original = _render_frame(config, font, groups[0], 0.0)
 

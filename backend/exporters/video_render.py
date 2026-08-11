@@ -298,7 +298,7 @@ def _closed_end(a: dict, b: Optional[dict], threshold: float) -> float:
     # whose `end` the user placed by hand, via a per-group flag on the frontend
     # `Segment`. That flag is frontend-only state and deliberately never reaches
     # the backend (it is stripped from the render payload, and a hand-placed end
-    # arrives as `custom_groups`, which bypasses `_build_groups` entirely). So
+    # arrives as `custom_groups`, which bypasses this pass — `groups_for_render`). So
     # there is no exemption to check here — this rule slot is intentionally empty.
     a_words = a.get("words") or []
     b_words = b.get("words") or []
@@ -308,13 +308,7 @@ def _closed_end(a: dict, b: Optional[dict], threshold: float) -> float:
         return a["end"]
     # Speaker change — never bridge one. `.get` normalises the two ways a group
     # can lack a speaker (key absent vs. explicitly ``None``) to the same value,
-    # so two speakerless groups count as the same speaker. The TS mirror writes
-    # `a.speaker !== b.speaker`, where a `null` speaker would *not* equal an
-    # `undefined` one; that is the single case where the two implementations
-    # could disagree, and it is unreachable — `Segment.speaker` is typed
-    # `string | undefined`, `buildStudioGroups` copies it verbatim, and JSON
-    # round-tripping drops the key rather than writing `null`. Everywhere the
-    # two can actually be reached they agree.
+    # so two speakerless groups count as the same speaker.
     a_speaker = a.get("speaker")
     b_speaker = b.get("speaker")
     if a_speaker != b_speaker:
@@ -351,7 +345,8 @@ def _close_group_gaps(groups: list[dict], threshold: float, hold: float) -> list
 
     **Not idempotent.** Gap closing is (a closed gap is exactly 0, which fails
     ``gap > 0``), but the tail hold adds ``hold`` every time it runs. This is
-    why the pass lives inside `_build_groups` and nowhere else: a second
+    why the pass lives inside `_build_groups` and nowhere else, and why every
+    render path picks its groups through :func:`groups_for_render`: a second
     application site is how the hold double-applies.
 
     Group ``words``, ``text``, ``start``, membership and count are untouched;
@@ -381,17 +376,19 @@ def _close_group_gaps(groups: list[dict], threshold: float, hold: float) -> list
 def _build_groups(
     result: TranscriptionResult,
     words_per_group: int,
-    gap_close_threshold: float = 0.0,
-    last_group_hold: float = 0.0,
+    gap_close_threshold: float,
+    last_group_hold: float,
 ) -> list[dict]:
     """Build display groups from all segments with word-level timing.
 
     Returns list of dicts:
     { text, start, end, speaker, words: [{ word, start, end, active }] }
 
-    ``gap_close_threshold``/``last_group_hold`` default to ``0.0`` — i.e. the
-    gap-closing pass is off — so an existing caller keeps its exact previous
-    behaviour until it opts in by passing the config's dials.
+    ``gap_close_threshold``/``last_group_hold`` are the gap-closing dials and are
+    deliberately **required**: passing ``0.0, 0.0`` (the pass disabled) has to be
+    a decision at the call site, not a default a new caller can fall into and
+    ship un-closed captions with. Production callers go through
+    :func:`groups_for_render` rather than calling this directly.
     """
     groups: list[dict] = []
     for seg in result.segments:
@@ -421,6 +418,33 @@ def _build_groups(
                 ],
             })
     return _close_group_gaps(groups, gap_close_threshold, last_group_hold)
+
+
+def groups_for_render(
+    result: TranscriptionResult,
+    config: VideoRenderConfig,
+    custom_groups: Optional[list[dict]],
+) -> list[dict]:
+    """The display groups a render path should draw — the single place the
+    ``custom_groups``-or-build decision is made.
+
+    ``custom_groups`` bypass the gap-closing pass on purpose: they are
+    frontend-authored groups, which the renderer already ran `closeGroupGaps`
+    over before sending (`src/renderer/src/lib/groups.ts`), and they may carry
+    ends the user placed by hand. The pass must be applied **exactly once per
+    pipeline** — the tail hold is not idempotent, so a second application site
+    silently double-holds the final caption. Every production caller goes
+    through here so that invariant does not depend on five copies of the same
+    conditional staying in agreement.
+    """
+    if custom_groups:
+        return custom_groups
+    return _build_groups(
+        result,
+        config.words_per_group,
+        config.gap_close_threshold,
+        config.last_group_hold,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1445,18 +1469,7 @@ def render_subtitle_video(
     suffix = "_subtitled" if is_baked else "_subtitles"
     output_path = str(Path(output_dir) / f"{stem}{suffix}{ext}")
 
-    # Asymmetry is deliberate: frontend-authored `custom_groups` arrive already
-    # gap-closed (the renderer runs `closeGroupGaps` on what it sends), so
-    # re-running the pass here would double-apply the non-idempotent tail hold.
-    if custom_groups:
-        groups = custom_groups
-    else:
-        groups = _build_groups(
-            result,
-            config.words_per_group,
-            config.gap_close_threshold,
-            config.last_group_hold,
-        )
+    groups = groups_for_render(result, config, custom_groups)
     if not groups:
         raise ValueError("No subtitle data to render")
 
