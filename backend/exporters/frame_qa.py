@@ -15,10 +15,10 @@ from typing import Optional
 from PIL import Image
 
 from backend.exporters.video_render import (
-    _build_groups,
     _find_ffmpeg,
     _get_font,
     _render_frame,
+    groups_for_render,
 )
 from backend.models.schemas import TranscriptionResult, VideoRenderConfig
 
@@ -46,7 +46,7 @@ def render_overlay(
     t: float,
 ) -> Image.Image:
     """Render the transparent subtitle overlay at time ``t`` (RGBA)."""
-    groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    groups = groups_for_render(result, config, custom_groups)
     group = _active_group(groups, t)
     font = _get_font(config.font_family, config.font_size, config.custom_font_path, bold=config.bold)
     return _render_frame(config, font, group, t)

@@ -46,6 +46,12 @@ export const NUMERIC_SETTING_SPECS: Partial<Record<keyof StudioSettings, Numeric
   marginV: { min: 0, int: true },
   maxWidth: { min: 0, max: 100 },
   wordsPerGroup: { min: 1, int: true },
+  // Seconds, NOT fractions — `fraction: true` here would re-read a legitimate
+  // 2s hold as 0.02s. Bounds are wider than the sliders on purpose: they mirror
+  // the Pydantic Field(...) limits, which is what the sanitizer exists to
+  // guarantee, not the UI's recommended range.
+  gapCloseThreshold: { min: 0, max: 5 },
+  lastGroupHold: { min: 0, max: 30 },
   lines: { min: 1, max: 10, int: true },
   bgOpacity: { min: 0, max: 100 },
   bgRadius: { min: 0, int: true },

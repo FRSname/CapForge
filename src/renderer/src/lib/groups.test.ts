@@ -187,6 +187,11 @@ describe('fillGroupGaps', () => {
   })
 })
 
+// ── closeGroupGaps ─────────────────────────────────────────────────
+//
+// Lives in its own file, `groups.gaps.test.ts` — it carries the parity table
+// shared with `backend/tests/test_group_gap_closing.py`.
+
 // ── mergeGroups ──────────────────────────────────────────────────
 
 describe('mergeGroups', () => {
@@ -212,6 +217,20 @@ describe('mergeGroups', () => {
     const before = JSON.parse(JSON.stringify(groups))
     mergeGroups(groups, 0)
     expect(groups).toEqual(before)
+  })
+
+  test('drops endEdited because the merged bounds come from its words', () => {
+    // Arrange — both halves claim a hand-placed end.
+    const groups = buildStudioGroups([makeSegment('s1')], 3).map((g) => ({
+      ...g,
+      endEdited: true,
+    }))
+
+    // Act
+    const merged = mergeGroups(groups, 0)
+
+    // Assert
+    expect(merged[0].endEdited).toBeUndefined()
   })
 })
 
@@ -243,6 +262,21 @@ describe('splitGroup', () => {
     const split = splitGroup(buildStudioGroups([seg], 6), 0, 3)
     expect(split[0].words[0].overrides).toEqual({ bold: true })
     expect(split[1].words[2].overrides).toEqual({ text_color: '#00FF00' })
+  })
+
+  test('drops endEdited on both halves because their bounds come from words', () => {
+    // Arrange
+    const groups = buildStudioGroups([makeSegment('s1')], 6).map((g) => ({
+      ...g,
+      endEdited: true,
+    }))
+
+    // Act
+    const split = splitGroup(groups, 0, 3)
+
+    // Assert
+    expect(split[0].endEdited).toBeUndefined()
+    expect(split[1].endEdited).toBeUndefined()
   })
 })
 
@@ -278,6 +312,37 @@ describe('moveWord', () => {
     expect(moveWord(groups, 0, 0, 0)).toBe(groups)
     expect(moveWord(groups, 0, 99, 1)).toBe(groups)
     expect(moveWord(groups, 99, 0, 0)).toBe(groups)
+  })
+
+  test('clears endEdited on both groups whose bounds were recomputed', () => {
+    // Arrange — moveWord spreads the old group objects, so the flag would
+    // otherwise survive a membership change (finalizeBounds must clear it).
+    const groups = buildStudioGroups([makeSegment('s1')], 3).map((g) => ({
+      ...g,
+      endEdited: true,
+    }))
+
+    // Act — move "brown" from the first group into the second.
+    const next = moveWord(groups, 0, 2, 1)
+
+    // Assert
+    expect(next[0].endEdited).toBeUndefined()
+    expect(next[1].endEdited).toBeUndefined()
+  })
+
+  test('clears endEdited on the surviving group when the source empties out', () => {
+    // Arrange — [the quick brown][fox][jumps over], every group hand-ended.
+    const groups = splitGroup(buildStudioGroups([makeSegment('s1')], 3), 1, 1).map((g) => ({
+      ...g,
+      endEdited: true,
+    }))
+
+    // Act — the lone word in group 1 moves out, so group 1 disappears.
+    const next = moveWord(groups, 1, 0, 2)
+
+    // Assert
+    expect(next).toHaveLength(2)
+    expect(next[1].endEdited).toBeUndefined()
   })
 })
 
@@ -404,6 +469,30 @@ describe('restoreManualGroupState', () => {
     const rebuilt = buildStudioGroups([sixWords()], 3)
     expect(restoreManualGroupState(rebuilt, [])).toEqual(rebuilt)
   })
+
+  test('carries endEdited only when the chunk words are byte-identical', () => {
+    // Arrange — a saved group with a hand-placed end.
+    const seg = sixWords()
+    const previous = buildStudioGroups([seg], 3).map((g, i) =>
+      i === 0 ? { ...g, end: 2.9, endEdited: true } : g
+    )
+    // The same segment re-chunked after merging "b"+"c" — group s0:0 now holds
+    // different words, so the timing claim no longer describes it.
+    const merged: Segment = {
+      ...seg,
+      text: 'a bc d e f',
+      words: [word('a', 0, 0.5), word('bc', 1, 2.5), ...seg.words.slice(3)],
+    }
+
+    // Act
+    const unchanged = restoreManualGroupState(buildStudioGroups([seg], 3), previous)
+    const changed = restoreManualGroupState(buildStudioGroups([merged], 3), previous)
+
+    // Assert
+    expect(unchanged[0].endEdited).toBe(true)
+    expect(unchanged[0].end).toBe(2.9)
+    expect(changed[0].endEdited).toBeUndefined()
+  })
 })
 
 // ── reconcileGroups ──────────────────────────────────────────────
@@ -514,6 +603,36 @@ describe('reconcileGroups', () => {
     const after = reconcileGroups(previous, [deleteWord(seg, 3)], 2)
     expect(after[1].words.map((w) => w.word)).toEqual(['brown'])
     expect(after[1].end).toBe(seg.words[2].end)
+  })
+
+  test('keeps endEdited when the word set is unchanged', () => {
+    // Arrange — group 0 has a hand-placed end; the edit lands in group 2.
+    const seg = idSegment()
+    const previous = buildStudioGroups([seg], 2).map((g, i) =>
+      i === 0 ? { ...g, end: 9, endEdited: true } : g
+    )
+
+    // Act
+    const after = reconcileGroups(previous, [editText(seg, 5, 'Over,')], 2)
+
+    // Assert
+    expect(after[0].endEdited).toBe(true)
+    expect(after[0].end).toBe(9)
+  })
+
+  test('clears endEdited when the word set changed', () => {
+    // Arrange — group 1 has a hand-placed end and is about to lose a word.
+    const seg = idSegment()
+    const previous = buildStudioGroups([seg], 2).map((g, i) =>
+      i === 1 ? { ...g, end: 99, endEdited: true } : g
+    )
+
+    // Act — delete "fox", so group 1 becomes ["brown"] and bounds recompute.
+    const after = reconcileGroups(previous, [deleteWord(seg, 3)], 2)
+
+    // Assert
+    expect(after[1].words.map((w) => w.word)).toEqual(['brown'])
+    expect(after[1].endEdited).toBeUndefined()
   })
 
   test('per-word overrides and per-group position overrides survive', () => {

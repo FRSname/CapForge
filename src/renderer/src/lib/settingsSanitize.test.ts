@@ -33,6 +33,25 @@ describe('sanitizeSettingValue', () => {
     expect(sanitizeSettingValue('maxWidth', 90)).toBe(90)
   })
 
+  it('leaves seconds-valued settings unscaled — they are not fractions', () => {
+    // The regression the `fraction` heuristic would cause: a legitimate 2s
+    // hold sits in (1, 100], so a `fraction: true` spec would read it as a
+    // percentage and write 0.02 — a hold the user cannot see.
+    expect(sanitizeSettingValue('lastGroupHold', 2)).toBe(2)
+    expect(sanitizeSettingValue('gapCloseThreshold', 2)).toBe(2)
+    expect(sanitizeSettingValue('lastGroupHold', 1.5)).toBe(1.5)
+    expect(sanitizeSettingValue('gapCloseThreshold', 0.25)).toBe(0.25)
+    expect(sanitizeSettingValue('lastGroupHold', 0)).toBe(0)
+    expect(sanitizeSettingValue('gapCloseThreshold', 0)).toBe(0)
+  })
+
+  it('clamps the seconds settings to the backend Field bounds', () => {
+    expect(sanitizeSettingValue('gapCloseThreshold', 42)).toBe(5)
+    expect(sanitizeSettingValue('lastGroupHold', 999)).toBe(30)
+    expect(sanitizeSettingValue('gapCloseThreshold', -1)).toBe(0)
+    expect(sanitizeSettingValue('lastGroupHold', -1)).toBe(0)
+  })
+
   it('rounds fields the backend types as int', () => {
     expect(sanitizeSettingValue('fontSize', 72.4)).toBe(72)
     expect(sanitizeSettingValue('lines', 2.6)).toBe(3)
@@ -112,6 +131,11 @@ describe('spec table', () => {
     for (const key of Object.keys(NUMERIC_SETTING_SPECS)) {
       expect(STUDIO_DEFAULTS).toHaveProperty(key)
     }
+  })
+
+  it('never marks a seconds-valued setting as a fraction', () => {
+    expect(NUMERIC_SETTING_SPECS.gapCloseThreshold?.fraction).toBeUndefined()
+    expect(NUMERIC_SETTING_SPECS.lastGroupHold?.fraction).toBeUndefined()
   })
 
   it('leaves every default value unchanged', () => {

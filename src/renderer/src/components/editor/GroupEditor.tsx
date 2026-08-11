@@ -77,6 +77,13 @@ export function GroupEditor({
   // caption (creating a deliberate gap) or extends it up to the next group.
   const [editingEndIdx, setEditingEndIdx] = useState<number | null>(null)
   const [endDraft, setEndDraft] = useState('')
+  // The string the field was seeded with when it opened. Used to tell "the user
+  // typed something" from "the user opened the field and clicked away" — see
+  // commitEndEdit, which must not turn an inspect-only click into a timing claim.
+  const endSeedRef = useRef('')
+  // Set by Escape so the blur that may follow the input's removal is swallowed
+  // instead of committing the abandoned draft.
+  const endCancelledRef = useRef(false)
 
   // ── Actions ──────────────────────────────────────────────────
   const handleMerge = useCallback(
@@ -164,27 +171,88 @@ export function GroupEditor({
 
   const startEndEdit = useCallback(
     (gi: number) => {
+      const seed = formatTime(groups[gi]?.end ?? 0)
       setEditingEndIdx(gi)
-      setEndDraft(formatTime(groups[gi]?.end ?? 0))
+      setEndDraft(seed)
+      endSeedRef.current = seed
+      endCancelledRef.current = false
     },
     [groups]
   )
 
+  // Escape = cancel. The flag (rather than just closing the field) is what makes
+  // it a real cancel: browsers may fire blur when the focused input is removed,
+  // and that blur would otherwise commit the draft the user just abandoned.
+  const cancelEndEdit = useCallback(() => {
+    endCancelledRef.current = true
+    setEditingEndIdx(null)
+  }, [])
+
+  // Committing an end here *places* it, so the group is marked `endEdited` and
+  // the automatic gap-closing pass leaves it alone from then on (lib/groups.ts
+  // `closeGroupGaps`) — that is what makes a deliberately shortened end, i.e. a
+  // carved-out gap, survive. `resetEndEdit` below is the way back out.
+  //
+  // Which interactions count as a claim, and why:
+  //   - typed a different value, then Enter *or* blur → a claim (the value moved)
+  //   - left the seeded value untouched and pressed Enter → a claim. This is the
+  //     only way to claim an end that already *is* the natural end, which is how
+  //     a user turns the final-group hold off ("stop right here"): there
+  //     `min === naturalEnd(g) === g.end`, so whatever is typed clamps straight
+  //     back to `g.end` and no value comparison could ever detect the intent.
+  //   - left the seeded value untouched and blurred → NOT a claim. Clicking a
+  //     group's end time and then clicking elsewhere is an inspect-only gesture;
+  //     treating it as a claim would push an undo entry, flip `groupsEdited`, and
+  //     silently exempt the group from gap closing until the user found the `↺`.
   const commitEndEdit = useCallback(
-    (gi: number) => {
+    (gi: number, confirmed: boolean) => {
       setEditingEndIdx(null)
+      if (endCancelledRef.current) {
+        endCancelledRef.current = false
+        return
+      }
       const parsed = parseTime(endDraft)
       const g = groups[gi]
       if (parsed == null || !g) return
+      if (!confirmed && endDraft === endSeedRef.current) return // inspect-only blur
       const min = naturalEnd(g)
       const max = groups[gi + 1] ? groups[gi + 1].start : (mediaDuration ?? g.end)
       if (max <= min) return // degenerate (overlap) — leave the end untouched
       const end = Math.min(max, Math.max(min, parsed))
-      if (end === g.end) return
+      // Nothing left to record: the end is unchanged *and* the claim is already
+      // on the group.
+      if (end === g.end && g.endEdited) return
       onBeforeEdit?.()
-      onChange(groups.map((x, i) => (i === gi ? { ...x, end } : x)))
+      onChange(groups.map((x, i) => (i === gi ? { ...x, end, endEdited: true } : x)))
     },
     [groups, endDraft, naturalEnd, mediaDuration, onChange, onBeforeEdit]
+  )
+
+  // Undo the "I placed this end by hand" claim: drop the flag and put the end
+  // back on the group's last word, so automatic gap closing and the final-group
+  // hold apply again. Without this an accidental two-pixel timeline drag would
+  // exempt a group forever.
+  //
+  // Considered trade, not an oversight: this routes through `onChange`, so the
+  // control whose whole purpose is "give this group back to the automatic pass"
+  // also flips `groupsEdited` (→ the render takes the `custom_groups` path).
+  // Harmless in the realistic path — whatever set `endEdited` set that flag too
+  // — except for a legacy project whose flag was inferred on restore
+  // (`lib/endEdited.ts` `adoptEndEdited`) and never edited since.
+  const resetEndEdit = useCallback(
+    (gi: number) => {
+      const g = groups[gi]
+      if (!g) return
+      onBeforeEdit?.()
+      onChange(
+        groups.map((x, i) => {
+          if (i !== gi) return x
+          const { endEdited: _cleared, ...rest } = x
+          return { ...rest, end: naturalEnd(x) }
+        })
+      )
+    },
+    [groups, naturalEnd, onChange, onBeforeEdit]
   )
 
   // ── Word-style overrides ──────────────────────────────────────
@@ -446,16 +514,16 @@ export function GroupEditor({
                     value={endDraft}
                     autoFocus
                     onChange={(e) => setEndDraft(e.target.value)}
-                    onBlur={() => commitEndEdit(gi)}
+                    onBlur={() => commitEndEdit(gi, false)}
                     onClick={(e) => e.stopPropagation()}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault()
-                        commitEndEdit(gi)
+                        commitEndEdit(gi, true)
                       }
                       if (e.key === 'Escape') {
                         e.preventDefault()
-                        setEditingEndIdx(null)
+                        cancelEndEdit()
                       }
                     }}
                   />
@@ -469,6 +537,22 @@ export function GroupEditor({
                       startEndEdit(gi)
                     }}
                   />
+                )}
+                {/* Hand-placed end → this group is exempt from automatic gap
+                    closing. Click to give it back. */}
+                {group.endEdited && editingEndIdx !== gi && (
+                  <button
+                    className="px-0.5 hover:opacity-70 transition-opacity"
+                    style={{ color: 'var(--color-accent)' }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      resetEndEdit(gi)
+                    }}
+                    title="End time set by hand — this caption keeps its gap instead of being closed automatically. Click to restore the end of its last word."
+                    aria-label="Restore automatic end time for this group"
+                  >
+                    ↺
+                  </button>
                 )}
               </span>
 

@@ -9,6 +9,8 @@ interface StudioRowProps {
   unit?: string
   def: number
   onChange: (value: number) => void
+  /** Tooltip for the label — for settings whose terse label needs a sentence. */
+  title?: string
 }
 
 export function StudioRow({
@@ -20,6 +22,7 @@ export function StudioRow({
   unit = '',
   def,
   onChange,
+  title,
 }: StudioRowProps) {
   const value = Number.isFinite(rawValue) ? rawValue : def
   const display = step < 1 ? value.toFixed(2).replace(/\.?0+$/, '') : String(Math.round(value))
@@ -45,7 +48,11 @@ export function StudioRow({
   return (
     <div className="flex items-center gap-1.5 min-w-0">
       {/* Label */}
-      <span className="w-[72px] shrink-0 text-xs truncate" style={{ color: 'var(--color-text-2)' }}>
+      <span
+        className="w-[72px] shrink-0 text-xs truncate"
+        style={{ color: 'var(--color-text-2)' }}
+        title={title}
+      >
         {label}
       </span>
 

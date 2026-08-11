@@ -16,6 +16,7 @@ from backend.exporters.hyperframes_project import (
     _scaffold_fingerprint,
     ensure_hyperframes_project,
 )
+from backend.exporters.video_render import _build_groups
 from backend.models.schemas import VideoRenderConfig
 
 
@@ -107,17 +108,21 @@ def test_scaffold_version_bump_forces_rescaffold(
 
 
 # --- Fingerprint determinism ---
+#
+# These build groups only as fingerprint input, so the gap-closing dials are
+# passed as 0.0/0.0 (pass disabled) — the fingerprint is compared against
+# another fingerprint, never against a timing expectation.
 
 def test_fingerprint_is_stable_across_calls(transcription_result, tmp_path):
     cfg = VideoRenderConfig()
-    groups = hp._build_groups(transcription_result, cfg.words_per_group)
+    groups = _build_groups(transcription_result, cfg.words_per_group, 0.0, 0.0)
     fp1 = _scaffold_fingerprint(cfg, groups, transcription_result, None)
     fp2 = _scaffold_fingerprint(cfg, groups, transcription_result, None)
     assert fp1 == fp2
 
 
 def test_fingerprint_differs_on_config_change(transcription_result, tmp_path):
-    groups = hp._build_groups(transcription_result, VideoRenderConfig().words_per_group)
+    groups = _build_groups(transcription_result, VideoRenderConfig().words_per_group, 0.0, 0.0)
     fp_a = _scaffold_fingerprint(
         VideoRenderConfig(), groups, transcription_result, None
     )
@@ -131,7 +136,7 @@ def test_fingerprint_differs_on_source_stat(transcription_result, tmp_path):
     source = tmp_path / "clip.mp4"
     source.write_bytes(b"\x00")
     cfg = VideoRenderConfig()
-    groups = hp._build_groups(transcription_result, cfg.words_per_group)
+    groups = _build_groups(transcription_result, cfg.words_per_group, 0.0, 0.0)
     fp_small = _scaffold_fingerprint(cfg, groups, transcription_result, str(source))
     source.write_bytes(b"\x00\x01\x02\x03")
     fp_big = _scaffold_fingerprint(cfg, groups, transcription_result, str(source))

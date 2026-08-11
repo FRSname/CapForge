@@ -18,9 +18,10 @@ import type {
   WordOverrides,
   GroupPositionOverride,
 } from '../../types/app'
-import { buildStudioGroups, fillGroupGaps, reconcileGroups } from '../../lib/groups'
+import { buildStudioGroups, closeGroupGaps, fillGroupGaps, reconcileGroups } from '../../lib/groups'
 import { joinWords, retimeWords, tokenize } from '../../lib/wordTiming'
 import { adoptWordIds, ensureWordIds, withWordIds } from '../../lib/wordIds'
+import { adoptEndEdited } from '../../lib/endEdited'
 import { DEFAULT_PAD_V } from '../../lib/renderConstants'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
@@ -184,10 +185,34 @@ export function ResultsScreen({
     }
   }, [segments, settings.wordsPerGroup]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Publish groups + edited state to App for StudioPanel.
+  /**
+   * The groups as the *viewer* sees them: short inter-group gaps closed, and the
+   * final caption held past its last word (`lib/groups.ts` `closeGroupGaps`).
+   *
+   * Derived, never baked. Writing this back through `setGroups`/`handleGroupsChange`
+   * would flip `groupsEdited`, make `reconcileGroups` Rule 5 carry the held end
+   * forward as a manual bound, and compound the (non-idempotent) tail hold by one
+   * hold per edit. So `groups` stays raw and every edit surface keeps using it;
+   * only the preview and the render payload read this.
+   *
+   * Deliberate cosmetic consequence: the Groups editor and the timeline show a
+   * group's *original* end while the preview holds the caption longer. Raw ends
+   * are the drag/edit target, so they must stay honest.
+   */
+  const displayGroups = useMemo(
+    () => closeGroupGaps(groups, settings.gapCloseThreshold, settings.lastGroupHold),
+    [groups, settings.gapCloseThreshold, settings.lastGroupHold]
+  )
+
+  // Publish groups + edited state to App for StudioPanel. The *display* groups go
+  // up, so a render that takes the `custom_groups` path (groupsEdited or a position
+  // override — see render.ts) ships closed gaps too; the backend applies the same
+  // pass itself only on the other path, inside `_build_groups`.
+  // Requires `onGroupsUpdate` to be referentially stable, or this effect re-runs
+  // on every App render.
   useEffect(() => {
-    onGroupsUpdate(groups, groupsEdited || segmentsEdited)
-  }, [groups, groupsEdited, segmentsEdited]) // eslint-disable-line react-hooks/exhaustive-deps
+    onGroupsUpdate(displayGroups, groupsEdited || segmentsEdited)
+  }, [displayGroups, groupsEdited, segmentsEdited, onGroupsUpdate])
 
   // Wrapper that GroupEditor calls — flips the edited flag the first time the
   // user touches the groups.
@@ -196,10 +221,11 @@ export function ResultsScreen({
     setGroupsEdited(true)
   }, [])
 
-  // "Fill gaps" — bake the gap-fill stretch into the editable groups so each
-  // caption persists until the next group starts. One-shot + undoable; the
-  // user then shortens individual group ends (in GroupEditor) to carve out
-  // deliberate gaps where subtitles should disappear.
+  // "Close all gaps" — bake the gap-fill stretch into the editable groups so each
+  // caption persists until the next group starts. Unlike the automatic pass
+  // (closeGroupGaps) this ignores the threshold and closes every gap, however
+  // long. One-shot + undoable; the user then shortens individual group ends (in
+  // GroupEditor) to carve out deliberate gaps where subtitles should disappear.
   const handleFillGaps = useCallback(() => {
     pushUndo()
     handleGroupsChange(fillGroupGaps(groups))
@@ -335,7 +361,9 @@ export function ResultsScreen({
           // segments' ids by matching text+timing so the restored manual grouping
           // is still reconcilable; a project saved after this change already has
           // matching ids on both sides and passes through untouched.
-          setGroups(adoptWordIds(file.studioGroups, segments))
+          // `adoptEndEdited` does the same retrofit for the hand-placed-end claim,
+          // so gaps the user shaped before that flag existed aren't closed back up.
+          setGroups(adoptEndEdited(adoptWordIds(file.studioGroups, segments)))
           // Only mark edited when boundaries were actually edited — groups
           // saved solely for position overrides keep auto-grouping semantics.
           if (file.customGroupsEdited) setGroupsEdited(true)
@@ -413,6 +441,14 @@ export function ResultsScreen({
   }, [currentTime, pushUndo, commitSegments])
 
   // Timeline edge-drag: adjust a group's start/end time or move the whole block.
+  //
+  // Dragging the right edge or the whole block *places* this group's end, so the
+  // group is marked `endEdited` and from then on the automatic gap-closing pass
+  // leaves it alone (a deliberately carved-out gap survives) — see closeGroupGaps.
+  // A left-edge drag doesn't touch the end, so it makes no such claim. The flag is
+  // cleared again whenever the group's bounds are recomputed from its words
+  // (`finalizeBounds`), and GroupEditor offers a reset affordance for an
+  // accidental two-pixel drag.
   const handleSegmentEdge = useCallback(
     (
       segId: string,
@@ -423,9 +459,11 @@ export function ResultsScreen({
         prev.map((g) => {
           if (g.id !== segId) return g
           if (edge === 'body' && typeof newVal === 'object') {
-            return { ...g, start: newVal.start, end: newVal.end }
+            return { ...g, start: newVal.start, end: newVal.end, endEdited: true }
           }
-          return typeof newVal === 'number' ? { ...g, [edge]: newVal } : g
+          if (typeof newVal !== 'number') return g
+          if (edge === 'end') return { ...g, end: newVal, endEdited: true }
+          return { ...g, [edge]: newVal }
         })
       )
       setGroupsEdited(true)
@@ -441,6 +479,19 @@ export function ResultsScreen({
   // Word-lane drag: retime one word inside a group. The group's own bounds
   // widen if the first/last word is pushed past them (never into a neighbour —
   // the timeline clamps to adjacent groups before calling this).
+  //
+  // Deliberately does NOT set `endEdited`, unlike handleSegmentEdge above. The
+  // end moves here as a *side effect* of retiming a word, not as a statement
+  // about where this caption should stop: the user is placing a word, and the
+  // group bound follows because it has to contain it. Only a gesture aimed at
+  // the group's own end (right-edge/body drag, or the Groups editor's end field)
+  // is a claim. Flagging it here would silently exempt the group from gap
+  // closing forever because someone nudged a word.
+  //
+  // It does not *clear* an existing `endEdited` either: the end is only ever
+  // widened here (`Math.max`), so a hand-placed end is never contradicted, and
+  // revoking the claim would let a word nudge silently re-close a gap the user
+  // carved out on purpose. `resetEndEdit` in GroupEditor is the one way out.
   const handleWordEdge = useCallback(
     (segId: string, wordIdx: number, patch: { start: number; end: number }) => {
       setGroups((prev) =>
@@ -789,9 +840,9 @@ export function ResultsScreen({
               }}
               onClick={handleFillGaps}
               disabled={groups.length < 2}
-              title="Stretch every caption to the start of the next group so subtitles persist through silence. You can then shorten individual group end times to create deliberate gaps."
+              title="Close EVERY gap, ignoring the “Gap close” slider in the Layout card — every caption is stretched to the start of the next group, including across real pauses. Short gaps are already closed automatically; use this to bake the rest, then shorten individual group end times to carve deliberate gaps back out."
             >
-              Fill gaps
+              Close all gaps
             </button>
           )}
           <span
@@ -844,11 +895,14 @@ export function ResultsScreen({
       {/* Right area: player */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         <AlignmentNotice visible={alignmentDegraded} />
+        {/* `segments` is the timeline — raw groups, because its drag targets must
+            stay on the ends the user actually owns. `overlaySegments` is the
+            caption preview, which shows the derived, gap-closed ends. */}
         <AudioPlayer
           ref={playerRef}
           audioPath={result.audioPath}
           segments={groups}
-          overlaySegments={groups}
+          overlaySegments={displayGroups}
           settings={settings}
           resolution={settings.resolution}
           onTimeUpdate={handleTimeUpdate}

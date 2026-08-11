@@ -60,8 +60,13 @@ export function buildStudioGroups(segments: Segment[], wordsPerGroup: number): S
 
 /**
  * Stretch each group's end to the next group's start so captions persist
- * through silence gaps. Mirrors the backend's `fill_group_gaps()`
- * (`backend/exporters/video_render.py`).
+ * through silence gaps — **every** gap, however long, with no guards. This is
+ * the manual "Close all gaps" button, not the automatic pass; for the derived,
+ * threshold-limited version see `closeGroupGaps` below. (*This* function has no
+ * backend twin — unlike `closeGroupGaps`, this bake is frontend-only and
+ * reaches the render because `handleFillGaps` flips `groupsEdited`, the
+ * operative trigger for `render.ts` sending `custom_groups` on this path.
+ * `positionOverride` is a second, independent trigger in the same condition.)
  *
  * For every group except the last, if the next group's start is later than
  * this group's end (i.e. there is a gap), extend this group's end to meet
@@ -71,7 +76,7 @@ export function buildStudioGroups(segments: Segment[], wordsPerGroup: number): S
  * input is never mutated.
  *
  * Since `ce73fef` this is a one-shot **bake**, not a derived view: the Groups
- * toolbar's "Fill gaps" button writes the result straight into editable group
+ * toolbar's "Close all gaps" button writes the result straight into editable group
  * state (`handleFillGaps` in `ResultsScreen.tsx`) so the user can then shorten
  * individual ends to carve out deliberate gaps. The stretched `end` is therefore
  * a manual bound, and `reconcileGroups` preserves it for any group whose words
@@ -86,6 +91,99 @@ export function fillGroupGaps(groups: Segment[]): Segment[] {
       return { ...group, end: next.start }
     }
     return { ...group }
+  })
+}
+
+/**
+ * Close the *short* gaps between caption groups, and hold the final caption
+ * past its last word. The automatic counterpart to `fillGroupGaps`.
+ *
+ * **This one has a backend twin**: `_close_group_gaps` in
+ * `backend/exporters/video_render.py` (applied inside `_build_groups`, i.e. on
+ * the path that re-chunks from the stored transcription instead of taking
+ * `custom_groups`). The two must agree case for case and change in lockstep —
+ * as must their suites, `groups.gaps.test.ts` and
+ * `backend/tests/test_group_gap_closing.py`, which share a fixture and a
+ * literal expected-ends table.
+ *
+ * A caption that blinks off for two frames between groups reads as a flicker,
+ * while a real pause should still clear the screen — so only a gap of at most
+ * `threshold` seconds is closed, by moving the earlier group's `end` up to the
+ * later group's `start`. The rules, applied in this order to each consecutive
+ * pair `(a, b)`:
+ *
+ * 1. **Exemption** — `a.endEdited` (the user placed that end by hand) skips the
+ *    pair. Checked on `a`, the group whose `end` would move — never on `b`, so
+ *    a gap *into* a hand-ended group still closes.
+ * 2. **Missing timing** — the pair is skipped unless `a`'s last word `end` and
+ *    `b`'s first word `start` are both finite. `Word.start`/`end` are non-optional
+ *    in TypeScript, so this only fires on backend data or an old project file;
+ *    treating a missing value as `0` would yank a caption to the clip start.
+ * 3. **Speaker change** — never bridge one. Compared on the group's `speaker`
+ *    (`speaker` lives on `Segment`, not `Word`); two `undefined`s count as the
+ *    same speaker. Only reachable at a cross-segment boundary, since a group
+ *    never spans segments.
+ * 4. **Gap sign + threshold** — the end moves only when
+ *    `0 < gap <= threshold`, so an already-closed or overlapping boundary is
+ *    left alone and an end is never shortened. The boundary is inclusive.
+ *
+ * The final group of the whole array then gets `lastGroupHold` seconds added to
+ * its end (unless it is `endEdited`), so the last caption doesn't vanish the
+ * instant speech stops. The two dials are independent: `threshold <= 0` disables
+ * closing but not the hold, and vice versa. The hold is deliberately not clamped
+ * to the media duration — holding past the end is a no-op in every renderer.
+ *
+ * **Not idempotent.** Gap closing is (a closed gap is exactly 0, which fails
+ * `gap > 0`), but the tail hold adds `lastGroupHold` every time it runs. Apply
+ * this pass **once per pipeline** and never write its output back into group
+ * state: `reconcileGroups` Rule 5 would carry the held end forward as a manual
+ * bound and the next pass would extend it again, compounding by one hold per
+ * edit. It is a derived view — the editors keep the raw groups.
+ *
+ * Group `words`, `text`, `start`, membership, count, `positionOverride`,
+ * `endEdited` and per-word `overrides` are all untouched; only a group's `end`
+ * moves. Returns a new array of new objects; the input is never mutated.
+ */
+export function closeGroupGaps(
+  groups: Segment[],
+  threshold: number,
+  lastGroupHold: number
+): Segment[] {
+  if (groups.length === 0) return []
+
+  /** The end `a` should carry once the gap into its successor is considered. */
+  const closedEnd = (a: Segment, b: Segment | undefined): number => {
+    if (!b) return a.end
+    if (a.endEdited) return a.end
+    // `words` is non-optional in TypeScript, but Guard 06 exists precisely for
+    // data TypeScript never saw (backend payload, old project file) — so the
+    // whole access is defensive: a group with no `words` array yields
+    // `undefined`, fails the finiteness check below, and is skipped.
+    const aWords = a.words ?? []
+    const bWords = b.words ?? []
+    const aLastEnd = aWords[aWords.length - 1]?.end
+    const bFirstStart = bWords[0]?.start
+    if (!Number.isFinite(aLastEnd) || !Number.isFinite(bFirstStart)) return a.end
+    if (a.speaker !== b.speaker) return a.end
+    const gap = b.start - a.end
+    return gap > 0 && gap <= threshold ? b.start : a.end
+  }
+
+  const lastIndex = groups.length - 1
+
+  return groups.map((group, i) => {
+    let end = closedEnd(group, groups[i + 1])
+
+    if (i === lastIndex && lastGroupHold > 0 && !group.endEdited) {
+      // max(), not +=, is future-proofing only: today the last group has no
+      // successor, so `end` is always exactly `group.end` here and the left
+      // operand can never win. It keeps the hold correct if the final group
+      // ever becomes closable (e.g. closing into a media-duration bound). It
+      // does NOT make the pass idempotent across calls — see the doc comment.
+      end = Math.max(end, group.end + lastGroupHold)
+    }
+
+    return { ...group, end }
   })
 }
 
@@ -194,10 +292,23 @@ export function reorderGroup(groups: Segment[], fromIndex: number, toIndex: numb
   return [...filtered.slice(0, insertAt), groups[fromIndex], ...filtered.slice(insertAt)]
 }
 
+/**
+ * Recompute a group's `start`/`end`/`text` from the words it now holds.
+ *
+ * This is *the* "bounds derived from words" primitive, so it is also where a
+ * stale `endEdited` claim dies: callers such as `moveWord` spread the previous
+ * group object (`{ ...dst, words }`), and an end the user placed by hand no
+ * longer describes a group whose membership just changed. Clearing it here
+ * covers every caller.
+ */
 function finalizeBounds(g: Segment): Segment {
-  if (g.words.length === 0) return g
+  const { endEdited: _staleEndClaim, ...rest } = g
+  // No words to derive bounds from — keep the ones it has, but the claim that
+  // the user placed this `end` is just as stale as on the normal path.
+  // (Currently unreachable: every caller drops empty groups before recomputing.)
+  if (g.words.length === 0) return { ...rest }
   return {
-    ...g,
+    ...rest,
     start: g.words[0].start,
     end: g.words[g.words.length - 1].end,
     text: g.words.map((w) => w.word).join(' '),
@@ -237,7 +348,7 @@ type Bucket = {
  * 4. Groups left with no words are dropped (as `moveWord` already does).
  * 5. Bounds: a group whose word ids are unchanged keeps `start`/`end`
  *    **verbatim** — that is what preserves a manual timeline drag and the
- *    stretched end baked by "Fill gaps". A group whose word set changed gets
+ *    stretched end baked by "Close all gaps". A group whose word set changed gets
  *    bounds recomputed from its words (`finalizeBounds` semantics, matching the
  *    stale-bounds fix in 90c2e7a).
  * 6. `speaker` and `positionOverride` ride the group.
@@ -376,9 +487,10 @@ export function reconcileGroups(
  * So manual timing and per-word overrides are restored only when the rebuilt
  * chunk's words are byte-identical to the saved group's (same text and same
  * timings, in the same order); otherwise the chunk genuinely changed and the
- * freshly derived bounds are the correct ones. `positionOverride` is a
- * group-level placement choice rather than a timing claim, so it rides the ID
- * alone — matching what a full rebuild does.
+ * freshly derived bounds are the correct ones. `endEdited` is a claim *about*
+ * that manual `end`, so it travels under the same condition — never on the ID
+ * alone. `positionOverride` is a group-level placement choice rather than a
+ * timing claim, so it does ride the ID alone — matching what a full rebuild does.
  */
 export function restoreManualGroupState(rebuilt: Segment[], previous: Segment[]): Segment[] {
   if (previous.length === 0) return rebuilt
@@ -404,6 +516,7 @@ export function restoreManualGroupState(rebuilt: Segment[], previous: Segment[])
       ...withPosition,
       start: saved.start,
       end: saved.end,
+      ...(saved.endEdited ? { endEdited: true } : {}),
       words: g.words.map((w, j) => {
         const ov = saved.words[j]?.overrides
         return ov ? { ...w, overrides: ov } : w
