@@ -365,6 +365,11 @@ def _resolve_duration(
         probed = _probe_duration(_find_ffmpeg(), source_video_path)
         if probed and probed > 0:
             return float(probed)
+    # NB: `groups[-1]["end"]` is already held by `last_group_hold` (the gap-closing
+    # pass inside `_build_groups`), so this last resort compounds to roughly
+    # original-end + hold + 1.0. Intentional and harmless — it is only reached when
+    # an explicit duration, `result.duration` and ffprobe have all failed. Twin of
+    # the same note in `video_render.py`'s `render_video`.
     return (groups[-1]["end"] + 1.0) if groups else 1.0
 
 
@@ -664,7 +669,11 @@ def install_caption_component_for_coauthor(
     Returns the component's project-relative path.
     """
     proj = Path(project_dir)
-    groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    # `custom_groups` bypasses the gap-closing pass on purpose: frontend-authored
+    # groups arrive already closed, and the tail hold is not idempotent.
+    groups = custom_groups if custom_groups else _build_groups(
+        result, config.words_per_group, config.gap_close_threshold, config.last_group_hold
+    )
     if not groups:
         raise ValueError("No subtitle data to build the caption component from")
     total_duration = _resolve_duration(result, groups, None, duration)
@@ -778,7 +787,11 @@ def sync_companions(
     project = Path(project_dir)
     if not project.is_dir():
         raise FileNotFoundError(f"Co-author project not found: {project}")
-    groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    # `custom_groups` bypasses the gap-closing pass on purpose: frontend-authored
+    # groups arrive already closed, and the tail hold is not idempotent.
+    groups = custom_groups if custom_groups else _build_groups(
+        result, config.words_per_group, config.gap_close_threshold, config.last_group_hold
+    )
     if not groups:
         raise ValueError("No subtitle data to refresh")
     source_src, _transcript_json, _total, caption_sub_src = _write_companions(
@@ -858,7 +871,11 @@ def export_hyperframes_project(
     marker raises :class:`CoauthorClobberError` rather than clobbering the agent's
     authored composition.
     """
-    groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    # `custom_groups` bypasses the gap-closing pass on purpose: frontend-authored
+    # groups arrive already closed, and the tail hold is not idempotent.
+    groups = custom_groups if custom_groups else _build_groups(
+        result, config.words_per_group, config.gap_close_threshold, config.last_group_hold
+    )
     if not groups:
         raise ValueError("No subtitle data to build a HyperFrames composition")
 
@@ -939,7 +956,11 @@ def ensure_hyperframes_project(
     """
     t0 = time.perf_counter()
     project_dir = coauthor_project_dir(result, output_dir)
-    groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    # `custom_groups` bypasses the gap-closing pass on purpose: frontend-authored
+    # groups arrive already closed, and the tail hold is not idempotent.
+    groups = custom_groups if custom_groups else _build_groups(
+        result, config.words_per_group, config.gap_close_threshold, config.last_group_hold
+    )
 
     if groups:
         current_fp = _composition_fingerprint(

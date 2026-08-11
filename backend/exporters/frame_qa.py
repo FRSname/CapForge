@@ -46,7 +46,11 @@ def render_overlay(
     t: float,
 ) -> Image.Image:
     """Render the transparent subtitle overlay at time ``t`` (RGBA)."""
-    groups = custom_groups if custom_groups else _build_groups(result, config.words_per_group)
+    # `custom_groups` bypasses the gap-closing pass on purpose: frontend-authored
+    # groups arrive already closed, and the tail hold is not idempotent.
+    groups = custom_groups if custom_groups else _build_groups(
+        result, config.words_per_group, config.gap_close_threshold, config.last_group_hold
+    )
     group = _active_group(groups, t)
     font = _get_font(config.font_family, config.font_size, config.custom_font_path, bold=config.bold)
     return _render_frame(config, font, group, t)
