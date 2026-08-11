@@ -61,7 +61,7 @@ export function buildStudioGroups(segments: Segment[], wordsPerGroup: number): S
 /**
  * Stretch each group's end to the next group's start so captions persist
  * through silence gaps — **every** gap, however long, with no guards. This is
- * the manual "Fill gaps" button, not the automatic pass; for the derived,
+ * the manual "Close all gaps" button, not the automatic pass; for the derived,
  * threshold-limited version see `closeGroupGaps` below. (There is no backend
  * counterpart to this function — gap filling on this path is frontend-only and
  * reaches the render because `handleFillGaps` flips `groupsEdited`, the
@@ -76,14 +76,11 @@ export function buildStudioGroups(segments: Segment[], wordsPerGroup: number): S
  * input is never mutated.
  *
  * Since `ce73fef` this is a one-shot **bake**, not a derived view: the Groups
- * toolbar's "Fill gaps" button writes the result straight into editable group
+ * toolbar's "Close all gaps" button writes the result straight into editable group
  * state (`handleFillGaps` in `ResultsScreen.tsx`) so the user can then shorten
  * individual ends to carve out deliberate gaps. The stretched `end` is therefore
  * a manual bound, and `reconcileGroups` preserves it for any group whose words
  * did not change.
- *
- * TODO(phase 4.5): the plan relabels this button to "Close all gaps" once the
- * automatic pass ships; update both mentions of "Fill gaps" above when it does.
  */
 export function fillGroupGaps(groups: Segment[]): Segment[] {
   if (groups.length === 0) return []
