@@ -1,0 +1,199 @@
+[
+  {
+    "name": "before the first word",
+    "why": "nothing has started yet, so the line already sits on word 0",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": -0.5,
+    "expected": 390
+  },
+  {
+    "name": "exactly at the first word's start",
+    "why": "activeIndex 0 has no previous target to ease from",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 0.0,
+    "expected": 390
+  },
+  {
+    "name": "exactly at the second word's start",
+    "why": "elapsed 0 -> p 0 -> eased 0, so the slide has not begun to move yet",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 0.5,
+    "expected": 390
+  },
+  {
+    "name": "mid-slide at p=0.25",
+    "why": "eased = 1-(1-0.25)^2 = 0.4375; linear would give 367.5",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 0.525,
+    "expected": 350.625
+  },
+  {
+    "name": "mid-slide at p=0.5",
+    "why": "eased = 1-(1-0.5)^2 = 0.75; a linear implementation would give 345 and FAIL",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 0.55,
+    "expected": 322.5
+  },
+  {
+    "name": "exactly at the end of the slide",
+    "why": "elapsed == slideDuration lands on the target, not one ease step short",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 0.6,
+    "expected": 300
+  },
+  {
+    "name": "after the slide completes",
+    "why": "holds the active word's target for the rest of its duration",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 0.7,
+    "expected": 300
+  },
+  {
+    "name": "inside inter-word silence",
+    "why": "t is past word 1's end (1.0) and before word 2's start (1.2): the line must HOLD word 1, not move",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 1.1,
+    "expected": 300
+  },
+  {
+    "name": "mid-slide into the third word",
+    "why": "eases from word 1's target (300) toward word 2's (150) at p=0.5",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 1.25,
+    "expected": 187.5
+  },
+  {
+    "name": "after the last word ends",
+    "why": "the last word stays active; the line does not reset",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 5.0,
+    "expected": 150
+  },
+  {
+    "name": "slideDuration 0 snaps",
+    "why": "same t as the p=0.5 case, but with no slide there is no interpolation",
+    "words": [
+      { "start": 0.0, "end": 0.5 },
+      { "start": 0.5, "end": 1.0 },
+      { "start": 1.2, "end": 1.7 }
+    ],
+    "focusOffsets": [10, 100, 250],
+    "pivotPx": 400,
+    "slideDuration": 0.0,
+    "t": 0.55,
+    "expected": 300
+  },
+  {
+    "name": "negative offset when the focus sits right of the pivot",
+    "why": "pivot 100, focusOffsets [10, 300]: target(1) is -200, so mid-slide is -127.5",
+    "words": [
+      { "start": 0.0, "end": 1.0 },
+      { "start": 1.0, "end": 2.0 }
+    ],
+    "focusOffsets": [10, 300],
+    "pivotPx": 100,
+    "slideDuration": 0.2,
+    "t": 1.1,
+    "expected": -127.5
+  },
+  {
+    "name": "single-word group, mid word",
+    "why": "one word is always activeIndex 0 -> static target",
+    "words": [{ "start": 2.0, "end": 3.0 }],
+    "focusOffsets": [80],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 2.5,
+    "expected": 320
+  },
+  {
+    "name": "single-word group, before it starts",
+    "why": "same static target before the word begins",
+    "words": [{ "start": 2.0, "end": 3.0 }],
+    "focusOffsets": [80],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 0.0,
+    "expected": 320
+  },
+  {
+    "name": "empty group",
+    "why": "nothing to align: defined as the pivot rather than throwing",
+    "words": [],
+    "focusOffsets": [],
+    "pivotPx": 400,
+    "slideDuration": 0.1,
+    "t": 1.0,
+    "expected": 400
+  }
+]

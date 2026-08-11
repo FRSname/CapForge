@@ -1,0 +1,90 @@
+[
+  { "token": "eliminates", "index": 3, "note": "reference clip, len 10" },
+  { "token": "surprising", "index": 3, "note": "reference clip, len 10" },
+  { "token": "concept", "index": 2, "note": "reference clip, len 7" },
+  { "token": "movements", "index": 2, "note": "reference clip, len 9" },
+  { "token": "amount", "index": 2, "note": "reference clip, len 6" },
+  { "token": "small", "index": 1, "note": "reference clip, len 5" },
+  { "token": "rapid", "index": 1, "note": "reference clip, len 5" },
+  { "token": "the", "index": 1, "note": "reference clip, len 3" },
+  { "token": "eye", "index": 1, "note": "reference clip, len 3" },
+  { "token": "a", "index": 0, "note": "reference clip, len 1" },
+
+  { "token": "", "index": 0, "note": "empty token has no glyph to focus" },
+  { "token": "I", "index": 0, "note": "boundary: len 1, top of row <=1" },
+  { "token": "-", "index": 0, "note": "len 1, punctuation only" },
+  { "token": "of", "index": 1, "note": "boundary: len 2, bottom of row 2-5" },
+  { "token": "brown", "index": 1, "note": "boundary: len 5, top of row 2-5" },
+  { "token": "reader", "index": 2, "note": "boundary: len 6, bottom of row 6-9" },
+  { "token": "questions", "index": 2, "note": "boundary: len 9, top of row 6-9" },
+  { "token": "everything", "index": 3, "note": "boundary: len 10, bottom of row 10-13" },
+  { "token": "extraordinary", "index": 3, "note": "boundary: len 13, top of row 10-13" },
+  { "token": "characteristic", "index": 4, "note": "boundary: len 14, bottom of row >=14" },
+  { "token": "internationalization", "index": 4, "note": "len 20, well inside row >=14" },
+
+  { "token": "saccades,", "index": 2, "note": "punctuation counts: 8+1 = len 9" },
+  { "token": "word.", "index": 1, "note": "punctuation counts: 4+1 = len 5" },
+  { "token": "Hi!", "index": 1, "note": "punctuation counts: 2+1 = len 3" },
+  { "token": "\"quoted\"", "index": 2, "note": "punctuation counts: 6+2 = len 8" },
+  {
+    "token": "movements,",
+    "index": 3,
+    "note": "the punctuation decision, isolated: bare 'movements' is 9 -> 2, the comma makes it 10 -> 3"
+  },
+  {
+    "token": "extraordinary,",
+    "index": 4,
+    "note": "same, across the 13/14 boundary: bare form is 13 -> 3"
+  },
+
+  {
+    "token": "naïve,",
+    "index": 2,
+    "note": "BMP non-ASCII: 6 code points == 6 UTF-16 units, so nothing to normalize"
+  },
+  {
+    "token": "日本語",
+    "index": 1,
+    "note": "BMP CJK: 3 code points == 3 UTF-16 units"
+  },
+  {
+    "token": "🎬clap",
+    "index": 1,
+    "note": "ASTRAL: 5 code POINTS -> row 2-5 -> 1. A UTF-16-code-UNIT implementation counts 6 -> row 6-9 -> 2 and FAILS"
+  },
+  {
+    "token": "a🎬b",
+    "index": 1,
+    "note": "ASTRAL: 3 code points -> 1. A code-unit impl agrees on the index here (4 units -> 1) but slices token[1] as a lone surrogate — see rsvp_focus_offset_cases.json"
+  },
+  {
+    "token": "𝔘𝔫𝔦",
+    "index": 1,
+    "note": "ASTRAL (math fraktur): 3 code points -> 1; a code-unit impl counts 6 -> 2 and FAILS"
+  },
+  {
+    "token": "🎬",
+    "index": 0,
+    "note": "ASTRAL, single glyph: 1 code point -> row <=1 -> 0; a code-unit impl counts 2 -> 1, i.e. the emoji's LOW surrogate"
+  },
+  {
+    "token": "🎬🎬🎬🎬🎬",
+    "index": 1,
+    "note": "ASTRAL crossing two breakpoints: 5 code points -> row 2-5 -> 1, but 10 units -> row 10-13 -> 3"
+  },
+  {
+    "token": "🚀🚀🚀🚀🚀🚀🚀abcdef",
+    "index": 3,
+    "note": "ASTRAL across the 13/14 breakpoint: 7 astral + 6 ASCII = 13 code points -> 3, but 20 units -> row >=14 -> 4"
+  },
+  {
+    "token": "a\ud83cb",
+    "index": 1,
+    "note": "MALFORMED, documented: an UNPAIRED surrogate counts as exactly ONE unit (one Python str element, one Array.from element), so 3 -> 1. It renders as tofu everywhere, but all three renderers agree on the index and the pivot"
+  },
+  {
+    "token": "\ud83c",
+    "index": 0,
+    "note": "MALFORMED: a bare unpaired surrogate is a length-1 token, never merged with a neighbour that is not there"
+  }
+]

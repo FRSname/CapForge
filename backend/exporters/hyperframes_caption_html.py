@@ -36,6 +36,7 @@ import html
 import json
 from typing import Optional
 
+from backend.exporters.hyperframes_rsvp_runtime import RSVP_RUNTIME_JS
 from backend.models.schemas import VideoRenderConfig
 
 
@@ -238,10 +239,11 @@ def caption_build_call() -> str:
     return "  __capBuild(tl, CAP_CFG, CAP_GROUPS);\n"
 
 
-# The static runtime. Ported from useSubtitleOverlay.ts draw(): identical glyph
-# metrics (canvas measureText('Ayg')), identical word-position + box formulas,
-# rendered to DOM with a GSAP timeline instead of a per-frame canvas paint.
-CAPTION_RUNTIME_JS = r"""
+# First half of the static runtime: the tiny colour helpers plus the font-ready
+# gate the builder is deferred behind. The builder itself is
+# ``_CAPTION_RUNTIME_BUILD_JS`` below, and the RSVP core is spliced between them —
+# see ``CAPTION_RUNTIME_JS`` at the bottom of this file.
+_CAPTION_RUNTIME_HELPERS_JS = r"""
 function __capHexToRgb(hex){ var n=parseInt((hex||'').replace('#',''),16); return [(n>>16)&255,(n>>8)&255,n&255]; }
 function __capRgb(c){ return 'rgb('+c[0]+','+c[1]+','+c[2]+')'; }
 
@@ -290,7 +292,14 @@ function __capWhenFontsReady(CFG, GROUPS, cb){
     }
   } catch(e){ run(); }
 }
+"""
 
+# Second half of the static runtime (spliced after the helpers and the RSVP core —
+# see ``CAPTION_RUNTIME_JS`` at the bottom of this file): the builder itself,
+# ported from useSubtitleOverlay.ts ``draw()``. Identical glyph metrics (canvas
+# ``measureText('Ayg')``), identical word-position + box formulas, rendered to DOM
+# with a GSAP timeline instead of a per-frame canvas paint.
+_CAPTION_RUNTIME_BUILD_JS = r"""
 function __capBuild(tl, CFG, GROUPS){
   var layer = document.getElementById('captions');
   if(!layer) return;
@@ -681,6 +690,21 @@ function __capBuild(tl, CFG, GROUPS){
 """
 
 
+# What actually gets embedded: shared helpers, then the RSVP core, then the
+# builder that consumes it. Any change to this concatenation changes the emitted
+# runtime, so ``SCAFFOLD_VERSION`` (hyperframes_project.py) must be bumped with it
+# or a cached project would serve a stale-shape preview.
+#
+# ``RSVP_RUNTIME_JS`` is deliberately **unreachable** until the RSVP reading mode
+# ships its builder branch — nothing in ``__capBuild`` calls ``__capRsvp`` yet. It
+# is spliced in now so the block ships and is version-gated with the rest of the
+# runtime; dropping the term would keep every suite green (the embedded suite
+# extracts the constant from *source*) and fail only inside headless Chromium with
+# ``__capRsvp is not defined``, so the splice itself is pinned by
+# ``test_hyperframes_project.py::test_classic_captions_embed_the_rsvp_core``.
+CAPTION_RUNTIME_JS = _CAPTION_RUNTIME_HELPERS_JS + RSVP_RUNTIME_JS + _CAPTION_RUNTIME_BUILD_JS
+
+
 def caption_block(config: VideoRenderConfig, groups: list[dict]) -> dict:
     """Everything ``_build_index_html`` needs to embed the classic caption layer.
 
@@ -703,4 +727,7 @@ __all__ = [
     "caption_build_call",
     "caption_block",
     "CAPTION_RUNTIME_JS",
+    # Re-exported from ``hyperframes_rsvp_runtime`` so importers of the caption
+    # layer see the whole emitted runtime from one place.
+    "RSVP_RUNTIME_JS",
 ]

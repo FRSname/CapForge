@@ -264,6 +264,22 @@ def test_classic_captions_defer_build_until_fonts_ready(transcription_result, tm
     assert "window.__renderReady = true;" in html  # signals the CLI we're ready
 
 
+def test_classic_captions_embed_the_rsvp_core(transcription_result, tmp_path):
+    # Pins the ONE link nothing else covers: that RSVP_RUNTIME_JS is actually
+    # spliced into CAPTION_RUNTIME_JS. `rsvp.embedded.test.ts` extracts the
+    # constant from *source*, so dropping the `+ RSVP_RUNTIME_JS` term would leave
+    # every suite green and fail only inside headless Chromium, at render time,
+    # with `__capRsvp is not defined`.
+    #
+    # The block is deliberately unreachable for now — nothing in __capBuild calls
+    # __capRsvp yet — so "it is present" is the whole contract here.
+    html = (_generate(transcription_result, tmp_path) / "index.html").read_text()
+    assert "var __capRsvp" in html
+    assert "focusSlices:" in html and "lineOffsetAt:" in html
+    # ...and it must precede the builder that will consume it.
+    assert html.index("var __capRsvp") < html.index("function __capBuild")
+
+
 def test_native_caption_style_references_subcomposition(transcription_result, tmp_path):
     # Pre-place the registry component so install (npx) is skipped (cache path),
     # keeping the test Node-free.
