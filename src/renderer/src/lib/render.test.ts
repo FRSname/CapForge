@@ -39,6 +39,8 @@ const GOLDEN_DEFAULT_CONFIG = {
   text_align_v: 'middle',
 
   words_per_group: 3,
+  gap_close_threshold: 0.25,
+  last_group_hold: 1.0,
   caption_style: 'classic',
   lines: 1,
   max_width: 0.9,
@@ -118,6 +120,29 @@ describe('buildRenderBody — unit conversions', () => {
     expect(body.config.animation_duration).toBe(0.5)
   })
 
+  test('the caption timing dials cross the bridge in plain seconds', () => {
+    // Both are seconds on BOTH sides of the bridge — a pct() here would send
+    // 0.004s and 0.02s, and the fraction heuristic in settingsSanitize would
+    // have already destroyed the 2 before it ever got here.
+    const body = buildRenderBody(
+      { ...STUDIO_DEFAULTS, gapCloseThreshold: 0.4, lastGroupHold: 2 },
+      [],
+      false
+    )
+    expect(body.config.gap_close_threshold).toBe(0.4)
+    expect(body.config.last_group_hold).toBe(2)
+  })
+
+  test('a zero on either timing dial survives as 0, not the default', () => {
+    const body = buildRenderBody(
+      { ...STUDIO_DEFAULTS, gapCloseThreshold: 0, lastGroupHold: 0 },
+      [],
+      false
+    )
+    expect(body.config.gap_close_threshold).toBe(0)
+    expect(body.config.last_group_hold).toBe(0)
+  })
+
   test('empty fontPath becomes null, non-empty passes through', () => {
     expect(buildRenderBody(STUDIO_DEFAULTS, [], false).config.custom_font_path).toBeNull()
     const withFont = buildRenderBody({ ...STUDIO_DEFAULTS, fontPath: '/f/Inter.ttf' }, [], false)
@@ -186,6 +211,17 @@ describe('buildRenderBody — custom groups', () => {
     const body = buildRenderBody(STUDIO_DEFAULTS, idd, true)
     expect(body.custom_groups![0].words.every((w) => !('wid' in w))).toBe(true)
     expect(body.custom_groups![0].words[0]).toMatchObject({ word: 'hello' })
+  })
+
+  test('never leaks the frontend-only endEdited flag to the backend', () => {
+    // `endEdited` is a renderer-side exemption marker (types/app.ts) and
+    // CustomGroup has no such field — the map picks fields explicitly, which is
+    // what keeps it out. Pinned so a future `...g` spread fails here.
+    const edited: Segment[] = [{ ...groups[0], endEdited: true }, groups[1]]
+    const body = buildRenderBody(STUDIO_DEFAULTS, edited, true)
+    for (const g of body.custom_groups!) {
+      expect('endEdited' in g).toBe(false)
+    }
   })
 
   test('sends groups when only a position override exists, even with groupsEdited=false', () => {

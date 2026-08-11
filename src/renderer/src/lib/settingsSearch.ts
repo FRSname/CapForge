@@ -46,7 +46,15 @@ export const CARD_SETTINGS: Record<CardId, Array<keyof StudioSettings>> = {
     'shadowOffsetX',
     'shadowOffsetY',
   ],
-  layout: ['wordsPerGroup', 'lines', 'posX', 'posY', 'maxWidth'],
+  layout: [
+    'wordsPerGroup',
+    'gapCloseThreshold',
+    'lastGroupHold',
+    'lines',
+    'posX',
+    'posY',
+    'maxWidth',
+  ],
   background: [
     'bgOpacity',
     'bgRadius',
@@ -138,6 +146,16 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
   { label: 'Offset Y', cardId: 'colors', keywords: ['shadow offset', 'shadow position'] },
   // Layout
   { label: 'Words/Grp', cardId: 'layout', keywords: ['words per group', 'group', 'chunk'] },
+  {
+    label: 'Gap close',
+    cardId: 'layout',
+    keywords: ['gap', 'gaps', 'flicker', 'threshold', 'pause', 'timing', 'seconds'],
+  },
+  {
+    label: 'Hold last',
+    cardId: 'layout',
+    keywords: ['hold', 'final caption', 'last group', 'linger', 'tail', 'timing', 'seconds'],
+  },
   { label: 'Lines', cardId: 'layout', keywords: ['rows', 'line count', 'multiline'] },
   { label: 'X Pos', cardId: 'layout', keywords: ['position', 'horizontal'] },
   { label: 'Y Pos', cardId: 'layout', keywords: ['position', 'vertical'] },

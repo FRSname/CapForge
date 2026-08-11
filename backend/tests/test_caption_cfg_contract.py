@@ -115,6 +115,16 @@ INTENTIONALLY_ABSENT: dict[str, str] = {
         "Grouping is applied UPSTREAM (segments → N-word display groups) before "
         "markup; it shapes CAP_GROUPS / the DOM spans, not the CAP_CFG style."
     ),
+    "gap_close_threshold": (
+        "Same reason as words_per_group: consumed UPSTREAM by "
+        "video_render._build_groups, which bakes the closed gap into each group's "
+        "`end` before markup. The runtime reads the resulting CAP_GROUPS timings, "
+        "never the dial."
+    ),
+    "last_group_hold": (
+        "Ditto — _build_groups extends the final group's `end` before markup, so "
+        "the hold reaches the runtime as a CAP_GROUPS timing, not a CAP_CFG key."
+    ),
     "caption_style": (
         "Selects the render PATH (classic Pillow-parity HTML vs a HyperFrames "
         "registry caption-style). When this HTML caption layer runs it is already "

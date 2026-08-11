@@ -62,6 +62,21 @@ describe('filterSettings', () => {
     expect(result!.matchedLabels.has('Outline W')).toBe(true)
   })
 
+  test('keyword "flicker" surfaces the Gap close row in Layout', () => {
+    const result = filterSettings('flicker')
+
+    expect(result).not.toBeNull()
+    expect(result!.matchedCards.has('layout')).toBe(true)
+    expect(result!.matchedLabels.has('Gap close')).toBe(true)
+  })
+
+  test('keyword "linger" surfaces the Hold last row in Layout', () => {
+    const result = filterSettings('linger')
+
+    expect(result).not.toBeNull()
+    expect(result!.matchedLabels.has('Hold last')).toBe(true)
+  })
+
   test('keyword "tiktok" surfaces the Safe zones row in Layout', () => {
     const result = filterSettings('tiktok')
 

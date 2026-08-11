@@ -24,6 +24,10 @@ import {
   filterSettings,
   type CardId,
 } from '../../lib/settingsSearch'
+import {
+  DEFAULT_GAP_CLOSE_THRESHOLD,
+  DEFAULT_LAST_GROUP_HOLD,
+} from '../../lib/renderConstants'
 import type { Segment } from '../../types/app'
 import type { VideoInfo } from '../../lib/api'
 
@@ -55,6 +59,19 @@ export interface StudioSettings {
    */
   safeZone: 'off' | 'tiktok' | 'reels' | 'shorts'
   wordsPerGroup: number
+  /**
+   * Inter-group gaps at or below this are closed so captions stop flickering
+   * off between groups; 0 disables.
+   *
+   * PLAIN SECONDS — not a percentage and not a 0–1 fraction, unlike most of the
+   * numbers around it. It reaches the backend unscaled (no pct() in render.ts)
+   * and must never be marked `fraction: true` in NUMERIC_SETTING_SPECS, which
+   * would re-read a legitimate 2 as 0.02.
+   */
+  gapCloseThreshold: number
+  /** The final group holds this many seconds past its end; 0 disables.
+   *  Plain seconds, same unit contract as `gapCloseThreshold` above. */
+  lastGroupHold: number
   /** 'classic' = CapForge's built-in caption track; else a HyperFrames registry
    *  caption-style name (HyperFrames render path only). */
   captionStyle: string
@@ -126,6 +143,8 @@ const DEFAULTS: StudioSettings = {
   maxWidth: 90,
   safeZone: 'off',
   wordsPerGroup: 3,
+  gapCloseThreshold: DEFAULT_GAP_CLOSE_THRESHOLD,
+  lastGroupHold: DEFAULT_LAST_GROUP_HOLD,
   captionStyle: 'classic',
   lines: 1,
   bgOpacity: 0,

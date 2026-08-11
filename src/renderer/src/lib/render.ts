@@ -114,6 +114,11 @@ export function buildRenderBody(
     text_align_v: settings.textAlignV,
 
     words_per_group: settings.wordsPerGroup,
+    // Plain seconds — deliberately NOT run through pct(). These are the only
+    // time-valued settings in StudioSettings and they carry the same unit on
+    // both sides of the bridge.
+    gap_close_threshold: settings.gapCloseThreshold,
+    last_group_hold: settings.lastGroupHold,
     caption_style: settings.captionStyle ?? 'classic',
     lines: settings.lines,
     max_width: pct(settings.maxWidth, STUDIO_DEFAULTS.maxWidth),

@@ -26,6 +26,33 @@ export function LayoutCard({ s, defaults, filter, set, cardProps }: StudioSectio
           onChange={(v) => set('wordsPerGroup', v)}
         />
       </Row>
+      {/* Caption timing — plain seconds, never scaled on the way to the backend. */}
+      <Row label="Gap close" filter={filter}>
+        <StudioRow
+          label="Gap close"
+          title="Hold captions across gaps shorter than this (seconds) — 0 disables"
+          value={s.gapCloseThreshold}
+          min={0}
+          max={0.6}
+          step={0.05}
+          unit="s"
+          def={defaults.gapCloseThreshold}
+          onChange={(v) => set('gapCloseThreshold', v)}
+        />
+      </Row>
+      <Row label="Hold last" filter={filter}>
+        <StudioRow
+          label="Hold last"
+          title="Hold the final caption this long (seconds) past its last word — 0 disables"
+          value={s.lastGroupHold}
+          min={0}
+          max={3}
+          step={0.1}
+          unit="s"
+          def={defaults.lastGroupHold}
+          onChange={(v) => set('lastGroupHold', v)}
+        />
+      </Row>
       <Row label="Lines" filter={filter}>
         <StudioRow
           label="Lines"
