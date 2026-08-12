@@ -10,9 +10,9 @@ Twins that must change in lockstep:
 Three drifting copies of the ORP contract is precisely the bug class the caption
 parity suite exists to catch, so all three are pinned by the *same* literal
 fixtures under ``backend/tests/fixtures/`` (``rsvp_orp_cases.json``,
-``rsvp_focus_offset_cases.json``, ``rsvp_focus_slices_cases.json`` and
-``rsvp_line_offset_cases.json``), which the Python, TS and embedded-JS suites all
-read.
+``rsvp_focus_offset_cases.json``, ``rsvp_focus_slices_cases.json``,
+``rsvp_last_started_cases.json`` and ``rsvp_line_offset_cases.json``), which the
+Python, TS and embedded-JS suites all read.
 
 This module holds nothing but the constant. It lives apart from
 ``hyperframes_caption_html.py`` because that module is at the repo's file-size
@@ -113,16 +113,36 @@ var __capRsvp = {
     var s = __capRsvp.focusSlices(token, f);
     return wordX + measure(s.prefix) + measure(s.focus) / 2;
   },
-  // Line x translation at time t. Active word = the LAST word whose start has
-  // passed (NOT start<=t<end): inter-word silence must HOLD, not snap. Eased with
-  // the shared quadratic 1-(1-p)^2 == GSAP 'power1.out' (power2 is cubic —
-  // docs/caption-parity.md:11-21). Pure in t, so a backwards seek is exact.
+  // Index of the LAST word whose start is at or before t — the RSVP active-word
+  // rule, deliberately NOT start<=t<end: inter-word silence (and the tail after the
+  // last word's end) has no start<=t<end answer, so that test would snap the line
+  // back instead of holding it. The two rules also disagree when starts do not
+  // ascend (a manually reordered group) or when timings overlap.
+  // Extracted rather than inlined in lineOffsetAt so the line's ANCHOR and the
+  // renderer's COLOURING anchor cannot drift apart — Pillow tints the last-started
+  // word for exactly this reason (rsvp_layout.py) and the HTML layer must colour
+  // the word the line is parked on. Pinned by rsvp_last_started_cases.json.
+  // `count` bounds the scan (lineOffsetAt ignores words with no focus offset);
+  // null/undefined means "all of them" (Python: None). 0 for an empty list, before
+  // the first word, and for a non-finite t, which no comparison matches.
+  lastStartedIndex: function(t, words, count){
+    var limit = (count === undefined || count === null)
+      ? words.length
+      : Math.min(count, words.length);
+    var active = 0;
+    for(var i = 0; i < limit; i++){ if(words[i].start <= t) active = i; }
+    return active;
+  },
+  // Line x translation at time t. Active word = lastStartedIndex (see above).
+  // Eased with the shared quadratic 1-(1-p)^2 == GSAP 'power1.out' (power2 is
+  // cubic — docs/caption-parity.md:11-21). Pure in t, so a backwards seek is exact.
   lineOffsetAt: function(t, words, focusOffsets, pivotPx, slideDuration){
     var count = Math.min(words.length, focusOffsets.length);
     if(count === 0) return pivotPx;
     function target(i){ return pivotPx - focusOffsets[i]; }
-    var active = 0;
-    for(var i = 0; i < count; i++){ if(words[i].start <= t) active = i; }
+    // __capRsvp.*, not this.*: the method stays correct when a caller grabs it off
+    // the object (var f = __capRsvp.lineOffsetAt).
+    var active = __capRsvp.lastStartedIndex(t, words, count);
     if(active === 0) return target(0);
     var elapsed = t - words[active].start;
     if(!(slideDuration > 0) || elapsed >= slideDuration) return target(active);

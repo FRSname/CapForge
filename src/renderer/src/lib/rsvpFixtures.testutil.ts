@@ -4,9 +4,9 @@
  * environment.
  *
  * `backend/tests/fixtures/rsvp_orp_cases.json`,
- * `rsvp_focus_offset_cases.json`, `rsvp_focus_slices_cases.json` and
- * `rsvp_line_offset_cases.json` are the single source of expected values for all
- * three RSVP implementations:
+ * `rsvp_focus_offset_cases.json`, `rsvp_focus_slices_cases.json`,
+ * `rsvp_last_started_cases.json` and `rsvp_line_offset_cases.json` are the single
+ * source of expected values for all three RSVP implementations:
  *
  *   - `src/renderer/src/lib/rsvp.ts`            → `rsvp.test.ts`
  *   - `backend/exporters/rsvp.py`               → `backend/tests/test_rsvp_core.py`
@@ -89,6 +89,25 @@ export const CHAR_W = 10
 export const fixedWidth = (s: string): number => CHAR_W * s.length
 
 /**
+ * The **other** active-word rule — `start <= t < end`, first match, `-1` for none —
+ * which is what the decoration modes use and what RSVP deliberately does not. Not
+ * an implementation of anything under test: it exists so the suites can assert
+ * that `rsvp_last_started_cases.json` still contains cases where the two rules
+ * *disagree*, i.e. that the fixture is actually pinning the rule rather than a set
+ * of inputs both would get right. Mirrored by `_active_in_window` in
+ * `backend/tests/test_rsvp_core.py`.
+ */
+export function activeInWindow(
+  t: number,
+  words: ReadonlyArray<{ readonly start: number; readonly end: number }>
+): number {
+  for (let i = 0; i < words.length; i++) {
+    if (words[i].start <= t && t < words[i].end) return i
+  }
+  return -1
+}
+
+/**
  * Minimum case counts. A fixture that shrinks below these is a fixture someone
  * gutted, not a suite that got simpler — named so the numbers are not bare
  * literals in two languages (mirrored by `MIN_*` in
@@ -97,6 +116,7 @@ export const fixedWidth = (s: string): number => CHAR_W * s.length
 export const MIN_ORP_CASES = 20
 export const MIN_FOCUS_OFFSET_CASES = 8
 export const MIN_FOCUS_SLICES_CASES = 8
+export const MIN_LAST_STARTED_CASES = 15
 export const MIN_LINE_OFFSET_CASES = 10
 
 export interface OrpCase {
@@ -131,6 +151,22 @@ export interface LineOffsetCase {
   readonly slideDuration: number
   readonly t: number
   readonly expected: number
+}
+
+export interface LastStartedCase {
+  readonly name: string
+  readonly words: ReadonlyArray<{ readonly start: number; readonly end: number }>
+  /** `null` = "call it with no `count`" (Python `None`, JS `undefined`). */
+  readonly count: number | null
+  /** May be `NaN`; see {@link time}. */
+  readonly t: number
+  readonly expected: number
+  /**
+   * What the decoration modes' `start <= t < end` test would answer (first match,
+   * or -1) — carried so the suites can assert the fixture still contains cases
+   * where the two rules *disagree*, which is the whole reason this rule exists.
+   */
+  readonly activeInWindow: number
 }
 
 function readJson(file: string): unknown {
@@ -176,6 +212,35 @@ function str(value: unknown, where: string): string {
 /** `null` (derive with `orpIndex`) or a number; anything else is a broken case. */
 function focusIndex(value: unknown, where: string): number | null {
   return value === null ? null : num(value, where)
+}
+
+/** `null` (= "omit the argument", Python `None`) or a number. */
+function optionalCount(value: unknown, where: string): number | null {
+  return value === null ? null : num(value, where)
+}
+
+/**
+ * A time value, with the one sentinel the fixtures need: **JSON has no `NaN`
+ * literal**, so `"NaN"` (the string) means the float NaN. Spelled as a sentinel
+ * rather than relying on a lenient parser because Python's `json` accepts a bare
+ * `NaN` token and `JSON.parse` does not — a fixture that used it would load in one
+ * language and throw in the other two.
+ */
+function time(value: unknown, where: string): number {
+  if (value === 'NaN') return Number.NaN
+  return num(value, where)
+}
+
+/** `[{start, end}, …]`, validated. Shared by the two fixtures that carry words. */
+function wordTimings(value: unknown, where: string): Array<{ start: number; end: number }> {
+  if (!Array.isArray(value)) throw new Error(`${where}: words must be an array`)
+  return value.map((w, j) => {
+    const word = obj(w, `${where}[${j}]`)
+    return {
+      start: num(word.start, `${where}[${j}].start`),
+      end: num(word.end, `${where}[${j}].end`),
+    }
+  })
 }
 
 /**
@@ -265,19 +330,11 @@ export function loadLineOffsetCases(): LineOffsetCase[] {
   return asArray(readJson(file), file).map((raw, i) => {
     const at = `${file}[${i}]`
     const c = obj(raw, at)
-    const words = c.words
-    if (!Array.isArray(words)) throw new Error(`${at}: words must be an array`)
     const focusOffsets = c.focusOffsets
     if (!Array.isArray(focusOffsets)) throw new Error(`${at}: focusOffsets must be an array`)
     return {
       name: str(c.name, `${at}.name`),
-      words: words.map((w, j) => {
-        const word = obj(w, `${at}.words[${j}]`)
-        return {
-          start: num(word.start, `${at}.words[${j}].start`),
-          end: num(word.end, `${at}.words[${j}].end`),
-        }
-      }),
+      words: wordTimings(c.words, `${at}.words`),
       focusOffsets: focusOffsets.map((v, j) => num(v, `${at}.focusOffsets[${j}]`)),
       pivotPx: num(c.pivotPx, `${at}.pivotPx`),
       slideDuration: num(c.slideDuration, `${at}.slideDuration`),
@@ -287,7 +344,25 @@ export function loadLineOffsetCases(): LineOffsetCase[] {
   })
 }
 
-/** Parse + validate all four fixtures. Throws (rather than yielding a silently
+/** `rsvp_last_started_cases.json` → the time → active-word-index cases. */
+export function loadLastStartedCases(): LastStartedCase[] {
+  const file = 'rsvp_last_started_cases.json'
+  const root = obj(readJson(file), file)
+  return asArray(root.cases, `${file}.cases`).map((raw, i) => {
+    const at = `${file}.cases[${i}]`
+    const c = obj(raw, at)
+    return {
+      name: str(c.name, `${at}.name`),
+      words: wordTimings(c.words, `${at}.words`),
+      count: optionalCount(c.count, `${at}.count`),
+      t: time(c.t, `${at}.t`),
+      expected: num(c.expected, `${at}.expected`),
+      activeInWindow: num(c.activeInWindow, `${at}.activeInWindow`),
+    }
+  })
+}
+
+/** Parse + validate all five fixtures. Throws (rather than yielding a silently
  *  empty/mis-shaped suite) if any file drifts from the expected shape. */
 export function loadRsvpFixtures(): {
   orpCases: OrpCase[]
@@ -295,6 +370,7 @@ export function loadRsvpFixtures(): {
   /** `measure` for the focus-offset cases; see {@link buildMeasure}. */
   focusMeasure: (s: string) => number
   focusSlicesCases: FocusSlicesCase[]
+  lastStartedCases: LastStartedCase[]
   lineOffsetCases: LineOffsetCase[]
   CLOSE_DIGITS: number
 } {
@@ -304,6 +380,7 @@ export function loadRsvpFixtures(): {
     focusOffsetCases: focus.cases,
     focusMeasure: focus.measure,
     focusSlicesCases: loadFocusSlicesCases(),
+    lastStartedCases: loadLastStartedCases(),
     lineOffsetCases: loadLineOffsetCases(),
     CLOSE_DIGITS,
   }

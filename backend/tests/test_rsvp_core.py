@@ -5,7 +5,7 @@
 preview) and ``RSVP_RUNTIME_JS`` in
 ``backend/exporters/hyperframes_rsvp_runtime.py`` (HTML/GSAP layer).
 
-All three suites read the **same four JSON fixtures** in
+All three suites read the **same five JSON fixtures** in
 ``backend/tests/fixtures/`` — so an index or an ease that changes in one language
 and not the others fails loudly on the sides that did not change. Never hand-write
 an expected value here; add it to the fixture instead.
@@ -15,7 +15,7 @@ Twins of this module:
 * ``src/renderer/src/lib/rsvp.test.ts`` (TS core)
 * ``src/renderer/src/lib/rsvp.embedded.test.ts`` (the embedded HTML-layer JS)
 
-Pure logic — no PIL, no fonts, no I/O beyond reading the four fixtures.
+Pure logic — no PIL, no fonts, no I/O beyond reading the five fixtures.
 """
 
 from __future__ import annotations
@@ -32,6 +32,7 @@ from backend.exporters.rsvp import (
     UNBOUNDED_TOKEN_LENGTH,
     focus_offset,
     focus_slices,
+    last_started_index,
     line_offset_at,
     normalize_token,
     orp_index,
@@ -53,6 +54,9 @@ FOCUS_FIXTURE: dict = json.loads(
 FOCUS_CASES: list[dict] = FOCUS_FIXTURE["cases"]
 SLICES_CASES: list[dict] = json.loads(
     (FIXTURES / "rsvp_focus_slices_cases.json").read_text(encoding="utf-8")
+)["cases"]
+LAST_STARTED_CASES: list[dict] = json.loads(
+    (FIXTURES / "rsvp_last_started_cases.json").read_text(encoding="utf-8")
 )["cases"]
 
 #: Tight enough that a wrong ease or a wrong branch fails, loose enough for the
@@ -89,6 +93,7 @@ NO_COMPOSITION = "a\u0348"
 MIN_ORP_CASES = 20
 MIN_FOCUS_OFFSET_CASES = 8
 MIN_FOCUS_SLICES_CASES = 8
+MIN_LAST_STARTED_CASES = 15
 MIN_LINE_OFFSET_CASES = 10
 
 
@@ -100,6 +105,34 @@ def _has_astral(token: str) -> bool:
     return any(ord(c) > 0xFFFF for c in token)
 
 
+def _case_t(case: dict) -> float:
+    """A case's ``t``, resolving the one fixture sentinel.
+
+    **JSON has no NaN literal.** Python's ``json`` happens to accept a bare ``NaN``
+    token but ``JSON.parse`` does not, so the fixtures spell it as the *string*
+    ``"NaN"`` and every language translates it here (TS: ``time()`` in
+    ``rsvpFixtures.testutil.ts``). A fixture that leaned on the lenient parser would
+    load here and throw in the two JS suites.
+    """
+    raw = case["t"]
+    return math.nan if raw == "NaN" else float(raw)
+
+
+def _active_in_window(t: float, words: list[dict]) -> int:
+    """The **other** active-word rule: ``start <= t < end``, first match, -1 for none.
+
+    Not an implementation of anything under test — it exists so the tests can assert
+    that ``rsvp_last_started_cases.json`` still holds cases where the two rules
+    *disagree*, i.e. that the fixture pins the rule rather than a set of inputs both
+    would get right. Mirrored by ``activeInWindow`` in
+    ``src/renderer/src/lib/rsvpFixtures.testutil.ts``.
+    """
+    return next(
+        (i for i, w in enumerate(words) if w["start"] <= t < w["end"]),
+        -1,
+    )
+
+
 # ── ORP index ─────────────────────────────────────────────────────
 
 
@@ -108,6 +141,7 @@ def test_orp_fixtures_are_not_empty() -> None:
     assert len(ORP_CASES) >= MIN_ORP_CASES
     assert len(FOCUS_CASES) >= MIN_FOCUS_OFFSET_CASES
     assert len(SLICES_CASES) >= MIN_FOCUS_SLICES_CASES
+    assert len(LAST_STARTED_CASES) >= MIN_LAST_STARTED_CASES
     assert len(LINE_OFFSET_CASES) >= MIN_LINE_OFFSET_CASES
 
 
@@ -395,6 +429,113 @@ def test_focus_offset_never_measures_a_surrogate_half() -> None:
 
     assert seen
     assert not any(_is_surrogate(char) for text in seen for char in text)
+
+
+# ── last started index (the active-word anchor) ────────────────────
+#
+# One rule for two jobs: where the line parks AND which word a renderer colours.
+# Extracted from ``line_offset_at`` so those cannot drift apart, and pinned by a
+# fixture the TS and embedded-JS suites read as well.
+
+
+@pytest.mark.parametrize("case", LAST_STARTED_CASES, ids=lambda c: c["name"])
+def test_last_started_index_matches_fixture(case: dict) -> None:
+    words = case["words"]
+    t = _case_t(case)
+    # ``count: null`` means "omit the argument"; the JS twins spell that ``undefined``.
+    if case["count"] is None:
+        assert last_started_index(t, words) == case["expected"]
+    else:
+        assert last_started_index(t, words, case["count"]) == case["expected"]
+
+
+def test_last_started_index_passing_none_equals_omitting_count() -> None:
+    """``None`` is the documented "all of them", not a falsy 0."""
+    for case in LAST_STARTED_CASES:
+        words = case["words"]
+        t = _case_t(case)
+        assert last_started_index(t, words, None) == last_started_index(t, words)
+
+
+def test_the_fixture_still_covers_cases_where_the_two_rules_disagree() -> None:
+    """The rule is only pinned while these exist.
+
+    A fixture made only of cases ``start <= t < end`` would also get right pins
+    nothing. One kind has NO window answer (inter-word silence, and the tail after
+    the last word's ``end``); the other has a *different* one (a manually reordered
+    group, overlapping timings — see ``DISAGREEMENT_CASES`` in
+    ``test_rsvp_render.py``).
+    """
+    assert any(
+        case["activeInWindow"] == -1 and case["expected"] != -1
+        for case in LAST_STARTED_CASES
+    )
+    assert any(
+        case["activeInWindow"] >= 0 and case["activeInWindow"] != case["expected"]
+        for case in LAST_STARTED_CASES
+    )
+
+
+@pytest.mark.parametrize("case", LAST_STARTED_CASES, ids=lambda c: c["name"])
+def test_the_fixtures_active_in_window_column_is_honest(case: dict) -> None:
+    """...so the disagreement guard above cannot pass on a mislabelled case."""
+    assert _active_in_window(_case_t(case), case["words"]) == case["activeInWindow"]
+
+
+def test_the_fixture_still_covers_the_awkward_inputs() -> None:
+    """NaN, an empty list, a bounded ``count``, reordered and overlapping timings."""
+    assert any(math.isnan(_case_t(case)) for case in LAST_STARTED_CASES)
+    assert any(not case["words"] for case in LAST_STARTED_CASES)
+    assert any(len(case["words"]) == 1 for case in LAST_STARTED_CASES)
+    assert any(
+        case["count"] is not None and case["count"] < len(case["words"])
+        for case in LAST_STARTED_CASES
+    )
+    # Non-ascending starts: what a manual word reorder produces.
+    assert any(
+        any(w["start"] < case["words"][i - 1]["start"]
+            for i, w in enumerate(case["words"]) if i > 0)
+        for case in LAST_STARTED_CASES
+    )
+    # Overlapping timings: the next word starts before this one ends.
+    assert any(
+        any(case["words"][i - 1]["start"] < w["start"] < case["words"][i - 1]["end"]
+            for i, w in enumerate(case["words"]) if i > 0)
+        for case in LAST_STARTED_CASES
+    )
+
+
+def test_last_started_index_is_monotonic_for_ordinary_words() -> None:
+    """Ascending, non-overlapping words: the anchor only ever advances."""
+    words = [
+        {"start": 0.0, "end": 0.4},
+        {"start": 0.5, "end": 0.9},
+        {"start": 1.2, "end": 1.7},
+    ]
+    previous = 0
+    for i in range(-20, 201):
+        active = last_started_index(i / 100, words)
+        assert active >= previous
+        previous = active
+    assert previous == 2
+
+
+@pytest.mark.parametrize("case", LINE_OFFSET_CASES, ids=lambda c: c["name"])
+def test_last_started_index_is_the_anchor_line_offset_at_parks_on(case: dict) -> None:
+    """Derived, not restated: with the slide off, ``line_offset_at`` is exactly
+    ``pivot - focus_offsets[last_started_index(...)]``.
+
+    This is what keeps a renderer's *colouring* anchor and the line's *position*
+    anchor the same rule — the extraction's whole purpose.
+    """
+    words, offsets = case["words"], case["focusOffsets"]
+    count = min(len(words), len(offsets))
+    if count == 0:
+        return  # no words: the line sits at the pivot
+
+    active = last_started_index(case["t"], words, count)
+    actual = line_offset_at(case["t"], words, offsets, case["pivotPx"], 0.0)
+    assert actual == pytest.approx(case["pivotPx"] - offsets[active], abs=EPS)
 
 
 # ── line offset ───────────────────────────────────────────────────

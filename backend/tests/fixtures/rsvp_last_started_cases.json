@@ -1,0 +1,259 @@
+{
+  "comment": [
+    "Shared cases for the RSVP active-word anchor: `last_started_index` /",
+    "`lastStartedIndex` / `__capRsvp.lastStartedIndex` — the index of the LAST word",
+    "whose `start` is at or before `t`.",
+    "",
+    "Read by all three suites (backend/tests/test_rsvp_core.py,",
+    "src/renderer/src/lib/rsvp.test.ts, src/renderer/src/lib/rsvp.embedded.test.ts),",
+    "so the rule is stated once for the three implementations.",
+    "",
+    "This rule is deliberately NOT the `start <= t < end` test the decoration modes",
+    "use, and `activeInWindow` records what that test would answer — the FIRST index",
+    "whose window contains t, or -1 when no word's does — so every case says whether",
+    "the two rules agree. The cases where they",
+    "disagree are the whole point — an implementation that used the window test",
+    "would place the line, and colour the glyph, on a word that is not on the pivot",
+    "column. `reordered` and `overlapping` mirror the DISAGREEMENT_CASES in",
+    "backend/tests/test_rsvp_render.py, i.e. groups the renderer actually hits.",
+    "",
+    "`count` is the optional upper bound on how many words to consider (null =",
+    "\"all of them\", which is Python `None` and `undefined` in both JS copies).",
+    "`t` is a number, or the string \"NaN\" — JSON has no NaN literal, so the",
+    "loaders translate that one sentinel."
+  ],
+  "cases": [
+    {
+      "name": "before the first word",
+      "why": "nothing has started, so the anchor is word 0 rather than -1",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": null,
+      "t": -0.5,
+      "expected": 0,
+      "activeInWindow": -1
+    },
+    {
+      "name": "exactly at the first word's start",
+      "why": "the bound is inclusive: start <= t, not start < t",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": null,
+      "t": 0.0,
+      "expected": 0,
+      "activeInWindow": 0
+    },
+    {
+      "name": "exactly at a later word's start",
+      "why": "word 1 becomes the anchor on its own start frame, not one frame later",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": null,
+      "t": 0.5,
+      "expected": 1,
+      "activeInWindow": 1
+    },
+    {
+      "name": "inside a word",
+      "why": "the ordinary case, where both rules agree",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": null,
+      "t": 0.75,
+      "expected": 1,
+      "activeInWindow": 1
+    },
+    {
+      "name": "exactly at a word's end",
+      "why": "end is exclusive for the window test, so it already has no answer here; the anchor still holds word 1",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": null,
+      "t": 1.0,
+      "expected": 1,
+      "activeInWindow": -1
+    },
+    {
+      "name": "inside inter-word silence",
+      "why": "past word 1's end (1.0) and before word 2's start (1.2): the anchor HOLDS word 1 where the window test has no answer at all",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": null,
+      "t": 1.1,
+      "expected": 1,
+      "activeInWindow": -1
+    },
+    {
+      "name": "exactly at the last word's start",
+      "why": "the last word takes over on its start frame",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": null,
+      "t": 1.2,
+      "expected": 2,
+      "activeInWindow": 2
+    },
+    {
+      "name": "after the last word's end",
+      "why": "the group's tail hold: the last word stays the anchor, it does not reset to 0",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": null,
+      "t": 5.0,
+      "expected": 2,
+      "activeInWindow": -1
+    },
+    {
+      "name": "NaN t",
+      "why": "no comparison matches a NaN, so the loop never advances and the anchor is word 0",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": null,
+      "t": "NaN",
+      "expected": 0,
+      "activeInWindow": -1
+    },
+    {
+      "name": "single-word group, mid word",
+      "why": "one word is always the anchor",
+      "words": [{ "start": 2.0, "end": 3.0 }],
+      "count": null,
+      "t": 2.5,
+      "expected": 0,
+      "activeInWindow": 0
+    },
+    {
+      "name": "single-word group, before it starts",
+      "why": "still 0 — the 'nothing started' fallback and the only word coincide",
+      "words": [{ "start": 2.0, "end": 3.0 }],
+      "count": null,
+      "t": 0.0,
+      "expected": 0,
+      "activeInWindow": -1
+    },
+    {
+      "name": "empty word list",
+      "why": "defined as 0 rather than -1 or a throw, so callers need no empty branch",
+      "words": [],
+      "count": null,
+      "t": 1.0,
+      "expected": 0,
+      "activeInWindow": -1
+    },
+    {
+      "name": "reordered group, anchor is the displayed-second word",
+      "why": "manual word reorder: displayed order [bravo 1.50-2.00, alpha 1.00-1.50], so starts do not ascend. At t=1.20 only alpha has started",
+      "words": [
+        { "start": 1.5, "end": 2.0 },
+        { "start": 1.0, "end": 1.5 }
+      ],
+      "count": null,
+      "t": 1.2,
+      "expected": 1,
+      "activeInWindow": 1
+    },
+    {
+      "name": "reordered group, both started",
+      "why": "same reordered group at t=1.70 (test_rsvp_render's 'reordered' case): the window test answers bravo (0) but the line is parked on alpha (1), the LAST word to have started",
+      "words": [
+        { "start": 1.5, "end": 2.0 },
+        { "start": 1.0, "end": 1.5 }
+      ],
+      "count": null,
+      "t": 1.7,
+      "expected": 1,
+      "activeInWindow": 0
+    },
+    {
+      "name": "overlapping timings",
+      "why": "test_rsvp_render's 'overlapping' case: ascending starts, but alpha (1.00-1.60) is still inside its window when bravo (1.50-2.00) has begun, so the window test's FIRST answer is 0 while the anchor is 1",
+      "words": [
+        { "start": 1.0, "end": 1.6 },
+        { "start": 1.5, "end": 2.0 }
+      ],
+      "count": null,
+      "t": 1.55,
+      "expected": 1,
+      "activeInWindow": 0
+    },
+    {
+      "name": "count bounds the scan",
+      "why": "count 2 ignores word 2 entirely even though its start has long passed (line_offset_at passes count to skip words with no focus offset)",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": 2,
+      "t": 5.0,
+      "expected": 1,
+      "activeInWindow": -1
+    },
+    {
+      "name": "count 1 pins the anchor to the first word",
+      "why": "a one-word window behaves exactly like a one-word group",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": 1,
+      "t": 5.0,
+      "expected": 0,
+      "activeInWindow": -1
+    },
+    {
+      "name": "count 0 considers nothing",
+      "why": "an empty window is the empty-list answer, not a crash",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": 0,
+      "t": 5.0,
+      "expected": 0,
+      "activeInWindow": -1
+    },
+    {
+      "name": "count past the end is clamped",
+      "why": "a ragged caller must not index off the end; min(count, len(words)) wins",
+      "words": [
+        { "start": 0.0, "end": 0.5 },
+        { "start": 0.5, "end": 1.0 },
+        { "start": 1.2, "end": 1.7 }
+      ],
+      "count": 99,
+      "t": 5.0,
+      "expected": 2,
+      "activeInWindow": -1
+    }
+  ]
+}

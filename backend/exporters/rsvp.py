@@ -14,9 +14,9 @@ it.
 Three drifting copies of the ORP contract is precisely the bug class the caption
 parity suite exists to catch, so all three are pinned by the *same* literal
 fixtures under ``backend/tests/fixtures/`` — ``rsvp_orp_cases.json``,
-``rsvp_focus_offset_cases.json``, ``rsvp_focus_slices_cases.json`` and
-``rsvp_line_offset_cases.json`` — which the Python, TS and embedded-JS suites all
-read.
+``rsvp_focus_offset_cases.json``, ``rsvp_focus_slices_cases.json``,
+``rsvp_last_started_cases.json`` and ``rsvp_line_offset_cases.json`` — which the
+Python, TS and embedded-JS suites all read.
 
 Invariants:
 
@@ -245,6 +245,11 @@ def last_started_index(
     anchor cannot drift apart — Pillow tints the last-started word as the active
     word for exactly this reason (``rsvp_layout.py``).
 
+    The two rules disagree on more than silence: a manually reordered group ships
+    its ``custom_groups[].words`` verbatim, so ``start`` need not ascend, and
+    overlapping word timings do it too. Colouring by ``start <= t < end`` painted
+    a word that was *not* on the pivot column.
+
     Returns 0 for an empty ``words``, before the first word starts, and for a
     ``NaN`` ``t`` (which no comparison matches).
 
@@ -253,12 +258,13 @@ def last_started_index(
         words: The group's words in line order; only ``"start"`` is read.
         count: Optional upper bound on how many words to consider (used by
             :func:`line_offset_at`, which ignores words without a focus offset).
+            ``None`` means "all of them"; the JS twins spell that ``undefined``
+            (and, for their untyped callers, also accept ``null``).
 
-    Note for the twins (``src/renderer/src/lib/rsvp.ts``,
-    ``RSVP_RUNTIME_JS``): both still inline this loop inside their
-    ``lineOffsetAt``. Behaviour is identical — the fixture cases pin it — but
-    Phase 4 needs the same colouring anchor, so extract it there too rather than
-    hand-rolling a second copy of the rule.
+    Both twins (``src/renderer/src/lib/rsvp.ts`` → ``lastStartedIndex``,
+    ``RSVP_RUNTIME_JS`` → ``__capRsvp.lastStartedIndex``) expose the same function
+    with the same ``count`` semantics, and all three are pinned by
+    ``backend/tests/fixtures/rsvp_last_started_cases.json``.
     """
     limit = len(words) if count is None else min(count, len(words))
     active = 0

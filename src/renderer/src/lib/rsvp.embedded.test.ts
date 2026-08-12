@@ -7,7 +7,7 @@
  * HyperFrames render, so without this suite it can silently drift from
  * `lib/rsvp.ts` and `backend/exporters/rsvp.py` — the same bug class as three
  * drifting ORP tables (`docs/caption-parity.md`). Here the constant is extracted
- * from the Python source, evaluated standalone, and run against the *same four
+ * from the Python source, evaluated standalone, and run against the *same five
  * fixtures* the other two suites use.
  *
  * That the block evaluates at all is itself part of the contract: the functions
@@ -24,7 +24,7 @@
 import { describe, expect, test } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { RSVP_ORP_TABLE } from './rsvp'
+import { RSVP_ORP_TABLE, lastStartedIndex } from './rsvp'
 import {
   ASTRAL_CHAR,
   CHAR_W,
@@ -41,6 +41,7 @@ const {
   focusOffsetCases,
   focusMeasure,
   focusSlicesCases,
+  lastStartedCases,
   lineOffsetCases,
   CLOSE_DIGITS,
 } = loadRsvpFixtures()
@@ -54,6 +55,11 @@ interface EmbeddedRsvp {
   orpIndex(token: string): number
   focusSlices(token: string, f: number): { prefix: string; focus: string; suffix: string }
   focusOffset(wordX: number, token: string, f: number, measure: (s: string) => number): number
+  lastStartedIndex(
+    t: number,
+    words: ReadonlyArray<{ start: number; end: number }>,
+    count?: number | null
+  ): number
   lineOffsetAt(
     t: number,
     words: ReadonlyArray<{ start: number; end: number }>,
@@ -92,6 +98,7 @@ describe('embedded RSVP runtime (hyperframes_rsvp_runtime.py)', () => {
     expect(typeof embedded.orpIndex).toBe('function')
     expect(typeof embedded.focusSlices).toBe('function')
     expect(typeof embedded.focusOffset).toBe('function')
+    expect(typeof embedded.lastStartedIndex).toBe('function')
     expect(typeof embedded.lineOffsetAt).toBe('function')
     expect(Array.isArray(embedded.ORP_TABLE)).toBe(true)
   })
@@ -252,6 +259,76 @@ describe('embedded RSVP runtime (hyperframes_rsvp_runtime.py)', () => {
       )
     }
   )
+
+  // The anchor both the line's position and the HTML layer's colouring read — the
+  // same shared fixture the TS and Python suites assert against.
+  test.each(lastStartedCases.map((c) => [c.name, c] as const))(
+    'lastStartedIndex — %s',
+    (_name, c) => {
+      // `count: null` means "omit the argument" (the Python twin's `None`).
+      const actual =
+        c.count === null
+          ? embedded.lastStartedIndex(c.t, c.words)
+          : embedded.lastStartedIndex(c.t, c.words, c.count)
+      expect(actual).toBe(c.expected)
+    }
+  )
+
+  test('lastStartedIndex reads an explicit null count as "all of them"', () => {
+    // This copy's callers are untyped, so a null must mean Python's `None` rather
+    // than `Math.min(null, len) === 0`. The TS twin does the same.
+    for (const c of lastStartedCases) {
+      expect(embedded.lastStartedIndex(c.t, c.words, null)).toBe(
+        embedded.lastStartedIndex(c.t, c.words)
+      )
+    }
+  })
+
+  test('lastStartedIndex agrees with lib/rsvp.ts outside the fixture too', () => {
+    // A real cross-copy drift check between the two JS twins, over a t sweep on the
+    // inputs where this rule and `start <= t < end` disagree: reordered starts and
+    // overlapping timings. Derived from the TS twin rather than restated.
+    const groups = [
+      [
+        { start: 1.5, end: 2.0 },
+        { start: 1.0, end: 1.5 },
+      ],
+      [
+        { start: 1.0, end: 1.6 },
+        { start: 1.5, end: 2.0 },
+      ],
+      [
+        { start: 0.0, end: 0.5 },
+        { start: 0.5, end: 1.0 },
+        { start: 1.2, end: 1.7 },
+      ],
+    ]
+    for (const words of groups) {
+      for (let i = -10; i <= 250; i += 5) {
+        const t = i / 100
+        for (const count of [undefined, null, 0, 1, words.length, 99] as Array<
+          number | null | undefined
+        >) {
+          expect(embedded.lastStartedIndex(t, words, count)).toBe(lastStartedIndex(t, words, count))
+        }
+      }
+    }
+  })
+
+  test('lastStartedIndex is the anchor lineOffsetAt parks the line on', () => {
+    // Derived, not restated: with the slide off, lineOffsetAt is exactly
+    // `pivot - focusOffsets[lastStartedIndex(...)]`, so this copy cannot place the
+    // line by one rule and colour by another.
+    for (const c of lineOffsetCases) {
+      const count = Math.min(c.words.length, c.focusOffsets.length)
+      if (count === 0) continue
+      const active = embedded.lastStartedIndex(c.t, c.words, count)
+      expect(embedded.lineOffsetAt(c.t, c.words, c.focusOffsets, c.pivotPx, 0)).toBeCloseTo(
+        c.pivotPx - c.focusOffsets[active],
+        CLOSE_DIGITS
+      )
+    }
+  })
 
   test.each(lineOffsetCases.map((c) => [c.name, c] as const))('lineOffsetAt — %s', (_name, c) => {
     const actual = embedded.lineOffsetAt(c.t, c.words, c.focusOffsets, c.pivotPx, c.slideDuration)

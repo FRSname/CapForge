@@ -18,8 +18,9 @@
  * the bug class the parity suite exists to catch. All three are pinned by the
  * same literal fixtures under `backend/tests/fixtures/` —
  * `rsvp_orp_cases.json`, `rsvp_focus_offset_cases.json`,
- * `rsvp_focus_slices_cases.json` and `rsvp_line_offset_cases.json` — which the
- * TS, Python and embedded-JS suites all read.
+ * `rsvp_focus_slices_cases.json`, `rsvp_last_started_cases.json` and
+ * `rsvp_line_offset_cases.json` — which the TS, Python and embedded-JS suites all
+ * read.
  *
  * ## Invariants
  *
@@ -243,6 +244,46 @@ export interface RsvpWordTiming {
 }
 
 /**
+ * Index of the **last** word whose `start` is at or before `t`.
+ *
+ * The RSVP active-word rule, and deliberately **not** the `start <= t < end` test
+ * the decoration modes use: silence between two words (and the tail after the last
+ * word's `end`) has no `start <= t < end` answer, so that test would snap the line
+ * back instead of holding it. Extracted from {@link lineOffsetAt} so the line's
+ * anchor and a renderer's *colouring* anchor cannot drift apart — Pillow tints the
+ * last-started word as the active word for exactly this reason
+ * (`backend/exporters/rsvp_layout.py`), and the Canvas preview must colour the same
+ * word the line is parked on.
+ *
+ * The two rules really do disagree on more than silence: a manually reordered
+ * group ships its words verbatim, so `start` need not ascend, and overlapping word
+ * timings do it too. Pinned for all three implementations by
+ * `backend/tests/fixtures/rsvp_last_started_cases.json`.
+ *
+ * Returns 0 for an empty `words`, before the first word starts, and for a
+ * non-finite `t` (which no comparison matches).
+ *
+ * @param t Time in seconds, on the same clock as `words[].start`.
+ * @param words The group's words in line order; only `start` is read.
+ * @param count Optional upper bound on how many words to consider (used by
+ *   {@link lineOffsetAt}, which ignores words without a focus offset). Omitted —
+ *   or `null`, which the untyped embedded twin's callers can pass and Python
+ *   spells `None` — means "all of them".
+ */
+export function lastStartedIndex(
+  t: number,
+  words: readonly RsvpWordTiming[],
+  count?: number | null
+): number {
+  const limit = count === undefined || count === null ? words.length : Math.min(count, words.length)
+  let active = 0
+  for (let i = 0; i < limit; i++) {
+    if (words[i].start <= t) active = i
+  }
+  return active
+}
+
+/**
  * The line's x translation at time `t`, eased between consecutive words.
  *
  * The line is laid out once (giving one `focusOffsets` entry per word, in px
@@ -251,10 +292,11 @@ export interface RsvpWordTiming {
  *
  *     target(i) = pivotPx - focusOffsets[i]
  *
- * The active word is the **last** word whose `start` is at or before `t` —
- * deliberately not the `start <= t < end` test the decoration modes use. Silence
- * between two words must *hold* the previous position; a `start <= t < end` test
- * would have no answer there and the line would snap.
+ * The active word is the **last** word whose `start` is at or before `t`
+ * ({@link lastStartedIndex}) — deliberately not the `start <= t < end` test the
+ * decoration modes use. Silence between two words must *hold* the previous
+ * position; a `start <= t < end` test would have no answer there and the line
+ * would snap.
  *
  * Between the previous word's target and the active one's, the line eases over
  * `slideDuration` seconds with the repo's shared quadratic ease-out
@@ -284,10 +326,7 @@ export function lineOffsetAt(
 
   // Last word whose start has passed; 0 before the first word starts (and for a
   // non-finite `t`, which no comparison matches).
-  let active = 0
-  for (let i = 0; i < count; i++) {
-    if (words[i].start <= t) active = i
-  }
+  const active = lastStartedIndex(t, words, count)
   if (active === 0) return target(0)
 
   const elapsed = t - words[active].start

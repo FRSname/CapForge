@@ -6,7 +6,7 @@
  * `RSVP_RUNTIME_JS` in `backend/exporters/hyperframes_rsvp_runtime.py`
  * (HTML/GSAP, pinned by `rsvp.embedded.test.ts`).
  *
- * All three suites read the **same four JSON fixtures** under
+ * All three suites read the **same five JSON fixtures** under
  * `backend/tests/fixtures/`, the way `groups.gaps.test.ts` shares its literal
  * table with `backend/tests/test_group_gap_closing.py`. A rule that changes in
  * one language and not the others fails loudly on the sides that did not change.
@@ -23,6 +23,7 @@ import {
   codePoints,
   focusOffset,
   focusSlices,
+  lastStartedIndex,
   lineOffsetAt,
   orpIndex,
   type RsvpWordTiming,
@@ -32,11 +33,13 @@ import {
   CHAR_W,
   MIN_FOCUS_OFFSET_CASES,
   MIN_FOCUS_SLICES_CASES,
+  MIN_LAST_STARTED_CASES,
   MIN_LINE_OFFSET_CASES,
   MIN_ORP_CASES,
   NFD_TOKENS,
   NO_COMPOSITION,
   SWEEP_MAX_LENGTH,
+  activeInWindow,
   fixedWidth,
   isCombiningMark,
   loadRsvpFixtures,
@@ -47,6 +50,7 @@ const {
   focusOffsetCases,
   focusMeasure,
   focusSlicesCases,
+  lastStartedCases,
   lineOffsetCases,
   CLOSE_DIGITS,
 } = loadRsvpFixtures()
@@ -54,11 +58,12 @@ const {
 // ── Fixture sanity ─────────────────────────────────────────────────
 
 describe('rsvp fixtures', () => {
-  test('all four fixture files loaded with content', () => {
+  test('all five fixture files loaded with content', () => {
     // Guards the fixtures themselves — an unreadable file must not pass silently.
     expect(orpCases.length).toBeGreaterThanOrEqual(MIN_ORP_CASES)
     expect(focusOffsetCases.length).toBeGreaterThanOrEqual(MIN_FOCUS_OFFSET_CASES)
     expect(focusSlicesCases.length).toBeGreaterThanOrEqual(MIN_FOCUS_SLICES_CASES)
+    expect(lastStartedCases.length).toBeGreaterThanOrEqual(MIN_LAST_STARTED_CASES)
     expect(lineOffsetCases.length).toBeGreaterThanOrEqual(MIN_LINE_OFFSET_CASES)
   })
 
@@ -73,6 +78,41 @@ describe('rsvp fixtures', () => {
     )
     expect(hasAstral).toBe(true)
     expect(hasLoneSurrogate).toBe(true)
+  })
+
+  test('the last-started fixture still covers cases where the two rules disagree', () => {
+    // The rule is only pinned while these exist: a fixture of cases that
+    // `start <= t < end` would also get right pins nothing. One kind has NO window
+    // answer (silence, and the tail after the last word); the other has a
+    // *different* one (a reordered group, overlapping timings).
+    expect(lastStartedCases.some((c) => c.activeInWindow === -1 && c.expected !== -1)).toBe(true)
+    expect(
+      lastStartedCases.some((c) => c.activeInWindow >= 0 && c.activeInWindow !== c.expected)
+    ).toBe(true)
+    // ...and the fixture's own `activeInWindow` column is what it claims to be, so
+    // the guard above cannot be satisfied by a mislabelled case.
+    for (const c of lastStartedCases) {
+      expect(activeInWindow(c.t, c.words)).toBe(c.activeInWindow)
+    }
+  })
+
+  test('the last-started fixture still covers a NaN t and a bounded count', () => {
+    expect(lastStartedCases.some((c) => Number.isNaN(c.t))).toBe(true)
+    expect(lastStartedCases.some((c) => c.count !== null && c.count < c.words.length)).toBe(true)
+    expect(lastStartedCases.some((c) => c.words.length === 0)).toBe(true)
+    expect(lastStartedCases.some((c) => c.words.length === 1)).toBe(true)
+    // Non-ascending starts — a manually reordered group.
+    expect(
+      lastStartedCases.some((c) => c.words.some((w, i) => i > 0 && w.start < c.words[i - 1].start))
+    ).toBe(true)
+    // Overlapping timings: the next word starts before this one ends.
+    expect(
+      lastStartedCases.some((c) =>
+        c.words.some(
+          (w, i) => i > 0 && w.start < c.words[i - 1].end && w.start > c.words[i - 1].start
+        )
+      )
+    ).toBe(true)
   })
 
   test('the orp fixture still covers a decomposed (non-NFC) token', () => {
@@ -330,6 +370,59 @@ describe('focusSlices', () => {
         focus: 't',
         suffix: 'he',
       })
+    }
+  })
+})
+
+// ── lastStartedIndex ───────────────────────────────────────────────
+//
+// The anchor both the line's position and a renderer's colouring read, so the two
+// cannot drift apart. The fixture is shared with the Python and embedded-JS suites.
+
+describe('lastStartedIndex', () => {
+  test.each(lastStartedCases.map((c) => [c.name, c] as const))('%s', (_name, c) => {
+    // `count: null` means "omit the argument", which is the Python twin's `None`.
+    const actual =
+      c.count === null ? lastStartedIndex(c.t, c.words) : lastStartedIndex(c.t, c.words, c.count)
+    expect(actual).toBe(c.expected)
+  })
+
+  test('an explicit null count means the same as omitting it', () => {
+    // The embedded twin's callers are untyped and can hand it a null; both JS copies
+    // must read that as Python's `None` rather than as `Math.min(null, len) === 0`.
+    for (const c of lastStartedCases) {
+      expect(lastStartedIndex(c.t, c.words, null)).toBe(lastStartedIndex(c.t, c.words))
+    }
+  })
+
+  test('is monotonic in t for ascending, non-overlapping words', () => {
+    // The ordinary case: the anchor only ever advances as time moves forward.
+    const words: RsvpWordTiming[] = [
+      { start: 0, end: 0.4 },
+      { start: 0.5, end: 0.9 },
+      { start: 1.2, end: 1.7 },
+    ]
+    let previous = 0
+    for (let i = -20; i <= 200; i++) {
+      const active = lastStartedIndex(i / 100, words)
+      expect(active).toBeGreaterThanOrEqual(previous)
+      previous = active
+    }
+    expect(previous).toBe(2)
+  })
+
+  test('is the anchor lineOffsetAt parks the line on', () => {
+    // Derived, not restated: with the slide switched off, `lineOffsetAt` is exactly
+    // `pivot - focusOffsets[lastStartedIndex(...)]`. This is what keeps a renderer's
+    // colouring anchor and the line's position anchor the same rule.
+    for (const c of lineOffsetCases) {
+      const count = Math.min(c.words.length, c.focusOffsets.length)
+      if (count === 0) continue // no words: the line sits at the pivot
+      const active = lastStartedIndex(c.t, c.words, count)
+      expect(lineOffsetAt(c.t, c.words, c.focusOffsets, c.pivotPx, 0)).toBeCloseTo(
+        c.pivotPx - c.focusOffsets[active],
+        CLOSE_DIGITS
+      )
     }
   })
 })
