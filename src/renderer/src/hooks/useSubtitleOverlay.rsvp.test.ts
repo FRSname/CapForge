@@ -188,7 +188,11 @@ const PIVOT = BAND_LEFT + BAND_WIDTH * (STUDIO_DEFAULTS.rsvpPivotX / 100) // 365
 /** posY 82 %, no vertical offsets, one row → the row centre is cy itself. */
 const ROW_CENTER_Y = RES_H * (STUDIO_DEFAULTS.posY / 100)
 
-function draw(settings: Partial<StudioSettings>, t: number, group: Segment = GROUP) {
+function draw(
+  settings: Partial<StudioSettings>,
+  t: number,
+  group: Segment | Segment[] = GROUP
+) {
   const { ctx, ops, gradients } = createRecordingContext()
   const canvas = {
     width: 0,
@@ -201,7 +205,7 @@ function draw(settings: Partial<StudioSettings>, t: number, group: Segment = GRO
     const overlay = useSubtitleOverlay({
       canvasRef: { current: canvas },
       anchorRef: { current: null },
-      segments: [group],
+      segments: Array.isArray(group) ? group : [group],
       settings: { ...BASE_SETTINGS, ...settings },
       resolution: [RES_W, RES_H],
     })
@@ -528,5 +532,137 @@ describe('wrap mode is untouched by the RSVP branch', () => {
     expect(gradients).toEqual([])
     expect(ops.every((o) => o.composite === 'source-over')).toBe(true)
     expect(ops.filter((o) => o.op === 'fillRect')).toEqual([])
+  })
+})
+
+// ── Reels: one line across consecutive groups ────────────────────
+// The rule itself is pinned against its Python twin in `lib/rsvpReels.test.ts`;
+// what is asserted here is that the hook *uses* it — that a group boundary inside
+// a reel is drawn as one line, and that a real gap still separates two lines.
+
+/** Groups that leave no blank frame between them: `a.end === b.start`. */
+function touchingGroups(...chunks: string[][]): Segment[] {
+  const groups: Segment[] = []
+  let t = 0
+  chunks.forEach((chunk, gi) => {
+    const words = chunk.map((word, i) => ({ word, start: t + i * 0.5, end: t + (i + 1) * 0.5 }))
+    groups.push({
+      id: `g${gi}`,
+      text: chunk.join(' '),
+      start: words[0].start,
+      end: words[words.length - 1].end,
+      words,
+    })
+    t = words[words.length - 1].end
+  })
+  return groups
+}
+
+describe('RSVP draws a reel, not a group', () => {
+  test('the words of both groups are on one line', () => {
+    const groups = touchingGroups(['alpha', 'bravo'], ['charlie', 'delta'])
+    // Mid-hold on 'charlie' — the first word of the SECOND group.
+    const { ops } = draw({}, groups[1].start + 0.3, groups)
+
+    const drawn = texts(ops)
+    // 'charlie' is the anchor, so it arrives as three pieces; everything else is
+    // whole — and crucially the previous group's words are still drawn.
+    expect(drawn.map((o) => o.text).join('|')).toBe('alpha|bravo|ch|a|rlie|delta')
+  })
+
+  test('the line is continuous: word spacing does not reset at the boundary', () => {
+    const groups = touchingGroups(['alpha', 'bravo'], ['charlie', 'delta'])
+    const { ops } = draw({}, groups[1].start + 0.3, groups)
+
+    const drawn = texts(ops)
+    const [alpha, bravo, charlie] = [drawn[0], drawn[1], drawn[2]]
+    // Advances are `word length * CHAR_W + space`, uniformly across the boundary:
+    // if the second group started a new line, 'charlie' would jump backwards.
+    const space = CHAR_W
+    expect(bravo.args[0] - alpha.args[0]).toBeCloseTo('alpha'.length * CHAR_W + space, 9)
+    expect(charlie.args[0] - bravo.args[0]).toBeCloseTo('bravo'.length * CHAR_W + space, 9)
+  })
+
+  test('the anchor is the reel-wide index, so the focus glyph still sits on the pivot', () => {
+    const groups = touchingGroups(['alpha', 'bravo'], ['charlie', 'delta'])
+    const { ops } = draw({}, groups[1].start + 0.3, groups)
+
+    const [focus] = focusGlyph(ops)
+    // 'charlie' is 7 chars → ORP index 2 ('a'), whose centre lands on the pivot.
+    expect(focus.text).toBe('a')
+    expect(focus.args[0] + CHAR_W / 2).toBeCloseTo(PIVOT, 9)
+  })
+
+  test('a real gap still separates the two lines', () => {
+    const [first] = touchingGroups(['alpha', 'bravo'])
+    const second: Segment = {
+      id: 'g1',
+      text: 'charlie delta',
+      start: 3,
+      end: 4,
+      words: [
+        { word: 'charlie', start: 3, end: 3.5 },
+        { word: 'delta', start: 3.5, end: 4 },
+      ],
+    }
+    const { ops } = draw({}, 3.3, [first, second])
+
+    // Only the second group's words — the first ended 2s earlier and is gone.
+    // 'charlie' is the anchor, so it arrives as its three pieces.
+    expect(texts(ops).map((o) => o.text)).toEqual(['ch', 'a', 'rlie', 'delta'])
+  })
+
+  test('wrap mode is untouched — the second group is not joined', () => {
+    const groups = touchingGroups(['alpha', 'bravo'], ['charlie', 'delta'])
+    const { ops } = draw({ readingMode: 'wrap' }, groups[1].start + 0.3, groups)
+
+    expect(texts(ops).map((o) => o.text)).toEqual(['charlie', 'delta'])
+  })
+})
+
+describe('RSVP culls the parts of a reel that are off-window', () => {
+  /**
+   * 90 words of 12 characters: ~4700px of line against a 900px band and a
+   * ~1550px window (band + 2 × the 8em bleed), so there is line to spare on both
+   * sides — with a shorter reel every case below would draw everything and pin
+   * nothing.
+   */
+  const LONG_REEL = touchingGroups(
+    ...Array.from({ length: 30 }, (_, g) => [`word${g}aaaaaa`, `word${g}bbbbbb`, `word${g}cccccc`])
+  )
+
+  test('only the words near the band are drawn', () => {
+    const words = LONG_REEL.flatMap((g) => g.words)
+    // Half-way through the reel, so there is plenty of line on both sides.
+    const middle = words[words.length / 2]
+    const { ops } = draw({}, middle.start + 0.3, LONG_REEL)
+
+    const drawn = texts(ops)
+    expect(drawn.length).toBeGreaterThan(0)
+    // +2: the anchor word is drawn as three pieces rather than one.
+    expect(drawn.length).toBeLessThan(words.length + 2)
+    expect(drawn.length).toBeLessThan(words.length / 2)
+  })
+
+  test('every drawn word intersects the visible window', () => {
+    // The cull must be pixel-neutral, so what it drops must be off-window and
+    // what it keeps must not be. Checked against the drawn x positions rather
+    // than against a re-implementation of the range.
+    const words = LONG_REEL.flatMap((g) => g.words)
+    const middle = words[words.length / 2]
+    const { ops } = draw({ rsvpEdgeFade: 12 }, middle.start + 0.3, LONG_REEL)
+
+    const bleed = TEXT_H * 8 + BASE_SETTINGS.outlineWidth // RSVP_CULL_BLEED_EM, no shadow
+    for (const drawn of texts(ops)) {
+      const width = drawn.text.length * CHAR_W
+      expect(drawn.args[0] + width).toBeGreaterThanOrEqual(BAND_LEFT - bleed)
+      expect(drawn.args[0]).toBeLessThanOrEqual(BAND_LEFT + BAND_WIDTH + bleed)
+    }
+  })
+
+  test('nothing is culled when the whole line fits', () => {
+    const { ops } = draw({}, MID_HOLD_T)
+
+    expect(texts(ops).map((o) => o.text)).toEqual(['alpha', 'b', 'r', 'avo', 'charlie'])
   })
 })

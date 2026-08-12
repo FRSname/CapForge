@@ -26,10 +26,13 @@ import {
   computeWordPositions,
   measureTrackedWidth,
   rsvpCaptionBand,
+  rsvpCullBleed,
   rsvpEdgeFadeAlpha,
   rsvpFadeGradientStops,
   rsvpPivotColumn,
   rsvpTrackingGap,
+  rsvpVisibleRange,
+  rsvpVisibleWindow,
   rsvpWordAlpha,
   type CaptionBand,
   type RsvpFadeStop,
@@ -95,6 +98,30 @@ interface ParityFixture {
   }
   cases: ParityCase[]
   anchorCases: AnchorCase[]
+  cull: CullFixture
+}
+
+interface CullCase {
+  name: string
+  fadeFrac: number
+  lineX: number
+  bleed: number
+  expected: { left: number; right: number; first: number; last: number }
+}
+
+interface CullFixture {
+  words: string[]
+  widths: number[]
+  wordX: number[]
+  bleedInputs: {
+    textH: number
+    strokeWidth: number
+    shadowBlur: number
+    shadowOffsetX: number
+    maxPosOffsetX: number
+  }
+  expectedBleed: number
+  cases: CullCase[]
 }
 
 /** Vitest runs from the repo root. */
@@ -697,5 +724,69 @@ describe('computeWordPositions (wrap mode must stay byte-identical)', () => {
     expect(wordXPos).toEqual([495, 485, 475])
     // rowY0 = 1000 - 136/2 + 20 = 952, then +48 per row
     expect(wordYPos).toEqual([952, 1000, 1048])
+  })
+})
+
+// ── Culling ──────────────────────────────────────────────────────
+// Pillow and Canvas cull; the HTML layer draws every word and lets its edge-fade
+// mask do the work. So these three helpers are a two-sided pin, and the fixture's
+// numbers come from `rsvp_layout.cull_bleed`/`visible_window`/`visible_range`
+// having actually run — a bleed that drifts here is a word one renderer draws and
+// the other silently drops.
+
+describe('RSVP culling matches the Pillow reference', () => {
+  const { cull } = FIXTURE
+
+  test('the fixture carries a line far wider than the frame', () => {
+    // Otherwise every range below would be "all of them" and pin nothing.
+    const lineWidth = cull.wordX[cull.wordX.length - 1] + cull.widths[cull.widths.length - 1]
+    expect(lineWidth).toBeGreaterThan(FIXTURE.layout.resolutionW * 2)
+    expect(cull.cases.length).toBeGreaterThanOrEqual(6)
+  })
+
+  test('rsvpCullBleed reproduces the reference bleed', () => {
+    expect(rsvpCullBleed(cull.bleedInputs)).toBeCloseTo(cull.expectedBleed, CLOSE_DIGITS)
+  })
+
+  test('the bleed uses every one of its terms', () => {
+    // A dropped term would still match the fixture if that term were 0 there.
+    const base = rsvpCullBleed(cull.bleedInputs)
+    for (const key of Object.keys(cull.bleedInputs) as Array<keyof typeof cull.bleedInputs>) {
+      expect(cull.bleedInputs[key]).not.toBe(0)
+      expect(rsvpCullBleed({ ...cull.bleedInputs, [key]: 0 })).toBeLessThan(base)
+    }
+  })
+
+  test.each(cull.cases)('$name', ({ fadeFrac, lineX, bleed, expected }) => {
+    const band = rsvpCaptionBand(
+      FIXTURE.layout.resolutionW * FIXTURE.layout.maxWidth,
+      FIXTURE.layout.rowCenterX
+    )
+
+    const window = rsvpVisibleWindow(band, fadeFrac, FIXTURE.layout.resolutionW, bleed)
+    expect(window.left).toBeCloseTo(expected.left, CLOSE_DIGITS)
+    expect(window.right).toBeCloseTo(expected.right, CLOSE_DIGITS)
+
+    const range = rsvpVisibleRange(cull.wordX, cull.widths, lineX, window.left, window.right)
+    expect(range).toEqual({ first: expected.first, last: expected.last })
+  })
+
+  test('a kept word really does intersect the window, and a dropped one does not', () => {
+    // The fixture pins the numbers; this pins what they MEAN, so a range that
+    // drifted in both languages at once would still be caught here.
+    const band = rsvpCaptionBand(
+      FIXTURE.layout.resolutionW * FIXTURE.layout.maxWidth,
+      FIXTURE.layout.rowCenterX
+    )
+    const { left, right } = rsvpVisibleWindow(band, 0.12, FIXTURE.layout.resolutionW, 0)
+    const lineX = -2500
+    const { first, last } = rsvpVisibleRange(cull.wordX, cull.widths, lineX, left, right)
+
+    expect(last).toBeGreaterThan(first)
+    for (let i = 0; i < cull.widths.length; i++) {
+      const x0 = lineX + cull.wordX[i]
+      const intersects = x0 + cull.widths[i] >= left && x0 <= right
+      expect(intersects).toBe(i >= first && i < last)
+    }
   })
 })

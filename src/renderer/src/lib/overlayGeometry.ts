@@ -286,9 +286,23 @@ export function rsvpTrackingGap(prefix: string, tracking: number): number {
 export interface RsvpWordMetric extends RsvpWordTiming {
   word: string
   width: number
+  /** Per-word overrides. Only `pos_offset_x` is read here, for the cull bleed —
+   *  a nudge moves the drawn word without moving the layout. */
+  overrides?: { pos_offset_x?: number } | null
 }
 
-export interface RsvpLayoutInput {
+/** The part of an RSVP line that does not depend on time. Twin of
+ *  `rsvp_layout.RsvpStaticLayout`. */
+export interface RsvpStaticLayout {
+  /** Each word's left edge in line-origin space, i.e. before `lineX`. */
+  wordX: number[]
+  /** Each word's focus-glyph centre in line-origin space. */
+  focusOffsets: number[]
+  /** `max(abs(pos_offset_x))` over the line; feeds {@link rsvpCullBleed}. */
+  maxPosOffsetX: number
+}
+
+export interface RsvpStaticInput {
   /** The group's words in line order (`lines` is forced to 1 — one unwrapped row). */
   words: readonly RsvpWordMetric[]
   /**
@@ -300,6 +314,16 @@ export interface RsvpLayoutInput {
   /** Inter-word advance (the wrap path's `effectiveSpaceW`). */
   spaceW: number
   tracking: number
+}
+
+export interface RsvpLayoutInput extends RsvpStaticInput {
+  /**
+   * A previously computed {@link computeRsvpStatic}. Omitted, it is computed
+   * here. The hook passes one so a *reel* — a whole run of caption groups
+   * (`lib/rsvpReels.ts`) — is measured once instead of on every animation frame:
+   * this is two `measureText` calls per word, and a reel can be a paragraph.
+   */
+  static?: RsvpStaticLayout
   pivotPx: number
   /** Slide length in plain SECONDS; `<= 0` snaps. */
   slideDuration: number
@@ -312,11 +336,7 @@ export interface RsvpLayoutInput {
   textH: number
 }
 
-export interface RsvpPositions extends WordPositions {
-  /** Each word's left edge in line-origin space, i.e. before `lineX`. */
-  wordX: number[]
-  /** Each word's focus-glyph centre in line-origin space. */
-  focusOffsets: number[]
+export interface RsvpPositions extends WordPositions, RsvpStaticLayout {
   /** The whole line's x translation at `currentTime`. */
   lineX: number
   /**
@@ -345,6 +365,7 @@ export function computeRsvpPositions({
   measurePrefix,
   spaceW,
   tracking,
+  static: precomputed,
   pivotPx,
   slideDuration,
   currentTime,
@@ -354,18 +375,8 @@ export function computeRsvpPositions({
   totalTextH,
   textH,
 }: RsvpLayoutInput): RsvpPositions {
-  const wordX: number[] = []
-  let x = 0
-  for (const w of words) {
-    wordX.push(x)
-    x += w.width + spaceW
-  }
-
-  const focusOffsets = words.map((w, i) => {
-    const f = orpIndex(w.word)
-    const offset = focusOffset(wordX[i], w.word, f, (s) => measurePrefix(i, s))
-    return offset + rsvpTrackingGap(focusSlices(w.word, f).prefix, tracking)
-  })
+  const { wordX, focusOffsets, maxPosOffsetX } =
+    precomputed ?? computeRsvpStatic({ words, measurePrefix, spaceW, tracking })
 
   const lineX = lineOffsetAt(currentTime, words, focusOffsets, pivotPx, slideDuration)
   // Same expression as computeWordPositions' `rowY` with ri = 0.
@@ -376,10 +387,150 @@ export function computeRsvpPositions({
     wordYPos: words.map(() => rowCenterY),
     wordX,
     focusOffsets,
+    maxPosOffsetX,
     lineX,
     anchorIndex: lastStartedIndex(currentTime, words),
     rowCenterY,
   }
+}
+
+/**
+ * Lay the line out: cumulative word edges + one focus offset per word. The Canvas
+ * twin of `rsvp_layout.static_layout()`.
+ *
+ * Word advances come from `words[i].width` — the same measurement the wrap path
+ * uses — so nothing is measured twice; `measurePrefix` is only used for the
+ * *prefix* of each word, to find its focus glyph.
+ */
+export function computeRsvpStatic({
+  words,
+  measurePrefix,
+  spaceW,
+  tracking,
+}: RsvpStaticInput): RsvpStaticLayout {
+  const wordX: number[] = []
+  let x = 0
+  for (const w of words) {
+    wordX.push(x)
+    x += w.width + spaceW
+  }
+
+  let maxPosOffsetX = 0
+  const focusOffsets = words.map((w, i) => {
+    const f = orpIndex(w.word)
+    const offset = focusOffset(wordX[i], w.word, f, (s) => measurePrefix(i, s))
+    maxPosOffsetX = Math.max(maxPosOffsetX, Math.abs(w.overrides?.pos_offset_x ?? 0))
+    return offset + rsvpTrackingGap(focusSlices(w.word, f).prefix, tracking)
+  })
+
+  return { wordX, focusOffsets, maxPosOffsetX }
+}
+
+// ── Culling ────────────────────────────────────────────────────────
+// Twins of `rsvp_layout.cull_bleed` / `visible_window` / `visible_range`. A reel
+// (`lib/rsvpReels.ts`) is a whole run of caption groups, so its line runs far past
+// the frame and drawing every word would cost a `fillText` per word per frame for
+// nothing. The HTML layer culls nothing — its edge-fade mask already produces the
+// right pixels — so this must be **pixel-neutral**, never a visible clip.
+
+/**
+ * Slack added on each side of the visible window before a word is skipped, as a
+ * multiple of the line's text height. Deliberately generous: what makes a word's
+ * ink reach past its measured advance is a pile of decorations (a per-word
+ * background box's padding and extras, an italic face overhanging its advance, the
+ * stroke's join geometry) whose exact extent is not worth reproducing identically
+ * in two languages. Drawing a few extra fully-invisible words costs nothing;
+ * clipping one antialiased pixel is a parity break. Must equal
+ * `RSVP_CULL_BLEED_EM` in `backend/exporters/rsvp_layout.py`.
+ */
+export const RSVP_CULL_BLEED_EM = 8.0
+
+/** The scalars that can move a word's ink an unbounded distance, and so are added
+ *  to the bleed exactly rather than absorbed by the EM slack. */
+export interface RsvpCullBleedInput {
+  textH: number
+  strokeWidth: number
+  shadowBlur: number
+  shadowOffsetX: number
+  /** `max(abs(posOffsetX))` over the line — a per-word nudge moves the drawn word
+   *  without moving the layout. */
+  maxPosOffsetX: number
+}
+
+/** Twin of `rsvp_layout.cull_bleed`. */
+export function rsvpCullBleed({
+  textH,
+  strokeWidth,
+  shadowBlur,
+  shadowOffsetX,
+  maxPosOffsetX,
+}: RsvpCullBleedInput): number {
+  return (
+    textH * RSVP_CULL_BLEED_EM +
+    Math.abs(strokeWidth) +
+    Math.abs(shadowBlur) +
+    Math.abs(shadowOffsetX) +
+    Math.abs(maxPosOffsetX)
+  )
+}
+
+/** An x range in frame coordinates. */
+export interface RsvpWindow {
+  left: number
+  right: number
+}
+
+/**
+ * The x range a word must intersect to be worth drawing. Twin of
+ * `rsvp_layout.visible_window`.
+ *
+ * Deliberately **not** always the band: with `rsvpEdgeFade` at 0 there is no mask,
+ * and the line is allowed to overflow the band right out to the frame edges — that
+ * is what "no edge fade" means. With a fade the mask zeroes every pixel outside the
+ * band, so the band *is* the window.
+ */
+export function rsvpVisibleWindow(
+  band: CaptionBand,
+  fadeFrac: number,
+  resW: number,
+  bleed: number
+): RsvpWindow {
+  const [left, right] = fadeFrac > 0 ? [band.left, band.left + band.width] : [0, resW]
+  return { left: left - bleed, right: right + bleed }
+}
+
+/** An inclusive-exclusive index range over a line's words; `first === last` is empty. */
+export interface RsvpVisibleRange {
+  first: number
+  last: number
+}
+
+/**
+ * Index range of the words that intersect `[left, right]`. Twin of
+ * `rsvp_layout.visible_range`.
+ *
+ * `wordX` ascends (a running sum of non-negative advances), so the visible words
+ * are contiguous and a range says everything. A word straddling an edge is kept
+ * (and then dissolved by the fade) rather than popping out.
+ */
+export function rsvpVisibleRange(
+  wordX: readonly number[],
+  widths: readonly number[],
+  lineX: number,
+  left: number,
+  right: number
+): RsvpVisibleRange {
+  const count = Math.min(wordX.length, widths.length)
+  let first = count
+  let last = 0
+  for (let i = 0; i < count; i++) {
+    const x0 = lineX + wordX[i]
+    if (x0 + widths[i] < left) continue
+    if (x0 > right) break
+    if (i < first) first = i
+    last = i + 1
+  }
+  return first >= last ? { first: 0, last: 0 } : { first, last }
 }
 
 /**

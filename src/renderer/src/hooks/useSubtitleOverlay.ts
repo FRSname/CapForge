@@ -8,7 +8,7 @@
  * Settings come from StudioSettings (props) instead of DOM references.
  */
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Segment, WordOverrides } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import {
@@ -37,16 +37,31 @@ import {
   computeBounceAmount,
   computeRsvpPositions,
   computeRsvpReticleRects,
+  computeRsvpStatic,
   rsvpCaptionBand,
+  rsvpCullBleed,
   rsvpFadeGradientStops,
   rsvpPivotColumn,
   rsvpTrackingGap,
+  rsvpVisibleRange,
+  rsvpVisibleWindow,
   rsvpWordAlpha,
   hexToRgb,
   lerpColor,
   type CaptionBand,
+  type RsvpStaticLayout,
+  type RsvpWordMetric,
 } from '../lib/overlayGeometry'
 import { focusSlices, orpIndex } from '../lib/rsvp'
+import { mergeRsvpReels } from '../lib/rsvpReels'
+
+/**
+ * One measured word of the active group: the RSVP layout's input plus the full
+ * per-word override object the wrap path's decorations read.
+ */
+interface OverlayWordMetric extends RsvpWordMetric {
+  overrides?: WordOverrides
+}
 
 export interface OverlayOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>
@@ -66,6 +81,39 @@ export function useSubtitleOverlay({
   // Last drawn time, so a resize can repaint the same frame while paused.
   const lastTimeRef = useRef(0)
 
+  // In RSVP the unit of layout is a *reel*, not a caption group: consecutive
+  // groups that leave no blank frame between them are one continuously sliding
+  // line (`lib/rsvpReels.ts`). The backend applies the same pass at the single
+  // point every render path shares (`groups_for_render`), to the same groups, so
+  // preview and render agree. It is the identity in `'wrap'` mode and whenever no
+  // two groups touch.
+  const groups = useMemo(
+    () => ((settings.readingMode ?? 'wrap') === 'rsvp' ? mergeRsvpReels(segments) : segments),
+    [segments, settings.readingMode]
+  )
+
+  /**
+   * The time-independent half of the active line, memoised across frames.
+   *
+   * Measuring every word of a reel — its advance, plus its focus prefix and glyph
+   * for RSVP — is O(words) `measureText` calls, and a reel can be a whole
+   * paragraph, so doing it inside `draw()` costs that on every animation frame.
+   * All of it is a pure function of the group, the settings and the resolution, so
+   * an identity check on those is enough to reuse it. `probe` is the width of the
+   * reference string the metrics are derived from: it changes the moment a webfont
+   * finishes loading, which nothing else in the key would catch (`settings` has
+   * not changed, but every measurement has).
+   */
+  const layoutRef = useRef<{
+    group: Segment
+    settings: StudioSettings
+    resW: number
+    resH: number
+    probe: number
+    wm: OverlayWordMetric[]
+    rsvpStatic: RsvpStaticLayout | null
+  } | null>(null)
+
   const draw = useCallback(
     (currentTime: number) => {
       lastTimeRef.current = currentTime
@@ -83,7 +131,7 @@ export function useSubtitleOverlay({
       const ctx = canvas.getContext('2d')!
       ctx.clearRect(0, 0, resW, resH)
 
-      if (!segments.length) return
+      if (!groups.length) return
 
       // Scale the canvas CSS size to letterbox-fit inside the anchor element
       const anchor = anchorRef.current
@@ -102,9 +150,9 @@ export function useSubtitleOverlay({
         }
       }
 
-      // Find the active group
+      // Find the active group — a reel in RSVP mode, see `groups` above.
       let activeGroup: Segment | null = null
-      for (const seg of segments) {
+      for (const seg of groups) {
         if (seg.start <= currentTime && currentTime < seg.end) {
           activeGroup = seg
           break
@@ -247,13 +295,27 @@ export function useSubtitleOverlay({
         return wAsc + wDesc
       }
 
-      const wm = activeGroup.words.map((w) => ({
-        word: w.word,
-        width: measureWordWidth(w.word, w.overrides),
-        start: w.start,
-        end: w.end,
-        overrides: w.overrides,
-      }))
+      // Per-word measurement, memoised — see `layoutRef`. Everything below the
+      // cache line is a pure function of (group, settings, resolution, font
+      // metrics), none of which change while the clip plays.
+      const cached = layoutRef.current
+      const cacheHit =
+        cached !== null &&
+        cached.group === activeGroup &&
+        cached.settings === settings &&
+        cached.resW === resW &&
+        cached.resH === resH &&
+        cached.probe === aygMetrics.width
+
+      const wm: OverlayWordMetric[] = cacheHit
+        ? cached.wm
+        : activeGroup.words.map((w) => ({
+            word: w.word,
+            width: measureWordWidth(w.word, w.overrides),
+            start: w.start,
+            end: w.end,
+            overrides: w.overrides,
+          }))
 
       // Split into rows. RSVP is a layout mode: exactly ONE unwrapped row,
       // however wide, so `lines` is ignored (mirrors video_render's `is_rsvp`
@@ -315,15 +377,39 @@ export function useSubtitleOverlay({
       // Pre-compute word positions. wordYPos is the *visual centre* of each row
       // (matches backend's center_y for that row). When we draw text we shift to
       // alphabetic baseline; pill / underline / bounce can use it directly.
+      // The prefix is measured in the word's OWN font (family/size/bold/custom
+      // font override included), so its focus glyph still lands on the pivot.
+      const rsvpStaticInput = {
+        words: wm,
+        measurePrefix: (index: number, text: string) =>
+          measureWordWidth(text, wm[index].overrides),
+        spaceW: effectiveSpaceW,
+        tracking: trk,
+      }
+      const rsvpStatic = rsvpBand
+        ? ((cacheHit && cached.rsvpStatic) || computeRsvpStatic(rsvpStaticInput))
+        : null
+
+      // One cache entry per (group, settings, resolution, font metrics); see
+      // `layoutRef`. Stored after both halves exist so a hit never carries a
+      // half-populated entry.
+      if (!cacheHit || (rsvpBand && !cached.rsvpStatic)) {
+        layoutRef.current = {
+          group: activeGroup,
+          settings,
+          resW,
+          resH,
+          probe: aygMetrics.width,
+          wm,
+          rsvpStatic,
+        }
+      }
+
       const rsvp =
-        rsvpBand &&
+        rsvpStatic &&
         computeRsvpPositions({
-          words: wm,
-          // The prefix is measured in the word's OWN font (family/size/bold/custom
-          // font override included), so its focus glyph still lands on the pivot.
-          measurePrefix: (index, text) => measureWordWidth(text, wm[index].overrides),
-          spaceW: effectiveSpaceW,
-          tracking: trk,
+          ...rsvpStaticInput,
+          static: rsvpStatic,
           pivotPx: rsvpPivotPx,
           slideDuration: rsvpSlideDuration,
           currentTime,
@@ -333,6 +419,39 @@ export function useSubtitleOverlay({
           totalTextH,
           textH,
         })
+      // Culling. A reel's line is as long as the run of speech it carries, so most
+      // of it is nowhere near the frame and drawing it would cost a `fillText` per
+      // word per frame for nothing. Pixel-neutral by construction (see
+      // `rsvpCullBleed`) — the HTML layer draws every word and lets its mask do the
+      // work, so a word this skips must be one that renders to nothing anyway.
+      let firstWord = 0
+      let lastWord = wm.length
+      if (rsvp && rsvpBand) {
+        const shadowOn = settings.shadowEnabled === true
+        const { left, right } = rsvpVisibleWindow(
+          rsvpBand,
+          rsvpFadeFrac,
+          resW,
+          rsvpCullBleed({
+            textH,
+            strokeWidth: sStroke,
+            shadowBlur: shadowOn ? (settings.shadowBlur ?? 8) : 0,
+            shadowOffsetX: shadowOn ? (settings.shadowOffsetX ?? 3) : 0,
+            maxPosOffsetX: rsvp.maxPosOffsetX,
+          })
+        )
+        const visible = rsvpVisibleRange(
+          rsvp.wordX,
+          wm.map((m) => m.width),
+          rsvp.lineX,
+          left,
+          right
+        )
+        firstWord = visible.first
+        lastWord = visible.last
+      }
+      const isCulled = (i: number): boolean => i < firstWord || i >= lastWord
+
       const { wordXPos, wordYPos } = rsvp
         ? rsvp
         : computeWordPositions(
@@ -413,6 +532,7 @@ export function useSubtitleOverlay({
       // Transition-independent; decoration only, never mutates layout state.
       // See docs/plans/per-word-background.md
       wm.forEach((m, i) => {
+        if (isCulled(i)) return
         const ov = m.overrides
         // Enable gate: presence AND value. Opacity alone does NOT inherit — an
         // absent key must not box every word whenever the global bg is on.
@@ -522,6 +642,7 @@ export function useSubtitleOverlay({
 
       // ── Words ────────────────────────────────────────────────────
       wm.forEach((m, i) => {
+        if (isCulled(i)) return
         const wOffX = m.overrides?.pos_offset_x ?? 0
         const wOffY = m.overrides?.pos_offset_y ?? 0
         const x = wordXPos[i] + wOffX
@@ -759,7 +880,7 @@ export function useSubtitleOverlay({
 
       if (popScale !== 1) ctx.restore()
     },
-    [canvasRef, anchorRef, segments, settings, resolution]
+    [canvasRef, anchorRef, groups, settings, resolution]
   ) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-fit the letterbox transform when the anchor resizes (flex layout /
