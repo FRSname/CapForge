@@ -36,7 +36,7 @@ import html
 import json
 from typing import Optional
 
-from backend.exporters.hyperframes_rsvp_runtime import RSVP_RUNTIME_JS
+from backend.exporters.hyperframes_rsvp_runtime import RSVP_BUILD_JS, RSVP_RUNTIME_JS
 from backend.models.schemas import VideoRenderConfig
 
 
@@ -102,10 +102,10 @@ def caption_cfg(config: VideoRenderConfig) -> dict:
         "ulWidth": config.underline_width,
         "bounceStrength": config.bounce_strength,
         "scaleFactor": config.scale_factor,
-        # RSVP reading mode. Emitted unconditionally (a caption_cfg key that
-        # appears only in one mode is exactly the drift test_caption_cfg_contract
-        # exists to catch). posX/pivot units: rsvpPivotX and rsvpEdgeFade are
-        # already 0-1 fractions of the caption band, rsvpSlideDuration is SECONDS.
+        # RSVP reading mode. Emitted unconditionally (a caption_cfg key that appears
+        # only in one mode is the drift test_caption_cfg_contract exists to catch).
+        # Units: rsvpPivotX/rsvpEdgeFade are 0-1 fractions of the caption band,
+        # rsvpContextOpacity a 0-1 fraction, rsvpSlideDuration plain SECONDS.
         "readingMode": config.reading_mode,
         "rsvpPivotX": config.rsvp_pivot_x,
         "rsvpFocusColor": config.rsvp_focus_color,
@@ -223,7 +223,13 @@ def caption_css(config: VideoRenderConfig) -> str:
 {stroke}{shadow}    }}
     .cw-pill {{ position: absolute; }}
     .cw-underline {{ position: absolute; }}
-    .cw-kfill {{ position: absolute; white-space: nowrap; overflow: hidden; }}"""
+    .cw-kfill {{ position: absolute; white-space: nowrap; overflow: hidden; }}
+    /* RSVP: `.crsvp-band` is the STATIC wrapper carrying the edge-fade mask,
+       `.crsvp-row` its sliding child, `.crsvp-guide` the reticle (see
+       hyperframes_rsvp_runtime.py). */
+    .crsvp-band {{ position: absolute; left: 0; top: 0; }}
+    .crsvp-row {{ position: absolute; left: 0; top: 0; }}
+    .crsvp-guide {{ position: absolute; }}"""
 
 
 def _rgba(hex_color: str, opacity: float) -> str:
@@ -369,7 +375,7 @@ function __capBuild(tl, CFG, GROUPS){
       var wFam = o.font_family || CFG.fontFamily || '-apple-system';
       var wStr = (o.bold ? '700 ' : 'normal ') + wSize + 'px "' + wFam + '", sans-serif';
       mc.font = wStr;
-      var m = { el: sp, width: measureWord(sp.textContent), s: wd.s, e: wd.e, o: o,
+      var m = { el: sp, word: sp.textContent, width: measureWord(sp.textContent), s: wd.s, e: wd.e, o: o,
                 size: wSize, fam: wFam, weight: o.bold ? '700' : '400', fstr: wStr,
                 ascent: ascent, descent: descent, textH: textH, spanBase: spanBase,
                 gap: gapBase };
@@ -386,9 +392,15 @@ function __capBuild(tl, CFG, GROUPS){
     mc.font = fontStr;
 
     // Rows — greedy wrap for lines<=1, equal-slice for lines>1 (mirrors Canvas).
+    // RSVP is a LAYOUT mode: exactly ONE unwrapped row however wide, so `lines` is
+    // ignored and the pivot places the text inside it (mirrors video_render's
+    // `is_rsvp` branch: rows = [all_metrics]).
+    var isRsvp = (CFG.readingMode || 'wrap') === 'rsvp';
     var rows = [];
     var numLines = CFG.lines || 1;
-    if(numLines <= 1){
+    if(isRsvp){
+      rows.push(wm);
+    } else if(numLines <= 1){
       var totalW = wm.reduce(function(s,m,i){ return s + m.width + (i>0?spaceW:0); }, 0);
       if(totalW > maxW && wm.length > 1){
         var row = [], rowW = 0;
@@ -405,13 +417,12 @@ function __capBuild(tl, CFG, GROUPS){
     }
 
     var rowWidths = rows.map(function(row){ var w=0; row.forEach(function(m,i){ w+=m.width; if(i<row.length-1) w+=spaceW; }); return w; });
-    var maxRowW = Math.max.apply(null, rowWidths);
 
     var bgWidthExtra = CFG.bgWidthExtra || 0, bgHeightExtra = CFG.bgHeightExtra || 0;
     var strokePad = sStroke;
-    var bgW = maxRowW + padH*2 + strokePad*2 + bgWidthExtra;
     var totalTextH = rows.length*textH + (rows.length-1)*rowLineGap;
-    var bgH = totalTextH + padV*2 + strokePad*2 + bgHeightExtra;
+    // Position/alignment resolve BEFORE the background box is sized, because in
+    // RSVP the box is sized to the caption BAND, which is centred on the row.
     // Per-group position override (payload "pos", fractions) beats CFG.
     var gp = g.pos || {};
     var cx = resW * (gp.position_x != null ? gp.position_x : (CFG.posX != null ? CFG.posX : 0.5));
@@ -422,16 +433,34 @@ function __capBuild(tl, CFG, GROUPS){
     var alignShiftX = alignH==='left' ? -bgWidthExtra/2 : alignH==='right' ? bgWidthExtra/2 : 0;
     var alignShiftY = alignV==='top' ? -bgHeightExtra/2 : alignV==='bottom' ? bgHeightExtra/2 : 0;
 
+    // The RSVP caption band: `maxW` (= resW * maxWidth, the wrap path's usable
+    // caption width — NOT a second width concept) centred on the exact column the
+    // row's text is placed around, i.e. rsvp_layout.caption_band(config, center_x)
+    // with center_x = cx + align_shift_x + text_offset_x. So `alignH` is not inert:
+    // it still moves the whole band when bgWidthExtra opens up slack.
+    var rowCenterX = cx + alignShiftX + txOff;
+    var band = isRsvp ? { left: rowCenterX - maxW/2, width: maxW } : null;
+    var pivotPx = band ? band.left + band.width * (CFG.rsvpPivotX != null ? CFG.rsvpPivotX : 0.35) : 0;
+    // In RSVP the group background box frames the BAND — the window the line slides
+    // inside — never the row: the row is unwrapped and can be far wider than the
+    // frame, and a text-sized box is one the caption visibly slides out of.
+    var maxRowW = band ? band.width : Math.max.apply(null, rowWidths);
+    var bgCenterX = band ? band.left + band.width/2 : cx;
+    var bgW = maxRowW + padH*2 + strokePad*2 + bgWidthExtra;
+    var bgH = totalTextH + padV*2 + strokePad*2 + bgHeightExtra;
+
     // Bubble is a positioned context spanning the canvas so children use absolute
     // coords in resolution space.
     bubble.style.left = '0px'; bubble.style.top = '0px';
     bubble.style.width = resW + 'px'; bubble.style.height = resH + 'px';
 
-    // Background pill behind everything.
-    if(bgOpacity > 0){
+    // Background pill behind everything. The `> 0` size gate is RSVP-only, like
+    // Pillow's: bg_*_extra reaches -50 and can invert the box (PIL raises), and
+    // mirroring that on the wrap path would change long-standing behaviour.
+    if(bgOpacity > 0 && (!isRsvp || (bgW > 0 && bgH > 0))){
       var bg = document.createElement('div');
       bg.className = 'cbubble-bg';
-      bg.style.left = (cx - bgW/2) + 'px';
+      bg.style.left = (bgCenterX - bgW/2) + 'px';
       bg.style.top = (cy - bgH/2) + 'px';
       bg.style.width = bgW + 'px';
       bg.style.height = bgH + 'px';
@@ -445,7 +474,7 @@ function __capBuild(tl, CFG, GROUPS){
     // overlays as the active mode needs.
     var mode = CFG.wordTransition || 'instant';
     var pills = [], underlines = [], kfills = [];
-    rows.forEach(function(row, ri){
+    if(!isRsvp) rows.forEach(function(row, ri){
       var rowY = cy + alignShiftY + tyOff - totalTextH/2 + textH/2 + ri*(textH + rowLineGap);
       var wx = cx + alignShiftX + txOff - rowWidths[ri]/2;
       var prevInRow = null;
@@ -485,7 +514,10 @@ function __capBuild(tl, CFG, GROUPS){
     // is group bg → word box → highlight pill → words (§0.5), and unlike
     // pill/underline/etc it is transition-INDEPENDENT: never gate it on m.mode.
     // Static, so no anim alpha here (accepted delta: CLAUDE.md → Accepted deltas, §0.6).
-    function mkWordBg(m){
+    // `parent` (RSVP only) redirects the box into the masked sliding row, and
+    // `m.bgEl`/`m.bgAlpha` let that caller dim a CONTEXT word's box without owning
+    // a second copy of this code.
+    function mkWordBg(m, parent){
       var o = m.o;
       // Enable gate: presence AND value. Opacity alone does NOT inherit — an absent
       // key must not box every word whenever the global bg is on; the rest DO inherit.
@@ -517,7 +549,10 @@ function __capBuild(tl, CFG, GROUPS){
       b.style.borderRadius = radius + 'px';
       b.style.opacity = String(opacity);
       // Under the words; the .cw-pill branch is defensive — none exists on this pass.
-      bubble.insertBefore(b, bubble.querySelector('.cw-pill') || bubble.querySelector('.cw'));
+      if(parent) parent.appendChild(b);
+      else bubble.insertBefore(b, bubble.querySelector('.cw-pill') || bubble.querySelector('.cw'));
+      m.bgEl = b; m.bgAlpha = opacity;
+      return b;
     }
 
     function mkPill(m){
@@ -573,15 +608,31 @@ function __capBuild(tl, CFG, GROUPS){
       return k;
     }
 
+    // RSVP replaces layout itself, so it owns positioning, the three-piece active
+    // word, the per-word boxes (through mkWordBg), the band's edge-fade mask, the
+    // reticle and its own slide/colour timeline; `wordTransition` and its
+    // sub-settings are ignored by design, the group entry/exit animation below is
+    // not. See hyperframes_rsvp_runtime.py.
+    if(isRsvp){
+      __capRsvpBuild({
+        tl: tl, CFG: CFG, g: g, bubble: bubble, wm: wm, mc: mc, fontStr: fontStr,
+        measureWord: measureWord, mkWordBg: mkWordBg, band: band, pivotPx: pivotPx,
+        // The wrap path's `rowY` with ri = 0 — one row, so totalTextH === textH.
+        rowCenterY: cy + alignShiftY + tyOff - totalTextH/2 + textH/2,
+        textH: textH, gapBase: gapBase, spaceW: spaceW, trk: trk,
+        resW: resW, resH: resH
+      });
+    }
+
     // Boxes first, so they land under the overlays below. Runs over EVERY word,
     // not just the active one; mkWordBg self-gates and keeps no state.
-    wm.forEach(mkWordBg);
+    if(!isRsvp) wm.forEach(function(m){ mkWordBg(m); });
 
     // Per-word effective transition (Pillow: w_word_trans) picks the overlay —
     // pill only for effective-'highlight' words, underline for 'underline',
     // karaoke fill for 'karaoke'. Pillow's pill gating on the ACTIVE word's
     // transition falls out naturally: only the active word's own overlay shows.
-    wm.forEach(function(m){
+    if(!isRsvp) wm.forEach(function(m){
       m.mode = m.o.word_transition || mode;
       if(m.mode === 'highlight') m.pill = mkPill(m);
       if(m.mode === 'underline') m.underline = mkUnderline(m);
@@ -615,7 +666,7 @@ function __capBuild(tl, CFG, GROUPS){
     // the same chain Pillow resolves in _draw_word_list.
     var base = CFG.textColor, active = CFG.activeColor;
     var hlText = CFG.highlightTextColor || CFG.bgColor;
-    wm.forEach(function(m){
+    if(!isRsvp) wm.forEach(function(m){
       var w = m.el, o = m.o;
       var wBase = o.text_color || base, wActive = o.active_word_color || active;
       if(m.mode === 'instant'){
@@ -701,19 +752,21 @@ function __capBuild(tl, CFG, GROUPS){
 """
 
 
-# What actually gets embedded: shared helpers, then the RSVP core, then the
-# builder that consumes it. Any change to this concatenation changes the emitted
-# runtime, so ``SCAFFOLD_VERSION`` (hyperframes_project.py) must be bumped with it
-# or a cached project would serve a stale-shape preview.
+# What actually gets embedded: shared helpers, then the RSVP core, then the RSVP
+# renderer that consumes it, then the builder that dispatches to both. Any change
+# to this concatenation changes the emitted runtime, so ``SCAFFOLD_VERSION``
+# (hyperframes_project.py) must be bumped with it — the scaffold fingerprint does
+# not hash this text, so without a bump a cached project serves a stale runtime.
 #
-# ``RSVP_RUNTIME_JS`` is deliberately **unreachable** until the RSVP reading mode
-# ships its builder branch — nothing in ``__capBuild`` calls ``__capRsvp`` yet. It
-# is spliced in now so the block ships and is version-gated with the rest of the
-# runtime; dropping the term would keep every suite green (the embedded suite
-# extracts the constant from *source*) and fail only inside headless Chromium with
-# ``__capRsvp is not defined``, so the splice itself is pinned by
-# ``test_hyperframes_project.py::test_classic_captions_embed_the_rsvp_core``.
-CAPTION_RUNTIME_JS = _CAPTION_RUNTIME_HELPERS_JS + RSVP_RUNTIME_JS + _CAPTION_RUNTIME_BUILD_JS
+# Dropping either RSVP term would keep every suite that reads the constants from
+# *source* green and fail only inside headless Chromium (``__capRsvp is not
+# defined``), so the splice is pinned by ``test_hyperframes_project.py``'s
+# ``test_classic_captions_embed_the_rsvp_core`` and by ``test_rsvp_html_layout.py``,
+# which runs THIS constant in node (so a missing term is a hard NameError there).
+CAPTION_RUNTIME_JS = (
+    _CAPTION_RUNTIME_HELPERS_JS + RSVP_RUNTIME_JS + RSVP_BUILD_JS
+    + _CAPTION_RUNTIME_BUILD_JS
+)
 
 
 def caption_block(config: VideoRenderConfig, groups: list[dict]) -> dict:
@@ -741,4 +794,5 @@ __all__ = [
     # Re-exported from ``hyperframes_rsvp_runtime`` so importers of the caption
     # layer see the whole emitted runtime from one place.
     "RSVP_RUNTIME_JS",
+    "RSVP_BUILD_JS",
 ]

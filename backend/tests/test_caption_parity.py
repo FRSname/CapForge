@@ -612,6 +612,122 @@ def test_baked_gap_end_parity(source_video):
         )
 
 
+# RSVP ("speed reading") is a LAYOUT mode, not a `word_transition` value, so it
+# cannot ride the `test_word_transition_parity` parametrize list — passing
+# `word_transition='rsvp'` would just be an unknown decoration mode. It gets its own
+# fixtures below.
+#
+# `rsvp_slide_duration` is 0.2 here rather than the 0.06 default on purpose: the
+# mid-slide sample has to land on a 30fps frame boundary (the CLI captures the frame
+# nearest `--at`), and with a 60ms slide the nearest frame is only ~2 frames wide, so
+# a 3ms timing difference between the two renderers would move the line several px.
+# A 200ms slide keeps the *ease* under test while making the sample robust.
+_RSVP = dict(
+    reading_mode="rsvp", rsvp_pivot_x=0.35, rsvp_focus_color="#E4851F",
+    rsvp_context_opacity=0.75, rsvp_slide_duration=0.2, rsvp_edge_fade=0.12,
+    rsvp_reticle=True, word_transition="instant",
+)
+
+# Word 3 "world" starts at 1.5; 47/30 s is 1/3 of the way through its 200ms slide,
+# where the shared quad ease-out (GSAP 'power1.out') puts the line 55.6% of the way
+# to the new target and a cubic ('power2.out', the naming trap) 70.4% — tens of px
+# apart. A hold-only case passes with either.
+_RSVP_MID_SLIDE_T = 47 / 30
+
+
+@_run
+@pytest.mark.parametrize("name,t,over", [
+    # Box ON: the caption bbox is then the BACKGROUND BOX, so the extent budget
+    # measures the band-sized box (RSVP sizes it to the band, never to the row).
+    ("hold-boxed", 1.0, dict(bg_opacity=0.9)),
+    # Box OFF: the bbox is the TEXT, so the extent budget measures the line
+    # translation itself — this is the case a wrong lineX/ease cannot survive.
+    ("mid-slide", _RSVP_MID_SLIDE_T, dict(bg_opacity=0.0)),
+])
+def test_rsvp_parity(name, t, over, source_video):
+    """Phase 4b: the HTML/GSAP RSVP renderer vs Pillow (the source of truth).
+
+    Everything RSVP owns is in frame: the caption band (`resolution_w * max_width`
+    centred on the row anchor) and therefore the background box, the pivot column,
+    the eased single-scalar line translation, the three-piece active word with its
+    focus glyph centred on the pivot, the context dimming, the edge-fade mask and
+    the unmasked reticle. A wrong `lineX`, prefix measurement, band or ease shows up
+    as a bbox shift, which the 3px per-edge extent budget in `_diff` catches — as
+    long as the bbox belongs to the *text*, hence the box-off case.
+    """
+    pillow_png, hf_png = _render_both(
+        _result(), _config(**_RSVP, **over), source_video, t=t,
+    )
+    mean, notable = _diff(pillow_png, hf_png)
+    print(f"[rsvp {name}] mean={mean:.2f} notable={notable:.2f}%")
+    assert mean < MEAN_MAX, f"rsvp {name}: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, (
+        f"rsvp {name}: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+
+def _rsvp_override_groups() -> list[dict]:
+    """One RSVP group exercising every per-word override the mode honours: a
+    recoloured context word, a differently-coloured active word, a font-scaled word
+    (measured AND drawn in its own font, so its focus glyph must still land on the
+    pivot) and a positional nudge (which moves the drawn word *including* its focus
+    glyph — intended). "moved" is the anchor at the sampled t=1.9."""
+    words = [
+        {"word": "Big", "start": 0.0, "end": 0.75,
+         "overrides": {"font_size_scale": 1.5}},
+        {"word": "colour", "start": 0.75, "end": 1.5,
+         "overrides": {"text_color": "#3EC1FF", "active_word_color": "#FF4D6D"}},
+        {"word": "moved", "start": 1.5, "end": 2.25,
+         "overrides": {"pos_offset_x": 12, "pos_offset_y": -8}},
+    ]
+    return [{"text": "Big colour moved", "start": 0.0, "end": 2.25, "words": words}]
+
+
+@_run
+def test_rsvp_override_parity(source_video):
+    """Per-word overrides + letter tracking + a text stroke, all in RSVP mode.
+
+    Tracking is the tracking-gap teeth: the measurement primitive counts `n - 1`
+    inter-character gaps, so both renderers must add the one missing gap in the
+    three-piece pen walk *and* at the layout site, or the focus glyph lands a whole
+    `tracking` off the pivot. The stroke is the dimming teeth: a context word's
+    outline must dim with its fill (Pillow needed an explicit `_dim_alpha`; the HTML
+    layer gets it from element opacity), otherwise the frame shows solid outlines
+    around ghosts and the notable-pixel budget blows."""
+    pillow_png, hf_png = _render_both(
+        _result(),
+        # bg_opacity 0 so the caption bbox is the TEXT: the extent budget then
+        # measures the overridden words' positions, not a box that ignores them.
+        _config(**_RSVP, bg_opacity=0.0, tracking=3,
+                stroke_width=4, stroke_color="#101820"),
+        source_video, custom_groups=_rsvp_override_groups(), t=1.9,
+    )
+    mean, notable = _diff(pillow_png, hf_png)
+    print(f"[rsvp overrides] mean={mean:.2f} notable={notable:.2f}%")
+    assert mean < MEAN_MAX, f"rsvp overrides: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, (
+        f"rsvp overrides: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+    # Same group sampled while the FONT-SCALED word is the anchor: it must be
+    # measured *and* drawn (as three pieces) in its own 1.5x font, or its focus
+    # glyph lands off the pivot and the whole line is translated wrong. t=1.9 above
+    # anchors on "moved", which has no font override, so this is a real second case
+    # (the same gap test_word_override_parity closes for the wrap path).
+    pillow2, hf2 = _render_both(
+        _result(),
+        _config(**_RSVP, bg_opacity=0.0, tracking=3,
+                stroke_width=4, stroke_color="#101820"),
+        source_video, custom_groups=_rsvp_override_groups(), t=0.4,
+    )
+    mean2, notable2 = _diff(pillow2, hf2)
+    print(f"[rsvp overrides, scaled anchor] mean={mean2:.2f} notable={notable2:.2f}%")
+    assert mean2 < MEAN_MAX, f"rsvp scaled anchor: mean diff {mean2:.2f} >= {MEAN_MAX}"
+    assert notable2 < NOTABLE_FRAC_MAX, (
+        f"rsvp scaled anchor: {notable2:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+
 @_run
 @pytest.mark.parametrize("rw,rh", [(1920, 1080), (1080, 1920)], ids=["1080p", "portrait"])
 def test_resolution_parity(rw, rh):

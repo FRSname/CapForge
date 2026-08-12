@@ -1,5 +1,14 @@
-"""The RSVP core as embedded JavaScript — the THIRD implementation of the shared
-ORP / line-offset contract.
+"""The RSVP core + builder as embedded JavaScript — the THIRD implementation of
+the shared ORP / line-offset contract, and the HTML/GSAP half of the renderer.
+
+Two constants live here:
+
+* ``RSVP_RUNTIME_JS`` — the shared scalar core (``__capRsvp``), pinned across
+  three languages by the fixtures under ``backend/tests/fixtures/``.
+* ``RSVP_BUILD_JS`` — the *renderer*: ``__capRsvpBuild``, the twin of
+  ``backend/exporters/rsvp_layout.py`` (Pillow, the source of truth) and of
+  ``overlayGeometry.ts``'s ``computeRsvp*`` (Canvas). Read ``rsvp_layout``'s module
+  docstring first; it is the spec, and nothing here re-derives it.
 
 Twins that must change in lockstep:
 
@@ -34,7 +43,11 @@ Every top-level symbol the emitted runtime defines is ``__cap``-prefixed
 this one is ``__capRsvp``: the block is spliced into a top-level inline
 ``<script>`` on a page that also loads GSAP from a CDN, the HyperFrames scaffold
 and (in co-author mode) agent/CLI-installed components. An unprefixed
-``window.RSVP`` would be a collision surface with no upside.
+``window.RSVP`` would be a collision surface with no upside. ``RSVP_BUILD_JS``
+follows the same rule (``__capRsvpBuild``, ``__capRsvpTrackingGap``,
+``__capRsvpReticle``, ``__capRsvpReticleRects``) — it *does* touch the DOM and
+GSAP, so it is a second constant rather than an extension of the core block the
+standalone node suite evaluates.
 """
 
 from __future__ import annotations
@@ -154,4 +167,267 @@ var __capRsvp = {
 };
 """
 
-__all__ = ["RSVP_RUNTIME_JS"]
+
+# The HTML/GSAP renderer. Spliced after ``RSVP_RUNTIME_JS`` and before
+# ``__capBuild`` (see ``hyperframes_caption_html.CAPTION_RUNTIME_JS``), which calls
+# ``__capRsvpBuild`` for a group whenever ``CFG.readingMode === 'rsvp'``.
+#
+# Pillow is the source of truth: every formula below is the one in
+# ``backend/exporters/rsvp_layout.py``, and the numbers it produces are pinned
+# against that module by ``backend/tests/test_rsvp_html_layout.py`` (same fake
+# measurement in both languages) and against real pixels by
+# ``test_caption_parity.py::test_rsvp_parity``.
+#
+# Three things this layer must express differently from Pillow, none of them a
+# formula change:
+#
+# * **The line translation is a transform, not a redraw.** The row lives in its own
+#   ``.crsvp-row`` container translated by ``lineOffsetAt``'s single scalar; GSAP
+#   tweens it with ``power1.out`` (the repo's quad ease — ``power2`` is cubic).
+#   Words are never absolutely re-positioned per frame.
+# * **The active word's three pieces are pre-built, not swapped in.** Pillow draws
+#   context words as ONE kerned string and only the active word as three pieces (an
+#   accepted delta); browsers do not kern across element boundaries, so pre-splitting
+#   *every* word would lose kerning on context words too — a divergence Pillow does
+#   not have. Keeping the whole-token span for context words means the two
+#   representations differ per WORD STATE, which would otherwise mean mutating the
+#   DOM mid-timeline; instead both are emitted up front and toggled with ``tl.set()``
+#   opacity, so a frame stays a pure function of time (HyperFrames renders by
+#   seeking a paused timeline, and a backwards seek must land on the same pixels).
+#   Measured caveat: the parity gate cannot currently *discriminate* the two designs,
+#   because Chromium does not apply the GPOS kerning PIL does — a pre-existing,
+#   mode-independent divergence (wrap mode shows the same ~7px on a kerned pair, so
+#   ``docs/caption-parity.md``'s ``measureText ≡ getlength`` equivalence has a
+#   kerning exception). The choice is therefore the one that stays correct if that
+#   gap is ever closed, and it costs nothing.
+# * **The edge fade is a CSS mask on a STATIC wrapper.** ``.crsvp-band`` carries the
+#   ramp and does not move; the sliding row is its child, so the ramp stays in frame
+#   coordinates (a mask on the moving row would slide with the text). Two wrappers,
+#   one for the per-word boxes and one for the text, so the *unmasked* reticle can
+#   sit between them exactly as Pillow's unmasked ``guide_layer`` sits between its
+#   masked pill and text layers.
+RSVP_BUILD_JS = r"""
+// The one inter-character gap a prefix measurement is short of: measureWord counts
+// n-1 gaps (as do Pillow's _measure_tracked and Canvas' measureTrackedWidth), so
+// the pen position of the character AFTER a non-empty prefix is one `trk` further
+// right. focusOffset takes a single measure callback and cannot express that, so
+// the layout and the three-piece pen walk both add it from here — one helper, so
+// they cannot drift. Twin of rsvp_layout._tracking_gap / rsvpTrackingGap.
+function __capRsvpTrackingGap(prefix, trk){ return (prefix && trk) ? trk : 0; }
+
+// Reticle geometry, as multiples of the line's text height so it scales with font
+// size. MUST equal rsvp_layout.py's RETICLE_*_EM (pinned by test_rsvp_reticle.py)
+// and overlayGeometry.ts's constants of the same names.
+var __capRsvpReticle = { RULE_LEN_EM: 1.10, THICKNESS_EM: 0.055, GAP_EM: 0.32, NOTCH_LEN_EM: 0.20 };
+
+// A short rule with an inward notch, above and below the line, centred on the
+// pivot. Pillow fills the HALF-OPEN box precisely so its drawn size IS this
+// formula (ImageDraw.rectangle includes both endpoints; a CSS box does not), so
+// these rects are used verbatim as left/top/width/height.
+function __capRsvpReticleRects(pivotPx, centerY, textH){
+  var R = __capRsvpReticle;
+  var thickness = Math.max(1, textH * R.THICKNESS_EM);
+  var halfLen = textH * R.RULE_LEN_EM / 2;
+  var gap = textH * R.GAP_EM;
+  var notch = textH * R.NOTCH_LEN_EM;
+  var halfThick = thickness / 2;
+  var top = centerY - textH / 2 - gap;      // inner edge of the upper rule
+  var bottom = centerY + textH / 2 + gap;   // inner edge of the lower rule
+  var ruleX = pivotPx - halfLen, notchX = pivotPx - halfThick;
+  return [
+    { x: ruleX, y: top - thickness, w: (pivotPx + halfLen) - ruleX, h: thickness },
+    { x: ruleX, y: bottom, w: (pivotPx + halfLen) - ruleX, h: thickness },
+    // Notches point back toward the text so the eye is guided to the pivot.
+    { x: notchX, y: top, w: (pivotPx + halfThick) - notchX, h: notch },
+    { x: notchX, y: bottom - notch, w: (pivotPx + halfThick) - notchX, h: notch }
+  ];
+}
+
+// One group as a single sliding RSVP line. `ctx` is assembled by __capBuild and
+// carries the values BOTH paths share (so nothing here re-measures or re-derives
+// the row's centre, the glyph metrics or the per-word background box):
+//   tl, CFG, g, bubble, wm, mc, fontStr, measureWord, mkWordBg,
+//   band {left,width}, pivotPx, rowCenterY, textH, gapBase, spaceW, trk, resW, resH
+function __capRsvpBuild(ctx){
+  var CFG = ctx.CFG, tl = ctx.tl, g = ctx.g, wm = ctx.wm, mc = ctx.mc, trk = ctx.trk;
+  var measureWord = ctx.measureWord, band = ctx.band, pivotPx = ctx.pivotPx;
+  var fontStr = ctx.fontStr, rowCenterY = ctx.rowCenterY;
+  if(!wm.length) return;
+  // rsvpContextOpacity is a 0-1 FRACTION and rsvpSlideDuration is plain SECONDS
+  // (<= 0 snaps) — see CLAUDE.md "StudioSettings units are NOT uniform".
+  var ctxAlpha = (CFG.rsvpContextOpacity != null ? CFG.rsvpContextOpacity : 0.75);
+  var slideDur = CFG.rsvpSlideDuration || 0;
+  var focusColor = CFG.rsvpFocusColor || '#E4851F';
+
+  // ── Layout: one unwrapped row, then ONE line translation ──────────────
+  // Word advances are the wrap path's own measurement (m.width); measureWord is
+  // used only for each word's PREFIX, to find its focus glyph.
+  var wordX = [], x = 0;
+  wm.forEach(function(m){ wordX.push(x); x += m.width + ctx.spaceW; });
+  // lineOffsetAt/lastStartedIndex read `.start`; the payload spells it `s`.
+  var timings = wm.map(function(m){ return { start: m.s, end: m.e }; });
+  var focusOffsets = wm.map(function(m, i){
+    mc.font = m.fstr;   // the prefix is measured in the word's OWN font, so a
+    var f = __capRsvp.orpIndex(m.word);   // per-word font override still lands
+    m.pieces = __capRsvp.focusSlices(m.word, f);   // its focus glyph on the pivot
+    return __capRsvp.focusOffset(wordX[i], m.word, f, measureWord)
+      + __capRsvpTrackingGap(m.pieces.prefix, trk);
+  });
+  mc.font = fontStr;
+  function targetX(i){ return pivotPx - focusOffsets[i]; }
+
+  // ── DOM: static masked band > sliding row, twice, reticle in between ──
+  function mkLayer(cls){
+    var d = document.createElement('div');
+    d.className = cls;
+    d.style.width = ctx.resW + 'px';
+    d.style.height = ctx.resH + 'px';
+    return d;
+  }
+  var boxBand = mkLayer('crsvp-band'), boxRow = mkLayer('crsvp-row');
+  var textBand = mkLayer('crsvp-band'), textRow = mkLayer('crsvp-row');
+  boxBand.appendChild(boxRow);
+  textBand.appendChild(textRow);
+  // Stacking (Pillow: bg -> word boxes -> guide -> text): the group background box
+  // is already the bubble's first child, unmasked, framing the band.
+  ctx.bubble.appendChild(boxBand);
+
+  wm.forEach(function(m, i){
+    var o = m.o;
+    var ox = o.pos_offset_x || 0, oy = o.pos_offset_y || 0;
+    // pos_offset_x/y move the DRAWN word including its focus glyph (intended —
+    // an explicit nudge the user asked for), never the line's layout.
+    var left = wordX[i] + ox;
+    // Identical to the wrap path's span top, with the single row's centre: the
+    // browser puts the baseline m.spanBase below the span top.
+    var top = rowCenterY + (m.gap - ctx.gapBase) + (m.ascent - m.descent) / 2 - m.spanBase + oy;
+    // mkWordBg reads these (m.x is line-origin space, like the wrap path's cursor).
+    m.x = wordX[i]; m.ox = ox; m.oy = oy; m.cyc = rowCenterY;
+
+    function face(el){
+      if(m.fstr === fontStr) return;
+      el.style.fontSize = m.size + 'px';
+      el.style.fontFamily = '"' + m.fam + '", system-ui, sans-serif';
+      el.style.fontWeight = m.weight;
+    }
+    m.el.style.left = left + 'px';
+    m.el.style.top = top + 'px';
+    face(m.el);
+    m.el.style.color = o.text_color || CFG.textColor;
+    // Default state is CONTEXT. Element opacity dims fill, stroke AND shadow
+    // together, which is what Pillow's dimmed fill + _dim_alpha'd stroke add up to
+    // (dimming only the fill drew an opaque outline around a ghost).
+    m.el.style.opacity = String(ctxAlpha);
+    textRow.appendChild(m.el);
+
+    // The active representation: prefix / focus glyph / suffix, pre-built and
+    // hidden. The pen walks the same advances the layout used, so the focus
+    // glyph's centre lands on the pivot by construction. Accepted delta (Pillow
+    // has it too): kerning is lost across the two seams.
+    mc.font = m.fstr;
+    var activeColor = o.active_word_color || CFG.activeColor;
+    var pen = left;
+    m.rsvpPieces = [];
+    [[m.pieces.prefix, activeColor], [m.pieces.focus, focusColor], [m.pieces.suffix, activeColor]]
+      .forEach(function(pair){
+        if(!pair[0]) return;
+        var sp = document.createElement('span');
+        sp.className = 'cw crsvp-piece';
+        sp.textContent = pair[0];
+        sp.style.left = pen + 'px';
+        sp.style.top = top + 'px';
+        face(sp);
+        sp.style.color = pair[1];
+        sp.style.opacity = '0';
+        textRow.appendChild(sp);
+        m.rsvpPieces.push(sp);
+        pen += measureWord(pair[0]) + __capRsvpTrackingGap(pair[0], trk);
+      });
+    mc.font = fontStr;
+
+    // Per-word background box — the wrap path's own maker, into the masked box
+    // row, so a box can never float past the band edge without its word.
+    ctx.mkWordBg(m, boxRow);
+    if(m.bgEl) m.bgEl.style.opacity = String(m.bgAlpha * ctxAlpha);
+  });
+
+  // The reticle is a fixed guide: unmasked (a pivot inside the fade ramp must not
+  // dim the thing marking it) and outside the sliding rows.
+  if(CFG.rsvpReticle){
+    __capRsvpReticleRects(pivotPx, rowCenterY, ctx.textH).forEach(function(r){
+      var d = document.createElement('div');
+      d.className = 'crsvp-guide';
+      d.style.left = r.x + 'px';
+      d.style.top = r.y + 'px';
+      d.style.width = r.w + 'px';
+      d.style.height = r.h + 'px';
+      d.style.background = focusColor;
+      ctx.bubble.appendChild(d);
+    });
+  }
+  ctx.bubble.appendChild(textBand);
+
+  // ── Edge fade: an alpha ramp over the band's edges, as a MASK ──────────
+  // 0 -> 1 over the leftmost `rsvpEdgeFade` of the band, 1 -> 0 over the rightmost,
+  // 0 outside it (the band is a window). A mask, never a clip: a word straddling
+  // the edge dissolves instead of being sliced. `0` is a clean no-op, so an
+  // unmasked line may overflow the band — which is what "no edge fade" means.
+  var fadePx = band.width * (CFG.rsvpEdgeFade || 0);
+  if(fadePx > 0){
+    var l = band.left, r = band.left + band.width;
+    var ramp = 'linear-gradient(to right, rgba(0,0,0,0) 0px, rgba(0,0,0,0) ' + l + 'px, '
+      + 'rgba(0,0,0,1) ' + (l + fadePx) + 'px, rgba(0,0,0,1) ' + (r - fadePx) + 'px, '
+      + 'rgba(0,0,0,0) ' + r + 'px, rgba(0,0,0,0) 100%)';
+    [boxBand, textBand].forEach(function(el){
+      // no-repeat: the wrapper is the frame, so a repeated tile must not resurrect
+      // the far end of the (unwrapped, frame-wide) row.
+      el.style.webkitMaskImage = ramp; el.style.maskImage = ramp;
+      el.style.webkitMaskRepeat = 'no-repeat'; el.style.maskRepeat = 'no-repeat';
+    });
+  }
+
+  // ── Timeline: the slide, plus ONE colouring rule ──────────────────────
+  // The coloured word is the word the line is PARKED on (lastStartedIndex), not
+  // the `start <= t < end` active word: in inter-word silence that test has no
+  // answer, and where the two merely disagree (overlapping timings, a manually
+  // reordered group whose starts need not ascend) it would colour a word that is
+  // not on the pivot. rsvp_layout's draw_line has no active_idx either.
+  var rows = [boxRow, textRow];
+  // force3D false: a 3D transform would promote the row to its own composited
+  // layer and re-rasterize the text, so mid-slide glyphs would anti-alias
+  // differently from Pillow's (and from a held frame's).
+  function setLineX(v, at){ tl.set(rows, { x: v, force3D: false }, at); }
+  function paint(m, at, isAnchor){
+    tl.set(m.el, { opacity: isAnchor ? 0 : ctxAlpha }, at);
+    m.rsvpPieces.forEach(function(sp){ tl.set(sp, { opacity: isAnchor ? 1 : 0 }, at); });
+    // A context word's box is dimmed by the same factor as its glyphs; the anchor
+    // word's box is not, so it matches its own undimmed fill/stroke.
+    if(m.bgEl) tl.set(m.bgEl, { opacity: m.bgAlpha * (isAnchor ? 1 : ctxAlpha) }, at);
+  }
+  var cur = __capRsvp.lastStartedIndex(g.s, timings);
+  setLineX(__capRsvp.lineOffsetAt(g.s, timings, focusOffsets, pivotPx, slideDur), g.s);
+  paint(wm[cur], g.s, true);   // every other word already defaults to context
+  // The anchor can only change at a word's `start`, so those are the boundaries —
+  // walked in TIME order and resolved through lastStartedIndex, which keeps a
+  // group with non-ascending starts on the same word the pure function reports.
+  timings.map(function(w){ return w.start; })
+    .sort(function(a, b){ return a - b; })
+    .forEach(function(at){
+      if(!(at > g.s)) return;
+      var idx = __capRsvp.lastStartedIndex(at, timings);
+      if(idx === cur) return;
+      // Same ease and same endpoints as lineOffsetAt: the slide runs from the
+      // ARRAY-previous word's target (not the previously anchored one, which the
+      // pure function also ignores), and index 0 snaps.
+      if(idx === 0 || !(slideDur > 0)) setLineX(targetX(idx), at);
+      else tl.fromTo(rows, { x: targetX(idx - 1) },
+        { x: targetX(idx), duration: slideDur, ease: 'power1.out',
+          force3D: false, immediateRender: false, overwrite: 'auto' }, at);
+      paint(wm[cur], at, false);
+      paint(wm[idx], at, true);
+      cur = idx;
+    });
+}
+"""
+
+__all__ = ["RSVP_RUNTIME_JS", "RSVP_BUILD_JS"]
