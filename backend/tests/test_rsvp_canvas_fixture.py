@@ -151,6 +151,26 @@ def test_the_fixture_still_carries_the_cases_the_canvas_suite_needs(committed: d
     assert any("midSlide" in c for c in committed["cases"])
 
 
+def test_the_cull_section_still_discriminates(committed: dict) -> None:
+    """The cull is Pillow-and-Canvas-only (the HTML layer masks instead), so this
+    fixture is its *whole* cross-language pin. Cases that all returned "every
+    word" would be green and worthless."""
+    cull = committed["cull"]
+    assert len(cull["cases"]) >= 6
+    total = len(cull["widths"])
+    # A line several frames wide, or nothing would ever be culled.
+    assert cull["wordX"][-1] + cull["widths"][-1] > committed["layout"]["resolutionW"] * 2
+    ranges = [(c["expected"]["first"], c["expected"]["last"]) for c in cull["cases"]]
+    assert all(last - first < total for first, last in ranges), ranges
+    assert any(first > 0 for first, _ in ranges)
+    assert (0, 0) in ranges, "no case where the line is entirely off-window"
+    # Both windows: the band (fade on) and the whole frame (fade off).
+    assert {c["fadeFrac"] > 0 for c in cull["cases"]} == {True, False}
+    # And the bleed itself is exercised with every term non-zero.
+    assert cull["expectedBleed"] > 0
+    assert all(v != 0 for v in cull["bleedInputs"].values())
+
+
 def test_the_fixture_records_that_both_languages_assert_it(committed: dict) -> None:
     """The provenance stamp is the only thing telling a reader this is generated."""
     assert committed["_generatedBy"].endswith("gen_rsvp_canvas_parity.py")

@@ -34,6 +34,7 @@ from backend.exporters.hyperframes_render import (
     snapshot_hyperframes_project,
 )
 from backend.exporters.node_runtime import hyperframes_argv
+from backend.exporters.video_render import groups_for_render
 from backend.models.schemas import Segment, TranscriptionResult, VideoRenderConfig, WordSegment
 
 # Tolerances: calibrated from validated renders (worst real case ~mean 4 / 3% on
@@ -663,6 +664,39 @@ def test_rsvp_parity(name, t, over, source_video):
     assert mean < MEAN_MAX, f"rsvp {name}: mean diff {mean:.2f} >= {MEAN_MAX}"
     assert notable < NOTABLE_FRAC_MAX, (
         f"rsvp {name}: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+
+@_run
+def test_rsvp_reel_parity(source_video):
+    """A frame **past a caption-group boundary**, inside one reel.
+
+    Six words at `words_per_group=3` is two groups whose ends touch exactly, so
+    `groups_for_render` joins them into one reel (`rsvp_reels.py`) and the line
+    slides across the boundary instead of resetting at it. That makes this the
+    case where the two renderers can most easily disagree: the boundary word is
+    index 0 of a *fresh* line if either side failed to reel (which snaps, with no
+    ease at all) and index 3 of a continuing one if it did. `bg_opacity=0` so the
+    caption bbox is the TEXT and the 3px per-edge extent budget measures the line
+    translation rather than a band-sized box that would look identical either way.
+
+    Sampled at the same 1/3-through-the-slide instant as the mid-slide case above,
+    which for this fixture falls inside the slide into "four" — the first word of
+    the second group.
+    """
+    result, config = _result(words_per_group_six=True), _config(**_RSVP, bg_opacity=0.0)
+
+    # Non-vacuous: assert the fixture really does produce one reel from two groups.
+    assert len(groups_for_render(result, _config(words_per_group_six=True), None)) == 2
+    reels = groups_for_render(result, config, None)
+    assert len(reels) == 1 and len(reels[0]["words"]) == 6
+
+    pillow_png, hf_png = _render_both(result, config, source_video, t=_RSVP_MID_SLIDE_T)
+    mean, notable = _diff(pillow_png, hf_png)
+    print(f"[rsvp reel] mean={mean:.2f} notable={notable:.2f}%")
+    assert mean < MEAN_MAX, f"rsvp reel: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, (
+        f"rsvp reel: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
     )
 
 

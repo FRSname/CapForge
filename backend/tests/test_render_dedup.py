@@ -92,6 +92,15 @@ SCENARIOS = {
     "none_reveal":         dict(animation="none", word_transition="reveal"),
     "fade_shadow_bg":      dict(animation="fade", word_transition="instant",
                                 shadow_enabled=True, bg_opacity=0.85),
+    # RSVP keys on the line's anchor, not on the per-word states — and the line
+    # eases for `rsvp_slide_duration` after each anchor change while those states
+    # stay put, so a key that ignored the slide would serve a frozen mid-slide
+    # frame for the rest of the word. 0.06s at 30fps puts ~2 frames inside every
+    # slide window, so this scenario reaches it at every word boundary.
+    "rsvp":                dict(reading_mode="rsvp"),
+    "rsvp_fade_bg":        dict(reading_mode="rsvp", animation="fade",
+                                bg_opacity=0.85),
+    "rsvp_snap":           dict(reading_mode="rsvp", rsvp_slide_duration=0.0),
 }
 
 

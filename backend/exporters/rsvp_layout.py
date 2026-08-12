@@ -179,6 +179,23 @@ RETICLE_GAP_EM = 0.32
 #: Length of the notch that points from each rule back toward the text.
 RETICLE_NOTCH_LEN_EM = 0.20
 
+# ---------------------------------------------------------------------------
+# Culling — see :func:`cull_bleed` / :func:`visible_window` / :func:`visible_range`
+# ---------------------------------------------------------------------------
+
+#: Slack added on each side of the visible window before a word is skipped, as a
+#: multiple of the line's text height. Deliberately generous: the cull must be
+#: **pixel-neutral**, and what makes a word's ink reach past its measured advance
+#: is a pile of decorations (a per-word background box's padding and
+#: ``word_bg_*_extra``/offset, an italic or swashy face overhanging its advance,
+#: the stroke's join geometry) whose exact extent is not worth reproducing
+#: identically in two languages. Drawing a few extra fully-invisible words costs
+#: nothing; clipping one antialiased pixel is a parity break. The scalars that
+#: *can* move a word arbitrarily far — the stroke, the shadow and a per-word
+#: ``pos_offset_x`` — are added on top by :func:`cull_bleed` instead of being
+#: absorbed here.
+RSVP_CULL_BLEED_EM = 8.0
+
 #: A word's measurement function: ``(word_index, text) -> advance width``, so a
 #: word with a per-word font override is measured in its own font.
 WordMeasure = Callable[[int, str], float]
@@ -188,10 +205,17 @@ WordMeasure = Callable[[int, str], float]
 #: shares the wrap path's per-word font cache instead of building a second one.
 FontResolver = Callable[[str, float, bool, Optional[str]], tuple]
 
-#: ``(word left edges, per-word alpha multipliers) -> None`` — ``_draw_word_list``'s
-#: ``_draw_word_bg_boxes`` closure. The second argument is how the context dimming
-#: reaches the per-word boxes without RSVP owning a second copy of the box code.
-BgBoxDrawer = Callable[[Sequence[float], Sequence[float]], None]
+#: ``(word left edges, per-word alpha multipliers, visible [first, last)) -> None``
+#: — ``_draw_word_list``'s ``_draw_word_bg_boxes`` closure. The second argument is
+#: how the context dimming reaches the per-word boxes without RSVP owning a second
+#: copy of the box code; the third is the cull (:func:`visible_range`), so a box
+#: is not drawn for a word the line does not draw.
+BgBoxDrawer = Callable[[Sequence[float], Sequence[float], tuple[int, int]], None]
+
+#: Key :func:`draw_line` stores its :class:`RsvpStaticLayout` under in the
+#: caller-owned per-group cache dict (which the wrap path also uses, for the word
+#: metrics), so the two cannot collide.
+_STATIC_CACHE_KEY = "rsvp_static_layout"
 
 
 class CaptionBand(NamedTuple):
@@ -249,17 +273,34 @@ def _tracking_gap(prefix: str, tracking: float) -> float:
     return tracking if (prefix and tracking) else 0.0
 
 
-def layout_line(
+class RsvpStaticLayout(NamedTuple):
+    """The part of the line that does **not** depend on time.
+
+    A reel spans a whole run of caption groups (``rsvp_reels.py``), so this is
+    where the per-frame cost lives: one ``measure`` call per word's prefix and one
+    per its focus glyph, for every word of the reel, on every frame. All of it is
+    constant for a given reel + font + config, so :func:`draw_line` computes it
+    once per reel and reuses it (see its ``static_cache``).
+    """
+
+    #: Each word's left edge in line-origin space (before ``line_x``).
+    word_x: tuple[float, ...]
+    #: Each word's focus-glyph centre in line-origin space.
+    focus_offsets: tuple[float, ...]
+    #: ``max(abs(pos_offset_x))`` over the line, for :func:`cull_bleed`. A per-word
+    #: nudge moves the drawn word without moving the layout, so it is the one thing
+    #: that can put a word's ink arbitrarily far from where ``word_x`` says it is.
+    max_pos_offset_x: float
+
+
+def static_layout(
     word_metrics: Sequence[dict],
     *,
     space_w: float,
     tracking: float,
     measure: WordMeasure,
-    current_time: float,
-    pivot_px: float,
-    slide_duration: float,
-) -> RsvpLine:
-    """Lay the group out as one unwrapped line and solve the line translation.
+) -> RsvpStaticLayout:
+    """Lay the line out: cumulative word edges + one focus offset per word.
 
     Word advances come from ``word_metrics[i]["width"]`` — the same measurement
     the wrap path uses — so nothing is measured twice; ``measure`` is only used
@@ -272,21 +313,141 @@ def layout_line(
         x += wm["width"] + space_w
 
     focus_offsets: list[float] = []
+    max_pos_offset_x = 0.0
     for i, wm in enumerate(word_metrics):
         token = wm["word"]
         f = orp_index(token)
         offset = focus_offset(word_x[i], token, f, lambda s, i=i: measure(i, s))
         focus_offsets.append(offset + _tracking_gap(focus_slices(token, f).prefix, tracking))
+        ov = wm.get("overrides") or {}
+        max_pos_offset_x = max(max_pos_offset_x, abs(float(ov.get("pos_offset_x", 0))))
 
-    line_x = line_offset_at(
-        current_time, word_metrics, focus_offsets, pivot_px, slide_duration,
-    )
-    return RsvpLine(
+    return RsvpStaticLayout(
         word_x=tuple(word_x),
         focus_offsets=tuple(focus_offsets),
+        max_pos_offset_x=max_pos_offset_x,
+    )
+
+
+def layout_line(
+    word_metrics: Sequence[dict],
+    *,
+    space_w: float = 0.0,
+    tracking: float = 0.0,
+    measure: Optional[WordMeasure] = None,
+    current_time: float,
+    pivot_px: float,
+    slide_duration: float,
+    static: Optional[RsvpStaticLayout] = None,
+) -> RsvpLine:
+    """Solve the line translation at ``current_time``.
+
+    ``static`` is the (time-independent) layout from :func:`static_layout`; when
+    omitted it is computed here from ``space_w``/``tracking``/``measure``, which
+    is what every caller that renders a single frame in isolation does.
+    """
+    if static is None:
+        if measure is None:
+            raise ValueError("layout_line needs either `static` or `measure`")
+        static = static_layout(
+            word_metrics, space_w=space_w, tracking=tracking, measure=measure,
+        )
+
+    line_x = line_offset_at(
+        current_time, word_metrics, static.focus_offsets, pivot_px, slide_duration,
+    )
+    return RsvpLine(
+        word_x=static.word_x,
+        focus_offsets=static.focus_offsets,
         line_x=line_x,
         anchor_index=last_started_index(current_time, word_metrics),
     )
+
+
+def cull_bleed(
+    *,
+    text_h: float,
+    stroke_width: float,
+    shadow_blur: float,
+    shadow_offset_x: float,
+    max_pos_offset_x: float,
+) -> float:
+    """How far outside the visible window a word may sit and still be drawn.
+
+    ``RSVP_CULL_BLEED_EM`` of slack for the decorations whose extent is not worth
+    reproducing exactly (see the constant), plus the three that can move ink an
+    unbounded distance and *are* known exactly: the stroke, the drop shadow, and
+    the largest per-word ``pos_offset_x`` on the line.
+
+    Must stay identical to ``rsvpCullBleed`` in ``lib/overlayGeometry.ts`` — the
+    Canvas preview culls the same words this does, and the HTML layer culls none
+    at all, so a bleed that is too small shows up as a word missing from one
+    renderer and present in the other two.
+    """
+    return (
+        text_h * RSVP_CULL_BLEED_EM
+        + abs(stroke_width)
+        + abs(shadow_blur)
+        + abs(shadow_offset_x)
+        + abs(max_pos_offset_x)
+    )
+
+
+def visible_window(
+    band: CaptionBand,
+    *,
+    fade_frac: float,
+    resolution_w: float,
+    bleed: float,
+) -> tuple[float, float]:
+    """The x range a word must intersect to be worth drawing.
+
+    Deliberately **not** always the band: with ``rsvp_edge_fade`` at 0 there is no
+    mask, and the line is allowed to overflow the band right out to the frame
+    edges — that is what "no edge fade" means (:func:`apply_edge_fade`). With a
+    fade the mask zeroes every pixel outside the band, so the band *is* the window.
+
+    Widened by ``bleed`` on both sides; see :func:`cull_bleed`.
+    """
+    if fade_frac > 0:
+        left, right = band.left, band.right
+    else:
+        left, right = 0.0, resolution_w
+    return left - bleed, right + bleed
+
+
+def visible_range(
+    word_x: Sequence[float],
+    widths: Sequence[float],
+    *,
+    line_x: float,
+    left: float,
+    right: float,
+) -> tuple[int, int]:
+    """Index range ``[first, last)`` of the words that intersect ``[left, right]``.
+
+    ``word_x`` ascends (it is a running sum of non-negative advances), so the
+    visible words are contiguous and a range says everything. An empty result is
+    ``(0, 0)``. A word is kept when its drawn extent ``[line_x + word_x[i],
+    line_x + word_x[i] + widths[i]]`` touches the window at all, so a word
+    straddling an edge is drawn (and then dissolved by the fade) rather than
+    popping out.
+
+    Must stay identical to ``rsvpVisibleRange`` in ``lib/overlayGeometry.ts``.
+    """
+    count = min(len(word_x), len(widths))
+    first = count
+    last = 0
+    for i in range(count):
+        x0 = line_x + word_x[i]
+        if x0 + widths[i] < left:
+            continue
+        if x0 > right:
+            break
+        if i < first:
+            first = i
+        last = i + 1
+    return (0, 0) if first >= last else (first, last)
 
 
 def _fade_alpha(x: float, band: CaptionBand, fade_px: float) -> int:
@@ -435,6 +596,7 @@ def draw_line(
     resolve_font: FontResolver,
     draw_bg_boxes: Optional[BgBoxDrawer] = None,
     reticle_draw: Optional[ImageDraw.ImageDraw] = None,
+    static_cache: Optional[dict] = None,
 ) -> RsvpLine:
     """Draw one group as a single sliding RSVP line. Returns the layout it used.
 
@@ -446,6 +608,15 @@ def draw_line(
     **unmasked** surface, because the reticle is a fixed guide and must not be
     dimmed by the edge fade. It falls back to ``draw`` when the caller has no
     layering (the pop branch with the fade off).
+
+    ``static_cache`` is a caller-owned dict, one per group, in which the
+    time-independent :class:`RsvpStaticLayout` is memoised. A reel is a whole run
+    of caption groups (``rsvp_reels.py``), so recomputing it per frame is two
+    ``measure`` calls per word of the reel per frame; the config, the font and the
+    words are all constant for the duration of a render job, so it is computed
+    once. ``None`` (a one-off frame) recomputes every time. Two worker threads
+    racing on the same group both compute the same value and one wins, which is
+    why nothing here needs a lock.
     """
     text_h = bbox[3] - bbox[1]
     band = caption_band(config, center_x)
@@ -460,16 +631,50 @@ def draw_line(
             ov.get("custom_font_path") or getattr(config, "custom_font_path", None),
         )
 
+    static = None if static_cache is None else static_cache.get(_STATIC_CACHE_KEY)
+    if static is None:
+        static = static_layout(
+            word_metrics,
+            space_w=space_w,
+            tracking=tracking,
+            measure=lambda i, s: _measure_tracked(s, word_font(i)[0], tracking),
+        )
+        if static_cache is not None:
+            static_cache[_STATIC_CACHE_KEY] = static
+
     line = layout_line(
         word_metrics,
-        space_w=space_w,
-        tracking=tracking,
-        measure=lambda i, s: _measure_tracked(s, word_font(i)[0], tracking),
         current_time=current_time,
         pivot_px=pivot_px,
         slide_duration=config.rsvp_slide_duration,
+        static=static,
     )
     positions = line.positions()
+
+    # Culling. A reel's line is as long as the run of speech it carries, so most
+    # of it is nowhere near the frame; drawing every word would cost one
+    # `draw.text()` per word per frame for nothing. Pixel-neutral by construction
+    # — see `cull_bleed`, and `test_rsvp_reels_render.py`, which renders with the
+    # cull disabled and diffs the bytes.
+    left, right = visible_window(
+        band,
+        fade_frac=float(getattr(config, "rsvp_edge_fade", 0.0)),
+        resolution_w=config.resolution_w,
+        bleed=cull_bleed(
+            text_h=text_h,
+            stroke_width=outline_sw,
+            shadow_blur=float(getattr(config, "shadow_blur", 0)) if getattr(config, "shadow_enabled", False) else 0.0,
+            shadow_offset_x=float(getattr(config, "shadow_offset_x", 0)) if getattr(config, "shadow_enabled", False) else 0.0,
+            max_pos_offset_x=static.max_pos_offset_x,
+        ),
+    )
+    first, last = visible_range(
+        static.word_x,
+        [wm["width"] for wm in word_metrics],
+        line_x=line.line_x,
+        left=left,
+        right=right,
+    )
 
     # ONE rule: the word that is coloured is the word the line is parked on
     # (module docstring → "Colouring: one rule, the line's own anchor").
@@ -483,6 +688,7 @@ def draw_line(
             positions,
             [1.0 if i == colour_idx else context_opacity
              for i in range(len(word_metrics))],
+            (first, last),
         )
 
     if config.rsvp_reticle:
@@ -496,7 +702,8 @@ def draw_line(
 
     base_y = center_y - text_h / 2 - bbox[1]
 
-    for i, wm in enumerate(word_metrics):
+    for i in range(first, last):
+        wm = word_metrics[i]
         ov = wm.get("overrides") or {}
         w_font, _, w_text_h = word_font(i)
         x = positions[i] + float(ov.get("pos_offset_x", 0))
@@ -533,12 +740,18 @@ __all__ = [
     "RETICLE_THICKNESS_EM",
     "RETICLE_GAP_EM",
     "RETICLE_NOTCH_LEN_EM",
+    "RSVP_CULL_BLEED_EM",
     "BgBoxDrawer",
     "CaptionBand",
     "FontResolver",
     "RsvpLine",
+    "RsvpStaticLayout",
     "caption_band",
+    "cull_bleed",
     "layout_line",
+    "static_layout",
+    "visible_range",
+    "visible_window",
     "apply_edge_fade",
     "draw_reticle",
     "draw_line",

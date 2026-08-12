@@ -1,7 +1,7 @@
 {
   "_generatedBy": ".venv-dev/bin/python src/renderer/src/lib/__fixtures__/gen_rsvp_canvas_parity.py",
   "_reference": "backend/exporters/rsvp_layout.py (layout_line + caption_band)",
-  "_pillowCommit": "5b5cfef65b39f3ba8457a505516bca8525fd879d",
+  "_pillowCommit": "6330f0eccb7014f45f6774a2fc77264f7b175dd9",
   "_assertedBy": [
     "src/renderer/src/lib/overlayGeometry.rsvp.test.ts",
     "backend/tests/test_rsvp_canvas_fixture.py"
@@ -440,5 +440,164 @@
         "drawnFocusCenter": 483.52569444444435
       }
     }
-  ]
+  ],
+  "cull": {
+    "words": [
+      "I",
+      "rapid",
+      "saccades,",
+      "eliminates",
+      "extraordinarily",
+      "overridden",
+      "I",
+      "rapid",
+      "saccades,",
+      "eliminates",
+      "extraordinarily",
+      "overridden",
+      "I",
+      "rapid",
+      "saccades,",
+      "eliminates",
+      "extraordinarily",
+      "overridden",
+      "I",
+      "rapid",
+      "saccades,",
+      "eliminates",
+      "extraordinarily",
+      "overridden",
+      "I",
+      "rapid",
+      "saccades,",
+      "eliminates",
+      "extraordinarily",
+      "overridden",
+      "I",
+      "rapid",
+      "saccades,",
+      "eliminates",
+      "extraordinarily",
+      "overridden",
+      "I",
+      "rapid",
+      "saccades,",
+      "eliminates",
+      "extraordinarily",
+      "overridden",
+      "I",
+      "rapid",
+      "saccades,",
+      "eliminates",
+      "extraordinarily",
+      "overridden"
+    ],
+    "widths": [
+      8.0, 54.75, 97.5, 106.0, 153.25, 147.875, 8.0, 54.75, 97.5, 106.0, 153.25, 147.875, 8.0,
+      54.75, 97.5, 106.0, 153.25, 147.875, 8.0, 54.75, 97.5, 106.0, 153.25, 147.875, 8.0, 54.75,
+      97.5, 106.0, 153.25, 147.875, 8.0, 54.75, 97.5, 106.0, 153.25, 147.875, 8.0, 54.75, 97.5,
+      106.0, 153.25, 147.875, 8.0, 54.75, 97.5, 106.0, 153.25, 147.875
+    ],
+    "wordX": [
+      0.0, 14.5, 75.75, 179.75, 292.25, 452.0, 606.375, 620.875, 682.125, 786.125, 898.625,
+      1058.375, 1212.75, 1227.25, 1288.5, 1392.5, 1505.0, 1664.75, 1819.125, 1833.625, 1894.875,
+      1998.875, 2111.375, 2271.125, 2425.5, 2440.0, 2501.25, 2605.25, 2717.75, 2877.5, 3031.875,
+      3046.375, 3107.625, 3211.625, 3324.125, 3483.875, 3638.25, 3652.75, 3714.0, 3818.0, 3930.5,
+      4090.25, 4244.625, 4259.125, 4320.375, 4424.375, 4536.875, 4696.625
+    ],
+    "bleedInputs": {
+      "textH": 43.5,
+      "strokeWidth": 4.0,
+      "shadowBlur": 8.0,
+      "shadowOffsetX": 3.0,
+      "maxPosOffsetX": 12.0
+    },
+    "expectedBleed": 375.0,
+    "cases": [
+      {
+        "name": "fade on: the window is the band",
+        "fadeFrac": 0.12,
+        "lineX": 0.0,
+        "bleed": 0.0,
+        "expected": {
+          "left": 66.0,
+          "right": 1254.0,
+          "first": 1,
+          "last": 14
+        }
+      },
+      {
+        "name": "fade off: the window is the whole frame",
+        "fadeFrac": 0.0,
+        "lineX": 0.0,
+        "bleed": 0.0,
+        "expected": {
+          "left": 0.0,
+          "right": 1320.0,
+          "first": 0,
+          "last": 15
+        }
+      },
+      {
+        "name": "scrolled: a window into the middle of the line",
+        "fadeFrac": 0.12,
+        "lineX": -2500.0,
+        "bleed": 0.0,
+        "expected": {
+          "left": 66.0,
+          "right": 1254.0,
+          "first": 26,
+          "last": 39
+        }
+      },
+      {
+        "name": "scrolled, with the real bleed",
+        "fadeFrac": 0.12,
+        "lineX": -2500.0,
+        "bleed": 375.0,
+        "expected": {
+          "left": -309.0,
+          "right": 1629.0,
+          "first": 22,
+          "last": 42
+        }
+      },
+      {
+        "name": "straddling words are kept, not clipped",
+        "fadeFrac": 0.12,
+        "lineX": -1188.0,
+        "bleed": 0.0,
+        "expected": {
+          "left": 66.0,
+          "right": 1254.0,
+          "first": 13,
+          "last": 26
+        }
+      },
+      {
+        "name": "line entirely to the right of the window",
+        "fadeFrac": 0.12,
+        "lineX": 99999.0,
+        "bleed": 0.0,
+        "expected": {
+          "left": 66.0,
+          "right": 1254.0,
+          "first": 0,
+          "last": 0
+        }
+      },
+      {
+        "name": "line entirely to the left of the window",
+        "fadeFrac": 0.0,
+        "lineX": -99999.0,
+        "bleed": 0.0,
+        "expected": {
+          "left": 0.0,
+          "right": 1320.0,
+          "first": 0,
+          "last": 0
+        }
+      }
+    ]
+  }
 }

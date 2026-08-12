@@ -30,6 +30,8 @@ from backend.exporters.caption_draw import (
     _hex_to_rgba,
     _measure_tracked,
 )
+from backend.exporters.rsvp import last_started_index
+from backend.exporters.rsvp_reels import merge_reels
 from backend.models.schemas import (
     JobStatus,
     ProgressUpdate,
@@ -436,15 +438,25 @@ def groups_for_render(
     silently double-holds the final caption. Every production caller goes
     through here so that invariant does not depend on five copies of the same
     conditional staying in agreement.
+
+    **RSVP reels.** In ``reading_mode='rsvp'`` the groups are then joined into
+    reels (``rsvp_reels.merge_reels``): consecutive groups that leave no blank
+    frame between them become one group, so the reading line flows through a
+    group boundary instead of resetting at it. Applied here, at the same single
+    point, so every render path (Pillow, the HyperFrames caption track, frame QA)
+    gets the same reels; the Canvas preview applies its twin
+    (``lib/rsvpReels.ts``) to the same groups on its side. It is the identity
+    whenever no two groups touch, and a no-op in ``'wrap'`` mode.
     """
-    if custom_groups:
-        return custom_groups
-    return _build_groups(
+    groups = custom_groups if custom_groups else _build_groups(
         result,
         config.words_per_group,
         config.gap_close_threshold,
         config.last_group_hold,
     )
+    if getattr(config, "reading_mode", "wrap") == "rsvp":
+        groups = merge_reels(groups)
+    return groups
 
 
 # ---------------------------------------------------------------------------
@@ -500,6 +512,7 @@ def _draw_word_list(
     img: Image.Image,
     pill_draw: ImageDraw.ImageDraw | None = None,
     guide_draw: ImageDraw.ImageDraw | None = None,
+    static_cache: dict | None = None,
 ) -> None:
     """Draw all words at the given centre position with the chosen word animation.
 
@@ -507,6 +520,11 @@ def _draw_word_list(
     in RSVP mode it is edge-fade **masked**. ``guide_draw`` is the unmasked layer
     above it, used only by RSVP's pivot reticle — a fixed guide that must not fade
     (``rsvp_layout`` → "The edge fade vs the pivot").
+
+    ``static_cache`` is ``_render_frame``'s per-group ``precomp`` dict, forwarded
+    to ``rsvp_layout.draw_line`` so a reel's line layout is measured once per reel
+    instead of once per frame. Unused by the wrap path, whose rows are re-derived
+    per frame anyway.
     """
     text_h = bbox[3] - bbox[1]
     total_w = sum(wm["width"] for wm in word_metrics)
@@ -565,6 +583,7 @@ def _draw_word_list(
     def _draw_word_bg_boxes(
         positions: "Sequence[float]",
         alpha_scale: "Sequence[float] | None" = None,
+        visible: "tuple[int, int] | None" = None,
     ) -> None:
         """Draw the per-word background boxes: the group background box scoped
         to a single word's extents.
@@ -579,6 +598,11 @@ def _draw_word_list(
         so a dimmed word does not keep a full-strength box. ``None`` (the wrap
         path) means "no scaling".
 
+        ``visible`` is RSVP's ``[first, last)`` cull (``rsvp_layout.visible_range``)
+        — a reel's line runs far past the frame, and a box must not be drawn for a
+        word whose glyphs are not. ``None`` (the wrap path, whose rows are inside
+        the frame by construction) means "all of them".
+
         Painted on the SAME pill layer and BEFORE the highlight pill, giving
         the stacking order ``group bg → word box → highlight pill → words``;
         never on the text/shadow layer, so a box never feeds the drop shadow.
@@ -592,7 +616,9 @@ def _draw_word_list(
         marker in the word loop below). See docs/plans/per-word-background.md.
         """
         box_draw = pill_draw if pill_draw is not None else draw
-        for i, wm in enumerate(word_metrics):
+        first, last = (0, len(word_metrics)) if visible is None else visible
+        for i in range(first, last):
+            wm = word_metrics[i]
             ov = wm.get("overrides") or {}
             # Enable gate: presence AND value — ``word_bg_opacity`` is the one
             # field that must NOT inherit from ``config.bg_opacity``, or every
@@ -678,6 +704,7 @@ def _draw_word_list(
             # target, never the (edge-fade-masked) pill layer the per-word boxes
             # share. See rsvp_layout → "The edge fade vs the pivot".
             reticle_draw=guide_draw,
+            static_cache=static_cache,
         )
         return
 
@@ -921,8 +948,21 @@ def _render_frame(
     font: ImageFont.FreeTypeFont,
     group: Optional[dict],
     current_time: float,
+    precomp: Optional[dict] = None,
 ) -> Image.Image:
-    """Render a single frame as RGBA PIL Image."""
+    """Render a single frame as RGBA PIL Image.
+
+    ``precomp`` is a caller-owned dict, **one per group**, memoising the parts of
+    the frame that do not depend on ``current_time``: the per-word measurements
+    here, and the RSVP line layout inside ``rsvp_layout.draw_line``. Everything in
+    it is a pure function of ``(config, font, group)``, all three constant for a
+    render job, so it is computed on the group's first frame and reused for the
+    rest. It matters because an RSVP reel carries a whole run of caption groups
+    (``rsvp_reels.py``) — measuring every word of it on every frame is the one
+    cost that grows with the reel. ``None`` (a one-off frame, e.g. frame QA or a
+    golden test) recomputes everything, which is also what makes it optional
+    rather than load-bearing.
+    """
     img = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
 
     if group is None:
@@ -974,19 +1014,23 @@ def _render_frame(
     def _measure_with_font(text: str, f: ImageFont.FreeTypeFont) -> float:
         return _measure_tracked(text, f, tracking)
 
-    all_metrics: list[dict] = []
-    for w in words:
-        ov = w.get("overrides") or {}
-        w_scale = float(ov.get("font_size_scale", 1.0))
-        w_bold  = bool(ov["bold"]) if "bold" in ov else config.bold
-        if w_scale != 1.0 or w_bold != config.bold:
-            ov_font = _get_font(config.font_family, round(config.font_size * w_scale),
-                                getattr(config, "custom_font_path", None), w_bold)
-            ww = _measure_with_font(w["word"], ov_font)
-        else:
-            ww = _measure_word(w["word"])
-        all_metrics.append({"word": w["word"], "width": ww, "start": w["start"], "end": w["end"],
-                             "overrides": ov if ov else None})
+    all_metrics: Optional[list[dict]] = None if precomp is None else precomp.get("metrics")
+    if all_metrics is None:
+        all_metrics = []
+        for w in words:
+            ov = w.get("overrides") or {}
+            w_scale = float(ov.get("font_size_scale", 1.0))
+            w_bold  = bool(ov["bold"]) if "bold" in ov else config.bold
+            if w_scale != 1.0 or w_bold != config.bold:
+                ov_font = _get_font(config.font_family, round(config.font_size * w_scale),
+                                    getattr(config, "custom_font_path", None), w_bold)
+                ww = _measure_with_font(w["word"], ov_font)
+            else:
+                ww = _measure_word(w["word"])
+            all_metrics.append({"word": w["word"], "width": ww, "start": w["start"], "end": w["end"],
+                                 "overrides": ov if ov else None})
+        if precomp is not None:
+            precomp["metrics"] = all_metrics
 
     bbox    = draw.textbbox((0, 0), "Ayg", font=font)
     text_h  = bbox[3] - bbox[1]
@@ -1111,7 +1155,8 @@ def _render_frame(
                             tracking, effective_space_w, bbox,
                             row_cx, row_cy,
                             outline_sw, word_transition, anim_alpha, tgt_img,
-                            pill_draw=pill_draw, guide_draw=guide_draw)
+                            pill_draw=pill_draw, guide_draw=guide_draw,
+                            static_cache=precomp)
 
     # RSVP edge fade — an alpha ramp over the leftmost/rightmost
     # `rsvp_edge_fade` of the caption band, applied to the caption layers only
@@ -1305,6 +1350,26 @@ def _frame_state_key(
         if age < anim_dur or remaining < anim_dur:
             return None
 
+    # --- RSVP: the line's position IS the frame ---
+    # RSVP ignores word_transition entirely (rsvp_layout's module docstring), so
+    # the per-word Future/Active/Past states below describe nothing it draws. What
+    # it draws is decided by two things: which word the line is parked on
+    # (`last_started_index` — the same rule that colours it) and whether the line
+    # is mid-slide toward it. Keying on the word states instead would be actively
+    # WRONG, not merely coarse: the states are constant for the whole time a word
+    # is active while `line_x` eases across the first `rsvp_slide_duration` of it,
+    # so the first mid-slide frame would be cached and replayed for the rest of
+    # the word — the line visibly freezing part-way through every slide.
+    if getattr(config, "reading_mode", "wrap") == "rsvp":
+        words = group["words"]
+        anchor = last_started_index(t, words)
+        slide_duration = float(getattr(config, "rsvp_slide_duration", 0.0))
+        # Index 0 snaps (line_offset_at never eases into the first word), so only
+        # a later anchor has a slide window to sit inside.
+        if anchor > 0 and slide_duration > 0 and t - words[anchor]["start"] < slide_duration:
+            return None
+        return ("rsvp", group_index, anchor)
+
     base_transition = getattr(config, "word_transition", "instant")
     highlight_anim = getattr(config, "highlight_animation", "jump")
 
@@ -1389,6 +1454,11 @@ class _FrameSource:
         # group (gaps between subtitle groups).
         self.blank_bytes = _render_frame(config, font, None, 0.0).tobytes()
         self._cache: OrderedDict[tuple, bytes] = OrderedDict()
+        # One `precomp` dict per group — the time-independent half of a frame
+        # (word measurements, and in RSVP the line layout). See _render_frame.
+        # Written from worker threads: both would compute the same value from the
+        # same constant inputs, so a race duplicates work and never corrupts.
+        self._precomp: list[dict] = [{} for _ in groups]
         # Stats (exposed for tests / benchmarks)
         self.hits = 0
         self.misses = 0
@@ -1421,7 +1491,9 @@ class _FrameSource:
         if gi is None:
             return self.blank_bytes
         t = fn / self.config.fps
-        return _render_frame(self.config, self.font, self.groups[gi], t).tobytes()
+        return _render_frame(
+            self.config, self.font, self.groups[gi], t, self._precomp[gi]
+        ).tobytes()
 
     def _cache_get(self, key: tuple) -> Optional[bytes]:
         data = self._cache.get(key)

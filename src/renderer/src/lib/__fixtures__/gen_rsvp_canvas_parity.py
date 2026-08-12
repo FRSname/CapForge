@@ -48,7 +48,13 @@ sys.path.insert(0, str(REPO_ROOT))
 
 from backend.exporters.caption_draw import _measure_tracked  # noqa: E402
 from backend.exporters.rsvp import focus_slices, orp_index  # noqa: E402
-from backend.exporters.rsvp_layout import caption_band, layout_line  # noqa: E402
+from backend.exporters.rsvp_layout import (  # noqa: E402
+    caption_band,
+    cull_bleed,
+    layout_line,
+    visible_range,
+    visible_window,
+)
 from backend.models.schemas import VideoRenderConfig  # noqa: E402
 
 OUT_PATH = Path(__file__).with_name("rsvp_canvas_parity.json")
@@ -135,6 +141,47 @@ ANCHOR_CASES = {
         1.55,
     ),
 }
+
+
+# ---------------------------------------------------------------------------
+# Culling (`rsvp_layout.cull_bleed` / `visible_window` / `visible_range`).
+#
+# Only Pillow and Canvas cull — the HTML layer draws every word and lets its
+# edge-fade mask do the work — so this is exactly a two-sided pin, and a bleed or
+# a window that drifts between them shows up as a word one renderer draws and the
+# other does not.
+# ---------------------------------------------------------------------------
+
+#: A line far wider than the frame: the reel case, where culling is the point.
+#: ``WORDS`` alone is ~700px against an 1188px band, so every range would be
+#: "all of them" and the cases would pin nothing.
+CULL_REPEATS = 8
+
+#: Deliberately all non-zero, so a term dropped on either side changes the answer.
+CULL_BLEED_INPUTS = {
+    "textH": 43.5,
+    "strokeWidth": 4.0,
+    "shadowBlur": 8.0,
+    "shadowOffsetX": 3.0,
+    "maxPosOffsetX": 12.0,
+}
+
+#: ``bleed: None`` means "use ``cull_bleed(**CULL_BLEED_INPUTS)``".
+CULL_CASES = [
+    {"name": "fade on: the window is the band", "fadeFrac": 0.12, "lineX": 0.0, "bleed": 0.0},
+    {"name": "fade off: the window is the whole frame", "fadeFrac": 0.0, "lineX": 0.0,
+     "bleed": 0.0},
+    {"name": "scrolled: a window into the middle of the line", "fadeFrac": 0.12,
+     "lineX": -2500.0, "bleed": 0.0},
+    {"name": "scrolled, with the real bleed", "fadeFrac": 0.12, "lineX": -2500.0,
+     "bleed": None},
+    {"name": "straddling words are kept, not clipped", "fadeFrac": 0.12, "lineX": -1188.0,
+     "bleed": 0.0},
+    {"name": "line entirely to the right of the window", "fadeFrac": 0.12, "lineX": 99999.0,
+     "bleed": 0.0},
+    {"name": "line entirely to the left of the window", "fadeFrac": 0.0, "lineX": -99999.0,
+     "bleed": 0.0},
+]
 
 
 class SyntheticFont:
@@ -228,6 +275,52 @@ def solve(words: list[dict], tracking: float, t: float, cfg: VideoRenderConfig) 
         "positions": positions,
         "anchorIndex": anchor,
         "drawnFocusCenter": focus_center,
+    }
+
+
+def build_cull(cfg: VideoRenderConfig) -> dict:
+    """The cull section: one long line, then a window + range per case."""
+    words = [dict(w) for _ in range(CULL_REPEATS) for w in WORDS]
+    metrics = build_metrics(words, 0.0)
+    widths = [m["width"] for m in metrics]
+    word_x: list[float] = []
+    x = 0.0
+    for width in widths:
+        word_x.append(x)
+        x += width + space_w(0.0)
+
+    band = caption_band(cfg, ROW_CENTER_X)
+    # The fixture spells the bleed inputs the way the Canvas twin takes them
+    # (camelCase); Pillow is the snake_case side of the same five scalars.
+    real_bleed = cull_bleed(
+        text_h=CULL_BLEED_INPUTS["textH"],
+        stroke_width=CULL_BLEED_INPUTS["strokeWidth"],
+        shadow_blur=CULL_BLEED_INPUTS["shadowBlur"],
+        shadow_offset_x=CULL_BLEED_INPUTS["shadowOffsetX"],
+        max_pos_offset_x=CULL_BLEED_INPUTS["maxPosOffsetX"],
+    )
+    cases = []
+    for case in CULL_CASES:
+        bleed = real_bleed if case["bleed"] is None else case["bleed"]
+        left, right = visible_window(
+            band, fade_frac=case["fadeFrac"], resolution_w=RESOLUTION_W, bleed=bleed,
+        )
+        first, last = visible_range(
+            word_x, widths, line_x=case["lineX"], left=left, right=right,
+        )
+        cases.append({
+            **case,
+            "bleed": bleed,
+            "expected": {"left": left, "right": right, "first": first, "last": last},
+        })
+
+    return {
+        "words": [w["word"] for w in words],
+        "widths": widths,
+        "wordX": word_x,
+        "bleedInputs": CULL_BLEED_INPUTS,
+        "expectedBleed": real_bleed,
+        "cases": cases,
     }
 
 
@@ -326,6 +419,7 @@ def build_payload() -> dict:
         "vertical": {**VERTICAL, "expectedRowCenterY": row_center_y()},
         "cases": cases,
         "anchorCases": anchor_cases,
+        "cull": build_cull(cfg),
     }
     return payload
 
