@@ -1,0 +1,441 @@
+{
+  "_generatedBy": ".venv-dev/bin/python src/renderer/src/lib/__fixtures__/gen_rsvp_canvas_parity.py",
+  "_reference": "backend/exporters/rsvp_layout.py (layout_line + caption_band)",
+  "_pillowCommit": "900ba6bb2903cb644e7a43246d981d4a2a883fd1",
+  "_followUp": "Move to backend/tests/fixtures/ and assert from Python too \u2014 see this generator's module docstring.",
+  "measure": {
+    "defaultCharWidth": 11.0,
+    "charWidths": {
+      " ": 6.5,
+      ",": 5.25,
+      "I": 8.0,
+      "a": 12.5,
+      "c": 10.25,
+      "d": 13.0,
+      "e": 12.75,
+      "i": 6.0,
+      "l": 5.5,
+      "m": 18.5,
+      "n": 13.25,
+      "o": 12.0,
+      "p": 13.5,
+      "r": 9.75,
+      "s": 10.5,
+      "t": 8.25,
+      "v": 11.5,
+      "x": 11.25,
+      "y": 11.0
+    }
+  },
+  "layout": {
+    "resolutionW": 1320,
+    "maxWidth": 0.9,
+    "rowCenterX": 660.0,
+    "pivotFraction": 0.35,
+    "spaceW": 6.5,
+    "slideDuration": 0.06
+  },
+  "words": [
+    {
+      "word": "I",
+      "widthScale": 1.0,
+      "start": 1.0,
+      "end": 1.5,
+      "orpIndex": 0
+    },
+    {
+      "word": "rapid",
+      "widthScale": 1.0,
+      "start": 1.5,
+      "end": 2.0,
+      "orpIndex": 1
+    },
+    {
+      "word": "saccades,",
+      "widthScale": 1.0,
+      "start": 2.0,
+      "end": 2.5,
+      "orpIndex": 2
+    },
+    {
+      "word": "eliminates",
+      "widthScale": 1.0,
+      "start": 2.5,
+      "end": 3.0,
+      "orpIndex": 3
+    },
+    {
+      "word": "extraordinarily",
+      "widthScale": 1.0,
+      "start": 3.0,
+      "end": 3.5,
+      "orpIndex": 4
+    },
+    {
+      "word": "overridden",
+      "widthScale": 1.3,
+      "start": 3.5,
+      "end": 4.0,
+      "orpIndex": 3
+    }
+  ],
+  "vertical": {
+    "cy": 2351.76,
+    "alignShiftY": -12.0,
+    "tyOff": 5.0,
+    "textH": 43.5,
+    "expectedRowCenterY": 2344.76
+  },
+  "cases": [
+    {
+      "name": "hold on 'I' (tracking 0)",
+      "tracking": 0.0,
+      "t": 1.3,
+      "expectedAnchorIndex": 0,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 54.75, 97.5, 106.0, 153.25, 147.875],
+        "wordX": [0.0, 14.5, 75.75, 179.75, 292.25, 452.0],
+        "focusOffsets": [4.0, 30.5, 103.875, 213.25, 340.5, 505.4625],
+        "lineX": 477.79999999999995,
+        "positions": [477.79999999999995, 492.29999999999995, 553.55, 657.55, 770.05, 929.8],
+        "anchorIndex": 0,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "hold on 'rapid' (tracking 0)",
+      "tracking": 0.0,
+      "t": 1.8,
+      "expectedAnchorIndex": 1,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 54.75, 97.5, 106.0, 153.25, 147.875],
+        "wordX": [0.0, 14.5, 75.75, 179.75, 292.25, 452.0],
+        "focusOffsets": [4.0, 30.5, 103.875, 213.25, 340.5, 505.4625],
+        "lineX": 451.29999999999995,
+        "positions": [451.29999999999995, 465.79999999999995, 527.05, 631.05, 743.55, 903.3],
+        "anchorIndex": 1,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "hold on 'saccades,' (tracking 0)",
+      "tracking": 0.0,
+      "t": 2.3,
+      "expectedAnchorIndex": 2,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 54.75, 97.5, 106.0, 153.25, 147.875],
+        "wordX": [0.0, 14.5, 75.75, 179.75, 292.25, 452.0],
+        "focusOffsets": [4.0, 30.5, 103.875, 213.25, 340.5, 505.4625],
+        "lineX": 377.92499999999995,
+        "positions": [
+          377.92499999999995, 392.42499999999995, 453.67499999999995, 557.675, 670.175, 829.925
+        ],
+        "anchorIndex": 2,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "hold on 'eliminates' (tracking 0)",
+      "tracking": 0.0,
+      "t": 2.8,
+      "expectedAnchorIndex": 3,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 54.75, 97.5, 106.0, 153.25, 147.875],
+        "wordX": [0.0, 14.5, 75.75, 179.75, 292.25, 452.0],
+        "focusOffsets": [4.0, 30.5, 103.875, 213.25, 340.5, 505.4625],
+        "lineX": 268.54999999999995,
+        "positions": [
+          268.54999999999995, 283.04999999999995, 344.29999999999995, 448.29999999999995, 560.8,
+          720.55
+        ],
+        "anchorIndex": 3,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "hold on 'extraordinarily' (tracking 0)",
+      "tracking": 0.0,
+      "t": 3.3,
+      "expectedAnchorIndex": 4,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 54.75, 97.5, 106.0, 153.25, 147.875],
+        "wordX": [0.0, 14.5, 75.75, 179.75, 292.25, 452.0],
+        "focusOffsets": [4.0, 30.5, 103.875, 213.25, 340.5, 505.4625],
+        "lineX": 141.29999999999995,
+        "positions": [
+          141.29999999999995, 155.79999999999995, 217.04999999999995, 321.04999999999995,
+          433.54999999999995, 593.3
+        ],
+        "anchorIndex": 4,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "hold on 'overridden' (tracking 0)",
+      "tracking": 0.0,
+      "t": 3.8,
+      "expectedAnchorIndex": 5,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 54.75, 97.5, 106.0, 153.25, 147.875],
+        "wordX": [0.0, 14.5, 75.75, 179.75, 292.25, 452.0],
+        "focusOffsets": [4.0, 30.5, 103.875, 213.25, 340.5, 505.4625],
+        "lineX": -23.662500000000023,
+        "positions": [
+          -23.662500000000023, -9.162500000000023, 52.08749999999998, 156.08749999999998, 268.5875,
+          428.3375
+        ],
+        "anchorIndex": 5,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "mid-slide into 'eliminates' (tracking 0)",
+      "tracking": 0.0,
+      "t": 2.53,
+      "expectedAnchorIndex": 3,
+      "midSlide": {
+        "index": 3,
+        "progress": 0.5,
+        "eased": 0.75
+      },
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 54.75, 97.5, 106.0, 153.25, 147.875],
+        "wordX": [0.0, 14.5, 75.75, 179.75, 292.25, 452.0],
+        "focusOffsets": [4.0, 30.5, 103.875, 213.25, 340.5, 505.4625],
+        "lineX": 295.8937500000003,
+        "positions": [
+          295.8937500000003, 310.3937500000003, 371.6437500000003, 475.6437500000003,
+          588.1437500000003, 747.8937500000003
+        ],
+        "anchorIndex": 3,
+        "drawnFocusCenter": 509.1437500000003
+      }
+    },
+    {
+      "name": "hold on 'I' (tracking 7)",
+      "tracking": 7.0,
+      "t": 1.3,
+      "expectedAnchorIndex": 0,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 82.75, 153.5, 169.0, 251.25, 210.87499999999997],
+        "wordX": [0.0, 14.5, 103.75, 263.75, 439.25, 697.0],
+        "focusOffsets": [4.0, 37.5, 145.875, 318.25, 515.5, 771.4625],
+        "lineX": 477.79999999999995,
+        "positions": [477.79999999999995, 492.29999999999995, 581.55, 741.55, 917.05, 1174.8],
+        "anchorIndex": 0,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "hold on 'rapid' (tracking 7)",
+      "tracking": 7.0,
+      "t": 1.8,
+      "expectedAnchorIndex": 1,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 82.75, 153.5, 169.0, 251.25, 210.87499999999997],
+        "wordX": [0.0, 14.5, 103.75, 263.75, 439.25, 697.0],
+        "focusOffsets": [4.0, 37.5, 145.875, 318.25, 515.5, 771.4625],
+        "lineX": 444.29999999999995,
+        "positions": [444.29999999999995, 458.79999999999995, 548.05, 708.05, 883.55, 1141.3],
+        "anchorIndex": 1,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "hold on 'saccades,' (tracking 7)",
+      "tracking": 7.0,
+      "t": 2.3,
+      "expectedAnchorIndex": 2,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 82.75, 153.5, 169.0, 251.25, 210.87499999999997],
+        "wordX": [0.0, 14.5, 103.75, 263.75, 439.25, 697.0],
+        "focusOffsets": [4.0, 37.5, 145.875, 318.25, 515.5, 771.4625],
+        "lineX": 335.92499999999995,
+        "positions": [
+          335.92499999999995, 350.42499999999995, 439.67499999999995, 599.675, 775.175, 1032.925
+        ],
+        "anchorIndex": 2,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "hold on 'eliminates' (tracking 7)",
+      "tracking": 7.0,
+      "t": 2.8,
+      "expectedAnchorIndex": 3,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 82.75, 153.5, 169.0, 251.25, 210.87499999999997],
+        "wordX": [0.0, 14.5, 103.75, 263.75, 439.25, 697.0],
+        "focusOffsets": [4.0, 37.5, 145.875, 318.25, 515.5, 771.4625],
+        "lineX": 163.54999999999995,
+        "positions": [
+          163.54999999999995, 178.04999999999995, 267.29999999999995, 427.29999999999995, 602.8,
+          860.55
+        ],
+        "anchorIndex": 3,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "hold on 'extraordinarily' (tracking 7)",
+      "tracking": 7.0,
+      "t": 3.3,
+      "expectedAnchorIndex": 4,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 82.75, 153.5, 169.0, 251.25, 210.87499999999997],
+        "wordX": [0.0, 14.5, 103.75, 263.75, 439.25, 697.0],
+        "focusOffsets": [4.0, 37.5, 145.875, 318.25, 515.5, 771.4625],
+        "lineX": -33.700000000000045,
+        "positions": [
+          -33.700000000000045, -19.200000000000045, 70.04999999999995, 230.04999999999995,
+          405.54999999999995, 663.3
+        ],
+        "anchorIndex": 4,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "hold on 'overridden' (tracking 7)",
+      "tracking": 7.0,
+      "t": 3.8,
+      "expectedAnchorIndex": 5,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 82.75, 153.5, 169.0, 251.25, 210.87499999999997],
+        "wordX": [0.0, 14.5, 103.75, 263.75, 439.25, 697.0],
+        "focusOffsets": [4.0, 37.5, 145.875, 318.25, 515.5, 771.4625],
+        "lineX": -289.6625,
+        "positions": [
+          -289.6625, -275.1625, -185.91250000000002, -25.912500000000023, 149.58749999999998,
+          407.3375
+        ],
+        "anchorIndex": 5,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "mid-slide into 'eliminates' (tracking 7)",
+      "tracking": 7.0,
+      "t": 2.53,
+      "expectedAnchorIndex": 3,
+      "midSlide": {
+        "index": 3,
+        "progress": 0.5,
+        "eased": 0.75
+      },
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [8.0, 82.75, 153.5, 169.0, 251.25, 210.87499999999997],
+        "wordX": [0.0, 14.5, 103.75, 263.75, 439.25, 697.0],
+        "focusOffsets": [4.0, 37.5, 145.875, 318.25, 515.5, 771.4625],
+        "lineX": 206.64375000000052,
+        "positions": [
+          206.64375000000052, 221.14375000000052, 310.3937500000005, 470.3937500000005,
+          645.8937500000005, 903.6437500000005
+        ],
+        "anchorIndex": 3,
+        "drawnFocusCenter": 524.8937500000005
+      }
+    }
+  ],
+  "anchorCases": [
+    {
+      "name": "reordered",
+      "words": [
+        {
+          "word": "bravo",
+          "start": 1.5,
+          "end": 2.0
+        },
+        {
+          "word": "alpha",
+          "start": 1.0,
+          "end": 1.5
+        }
+      ],
+      "t": 1.7,
+      "activeInWindow": 0,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [56.75, 55.0],
+        "wordX": [0.0, 63.25],
+        "focusOffsets": [15.875, 78.5],
+        "lineX": 403.29999999999995,
+        "positions": [403.29999999999995, 466.54999999999995],
+        "anchorIndex": 1,
+        "drawnFocusCenter": 481.79999999999995
+      }
+    },
+    {
+      "name": "overlapping",
+      "words": [
+        {
+          "word": "alpha",
+          "start": 1.0,
+          "end": 1.6
+        },
+        {
+          "word": "bravo",
+          "start": 1.5,
+          "end": 2.0
+        }
+      ],
+      "t": 1.55,
+      "activeInWindow": 0,
+      "expected": {
+        "bandLeft": 66.0,
+        "bandWidth": 1188.0,
+        "pivotPx": 481.79999999999995,
+        "wordWidths": [55.0, 56.75],
+        "wordX": [0.0, 61.5],
+        "focusOffsets": [15.25, 77.375],
+        "lineX": 406.15069444444435,
+        "positions": [406.15069444444435, 467.65069444444435],
+        "anchorIndex": 1,
+        "drawnFocusCenter": 483.52569444444435
+      }
+    }
+  ]
+}
