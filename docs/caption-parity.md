@@ -48,6 +48,41 @@ The mode draws the group as one unwrapped line that **slides horizontally** so a
 
 The three cores are pinned against **one another** by the five shared JSON fixtures in `backend/tests/fixtures/rsvp_*_cases.json`, read by `backend/tests/test_rsvp_core.py`, `lib/rsvp.test.ts` and `lib/rsvp.embedded.test.ts`. Never hand-write an expected value in one language — add it to the fixture.
 
+### Continuous flow: reels
+
+**The unit of layout is a reel, not a caption group.** A group is a display chunk of `words_per_group` words; laying the line out per group means that at every chunk boundary the line is rebuilt from zero and snaps to its first word (`lineOffsetAt` never eases index 0), the words already read vanish, and the group entry animation fires again. So consecutive groups that are **continuous in time** are merged into one group — a *reel* — before any renderer sees them, and crossing a group boundary becomes one more eased slide.
+
+```
+break between groups a, b  iff  a.end or b.start is non-finite      (never join on junk)
+                            or  a.end < b.start                     (a real blank gap)
+                            or  their position overrides differ     (a reel has one anchor)
+```
+
+Rule 2 is deliberately the *existing blanking rule*: a frame between `a.end` and `b.start` has no active group and draws nothing today, so joining exactly the pairs with no such frame adds continuity **without changing when captions appear or disappear**. Gap closing runs upstream and has already pulled `a.end` up to `b.start` for every gap at or below `gap_close_threshold` — so that dial is what decides how long a reel gets, and at 0 the pass is the identity and RSVP behaves exactly as it did per group. A **speaker change is not a break**: gap closing already refuses to bridge one, so any real pause between speakers breaks the reel anyway, and `CustomGroup` carries no `speaker` — a rule on it would fire in the preview and not in the render.
+
+Like gap closing, this is a group-list transform rather than a rendering formula, so it has **two** implementations, not three:
+
+| Side | Where | Applied at |
+|---|---|---|
+| Pillow **and** HTML/GSAP | `backend/exporters/rsvp_reels.py` | `groups_for_render()` — the one point every render path shares, so the HTML layer is simply handed merged groups and emits one `.cgroup` per reel |
+| Canvas preview | `src/renderer/src/lib/rsvpReels.ts` | `useSubtitleOverlay`, over the same gap-closed `displayGroups` |
+
+Both read the same fixture, `backend/tests/fixtures/rsvp_reel_cases.json`, which pins the break rule as index ranges over a normalised group view (each side asserts its own merge output). Everything downstream is unchanged: the active-group lookup, the entry/exit animation (now per reel, which is the point), the background box and the per-word overrides all operate on the reel.
+
+**Culling.** A reel's line is as long as the run of speech it carries, so most of it is nowhere near the frame. Pillow and Canvas therefore skip words outside a visible window; the HTML layer culls nothing, because its edge-fade mask already produces the same pixels. That makes the cull a claim rather than a choice — **it must be pixel-neutral** — so the window is deliberately loose:
+
+```
+window = band                when rsvp_edge_fade > 0   (the mask zeroes everything outside)
+       = [0, resolution_w)   when it is 0              (an unmasked line may overflow the band)
+bleed  = textH × 8 + stroke + shadowBlur + |shadowOffsetX| + max|pos_offset_x|
+```
+
+`RSVP_CULL_BLEED_EM = 8` absorbs the decorations whose exact ink extent is not worth reproducing in two languages (per-word box padding and extras, an overhanging face, stroke joins); the three scalars that can move ink an unbounded distance are added exactly. Twins: `rsvp_layout.cull_bleed`/`visible_window`/`visible_range` ↔ `overlayGeometry.rsvpCullBleed`/`rsvpVisibleWindow`/`rsvpVisibleRange`, pinned by the `cull` section of the generated Canvas↔Pillow fixture and asserted from both sides. `backend/tests/test_rsvp_reels_render.py` additionally renders a reel with the cull disabled and diffs the bytes.
+
+**Layout caching.** Measuring every word of a reel per frame is the one cost that grows with the reel, so the time-independent half of the line (`static_layout` / `computeRsvpStatic`: cumulative `wordX`, `focusOffsets`, `max|pos_offset_x|`) is computed once per reel — `_render_frame`'s `precomp` dict on the backend, `layoutRef` in the hook. Measured on a 900-word reel at 1080×1920: **140 ms/frame** naive, **39.6** with the cull, **9.7** with both, against **8.7 ms/frame** for a 3-word group. An optimisation only: both are asserted byte-identical to the uncached, unculled path.
+
+**The frame cache.** `_frame_state_key` keys RSVP frames on `("rsvp", group_index, anchor_index)` and returns `None` (uncacheable) inside a slide window. It must not use the wrap path's per-word Future/Active/Past states: those are constant for the whole time a word is active while `line_x` eases across the first `rsvp_slide_duration` of it, so the first mid-slide frame would be cached and replayed for the rest of the word — the line visibly freezing part-way through every slide. Pinned by the `rsvp*` scenarios in `test_render_dedup.py`.
+
 ### The formulas
 
 ```
@@ -122,7 +157,7 @@ Group entry/exit `animation` **still applies** to the line as a whole. Per-word 
 1. **Kerning across the active word's three seams.** The active word is drawn as prefix / focus glyph / suffix so the focus glyph can be coloured and placed exactly, which loses kerning across the two seams. Same class as the karaoke branch's split draw. Context words stay one kerned string in all three renderers.
 2. **The base-font word-advance asymmetry** (pre-existing in wrap mode): each word's *line advance* comes from `word_metrics[i]["width"]`, measured with `config.font_family` even when the word overrides `font_family`. This shifts the words *after* a font-overridden word — never the focus glyph, which is solved from the same pieces it is drawn from.
 3. **A decomposed token's NFC residual.** The active word is drawn from `focusSlices`, i.e. NFC-composed, while its line advance comes from the raw token and context words are drawn raw; for a decomposed token the two forms can differ by a fraction of a pixel, moving the words after the active one. A combining mark with **no precomposed form** (e.g. `a` + U+0348) still shatters — normalisation cannot compose what Unicode has no composed form for.
-4. **Chromium does not apply the GPOS kerning PIL does.** Pre-existing and mode-independent — wrap mode shows the same edge deltas on a kerned pair (measured ~7 px) — so this file's `measureText ≡ getlength` equivalence has a kerning exception. It also means the parity gate cannot currently *discriminate* whole-token vs pre-split spans, which is why the HTML layer keeps whole-token spans for context words: that choice stays correct if the gap is ever closed, and costs nothing today.
+4. **Chromium does not apply the GPOS kerning PIL does.** Pre-existing and mode-independent — wrap mode shows the same edge deltas on a kerned pair (measured ~7 px) — so this file's `measureText ≡ getlength` equivalence has a kerning exception. **Reels make it accumulate further**: word advances are summed into `wordX`, so the per-word difference compounds with distance from the anchored word (which is pinned to the pivot in both renderers). It is bounded by the *visible window*, not by the reel length — words beyond it are culled or faded — but a reel legitimately shows more of it than a 3-word group did. Measured on the cross-boundary parity case: a 3px right-edge delta against a 3px budget, versus 0–1px for the single-group cases. It also means the parity gate cannot currently *discriminate* whole-token vs pre-split spans, which is why the HTML layer keeps whole-token spans for context words: that choice stays correct if the gap is ever closed, and costs nothing today.
 5. **Canvas-only, from having one canvas instead of Pillow's layer stack.** With the edge fade on: the reticle composites *below* the per-word background boxes instead of above them (one canvas cannot mask a middle slice of the layer stack; both are behind the text either way, and they only overlap when a box's padding reaches past the reticle's 0.32em clearance); the fade is applied *after* the `pop` entry transform rather than before it, so the band stays in frame coordinates while the ink has already shrunk toward its centre; and the fade is a continuous gradient where Pillow steps per column, a sub-quantization difference (< 1/255 alpha) on the ramp.
 6. **Tracked measurement iterates UTF-16 code units in JS, code points in Python.** Pre-existing in the shared `measureTrackedWidth` / `_measure_tracked` helpers (the ORP *core* is code-point correct in all three). Reachable only with non-zero `tracking` **and** an astral character in the same token.
 7. **`rsvp_pivot_x` is deliberately not clamped away from the fade ramp.** The fade is a property of the band, so a focus column placed inside the ramp genuinely dims the focus glyph — looking through the edge of a window is what that does. At `rsvp_pivot_x = 0` with the default 12 % fade the pivot column's own alpha is 0 by construction, rising only across the glyph's right half (measured: alpha 2 one pixel in, ~17 peak across a 10 px glyph at 640 px wide), i.e. the glyph all but disappears; the reticle would have been dimmed to alpha 76, which is why it is exempt. Silently rewriting the user's value was judged worse than the visible result — the Reading card carries the warning instead.
@@ -133,6 +168,11 @@ Group entry/exit `animation` **still applies** to the line as a whole. Per-word 
 # Cross-language core (ORP table, slicing, ease, anchor) — the five shared fixtures
 .venv-dev/bin/python -m pytest backend/tests/test_rsvp_core.py -q
 npm test -- rsvp
+
+# Reels: the break rule (shared fixture, both languages) + what it changes on a frame
+.venv-dev/bin/python -m pytest backend/tests/test_rsvp_reels.py \
+  backend/tests/test_rsvp_reels_render.py backend/tests/test_render_dedup.py -q
+npm test -- rsvpReels
 
 # Pillow layout/draw, reticle geometry, edge fade, per-word boxes, HTML layout
 .venv-dev/bin/python -m pytest backend/tests/test_rsvp_layout.py backend/tests/test_rsvp_reticle.py \
@@ -161,7 +201,7 @@ CAPFORGE_PARITY=1 .venv-dev/bin/python -m pytest backend/tests/test_caption_pari
 
 - **Golden frames**: `backend/tests/test_render_golden.py` pins `_render_frame()` pixel output against PNGs in `backend/tests/golden/` (tolerance-based diff), including `rsvp_mid_word` (a frame during a hold, where the focus glyph's centre must sit on the pivot column) and `rsvp_mid_slide` (a frame during the slide — the two differ only in `t`). Regenerate after an intentional formula change with `.venv-dev/bin/python -m backend.tests.gen_golden`, then review the PNGs visually before committing — they define what "correct" looks like. Generation is deterministic: two runs into different directories are byte-identical.
 - **Canvas ↔ Pillow numeric fixture**: `src/renderer/src/lib/__fixtures__/rsvp_canvas_parity.json` is *generated* by running the Pillow reference (`gen_rsvp_canvas_parity.py`, over a synthetic per-character width table so the numbers are reproducible in JS) and *asserted from both sides* — `lib/overlayGeometry.rsvp.test.ts` checks the Canvas renderer against it, `backend/tests/test_rsvp_canvas_fixture.py` re-derives it from the live reference so a Pillow drift fails the backend suite instead of quietly leaving the frontend pinned to stale numbers.
-- **Caption parity**: `backend/tests/test_caption_parity.py` diffs the Pillow render against the live HyperFrames snapshot for every word mode + stroke/shadow/multi-line, plus per-word overrides, highlight slide, mid-entry group ease, 1080p/portrait resolutions, and four RSVP cases (mid-hold boxed, mid-slide box-off, per-word overrides, scaled anchor). Each comparison also asserts the caption **bounding-box extents** agree within 3px per edge (catches few-px drift the loose mean/notable tolerances hide). Opt-in (needs Node 22 + ffmpeg):
+- **Caption parity**: `backend/tests/test_caption_parity.py` diffs the Pillow render against the live HyperFrames snapshot for every word mode + stroke/shadow/multi-line, plus per-word overrides, highlight slide, mid-entry group ease, 1080p/portrait resolutions, and five RSVP cases (mid-hold boxed, mid-slide box-off, **a frame past a group boundary inside a reel**, per-word overrides, scaled anchor). Each comparison also asserts the caption **bounding-box extents** agree within 3px per edge (catches few-px drift the loose mean/notable tolerances hide). Opt-in (needs Node 22 + ffmpeg):
 
   ```bash
   CAPFORGE_PARITY=1 .venv-dev/bin/python -m pytest backend/tests/test_caption_parity.py
