@@ -11,7 +11,15 @@ Run from the repo root::
 
     .venv-dev/bin/python src/renderer/src/lib/__fixtures__/gen_rsvp_canvas_parity.py
 
-Consumed by ``src/renderer/src/lib/overlayGeometry.rsvp.test.ts``.
+Consumed from **both** sides, so the JSON cannot go stale unnoticed:
+
+* ``src/renderer/src/lib/overlayGeometry.rsvp.test.ts`` — asserts the Canvas
+  renderer reproduces these numbers.
+* ``backend/tests/test_rsvp_canvas_fixture.py`` — re-derives them from the live
+  ``rsvp_layout`` reference and asserts the committed JSON still matches, so a
+  drift in Pillow fails the backend suite instead of quietly invalidating the
+  frontend one. That suite calls :func:`build_payload`, which is why the payload
+  is built separately from :func:`main`'s file write.
 
 **No font is loaded.** Both ``layout_line``'s ``measure`` callback and each word's
 line advance are injected, so a *synthetic* font — a per-character width table —
@@ -22,11 +30,10 @@ data instead of the layout formula. The measurement *equivalence* itself
 (``ctx.measureText`` ≡ ``font.getlength``) is pinned elsewhere, by
 ``docs/caption-parity.md`` and the parity suite.
 
-FOLLOW-UP (deliberately not done in this phase, which may not write to
-``backend/tests/``): move this file and its JSON under ``backend/tests/fixtures/``
-and add a Python suite that asserts the same fixture from the Python side, the way
-the four ``rsvp_*_cases.json`` fixtures are read by both languages. Until then the
-JSON is generated from Python but only *asserted* from TypeScript.
+The JSON stays here rather than under ``backend/tests/fixtures/`` (where the five
+``rsvp_*_cases.json`` core fixtures live) because it is generated *for* the Canvas
+suite and lives next to it; the Python side reaches across by path, which is the
+cheaper direction — the frontend loader needs no knowledge of ``backend/``.
 """
 
 from __future__ import annotations
@@ -236,7 +243,13 @@ def row_center_y() -> float:
     )
 
 
-def main() -> None:
+def build_payload() -> dict:
+    """Derive the whole fixture payload from the live ``rsvp_layout`` reference.
+
+    Pure apart from the ``git rev-parse`` provenance stamp: no file is written, so
+    ``backend/tests/test_rsvp_canvas_fixture.py`` can call this and diff the result
+    against the committed JSON.
+    """
     cfg = config()
     cases = []
     for tracking in TRACKINGS:
@@ -287,10 +300,10 @@ def main() -> None:
         "_pillowCommit": subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, capture_output=True, text=True
         ).stdout.strip(),
-        "_followUp": (
-            "Move to backend/tests/fixtures/ and assert from Python too — see this "
-            "generator's module docstring."
-        ),
+        "_assertedBy": [
+            "src/renderer/src/lib/overlayGeometry.rsvp.test.ts",
+            "backend/tests/test_rsvp_canvas_fixture.py",
+        ],
         "measure": {"defaultCharWidth": DEFAULT_CHAR_WIDTH, "charWidths": CHAR_WIDTHS},
         "layout": {
             "resolutionW": RESOLUTION_W,
@@ -314,6 +327,13 @@ def main() -> None:
         "cases": cases,
         "anchorCases": anchor_cases,
     }
+    return payload
+
+
+def main() -> None:
+    payload = build_payload()
+    cases = payload["cases"]
+    anchor_cases = payload["anchorCases"]
 
     OUT_PATH.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     print(f"wrote {OUT_PATH.relative_to(REPO_ROOT)}: "

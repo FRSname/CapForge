@@ -1,7 +1,9 @@
 # Plan: RSVP "speed reading" caption mode (`reading_mode: rsvp`)
 
-**Status:** planned, not started
-**Branch suggestion:** `feat/rsvp-reading-mode`
+**Status:** SHIPPED on `feat/rsvp-reading-mode` (Phases 1–5). Corrections marked
+"**As shipped**" record where the implementation deliberately diverged from the plan;
+the plan text around them is left intact as the record of what was intended.
+**Branch:** `feat/rsvp-reading-mode`
 **Orchestration:** each phase is dispatched to the `implementer` agent (never pass a model override — agent pins handle routing). Use `scout` only if a phase hits a fact gap. Phases are self-contained; run them consecutively in fresh contexts.
 **Reference clip:** `~/Downloads/ScreenRecording_08-11-2026 20-51-44_1.mov` (1320×2868, 60fps, 5.2s)
 
@@ -112,6 +114,13 @@ Sources: `StudioPanel.tsx`, `AnimationCard.tsx`, `LayoutCard.tsx`, `render.ts`,
 
 ### Allowed APIs / exact touch points
 
+> **Line numbers below are as-of-planning and have since drifted** — the RSVP work itself moved
+> them (e.g. `StudioSettings` is now at `StudioPanel.tsx:41` with `DEFAULTS` at 171,
+> `computeWordPositions` at `overlayGeometry.ts:208`, `_measure_word` at `video_render.py:968`,
+> `SCAFFOLD_VERSION` at `hyperframes_project.py:54` and now **10**, and `docs/caption-parity.md`
+> gained an RSVP section). Grep for the symbol, not the line. The *file* and *symbol* columns are
+> still correct except where marked "As shipped".
+
 | Concern | Location | Fact |
 |---|---|---|
 | Settings interface | `src/renderer/src/components/studio/StudioPanel.tsx:27-102` | flat `StudioSettings`; `DEFAULTS` at 143-161 |
@@ -120,16 +129,16 @@ Sources: `StudioPanel.tsx`, `AnimationCard.tsx`, `LayoutCard.tsx`, `render.ts`,
 | Canvas layout | `src/renderer/src/lib/overlayGeometry.ts:193-219` | `computeWordPositions()` builds `wordXPos[]`/`wordYPos[]` |
 | Canvas measurement | `useSubtitleOverlay.ts:166-167` | `measureTrackedWidth(text, trk, s => ctx.measureText(s).width)` |
 | Canvas mode switch | `useSubtitleOverlay.ts:506-576` | per-word draw switch |
-| Canvas active word | `useSubtitleOverlay.ts:425` | `m.start <= currentTime && currentTime < m.end` |
+| Canvas active word | `useSubtitleOverlay.ts` | `m.start <= currentTime && currentTime < m.end`. **As shipped**: this is the *decoration* modes' test and RSVP does **not** reuse it — see the Phase 4 correction below. |
 | Pillow layout | `backend/exporters/video_render.py:558-566` | x-accumulation loop over `word_metrics` |
 | Pillow measurement | `video_render.py:948-956` | `_measure_word()` → `font.getlength()` + tracking |
 | Pillow draw dispatch | `video_render.py:776-841` | colour branches + position branches in `_draw_word_list()` |
-| Pillow active word | `video_render.py:661-662` | `active_idx = next(...)` |
+| Pillow active word | `video_render.py` | `active_idx = next(...)`, the `start <= t < end` test. **As shipped**: Phase 3 removed this anchor from the RSVP path entirely — `rsvp_layout.draw_line()` takes no `active_idx` at all. |
 | HTML runtime | `backend/exporters/hyperframes_caption_html.py:601-669` | GSAP timeline construction in `CAPTION_RUNTIME_JS` |
 | HTML `caption_cfg()` | `hyperframes_caption_html.py` | every new EXPECTED field must be emitted here |
 | Scaffold cache | `backend/exporters/hyperframes_project.py:50` | `SCAFFOLD_VERSION` — **MUST bump** (runtime JS shape changes) |
 | Partition test | `backend/tests/test_caption_cfg_contract.py:44-94` / `102-153` / `212-262` | `EXPECTED_IN_CAP_CFG`, `INTENTIONALLY_ABSENT`, `_SENTINELS` |
-| Parity suite | `backend/tests/test_caption_parity.py:158-159` | `@pytest.mark.parametrize("mode", [...])` |
+| Parity suite | `backend/tests/test_caption_parity.py` | `test_word_transition_parity`'s `@pytest.mark.parametrize` list. **As shipped**: that list is for `word_transition` *decoration* modes, so RSVP could **not** ride it (`word_transition='rsvp'` is just an unknown mode). RSVP got its own `test_rsvp_parity` / `test_rsvp_override_parity` fixtures instead — 4 cases. |
 | Goldens | `backend/tests/golden/` (11 PNGs), `backend/tests/gen_golden.py` | tolerance `MAX_MEAN_DIFF=2.0`, `MAX_PIXEL_DIFF=40` (`test_render_golden.py:34-36`) |
 
 ### Anti-patterns (repo-verified — do NOT do these)
@@ -306,8 +315,19 @@ In `backend/exporters/video_render.py`:
      (948-956) so tracking is honoured;
    - compute `focus_offset` for every word via `backend/exporters/rsvp.py`;
    - compute the animated line translation with `line_offset_at(...)` using
-     `config.rsvp_slide_duration` and the active index from 661-662 (reuse it verbatim — do not
-     write a second active-word test);
+     `config.rsvp_slide_duration`.
+
+     **As shipped, this instruction was wrong and was reversed.** It said to reuse
+     `_draw_word_list`'s `start <= t < end` `active_idx` verbatim. That test has no answer at
+     all during inter-word silence or in the tail after the last word, so the glyph parked on
+     the pivot would drop to context colour mid-hold; and where the two rules merely disagree
+     (overlapping timings, or a manually reordered group — `custom_groups[].words` ships
+     verbatim, so `start` values need not ascend) it colours a word that is **not** on the
+     pivot, leaving the reticle marking an empty column. Measured: 100+px off the pivot for a
+     reordered group. The line's position and its colouring therefore share **one** anchor,
+     `rsvp.last_started_index` ("the last word with `start <= t`"), and `draw_line()` takes no
+     `active_idx` — so there is no second rule for Phase 4 to reproduce. Pinned by
+     `rsvp_last_started_cases.json` and the Canvas fixture's `anchorCases`;
    - draw words at `x = base_x + line_x`.
 2. Colouring: focus glyph in `rsvp_focus_color`; the rest of the active word in
    `active_word_color`; all other words in `text_color` at `rsvp_context_opacity`. Draw the
@@ -352,7 +372,10 @@ In `backend/exporters/video_render.py`:
    (`overlayGeometry.ts:193-219`), taking the same inputs plus pivot/slide and returning
    single-row `wordXPos[]` shifted by the animated `lineX` from `lib/rsvp.ts`.
 2. In `useSubtitleOverlay.ts`, select it when `readingMode === 'rsvp'`, reusing the existing
-   `measureWord` (166-167) and the existing `isActive` test (425).
+   `measureWord`. **As shipped**: it does *not* reuse the existing `isActive`
+   (`start <= t < end`) test — that instruction was wrong, since Phase 3 had already replaced
+   that anchor with `lastStartedIndex` in Pillow (see the Phase 3 correction). Canvas reads
+   `anchorIndex` straight off `computeRsvpPositions`, so the wrong test is not reachable.
 3. Draw the active word in three pieces exactly as Pillow does; apply context opacity, edge-fade
    gradient (`createLinearGradient` on a mask), and the reticle.
 
@@ -383,8 +406,12 @@ In `backend/exporters/video_render.py`:
 - `grep -n "SCAFFOLD_VERSION" backend/exporters/hyperframes_project.py` — bumped.
 - Parity (opt-in; needs Node 22 + ffmpeg):
   `CAPFORGE_PARITY=1 .venv-dev/bin/python -m pytest backend/tests/test_caption_parity.py -q`
-  — add `rsvp` to the parametrize list at `test_caption_parity.py:158-159`; the existing 3px
-  per-edge bounding-box tolerance must hold **without being loosened**.
+  — **as shipped**, *not* by adding `rsvp` to the `test_word_transition_parity` parametrize list
+  (that list is decoration modes; see the Phase 0 table). RSVP has its own `test_rsvp_parity`
+  (mid-hold boxed + mid-slide box-off) and `test_rsvp_override_parity` (per-word overrides +
+  scaled anchor). The existing 3px per-edge bounding-box tolerance holds **unloosened**.
+  Note `rsvp_slide_duration` is 0.2 in those cases, not the 0.06 default: the mid-slide sample
+  must land on a 30fps frame boundary, and a 60ms slide is only ~2 frames wide.
 - Add a parity case sampled **mid-slide**, not only mid-hold — a static-only case would pass
   even if one renderer's ease were wrong.
 
@@ -406,16 +433,28 @@ In `backend/exporters/video_render.py`:
 4. Anti-pattern grep sweep:
    - `grep -rn "rsvp" src/renderer/src/types/app.ts src/renderer/src/components/editor/WordStylePopup.tsx`
      → **must be empty** (RSVP must not have leaked into `word_transition`).
-   - `grep -rn "orpIndex\|orp_index\|RSVP_ORP_TABLE" src backend` → three implementations + the
-     two fixture-driven tests, and nothing else.
-   - `grep -rn "fraction: true" src/renderer/src/lib/settingsSanitize.ts` → exactly three hits
+   - `grep -rln "orpIndex\|orp_index\|ORP_TABLE" src backend` → the three implementations
+     (`lib/rsvp.ts`, `backend/exporters/rsvp.py`, `hyperframes_rsvp_runtime.py`) plus their
+     call sites and the fixture-driven tests, and nothing else. **As shipped**: three suites
+     read the fixtures, not two (`rsvp.test.ts`, `rsvp.embedded.test.ts`, `test_rsvp_core.py`).
+   - `grep -c "fraction: true" src/renderer/src/lib/settingsSanitize.ts` → exactly three
      (`shadowOpacity`, `highlightOpacity`, `rsvpContextOpacity`).
-5. Docs:
-   - `docs/caption-parity.md` — add an RSVP section documenting the `focusOffset`/`lineX`
-     formula, the ORP table, and any newly accepted delta.
-   - `CLAUDE.md` — mention `reading_mode` in the Preview↔Render Parity section and add the
-     RSVP settings to the units list in Key Conventions.
-6. **Manual QA (user)** — the parts CI cannot cover:
+   - Determinism: `gen_golden` into two directories → `diff -r` empty.
+5. Docs — **as shipped**:
+   - `docs/caption-parity.md` — a full RSVP section: the `focusOffset`/`lineX` formula and its
+     `power1.out` ease, the ORP table with its punctuation + NFC-code-point rules, the caption
+     band, the single anchor rule, the tracking gap, the reticle constants and the
+     inclusive-vs-exclusive box convention, the ignored settings, seven accepted deltas, and
+     how to run every RSVP suite.
+   - `CLAUDE.md` — `reading_mode` in Preview↔Render Parity, the seven settings in the units
+     list, `settingsSanitize.ts`'s new non-numeric path, and `StudioRow`'s `commitMax`.
+   - `mcp_server/server.py` — `set_style`'s "UNITS ARE NOT UNIFORM" docstring, the agent-facing
+     unit contract, extended with the RSVP fields.
+6. **Coverage gap closed in Phase 5**: `rsvp_canvas_parity.json` was generated from Pillow but
+   asserted only from TypeScript, so a Pillow drift would have left the JSON stale with the JS
+   suite still green. `backend/tests/test_rsvp_canvas_fixture.py` now re-derives the payload from
+   the live `rsvp_layout` reference and asserts the committed JSON matches exactly.
+7. **Manual QA (user)** — the parts CI cannot cover, and the only thing still outstanding:
    - Pick Speed-read in Studio → preview line slides, focus glyph pinned to the pivot column.
    - Scrub the timeline backwards → the line must land correctly on a seek, not only on
      forward playback (seek-safety is the classic failure mode for a GSAP translate).

@@ -129,10 +129,13 @@ WORD_BG_WORDS = GROUP_WORDS + ["boxed"]
 # proves each one moves pixels on its own).
 RSVP_CONFIG: dict = {
     # An opaque background box, unlike most scenarios: the box is what makes the
-    # caption BAND visible, and in RSVP mode the box is deliberately sized to the
-    # band (``max_row_w = min(max_row_w, max_w_px)``) instead of to the unwrapped
-    # row, which nothing else pins. It also makes the edge fade — an alpha ramp,
-    # invisible on a transparent frame — reviewable by eye.
+    # caption BAND visible, and in RSVP mode the box is deliberately derived from
+    # the band (``max_row_w = box_band.width``, centred on the band rather than on
+    # ``center_x``) instead of from the unwrapped row, which nothing else pins.
+    # Note this is NOT a ``min()`` clamp: a group NARROWER than the band still gets
+    # a band-sized box, because the text inside it is placed by the pivot column.
+    # It also makes the edge fade — an alpha ramp, invisible on a transparent frame
+    # — reviewable by eye.
     "bg_opacity": 0.85,
     "bg_color": "#2E5FCC",
     "reading_mode": "rsvp",

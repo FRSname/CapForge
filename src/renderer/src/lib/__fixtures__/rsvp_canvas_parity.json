@@ -1,8 +1,11 @@
 {
   "_generatedBy": ".venv-dev/bin/python src/renderer/src/lib/__fixtures__/gen_rsvp_canvas_parity.py",
   "_reference": "backend/exporters/rsvp_layout.py (layout_line + caption_band)",
-  "_pillowCommit": "900ba6bb2903cb644e7a43246d981d4a2a883fd1",
-  "_followUp": "Move to backend/tests/fixtures/ and assert from Python too \u2014 see this generator's module docstring.",
+  "_pillowCommit": "5b5cfef65b39f3ba8457a505516bca8525fd879d",
+  "_assertedBy": [
+    "src/renderer/src/lib/overlayGeometry.rsvp.test.ts",
+    "backend/tests/test_rsvp_canvas_fixture.py"
+  ],
   "measure": {
     "defaultCharWidth": 11.0,
     "charWidths": {
