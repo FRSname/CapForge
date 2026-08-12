@@ -34,8 +34,11 @@ import {
   MIN_FOCUS_SLICES_CASES,
   MIN_LINE_OFFSET_CASES,
   MIN_ORP_CASES,
+  NFD_TOKENS,
+  NO_COMPOSITION,
   SWEEP_MAX_LENGTH,
   fixedWidth,
+  isCombiningMark,
   loadRsvpFixtures,
 } from './rsvpFixtures.testutil'
 
@@ -70,6 +73,57 @@ describe('rsvp fixtures', () => {
     )
     expect(hasAstral).toBe(true)
     expect(hasLoneSurrogate).toBe(true)
+  })
+
+  test('the orp fixture still covers a decomposed (non-NFC) token', () => {
+    // The NFC contract is only pinned while an NFD case exists; deleting them must
+    // fail here rather than quietly re-open "the focus glyph is a bare mark".
+    expect(orpCases.some(({ token }) => token !== token.normalize('NFC'))).toBe(true)
+    // ...and the residual: a mark with NO precomposed form, which NFC cannot fix.
+    expect(
+      orpCases.some(
+        ({ token }) => token === token.normalize('NFC') && Array.from(token).some(isCombiningMark)
+      )
+    ).toBe(true)
+  })
+})
+
+// ── NFC normalisation ──────────────────────────────────────────────
+//
+// The token is composed once, inside `codePoints`, so every rule below sees the
+// same form the Python source of truth does (`unicodedata.normalize('NFC', s)`).
+
+describe('NFC normalisation', () => {
+  test('codePoints composes the token', () => {
+    for (const decomposed of NFD_TOKENS) {
+      expect(codePoints(decomposed)).toEqual(Array.from(decomposed.normalize('NFC')))
+    }
+  })
+
+  test.each(NFD_TOKENS)('NFD and NFC spellings of %j are indistinguishable', (decomposed) => {
+    // Same word, two spellings: the index, the split and the offset must all agree,
+    // or a token typed on a system that hands out NFD reads as a different word.
+    const composed = decomposed.normalize('NFC')
+    expect(composed).not.toBe(decomposed)
+
+    expect(orpIndex(decomposed)).toBe(orpIndex(composed))
+    expect(focusSlices(decomposed, orpIndex(decomposed))).toEqual(
+      focusSlices(composed, orpIndex(composed))
+    )
+    expect(focusOffset(0, decomposed, orpIndex(decomposed), fixedWidth)).toBe(
+      focusOffset(0, composed, orpIndex(composed), fixedWidth)
+    )
+  })
+
+  test.each(NFD_TOKENS)('the focus glyph of %j is never a bare combining mark', (token) => {
+    expect(isCombiningMark(focusSlices(token, orpIndex(token)).focus)).toBe(false)
+  })
+
+  test('a mark with no precomposed form is the documented residual', () => {
+    // ACCEPTED DELTA, pinned rather than assumed away: U+0348 has no composition,
+    // so the focus glyph really is the mark. A change that fixes it must say so here.
+    expect(NO_COMPOSITION.normalize('NFC')).toBe(NO_COMPOSITION)
+    expect(isCombiningMark(focusSlices(NO_COMPOSITION, orpIndex(NO_COMPOSITION)).focus)).toBe(true)
   })
 })
 
@@ -227,12 +281,14 @@ describe('focusSlices', () => {
     })
   })
 
-  test('prefix + focus + suffix rebuilds every fixture token', () => {
-    // Derived, not restated: nothing may be dropped or duplicated by the split.
+  test('prefix + focus + suffix rebuilds every fixture token, NFC-composed', () => {
+    // Derived, not restated: nothing may be dropped or duplicated by the split. The
+    // pieces rebuild the token's NFC form — which for an already-composed token
+    // (every case but the NFD ones) is the token itself.
     for (const { token, f } of focusSlicesCases) {
       const i = f === null ? orpIndex(token) : f
       const { prefix, focus, suffix } = focusSlices(token, i)
-      expect(prefix + focus + suffix).toBe(token)
+      expect(prefix + focus + suffix).toBe(token.normalize('NFC'))
     }
   })
 

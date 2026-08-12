@@ -5,6 +5,21 @@ import { Select } from '../../ui/Select'
 import { Row, type StudioSectionProps } from './StudioSectionShared'
 
 /**
+ * Is the focus column sitting inside one of the edge-fade ramps?
+ *
+ * Both dials are percentages of the same caption band, so the left ramp covers
+ * `[0, edgeFade)` and the right one `(100 - edgeFade, 100]`. The fade is a
+ * property of the band — a window — so a focus column inside a ramp genuinely
+ * dims the mode's most important glyph (measured: max alpha 17 at focus column 0
+ * with the default 12 % fade). The value is deliberately NOT clamped or rewritten
+ * — silently changing what the user typed is worse — so the UI says so instead.
+ * See `backend/exporters/rsvp_layout.py` → "The edge fade vs the pivot".
+ */
+export function isFocusInsideEdgeFade(pivotPct: number, edgeFadePct: number): boolean {
+  return edgeFadePct > 0 && (pivotPct < edgeFadePct || pivotPct > 100 - edgeFadePct)
+}
+
+/**
  * "Reading" settings card — the caption LAYOUT axis.
  *
  * `readingMode` is orthogonal to the Animation card's word style: 'wrap' draws
@@ -25,6 +40,7 @@ import { Row, type StudioSectionProps } from './StudioSectionShared'
  */
 export function ReadingCard({ s, defaults, filter, set, cardProps }: StudioSectionProps) {
   const isRsvp = s.readingMode === 'rsvp'
+  const focusDimmed = isFocusInsideEdgeFade(s.rsvpPivotX, s.rsvpEdgeFade)
 
   return (
     <StudioCard title="Reading" defaultOpen={false} {...cardProps('reading')}>
@@ -109,6 +125,12 @@ export function ReadingCard({ s, defaults, filter, set, cardProps }: StudioSecti
               onChange={(v) => set('rsvpEdgeFade', v)}
             />
           </Row>
+          {focusDimmed && (
+            <p className="text-2xs leading-snug" style={{ color: 'var(--color-brand)' }}>
+              Focus column sits inside the edge fade, so the focused letter will be dimmed with the
+              rest of the line. Move it further from the edge, or lower Edge fade.
+            </p>
+          )}
           <Row label="Focus color" filter={filter}>
             <ColorSwatch
               label="Focus color"

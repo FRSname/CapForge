@@ -41,11 +41,24 @@ Invariants:
   one ``Array.from`` element there. See ``rsvp_orp_cases.json`` /
   ``rsvp_focus_offset_cases.json`` / ``rsvp_focus_slices_cases.json`` for the
   pinned astral + lone-surrogate cases.
+* **Tokens are NFC-normalised first** (:func:`normalize_token`). A decomposed
+  token — ``"é"`` as ``e`` + U+0301 — is two code points, so ``orp_index`` returns
+  1 and the "focus glyph" would be the **combining mark on its own**, drawn by its
+  own ``draw.text()`` call at an advanced pen with no base character under it.
+  Pillow draws a bare U+0301, browsers draw it on a dotted circle (U+25CC): a
+  parity divergence that cannot be fixed downstream. NFC composes it back to one
+  code point, so all three languages see the same token.
+
+  **Residual, accepted delta:** a combining mark with *no* precomposed form (e.g.
+  ``"a"`` + U+0348) still counts as its own code point and can still be selected
+  as the focus glyph. NFC cannot compose what Unicode has no composition for; the
+  fixtures pin that case so the behaviour is known rather than surprising.
 """
 
 from __future__ import annotations
 
 import math
+import unicodedata
 from collections.abc import Callable, Mapping, Sequence
 from typing import Any, NamedTuple
 
@@ -88,6 +101,23 @@ RSVP_ORP_TABLE: tuple[OrpBreakpoint, ...] = (
 )
 
 
+def normalize_token(token: str) -> str:
+    """The token as the ORP rules see it: **NFC-composed**.
+
+    The one place normalisation happens — every public entry point routes through
+    it (``orp_index`` for the length, ``focus_slices`` for the split, and
+    ``focus_offset`` via ``focus_slices``), so an index can never be computed on
+    one form and applied to the other. The JS twins do the same with
+    ``String#normalize('NFC')`` at the top of their code-point conversion
+    (``codePoints``); this is the Python half of that pin.
+
+    Why: see the module docstring — a decomposed ``"é"`` makes the *combining
+    mark* the focus glyph, which Pillow and the browsers draw differently.
+    Idempotent, so calling it twice on the same token is free of surprises.
+    """
+    return unicodedata.normalize("NFC", token)
+
+
 def orp_index(token: str) -> int:
     """Focus-character index for a whitespace token.
 
@@ -95,13 +125,14 @@ def orp_index(token: str) -> int:
     Spritz tokenizes on whitespace, so ``"saccades,"`` is length 9 → index 2.
     The empty string yields 0. ``len()`` on a ``str`` counts **code points**,
     which is the contract the JS twins normalize to (module docstring):
-    ``"🎬clap"`` is 5 → index 1.
+    ``"🎬clap"`` is 5 → index 1. The token is NFC-composed first
+    (:func:`normalize_token`), so a decomposed ``"café"`` is 4, not 5.
 
     The result is always a valid index into ``token``: a table row that would
     point past the end (only reachable if the table is edited) is clamped to the
     last character, never returned out of range.
     """
-    length = len(token)
+    length = len(normalize_token(token))
     if length == 0:
         return 0
 
@@ -131,7 +162,8 @@ def _clamp_focus_index(length: int, f: int) -> int:
 class FocusSlices(NamedTuple):
     """The active word split for drawing: before / at / after the focus glyph.
 
-    ``prefix + focus + suffix == token`` always holds.
+    ``prefix + focus + suffix == normalize_token(token)`` always holds — the
+    pieces rebuild the **NFC** form, which is also the form the renderers draw.
     """
 
     prefix: str
@@ -150,14 +182,19 @@ def focus_slices(token: str, f: int) -> FocusSlices:
     keeps an **unpaired surrogate** whole (one unit, never split or dropped)
     instead of cutting an astral glyph in half.
 
+    The token is NFC-composed first (:func:`normalize_token`), so the pieces
+    rebuild the composed form and the focus piece is never a bare combining mark
+    that has a precomposed form.
+
     ``f`` is clamped by :func:`_clamp_focus_index`. An empty token has nothing to
     split and yields three empty strings.
     """
-    if not token:
+    composed = normalize_token(token)
+    if not composed:
         return FocusSlices("", "", "")
 
-    i = _clamp_focus_index(len(token), f)
-    return FocusSlices(token[:i], token[i], token[i + 1 :])
+    i = _clamp_focus_index(len(composed), f)
+    return FocusSlices(composed[:i], composed[i], composed[i + 1 :])
 
 
 def focus_offset(
@@ -172,8 +209,9 @@ def focus_offset(
 
     ``word_x`` is the token's left edge on the unwrapped line, so the return
     value is "how far from the line's origin this word's focus glyph sits". The
-    prefix/focus split comes from :func:`focus_slices`, so ``f`` indexes **code
-    points** and an astral glyph is measured whole; the JS twins reproduce that
+    prefix/focus split comes from :func:`focus_slices`, so the pieces handed to
+    ``measure`` are **NFC-composed**, ``f`` indexes **code points** and an astral
+    glyph is measured whole; the JS twins reproduce that
     with ``Array.from``. ``f`` out of range is clamped into
     ``[0, len(token) - 1]``; an empty token has no glyph to centre on and returns
     ``word_x`` unchanged **without calling** ``measure``, so the answer cannot
@@ -190,6 +228,44 @@ def focus_offset(
 
     pieces = focus_slices(token, f)
     return word_x + measure(pieces.prefix) + measure(pieces.focus) / 2
+
+
+def last_started_index(
+    t: float,
+    words: Sequence[Mapping[str, Any]],
+    count: int | None = None,
+) -> int:
+    """Index of the **last** word whose ``start`` is at or before ``t``.
+
+    The RSVP active-word rule, and deliberately **not** the ``start <= t < end``
+    test the decoration modes use: silence between two words (and the tail after
+    the last word's ``end``) has no ``start <= t < end`` answer, so that test
+    would snap the line back instead of holding it. Extracted from
+    :func:`line_offset_at` so the line's anchor and a renderer's *colouring*
+    anchor cannot drift apart — Pillow tints the last-started word as the active
+    word for exactly this reason (``rsvp_layout.py``).
+
+    Returns 0 for an empty ``words``, before the first word starts, and for a
+    ``NaN`` ``t`` (which no comparison matches).
+
+    Args:
+        t: Time in seconds, on the same clock as each word's ``start``.
+        words: The group's words in line order; only ``"start"`` is read.
+        count: Optional upper bound on how many words to consider (used by
+            :func:`line_offset_at`, which ignores words without a focus offset).
+
+    Note for the twins (``src/renderer/src/lib/rsvp.ts``,
+    ``RSVP_RUNTIME_JS``): both still inline this loop inside their
+    ``lineOffsetAt``. Behaviour is identical — the fixture cases pin it — but
+    Phase 4 needs the same colouring anchor, so extract it there too rather than
+    hand-rolling a second copy of the rule.
+    """
+    limit = len(words) if count is None else min(count, len(words))
+    active = 0
+    for i in range(limit):
+        if words[i]["start"] <= t:
+            active = i
+    return active
 
 
 def line_offset_at(
@@ -243,10 +319,7 @@ def line_offset_at(
 
     # Last word whose start has passed; 0 before the first word starts (and for a
     # NaN ``t``, which no comparison matches).
-    active = 0
-    for i in range(count):
-        if words[i]["start"] <= t:
-            active = i
+    active = last_started_index(t, words, count)
     if active == 0:
         return target(0)
 
@@ -266,8 +339,10 @@ __all__ = [
     "OrpBreakpoint",
     "RSVP_ORP_TABLE",
     "FocusSlices",
+    "normalize_token",
     "orp_index",
     "focus_slices",
     "focus_offset",
+    "last_started_index",
     "line_offset_at",
 ]

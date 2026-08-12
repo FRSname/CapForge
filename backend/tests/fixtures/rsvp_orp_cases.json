@@ -86,5 +86,36 @@
     "token": "\ud83c",
     "index": 0,
     "note": "MALFORMED: a bare unpaired surrogate is a length-1 token, never merged with a neighbour that is not there"
+  },
+
+  {
+    "token": "e\u0301",
+    "index": 0,
+    "note": "NFD 'e' + COMBINING ACUTE: normalised to NFC first, so it is ONE code point -> 0. Without the NFC pin it is 2 -> row 2-5 -> index 1, i.e. the focus glyph would be the bare combining mark"
+  },
+  {
+    "token": "n\u0303o",
+    "index": 1,
+    "note": "NFD 'no' with a tilde: NFC is 2 code points -> 1. The index happens to match the un-normalised one; rsvp_focus_slices_cases pins the part that does not (the mark vs 'o')"
+  },
+  {
+    "token": "nai\u0308ve",
+    "index": 1,
+    "note": "NFD 'naive' with a diaeresis: NFC is 5 code points -> row 2-5 -> 1. Without the NFC pin it is 6 -> row 6-9 -> 2, so it also crosses a breakpoint"
+  },
+  {
+    "token": "cafe\u0301",
+    "index": 1,
+    "note": "NFD 'cafe' with an acute: NFC is 4 -> 1, same as the composed spelling — the two forms must never disagree"
+  },
+  {
+    "token": "caf\u00e9",
+    "index": 1,
+    "note": "The SAME token already in NFC: identical answer to the NFD spelling above, which is the whole point of normalising"
+  },
+  {
+    "token": "a\u0348",
+    "index": 1,
+    "note": "RESIDUAL, accepted delta: U+0348 has NO precomposed form, so NFC leaves 2 code points and the focus glyph IS the combining mark. Documented, not solved — Unicode has nothing to compose it to"
   }
 ]

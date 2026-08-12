@@ -46,6 +46,37 @@ export const SWEEP_MAX_LENGTH = 24
 export const ASTRAL_CHAR = '🎬'
 
 /**
+ * Decomposed (NFD) tokens: a letter followed by a COMBINING mark that Unicode
+ * *does* have a precomposed form for. Written as `\uXXXX` escapes on purpose — a
+ * literal `'\u00e9'` in a source file can be silently re-normalised by an editor
+ * or a formatter, which would gut every NFC assertion that reads this.
+ *
+ * Shared by both TS suites (and mirrored by `NFD_TOKENS` in
+ * `backend/tests/test_rsvp_core.py`) so the three languages test the same strings.
+ */
+export const NFD_TOKENS = [
+  'e\u0301', // -> '\u00e9': one code point, so the ORP index moves too
+  'cafe\u0301', // -> 'caf\u00e9'
+  'nai\u0308ve', // -> 'na\u00efve': also crosses the 5/6 ORP breakpoint
+  'n\u0303o', // -> '\u00f1o': same index, different focus glyph
+] as const
+
+/**
+ * A combining mark with NO precomposed form (U+0348 COMBINING DOUBLE VERTICAL
+ * LINE BELOW): the **residual accepted delta**. NFC leaves it decomposed, so it
+ * can still be selected as the focus glyph.
+ */
+export const NO_COMPOSITION = 'a\u0348'
+
+/**
+ * Is this piece a **bare combining mark** (Unicode `Mn`)? The failure mode the NFC
+ * pin removes: a focus glyph that is only a mark gets drawn on its own at an
+ * advanced pen, which Pillow renders as a bare mark and a browser renders on a
+ * dotted circle (U+25CC). The Python twin asks `unicodedata.combining(ch)`.
+ */
+export const isCombiningMark = (piece: string): boolean => /^\p{Mn}$/u.test(piece)
+
+/**
  * Width of every character in the uniform `measure` stub, so an expected offset
  * is arithmetic rather than font data. The fixture-driven cases use the fixture's
  * own per-character table instead (see {@link loadFocusFixture}).

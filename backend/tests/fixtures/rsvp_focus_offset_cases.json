@@ -31,7 +31,14 @@
     "𝔫": 26,
     "𝔦": 12,
     "\ud83c": 7,
-    "\udfac": 5
+    "\udfac": 5,
+    "\u00e9": 11,
+    "\u00f1": 13,
+    "\u00ef": 9,
+    "\u0301": 3,
+    "\u0303": 4,
+    "\u0308": 5,
+    "\u0348": 6
   },
   "cases": [
     {
@@ -105,6 +112,30 @@
       "token": "🎬",
       "f": 5,
       "expected": 15
+    },
+    {
+      "name": "NFD single letter is measured composed",
+      "why": "'e' + U+0301 normalises to one code point, so f 0 centres the composed '\u00e9' (11): 11/2 = 5.5. Without the NFC pin f is 1, the prefix is 'e' (10) and the focus is the bare acute (3) -> 11.5",
+      "wordX": 0,
+      "token": "e\u0301",
+      "f": null,
+      "expected": 5.5
+    },
+    {
+      "name": "NFD mark inside the token shifts the measured prefix",
+      "why": "'n' + U+0303 + 'o' composes to 2 code points, so f 1 measures the prefix '\u00f1' (13) and centres 'o' (10): 18. Un-normalised, the prefix is 'n' (10) and the focus is the tilde (4) -> 12",
+      "wordX": 0,
+      "token": "n\u0303o",
+      "f": null,
+      "expected": 18
+    },
+    {
+      "name": "RESIDUAL: mark with no precomposed form is measured as its own glyph",
+      "why": "ACCEPTED DELTA: U+0348 cannot compose, so f 1 measures the prefix 'a' (10) and centres the mark (6) -> 13, with or without normalisation. Pinned so the residual is a known number rather than a surprise",
+      "wordX": 0,
+      "token": "a\u0348",
+      "f": null,
+      "expected": 13
     },
     {
       "name": "unpaired surrogate is measured whole, as one unit",

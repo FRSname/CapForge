@@ -23,8 +23,9 @@ evaluate it in bare node and run it against the shared fixtures. The splice into
 the emitted runtime happens in ``hyperframes_caption_html.py``
 (``CAPTION_RUNTIME_JS``) and is pinned by ``backend/tests/test_hyperframes_project.py``.
 
-ES5 ``var``/``function`` style matches the rest of the runtime; the two ES6
+ES5 ``var``/``function`` style matches the rest of the runtime; the three ES6
 *builtins* it leans on (``Array.from`` for code-point iteration,
+``String#normalize`` for the NFC pin and
 ``Number.isFinite``) exist in both hosts that ever evaluate this block — headless
 Chromium and node — and are what keep it behaviourally identical to the TS twin.
 
@@ -56,7 +57,13 @@ var __capRsvp = {
   // surrogate -> wrong pivot AND tofu from measureText/fillText. Array.from
   // iterates code points, so an UNPAIRED surrogate counts as exactly one unit and
   // is sliced whole — same as Python, where it is also one str element.
-  codePoints: function(token){ return Array.from(token || ''); },
+  // NFC first, and ONLY here (every rule below reaches its code points through
+  // this function): a decomposed 'é' (e + U+0301) is two code points, so the focus
+  // glyph would be the bare combining mark — drawn on a dotted circle (U+25CC) by
+  // a browser but as a bare mark by Pillow. Python: unicodedata.normalize('NFC').
+  // Residual accepted delta: a mark with no precomposed form (a + U+0348) has
+  // nothing to compose to and can still be the focus glyph.
+  codePoints: function(token){ return Array.from((token || '').normalize('NFC')); },
   // Length counts the WHOLE whitespace token, punctuation included ('saccades,'
   // is 9 -> 2). Result is always a valid index into the token.
   orpIndex: function(token){
@@ -82,7 +89,8 @@ var __capRsvp = {
   },
   // The active word split for drawing: everything before the focus glyph, the
   // focus glyph, everything after. Sliced by CODE POINT, so an astral glyph is
-  // never cut in half and prefix + focus + suffix always rebuilds the token.
+  // never cut in half and prefix + focus + suffix always rebuilds the token's NFC
+  // form (which is what every renderer draws).
   // The single source of that split for all three renderers (Pillow draws three
   // pieces, Canvas draws three pieces, the HTML layer emits three spans).
   focusSlices: function(token, f){

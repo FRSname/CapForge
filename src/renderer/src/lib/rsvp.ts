@@ -102,13 +102,25 @@ export const RSVP_ORP_TABLE: readonly OrpBreakpoint[] = Object.freeze([
  * than differing per renderer). Pinned by the lone-surrogate fixture cases in
  * `backend/tests/fixtures/rsvp_orp_cases.json`.
  *
+ * The token is **NFC-normalised first**, and this is the one place that happens —
+ * every rule below reaches its code points through here, so an index can never be
+ * computed on one normalisation form and applied to the other. A decomposed `"é"`
+ * (`e` + U+0301) is two code points, which makes the *combining mark* the focus
+ * glyph: drawn on its own at an advanced pen with no base character, Canvas and
+ * the HTML layer put it on a dotted circle (U+25CC) while Pillow draws a bare
+ * U+0301 — a parity divergence that cannot be fixed downstream. Python's twin
+ * normalises identically (`unicodedata.normalize('NFC', s)`). **Residual accepted
+ * delta:** a combining mark with no precomposed form (e.g. `a` + U+0348) has
+ * nothing to compose to and can still be selected as the focus glyph; the shared
+ * fixtures pin that case.
+ *
  * Exported (the embedded twin exposes `__capRsvp.codePoints` publicly, so the two
  * stay symmetric) because every renderer that draws or measures a sliced token
  * needs this unit — hand-rolling `Array.from` at each call site is how a fourth
  * copy of the rule appears.
  */
 export function codePoints(token: string): string[] {
-  return Array.from(token)
+  return Array.from(token.normalize('NFC'))
 }
 
 /**
@@ -130,7 +142,8 @@ function clampFocusIndex(len: number, f: number): number {
 }
 
 /** The active word split for drawing: before / at / after the focus glyph.
- *  `prefix + focus + suffix === token` always holds. */
+ *  `prefix + focus + suffix === token.normalize('NFC')` always holds — the pieces
+ *  rebuild the NFC form, which is also the form every renderer draws. */
 export interface FocusSlices {
   readonly prefix: string
   readonly focus: string
@@ -144,8 +157,8 @@ export interface FocusSlices {
  * active word as three pieces, the Canvas preview draws three pieces and the HTML
  * layer emits three spans, so hand-rolling the code-point rule a fourth time is
  * how the renderers would drift. Slicing goes through {@link codePoints}, which
- * also keeps an **unpaired surrogate** whole (one unit, never split or dropped)
- * instead of cutting an astral glyph in half.
+ * NFC-composes the token and also keeps an **unpaired surrogate** whole (one unit,
+ * never split or dropped) instead of cutting an astral glyph in half.
  *
  * `f` is clamped by `clampFocusIndex`. An empty token has nothing to split and
  * yields three empty strings.

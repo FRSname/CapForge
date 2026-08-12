@@ -120,6 +120,37 @@ WRAP_WORDS = ["Subtitle", "golden", "frames", "keep", "the",
 # which share GROUP_WORDS, stay byte-identical.
 WORD_BG_WORDS = GROUP_WORDS + ["boxed"]
 
+# --- RSVP (reading_mode="rsvp") -------------------------------------------
+# All seven RSVP fields explicit, for the same reason every other drawing field
+# is: a schema default change must never silently shift a golden. Shared by both
+# RSVP scenarios so the ONLY difference between the two goldens is ``t``.
+# rsvp_edge_fade and rsvp_reticle are deliberately non-default-off so the fade
+# ramp and the reticle are both pinned by pixels (backend/tests/test_rsvp_layout.py
+# proves each one moves pixels on its own).
+RSVP_CONFIG: dict = {
+    # An opaque background box, unlike most scenarios: the box is what makes the
+    # caption BAND visible, and in RSVP mode the box is deliberately sized to the
+    # band (``max_row_w = min(max_row_w, max_w_px)``) instead of to the unwrapped
+    # row, which nothing else pins. It also makes the edge fade — an alpha ramp,
+    # invisible on a transparent frame — reviewable by eye.
+    "bg_opacity": 0.85,
+    "bg_color": "#2E5FCC",
+    "reading_mode": "rsvp",
+    "rsvp_pivot_x": 0.35,
+    "rsvp_focus_color": "#E4851F",
+    "rsvp_context_opacity": 0.75,
+    "rsvp_slide_duration": 0.06,
+    "rsvp_edge_fade": 0.12,
+    "rsvp_reticle": True,
+}
+
+# One word per row of the Spritz ORP table — lengths 1, 3, 5, 10, 15 → focus
+# indices 0, 1, 1, 3, 4 — so a reviewer can see the focus glyph walk the whole
+# table across the two frames. Deliberately far wider than the caption band: the
+# RSVP row is unwrapped by design, so its ends must dissolve into the edge fade
+# rather than be clipped or wrapped.
+RSVP_WORDS = ["a", "the", "rapid", "eliminates", "extraordinarily"]
+
 # name -> (config_overrides, group_words, t)
 SCENARIOS: dict[str, tuple[dict, list[str], float]] = {
     # Steady state, mid-display, no entry/exit animation in flight.
@@ -179,6 +210,17 @@ SCENARIOS: dict[str, tuple[dict, list[str], float]] = {
         WORD_BG_WORDS,
         2.25,
     ),
+    # RSVP mid-hold. Words start at 1.0 s, 0.5 s apart, so word 4
+    # ("eliminates", 10 chars → focus index 3, the letter "m") is active at
+    # t=2.7 and its 60 ms slide finished at 2.56 — the line is parked, and the
+    # focus glyph's centre sits on the pivot column: band = 640*0.9 = 576 px
+    # spanning x 32→608, pivot = 32 + 0.35*576 = 233.6.
+    "rsvp_mid_word": (RSVP_CONFIG, RSVP_WORDS, 2.7),
+    # RSVP mid-slide: word 3 ("rapid") starts at 2.0, so t=2.03 is exactly
+    # halfway through the 60 ms slide → power1.out (1-(1-p)^2) puts the line 75 %
+    # of the way from word 2's target to word 3's. A hold-only golden would pass
+    # with the wrong ease; this one does not.
+    "rsvp_mid_slide": (RSVP_CONFIG, RSVP_WORDS, 2.03),
 }
 
 # Scenario name -> extra keys merged into the group dict (per-group overrides).

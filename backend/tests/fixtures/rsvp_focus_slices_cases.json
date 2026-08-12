@@ -148,6 +148,51 @@
       "suffix": "b"
     },
     {
+      "name": "NFD single letter composes to ONE code point",
+      "why": "'e' + U+0301 is NFC-normalised first, so f 0 focuses the composed 'e\u0301'. Without the NFC pin it is 2 code points -> f 1 -> the focus glyph is the BARE combining mark, which Pillow draws alone and a browser draws on a dotted circle (U+25CC)",
+      "token": "e\u0301",
+      "f": null,
+      "prefix": "",
+      "focus": "\u00e9",
+      "suffix": ""
+    },
+    {
+      "name": "NFD mark inside the token",
+      "why": "'n' + U+0303 + 'o' composes to 2 code points, so f 1 is the 'o'. Un-normalised it is 3 code points and f 1 is the tilde — the same index pointing at a different glyph, which is why rsvp_orp_cases alone cannot pin this",
+      "token": "n\u0303o",
+      "f": null,
+      "prefix": "\u00f1",
+      "focus": "o",
+      "suffix": ""
+    },
+    {
+      "name": "NFD token that also crosses an ORP breakpoint",
+      "why": "NFD 'naive' with a diaeresis composes to 5 code points -> f 1 -> 'a'; un-normalised it is 6 -> f 2 -> the bare diaeresis, and the suffix keeps the mark instead of the composed letter",
+      "token": "nai\u0308ve",
+      "f": null,
+      "prefix": "n",
+      "focus": "a",
+      "suffix": "\u00efve"
+    },
+    {
+      "name": "NFD mark in the SUFFIX composes too",
+      "why": "the pieces rebuild the NFC form, not the input: 'cafe' + U+0301 has the same f as the composed spelling, and the suffix is 'f\u00e9' — one code point per glyph, so no renderer is handed a lone mark",
+      "token": "cafe\u0301",
+      "f": null,
+      "prefix": "c",
+      "focus": "a",
+      "suffix": "f\u00e9"
+    },
+    {
+      "name": "RESIDUAL: a combining mark with no precomposed form",
+      "why": "ACCEPTED DELTA, documented rather than solved: U+0348 has no composition, so NFC leaves 2 code points and f 1 focuses the mark itself. All three renderers agree on the split; what they draw for a lone mark still differs (bare mark vs U+25CC). Unicode gives NFC nothing to compose here",
+      "token": "a\u0348",
+      "f": null,
+      "prefix": "a",
+      "focus": "\u0348",
+      "suffix": ""
+    },
+    {
       "name": "unpaired surrogate beside a real pair",
       "why": "MALFORMED: '\\ud83c' + '🎬' is 2 code points, so f 1 is the whole emoji. A code-unit impl focuses the emoji's HIGH surrogate and leaves the LOW one as the suffix",
       "token": "\ud83c🎬",

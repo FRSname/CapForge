@@ -17,12 +17,19 @@ import os
 import shutil
 import subprocess
 from collections import OrderedDict
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Callable, Optional
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from backend.engine.system_fonts import find_system_font_face
+from backend.exporters import rsvp_layout
+from backend.exporters.caption_draw import (
+    _draw_single_word,
+    _hex_to_rgba,
+    _measure_tracked,
+)
 from backend.models.schemas import (
     JobStatus,
     ProgressUpdate,
@@ -82,13 +89,6 @@ def _probe_duration(ffmpeg_path: str, media_path: str) -> Optional[float]:
     except Exception:
         pass
     return None
-
-
-def _hex_to_rgba(hex_color: str, opacity: float = 1.0) -> tuple[int, int, int, int]:
-    """Convert '#RRGGBB' to (R, G, B, A)."""
-    h = hex_color.lstrip("#")
-    r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
-    return (r, g, b, int(opacity * 255))
 
 
 def _find_font_candidates(family: str, bold: bool) -> list[str]:
@@ -483,37 +483,6 @@ def _ease_out(t: float) -> float:
     return 1.0 - (1.0 - t) ** 2
 
 
-def _draw_single_word(
-    draw: ImageDraw.ImageDraw,
-    text: str,
-    x: float,
-    y: float,
-    font: ImageFont.FreeTypeFont,
-    color: tuple,
-    tracking: float,
-    outline_sw: int,
-    stroke_rgba: tuple | None,
-) -> None:
-    """Draw one word (full string when tracking=0, char-by-char otherwise)."""
-    if tracking == 0:
-        if outline_sw > 0:
-            draw.text((x, y), text, font=font, fill=color,
-                      stroke_width=outline_sw, stroke_fill=stroke_rgba)
-        else:
-            draw.text((x, y), text, font=font, fill=color)
-    else:
-        cx = x
-        for ci, ch in enumerate(text):
-            if outline_sw > 0:
-                draw.text((cx, y), ch, font=font, fill=color,
-                          stroke_width=outline_sw, stroke_fill=stroke_rgba)
-            else:
-                draw.text((cx, y), ch, font=font, fill=color)
-            cx += font.getlength(ch)
-            if ci < len(text) - 1:
-                cx += tracking
-
-
 def _draw_word_list(
     draw: ImageDraw.ImageDraw,
     word_metrics: list[dict],
@@ -530,8 +499,15 @@ def _draw_word_list(
     anim_alpha: float,
     img: Image.Image,
     pill_draw: ImageDraw.ImageDraw | None = None,
+    guide_draw: ImageDraw.ImageDraw | None = None,
 ) -> None:
-    """Draw all words at the given centre position with the chosen word animation."""
+    """Draw all words at the given centre position with the chosen word animation.
+
+    ``pill_draw`` is the layer behind the text (highlight pill, per-word boxes) and
+    in RSVP mode it is edge-fade **masked**. ``guide_draw`` is the unmasked layer
+    above it, used only by RSVP's pivot reticle — a fixed guide that must not fade
+    (``rsvp_layout`` → "The edge fade vs the pivot").
+    """
     text_h = bbox[3] - bbox[1]
     total_w = sum(wm["width"] for wm in word_metrics)
     total_w += effective_space_w * max(0, len(word_metrics) - 1)
@@ -586,9 +562,22 @@ def _draw_word_list(
         w_bbox = draw.textbbox((0, 0), "Ayg", font=w_font)
         return w_font, w_bbox, w_bbox[3] - w_bbox[1]
 
-    def _draw_word_bg_boxes() -> None:
+    def _draw_word_bg_boxes(
+        positions: "Sequence[float]",
+        alpha_scale: "Sequence[float] | None" = None,
+    ) -> None:
         """Draw the per-word background boxes: the group background box scoped
         to a single word's extents.
+
+        ``positions`` is each word's left edge — ``word_x_positions`` on the wrap
+        path, the RSVP line's translated positions in ``reading_mode='rsvp'`` —
+        so both layouts share one box implementation.
+
+        ``alpha_scale`` is an optional per-word multiplier on the box's alpha, and
+        exists for exactly one caller: RSVP dims a *context* word's box by
+        ``rsvp_context_opacity``, the same factor as that word's fill and stroke,
+        so a dimmed word does not keep a full-strength box. ``None`` (the wrap
+        path) means "no scaling".
 
         Painted on the SAME pill layer and BEFORE the highlight pill, giving
         the stacking order ``group bg → word box → highlight pill → words``;
@@ -643,26 +632,60 @@ def _draw_word_list(
                 continue
 
             # Centred on the word as drawn (row-local via center_y), then nudged.
-            cx = word_x_positions[i] + float(ov.get("pos_offset_x", 0)) + wm["width"] / 2 + off_x
+            cx = positions[i] + float(ov.get("pos_offset_x", 0)) + wm["width"] / 2 + off_x
             cy = center_y + float(ov.get("pos_offset_y", 0)) + off_y
 
+            scale = 1.0 if alpha_scale is None else float(alpha_scale[i])
             _draw_rounded_rect(
                 box_draw,
                 (cx - box_w / 2, cy - box_h / 2, cx + box_w / 2, cy + box_h / 2),
                 radius,
-                _hex_to_rgba(color, opacity * anim_alpha),
+                _hex_to_rgba(color, opacity * anim_alpha * scale),
             )
 
-    _draw_word_bg_boxes()
-
-    # Draw sliding highlight BEFORE words so it sits behind the text.
-    # Highlight is per-active-word, so per-word overrides for the active word's
-    # effective transition + sub-settings apply here.
+    # The one active-word test (``start <= t < end``), computed once here and
+    # reused by the highlight pill and the word loop. RSVP does NOT use it: it
+    # colours the word its *line* is parked on (``last_started_index``), which is
+    # the same rule that positions the line — see rsvp_layout's module docstring.
     active_idx = next((i for i, wm in enumerate(word_metrics)
                        if wm["start"] <= current_time < wm["end"]), -1)
     active_ov  = (word_metrics[active_idx].get("overrides") or {}) if active_idx >= 0 else {}
     effective_transition = active_ov.get("word_transition") or word_transition
 
+    # ------------------------------------------------------------------ #
+    # RSVP — replaces layout itself, so it branches BEFORE the wrap path's
+    # x-accumulation results are used. `lines`/`alignment`/`word_transition`
+    # are ignored by design (docs/plans/rsvp-speed-reading-mode.md); group
+    # entry/exit `animation` still applies, via anim_alpha/center_y.
+    # ------------------------------------------------------------------ #
+    if getattr(config, "reading_mode", "wrap") == "rsvp":
+        rsvp_layout.draw_line(
+            draw,
+            word_metrics=word_metrics,
+            config=config,
+            current_time=current_time,
+            tracking=tracking,
+            space_w=effective_space_w,
+            bbox=bbox,
+            center_x=center_x,
+            center_y=center_y,
+            outline_sw=outline_sw,
+            stroke_rgba=stroke_rgba,
+            anim_alpha=anim_alpha,
+            resolve_font=_resolve_scaled_font,
+            draw_bg_boxes=_draw_word_bg_boxes,
+            # The reticle is a fixed guide, so it goes to the caller's UNMASKED
+            # target, never the (edge-fade-masked) pill layer the per-word boxes
+            # share. See rsvp_layout → "The edge fade vs the pivot".
+            reticle_draw=guide_draw,
+        )
+        return
+
+    _draw_word_bg_boxes(word_x_positions)
+
+    # Draw sliding highlight BEFORE words so it sits behind the text.
+    # Highlight is per-active-word, so per-word overrides for the active word's
+    # effective transition + sub-settings apply here.
     if effective_transition == "highlight" and active_idx >= 0:
         w_hl_pad_x  = float(active_ov.get("highlight_padding_x", highlight_padding_x))
         w_hl_pad_y  = float(active_ov.get("highlight_padding_y", highlight_padding_y))
@@ -819,10 +842,7 @@ def _draw_word_list(
             sc_font = _font_cache[sc_key]
             sc_bbox = draw.textbbox((0, 0), "Ayg", font=sc_font)
             sc_text_h = sc_bbox[3] - sc_bbox[1]
-            if tracking == 0:
-                sc_word_w = sc_font.getlength(wm["word"])
-            else:
-                sc_word_w = sum(sc_font.getlength(ch) for ch in wm["word"]) + tracking * max(0, len(wm["word"]) - 1)
+            sc_word_w = _measure_tracked(wm["word"], sc_font, tracking)
 
             # Centre the scaled word on the same position as the unscaled word
             word_cx = word_x + wm["width"] / 2
@@ -946,27 +966,13 @@ def _render_frame(
     extra_word_spacing = config.word_spacing
 
     def _measure_word(text: str) -> float:
-        if tracking == 0:
-            return font.getlength(text)
-        w = 0.0
-        for ci, ch in enumerate(text):
-            w += font.getlength(ch)
-            if ci < len(text) - 1:
-                w += tracking
-        return w
+        return _measure_tracked(text, font, tracking)
 
     words = group["words"]
     effective_space_w = font.getlength(" ") + extra_word_spacing
 
     def _measure_with_font(text: str, f: ImageFont.FreeTypeFont) -> float:
-        if tracking == 0:
-            return f.getlength(text)
-        ww = 0.0
-        for ci, ch in enumerate(text):
-            ww += f.getlength(ch)
-            if ci < len(text) - 1:
-                ww += tracking
-        return ww
+        return _measure_tracked(text, f, tracking)
 
     all_metrics: list[dict] = []
     for w in words:
@@ -1005,8 +1011,17 @@ def _render_frame(
     # Split into rows
     max_width_frac = getattr(config, "max_width", 0.9)
     max_w_px = config.resolution_w * max_width_frac
+    is_rsvp = getattr(config, "reading_mode", "wrap") == "rsvp"
     rows: list[list[dict]] = []
-    if num_lines <= 1:
+    if is_rsvp:
+        # RSVP is a LAYOUT mode: one unwrapped row, however wide, so `lines` is
+        # ignored and the pivot column — not `text_align_h` — decides where a word
+        # sits *within* the row. `text_align_h` is NOT inert: it still feeds
+        # `align_shift_x` below, which moves `row_cx` and therefore the whole band
+        # (box, pivot, reticle, fade) whenever `bg_width_extra` opens up slack.
+        # See backend/exporters/rsvp_layout.py, which owns the band + pivot.
+        rows = [all_metrics]
+    elif num_lines <= 1:
         # Greedy word-wrap: if total width exceeds max_width, break into rows
         total_w = sum(m["width"] for m in all_metrics) + effective_space_w * max(0, len(all_metrics) - 1)
         if total_w > max_w_px and len(all_metrics) > 1:
@@ -1039,8 +1054,6 @@ def _render_frame(
     max_row_w = max(row_widths)
 
     total_text_h = len(rows) * text_h + (len(rows) - 1) * row_gap
-    bg_w = max_row_w + config.bg_padding_h * 2 + stroke_pad * 2 + bg_width_extra
-    bg_h = total_text_h + config.bg_padding_v * 2 + stroke_pad * 2 + bg_height_extra
 
     center_x = config.resolution_w * position_x
     center_y = config.resolution_h * position_y + slide_offset
@@ -1052,8 +1065,44 @@ def _render_frame(
     align_shift_y = (-bg_height_extra / 2) if text_align_v == "top"    else \
                     ( bg_height_extra / 2) if text_align_v == "bottom" else 0
 
+    def _rsvp_band(cx: float) -> "rsvp_layout.CaptionBand":
+        """The caption band of the row centred on ``cx``.
+
+        ``cx + align_shift_x + text_offset_x`` is exactly the ``center_x`` that
+        ``_draw_all_rows`` hands ``_draw_word_list`` — i.e. the value
+        ``rsvp_layout.draw_line`` builds its own band, pivot and reticle from. The
+        group background box (below) and the edge-fade mask both go through this
+        one helper, so box, band, pivot, reticle and fade cannot drift onto
+        different columns.
+        """
+        return rsvp_layout.caption_band(config, cx + align_shift_x + text_offset_x)
+
+    # Background-box geometry. In RSVP the box frames the caption BAND — the
+    # window the line slides inside — unconditionally, never the row: the row is
+    # unwrapped and can be far wider than the frame, while a group NARROWER than
+    # the band would (with a mere `min()` clamp) get a text-sized box centred on
+    # `center_x` even though the text is placed by the *pivot* — a box the caption
+    # visibly slides out of. Deriving it from `_rsvp_band` also keeps the box
+    # centred on the band when `text_offset_x` / `align_shift_x` move the row.
+    if is_rsvp:
+        box_band = _rsvp_band(center_x)
+        max_row_w = box_band.width
+        bg_center_x = box_band.left + box_band.width / 2
+    else:
+        bg_center_x = center_x
+
+    bg_w = max_row_w + config.bg_padding_h * 2 + stroke_pad * 2 + bg_width_extra
+    bg_h = total_text_h + config.bg_padding_v * 2 + stroke_pad * 2 + bg_height_extra
+    # `bg_*_extra` is documented as "can be negative to shrink" and is unbounded
+    # below, while `bg_padding_*`/`max_width` are only `ge=0` — so a big negative
+    # extra can invert the box, and `_draw_rounded_rect` raises ValueError on an
+    # inverted rect, killing the whole render job. Same guard, same reason as the
+    # per-word boxes (see `_draw_word_bg_boxes`).
+    bg_visible = config.bg_opacity > 0 and bg_w > 0 and bg_h > 0
+
     def _draw_all_rows(tgt_draw: "ImageDraw.ImageDraw", tgt_img: "Image.Image", cx: float, cy: float,
-                       pill_draw: "ImageDraw.ImageDraw | None" = None) -> None:
+                       pill_draw: "ImageDraw.ImageDraw | None" = None,
+                       guide_draw: "ImageDraw.ImageDraw | None" = None) -> None:
         top_y = cy - total_text_h / 2 + text_h / 2 + align_shift_y + text_offset_y
         for ri, row in enumerate(rows):
             row_cx = cx + align_shift_x + text_offset_x
@@ -1062,7 +1111,13 @@ def _render_frame(
                             tracking, effective_space_w, bbox,
                             row_cx, row_cy,
                             outline_sw, word_transition, anim_alpha, tgt_img,
-                            pill_draw=pill_draw)
+                            pill_draw=pill_draw, guide_draw=guide_draw)
+
+    # RSVP edge fade — an alpha ramp over the leftmost/rightmost
+    # `rsvp_edge_fade` of the caption band, applied to the caption layers only
+    # (never the background box, which frames the band, and never the reticle,
+    # which is a fixed guide).
+    rsvp_fade = float(getattr(config, "rsvp_edge_fade", 0.0)) if is_rsvp else 0.0
 
     # ---------------------------------------------------------------------------
     # Pop: render at reduced scale into a temp surface, paste centred
@@ -1073,12 +1128,26 @@ def _render_frame(
         tmp_draw = ImageDraw.Draw(tmp)
 
         bg_rgba = _hex_to_rgba(config.bg_color, config.bg_opacity * anim_alpha)
-        if config.bg_opacity > 0:
+        if bg_visible:
             _draw_rounded_rect(tmp_draw,
-                               (center_x - bg_w / 2, center_y - bg_h / 2,
-                                center_x + bg_w / 2, center_y + bg_h / 2),
+                               (bg_center_x - bg_w / 2, center_y - bg_h / 2,
+                                bg_center_x + bg_w / 2, center_y + bg_h / 2),
                                config.bg_corner_radius, bg_rgba)
-        _draw_all_rows(tmp_draw, tmp, center_x, center_y)
+        if rsvp_fade > 0:
+            # Pop has no separate pill/text layers, so the RSVP line goes to its
+            # own scratch layer, gets masked, and is composited over the box —
+            # the box itself must not fade. The reticle goes straight to `tmp`
+            # (`guide_draw`), which is not masked, so the guide stays crisp even
+            # when the pivot sits inside the fade ramp; that also puts it behind
+            # the whole masked layer rather than only behind the words, the one
+            # stacking nuance of this branch.
+            pop_text = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
+            _draw_all_rows(ImageDraw.Draw(pop_text), pop_text, center_x, center_y,
+                           guide_draw=tmp_draw)
+            rsvp_layout.apply_edge_fade(pop_text, _rsvp_band(center_x), rsvp_fade)
+            tmp.alpha_composite(pop_text)
+        else:
+            _draw_all_rows(tmp_draw, tmp, center_x, center_y)
 
         # Affine transform centred on (center_x, center_y), matching Canvas
         # ctx.translate(cx,cy) → ctx.scale(s,s) → ctx.translate(-cx,-cy).
@@ -1105,24 +1174,47 @@ def _render_frame(
     # Normal draw (none / fade / slide, or pop exit phase)
     # ---------------------------------------------------------------------------
     bg_rgba = _hex_to_rgba(config.bg_color, config.bg_opacity * anim_alpha)
-    if config.bg_opacity > 0:
+    if bg_visible:
         _draw_rounded_rect(draw,
-                           (center_x - bg_w / 2, center_y - bg_h / 2,
-                            center_x + bg_w / 2, center_y + bg_h / 2),
+                           (bg_center_x - bg_w / 2, center_y - bg_h / 2,
+                            bg_center_x + bg_w / 2, center_y + bg_h / 2),
                            config.bg_corner_radius, bg_rgba)
 
     # Render the highlight pill and the text into separate layers so the
-    # composite order can be: bg → pill → text-shadow → text. That way the
+    # composite order can be: bg → pill → guide → text-shadow → text. That way the
     # text's drop shadow falls *on top of* the pill (matching the canvas
     # preview, which only attaches `ctx.shadowBlur` to per-word draw calls).
+    # `guide_layer` carries RSVP's pivot reticle alone: same place in the stack as
+    # the pill layer (behind the text, above the per-word boxes) but NOT masked by
+    # the edge fade. Only allocated in RSVP mode — a third full-frame RGBA layer
+    # per frame is not free at 1080x1920, and nothing else draws a guide.
     pill_layer = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
     pill_draw  = ImageDraw.Draw(pill_layer)
+    guide_layer = (Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
+                   if is_rsvp else None)
+    guide_draw  = ImageDraw.Draw(guide_layer) if guide_layer is not None else None
     text_layer = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
     text_draw  = ImageDraw.Draw(text_layer)
-    _draw_all_rows(text_draw, text_layer, center_x, center_y, pill_draw=pill_draw)
+    _draw_all_rows(text_draw, text_layer, center_x, center_y,
+                   pill_draw=pill_draw, guide_draw=guide_draw)
 
-    # Pill goes down first (no shadow — matches preview behavior).
+    if rsvp_fade > 0:
+        # Mask BOTH caption layers — the words and, on the pill layer, the
+        # per-word background boxes — so a box never floats on past the band edge
+        # without its word. NOT masked: the group background box (drawn straight
+        # onto `img` above, and it frames the band rather than sliding inside it)
+        # and `guide_layer`'s reticle (a fixed guide; a pivot inside the ramp must
+        # not dim it). Applied BEFORE the shadow is built off the text layer's
+        # alpha, so a dissolving word's shadow dissolves too.
+        fade_band = _rsvp_band(center_x)
+        rsvp_layout.apply_edge_fade(text_layer, fade_band, rsvp_fade)
+        rsvp_layout.apply_edge_fade(pill_layer, fade_band, rsvp_fade)
+
+    # Pill goes down first (no shadow — matches preview behavior), then the
+    # unmasked guide layer (RSVP's reticle), still behind the text and its shadow.
     img.alpha_composite(pill_layer)
+    if guide_layer is not None:
+        img.alpha_composite(guide_layer)
 
     shadow_enabled = getattr(config, "shadow_enabled", False)
     if shadow_enabled:

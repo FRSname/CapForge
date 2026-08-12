@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import math
+import unicodedata
 from pathlib import Path
 
 import pytest
@@ -32,6 +33,7 @@ from backend.exporters.rsvp import (
     focus_offset,
     focus_slices,
     line_offset_at,
+    normalize_token,
     orp_index,
 )
 
@@ -63,6 +65,23 @@ SWEEP_MAX_LENGTH = 24
 
 #: A non-BMP (astral) character: one code point, two UTF-16 code units.
 ASTRAL_CHAR = "🎬"
+
+#: Decomposed (NFD) tokens: each is a letter followed by a COMBINING mark that
+#: Unicode *does* have a precomposed form for. Written as escapes on purpose — a
+#: literal "\u00e9" in this file could be silently re-normalised by an editor,
+#: which would gut every NFC assertion below.
+NFD_TOKENS = [
+    "e\u0301",      # -> "\u00e9"  (1 code point, so the ORP index moves too)
+    "cafe\u0301",   # -> "caf\u00e9"
+    "nai\u0308ve",  # -> "na\u00efve" (also crosses the 5/6 ORP breakpoint)
+    "n\u0303o",     # -> "\u00f1o"  (same index, different focus glyph)
+]
+NFD_TOKEN_IDS = ["e_acute", "cafe", "naive", "n_tilde"]
+
+#: A combining mark with NO precomposed form (COMBINING DOUBLE VERTICAL LINE
+#: BELOW): the residual accepted delta — NFC leaves it decomposed, so it can still
+#: be selected as the focus glyph.
+NO_COMPOSITION = "a\u0348"
 
 #: Minimum case counts. A fixture that shrinks below these is a fixture someone
 #: gutted, not a suite that got simpler. Mirrored by the ``MIN_*`` exports in
@@ -134,6 +153,74 @@ def test_orp_index_counts_code_points_not_utf16_units(length: int) -> None:
     assert orp_index(ASTRAL_CHAR * length) == orp_index("x" * length)
 
 
+def test_orp_fixture_covers_a_decomposed_token() -> None:
+    """The NFC contract is only pinned while an NFD case exists in the fixture.
+
+    Deleting them must fail here rather than quietly re-open the case where the
+    focus glyph is a bare combining mark (Pillow draws it alone, browsers draw it
+    on a dotted circle U+25CC).
+    """
+    assert any(case["token"] != unicodedata.normalize("NFC", case["token"])
+               for case in ORP_CASES)
+    # ...and the residual: a mark with NO precomposed form, so the sweep below
+    # keeps stating what NFC cannot fix rather than pretending it is solved.
+    assert any(
+        case["token"] == unicodedata.normalize("NFC", case["token"])
+        and any(unicodedata.combining(ch) for ch in case["token"])
+        for case in ORP_CASES
+    )
+
+
+def test_normalize_token_is_nfc_and_idempotent() -> None:
+    for token in [*NFD_TOKENS, "", "the", ASTRAL_CHAR, NO_COMPOSITION]:
+        once = normalize_token(token)
+        assert once == unicodedata.normalize("NFC", token)
+        assert normalize_token(once) == once
+
+
+@pytest.mark.parametrize("decomposed", NFD_TOKENS, ids=NFD_TOKEN_IDS)
+def test_nfd_and_nfc_spellings_are_indistinguishable(decomposed: str) -> None:
+    """The point of the pin: the two spellings of one word behave identically.
+
+    Every rule — the index, the split and the offset — must agree, or the same
+    word typed on a system that hands out NFD reads as a different word from the
+    one typed anywhere else.
+    """
+    composed = unicodedata.normalize("NFC", decomposed)
+    assert composed != decomposed, "case is not actually decomposed"
+
+    assert orp_index(decomposed) == orp_index(composed)
+    assert focus_slices(decomposed, orp_index(decomposed)) == \
+        focus_slices(composed, orp_index(composed))
+    assert focus_offset(0.0, decomposed, orp_index(decomposed), fixed_width) == \
+        focus_offset(0.0, composed, orp_index(composed), fixed_width)
+
+
+@pytest.mark.parametrize("token", NFD_TOKENS, ids=NFD_TOKEN_IDS)
+def test_focus_glyph_is_never_a_composable_bare_combining_mark(token: str) -> None:
+    """The failure mode itself: a focus piece that is *only* a combining mark.
+
+    A mark drawn on its own by ``draw.text()`` at an advanced pen has no base
+    character under it (Pillow draws a bare mark, a browser draws it on a dotted
+    circle U+25CC — an unfixable parity divergence). NFC removes every case where
+    Unicode has a precomposed form.
+    """
+    focus = focus_slices(token, orp_index(token)).focus
+    assert not unicodedata.combining(focus), f"{token!r} focuses a bare mark"
+
+
+def test_a_mark_with_no_precomposed_form_is_the_documented_residual() -> None:
+    """The accepted delta, pinned rather than assumed away.
+
+    U+0348 has no composition, so NFC cannot help and the focus glyph really is
+    the mark. Stated as a test so the residual is a known number, not a surprise —
+    and so a future change that *does* fix it has to say so here.
+    """
+    assert normalize_token(NO_COMPOSITION) == NO_COMPOSITION
+    focus = focus_slices(NO_COMPOSITION, orp_index(NO_COMPOSITION)).focus
+    assert unicodedata.combining(focus)
+
+
 def test_orp_index_never_returns_an_index_past_the_token() -> None:
     for case in ORP_CASES:
         token = case["token"]
@@ -165,11 +252,16 @@ def test_focus_slices_matches_fixture(case: dict) -> None:
 
 @pytest.mark.parametrize("case", SLICES_CASES, ids=lambda c: c["name"])
 def test_focus_slices_rebuilds_the_token(case: dict) -> None:
-    """Derived, not restated: the split may drop or duplicate nothing."""
+    """Derived, not restated: the split may drop or duplicate nothing.
+
+    The pieces rebuild the token's **NFC** form, which is the form the renderers
+    draw (``normalize_token``) — for an already-composed token that is the token
+    itself, which is every case here bar the NFD ones.
+    """
     token = case["token"]
     f = orp_index(token) if case["f"] is None else case["f"]
     prefix, focus, suffix = focus_slices(token, f)
-    assert prefix + focus + suffix == token
+    assert prefix + focus + suffix == normalize_token(token)
 
 
 def test_focus_slices_of_an_empty_token_is_three_empty_strings() -> None:

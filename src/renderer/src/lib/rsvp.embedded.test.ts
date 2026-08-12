@@ -28,8 +28,11 @@ import { RSVP_ORP_TABLE } from './rsvp'
 import {
   ASTRAL_CHAR,
   CHAR_W,
+  NFD_TOKENS,
+  NO_COMPOSITION,
   SWEEP_MAX_LENGTH,
   fixedWidth,
+  isCombiningMark,
   loadRsvpFixtures,
 } from './rsvpFixtures.testutil'
 
@@ -157,6 +160,38 @@ describe('embedded RSVP runtime (hyperframes_rsvp_runtime.py)', () => {
     expect(embedded.codePoints(undefined as unknown as string)).toEqual([])
   })
 
+  test('codePoints NFC-composes the token, like both twins', () => {
+    for (const decomposed of NFD_TOKENS) {
+      expect(embedded.codePoints(decomposed)).toEqual(Array.from(decomposed.normalize('NFC')))
+    }
+  })
+
+  test.each(NFD_TOKENS)('NFD and NFC spellings of %j are indistinguishable', (decomposed) => {
+    // Without the NFC pin the focus glyph can be a bare combining mark, which this
+    // runtime draws on a dotted circle (U+25CC) while Pillow draws the mark alone.
+    const composed = decomposed.normalize('NFC')
+    expect(composed).not.toBe(decomposed)
+
+    expect(embedded.orpIndex(decomposed)).toBe(embedded.orpIndex(composed))
+    expect(embedded.focusSlices(decomposed, embedded.orpIndex(decomposed))).toEqual(
+      embedded.focusSlices(composed, embedded.orpIndex(composed))
+    )
+    expect(embedded.focusOffset(0, decomposed, embedded.orpIndex(decomposed), fixedWidth)).toBe(
+      embedded.focusOffset(0, composed, embedded.orpIndex(composed), fixedWidth)
+    )
+    expect(
+      isCombiningMark(embedded.focusSlices(decomposed, embedded.orpIndex(decomposed)).focus)
+    ).toBe(false)
+  })
+
+  test('a mark with no precomposed form is the documented residual', () => {
+    // ACCEPTED DELTA: U+0348 has no composition, so the focus glyph really is the
+    // mark. Pinned in all three suites so the residual is known, not a surprise.
+    expect(NO_COMPOSITION.normalize('NFC')).toBe(NO_COMPOSITION)
+    const focus = embedded.focusSlices(NO_COMPOSITION, embedded.orpIndex(NO_COMPOSITION)).focus
+    expect(isCombiningMark(focus)).toBe(true)
+  })
+
   // Shared prefix/focus/suffix split cases, incl. astral + unpaired surrogate.
   test.each(focusSlicesCases.map((c) => [c.name, c] as const))(
     'focusSlices fixture — %s',
@@ -174,7 +209,9 @@ describe('embedded RSVP runtime (hyperframes_rsvp_runtime.py)', () => {
     for (const { token, f } of focusSlicesCases) {
       const i = f === null ? embedded.orpIndex(token) : f
       const s = embedded.focusSlices(token, i)
-      expect(s.prefix + s.focus + s.suffix).toBe(token)
+      // The pieces rebuild the token's NFC form (which for an already-composed
+      // token — every case but the NFD ones — is the token itself).
+      expect(s.prefix + s.focus + s.suffix).toBe(token.normalize('NFC'))
     }
     expect(embedded.focusSlices('', 0)).toEqual({ prefix: '', focus: '', suffix: '' })
     for (const junk of ['', null, undefined, '2', {}, []] as unknown[]) {
