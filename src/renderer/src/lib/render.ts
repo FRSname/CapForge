@@ -142,6 +142,19 @@ export function buildRenderBody(
     // so the three renderers don't drift. Canvas/Pillow read CROSSFADE_DUR directly.
     crossfade_duration: CROSSFADE_DUR,
 
+    // RSVP reading mode — a layout axis, NOT a word_transition value.
+    reading_mode: settings.readingMode ?? STUDIO_DEFAULTS.readingMode,
+    rsvp_pivot_x: pct(settings.rsvpPivotX, STUDIO_DEFAULTS.rsvpPivotX),
+    rsvp_focus_color: settings.rsvpFocusColor ?? STUDIO_DEFAULTS.rsvpFocusColor,
+    // Already a 0–1 fraction on both sides of the bridge (like shadow_opacity)
+    // — running it through pct() would send 0.0075.
+    rsvp_context_opacity: settings.rsvpContextOpacity,
+    // Plain seconds — deliberately NOT run through pct(), same unit contract as
+    // gap_close_threshold / last_group_hold above.
+    rsvp_slide_duration: settings.rsvpSlideDuration,
+    rsvp_edge_fade: pct(settings.rsvpEdgeFade, STUDIO_DEFAULTS.rsvpEdgeFade),
+    rsvp_reticle: settings.rsvpReticle,
+
     // Per-effect options
     highlight_radius: settings.highlightRadius,
     highlight_padding_x: settings.highlightPadX,

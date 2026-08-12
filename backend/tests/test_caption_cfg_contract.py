@@ -91,6 +91,16 @@ EXPECTED_IN_CAP_CFG: dict[str, str] = {
     "underline_width": "ulWidth",
     "bounce_strength": "bounceStrength",
     "scale_factor": "scaleFactor",
+    # RSVP reading mode — a LAYOUT axis, so every dial reaches the HTML caption
+    # layer (the runtime lays the line out and slides it; none of these are
+    # consumed upstream the way words_per_group / gap_close_threshold are).
+    "reading_mode": "readingMode",
+    "rsvp_pivot_x": "rsvpPivotX",
+    "rsvp_focus_color": "rsvpFocusColor",
+    "rsvp_context_opacity": "rsvpContextOpacity",
+    "rsvp_slide_duration": "rsvpSlideDuration",
+    "rsvp_edge_fade": "rsvpEdgeFade",
+    "rsvp_reticle": "rsvpReticle",
 }
 
 
@@ -259,6 +269,16 @@ _SENTINELS: dict[str, object] = {
     "underline_width": 14,
     "bounce_strength": 0.23,
     "scale_factor": 1.9,
+    # RSVP: 'rsvp' is the only non-default reading_mode; rsvp_reticle defaults to
+    # True so False is its sentinel. The floats stay inside the Field bounds
+    # (rsvp_edge_fade le=0.5) and are distinct from every other sentinel here.
+    "reading_mode": "rsvp",
+    "rsvp_pivot_x": 0.43,
+    "rsvp_focus_color": "#262728",
+    "rsvp_context_opacity": 0.67,
+    "rsvp_slide_duration": 0.13,
+    "rsvp_edge_fade": 0.17,
+    "rsvp_reticle": False,
 }
 
 

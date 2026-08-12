@@ -1,0 +1,190 @@
+{
+  "_comment": [
+    "Shared cases for the RSVP reel rule — the single source of expected values for",
+    "both implementations: backend/exporters/rsvp_reels.py (read by",
+    "backend/tests/test_rsvp_reels.py) and src/renderer/src/lib/rsvpReels.ts (read by",
+    "src/renderer/src/lib/rsvpReels.test.ts, via rsvpFixtures.testutil.ts).",
+    "",
+    "A case's `groups` are already in the NORMALISED shape both implementations map",
+    "their own group dicts into: start/end seconds, a speaker that is null or a",
+    "string, and the group's position override as posX/posY (null when unset). The",
+    "expected `reels` are [startIndex, endIndexExclusive] pairs over that array, so",
+    "the fixture pins the BREAK RULE alone and stays free of either language's group",
+    "shape; each suite asserts its own merge output (start/end/words concat) itself.",
+    "",
+    "JSON has no NaN literal and JSON.parse rejects a bare one, so a non-finite",
+    "timing is spelled as the string \"NaN\" — same sentinel as rsvp_last_started_cases.json."
+  ],
+  "cases": [
+    {
+      "name": "empty input yields no reels",
+      "groups": [],
+      "reels": []
+    },
+    {
+      "name": "a single group is its own reel",
+      "groups": [{ "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null }],
+      "reels": [[0, 1]]
+    },
+    {
+      "name": "touching ends join (a.end == b.start — what gap closing produces)",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 2]]
+    },
+    {
+      "name": "a real blank gap breaks the reel (a.end < b.start)",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.5, "end": 2.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 1], [1, 2]]
+    },
+    {
+      "name": "an overlapping boundary joins (a.end > b.start)",
+      "groups": [
+        { "start": 0.0, "end": 1.2, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 2]]
+    },
+    {
+      "name": "an epsilon gap breaks — the rule is exact, with no tolerance",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.000001, "end": 2.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 1], [1, 2]]
+    },
+    {
+      "name": "five touching groups make one reel",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 2.0, "end": 3.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 3.0, "end": 4.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 4.0, "end": 5.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 5]]
+    },
+    {
+      "name": "run, gap, run",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 4.0, "end": 5.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 5.0, "end": 6.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 2], [2, 4]]
+    },
+    {
+      "name": "a speaker change is NOT a break — deliberately ignored, see rsvp_reels.py",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": "SPEAKER_00", "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": "SPEAKER_01", "posX": null, "posY": null }
+      ],
+      "reels": [[0, 2]]
+    },
+    {
+      "name": "the same speaker on both sides joins",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": "SPEAKER_00", "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": "SPEAKER_00", "posX": null, "posY": null }
+      ],
+      "reels": [[0, 2]]
+    },
+    {
+      "name": "two speakerless groups count as the same speaker",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 2]]
+    },
+    {
+      "name": "gaining a speaker is NOT a break either",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": "SPEAKER_00", "posX": null, "posY": null }
+      ],
+      "reels": [[0, 2]]
+    },
+    {
+      "name": "a differing position override breaks, so neither group's is dropped",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": null, "posY": 0.2 }
+      ],
+      "reels": [[0, 1], [1, 2]]
+    },
+    {
+      "name": "an identical position override on both sides joins and is carried",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": 0.4, "posY": 0.2 },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": 0.4, "posY": 0.2 }
+      ],
+      "reels": [[0, 2]]
+    },
+    {
+      "name": "posX alone differing breaks",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": 0.4, "posY": 0.2 },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": 0.5, "posY": 0.2 }
+      ],
+      "reels": [[0, 1], [1, 2]]
+    },
+    {
+      "name": "losing a position override breaks",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": 0.2 },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 1], [1, 2]]
+    },
+    {
+      "name": "a zero-length group joins the run on both sides",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 3]]
+    },
+    {
+      "name": "a non-finite end breaks rather than joining on junk",
+      "groups": [
+        { "start": 0.0, "end": "NaN", "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 1], [1, 2]]
+    },
+    {
+      "name": "a non-finite start breaks rather than joining on junk",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": "NaN", "end": 2.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 1], [1, 2]]
+    },
+    {
+      "name": "a junk group breaks on both sides without swallowing the run after it",
+      "groups": [
+        { "start": 0.0, "end": 1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": "NaN", "end": "NaN", "speaker": null, "posX": null, "posY": null },
+        { "start": 1.0, "end": 2.0, "speaker": null, "posX": null, "posY": null },
+        { "start": 2.0, "end": 3.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 1], [1, 2], [2, 4]]
+    },
+    {
+      "name": "negative times behave like any other finite times",
+      "groups": [
+        { "start": -2.0, "end": -1.0, "speaker": null, "posX": null, "posY": null },
+        { "start": -1.0, "end": 0.0, "speaker": null, "posX": null, "posY": null }
+      ],
+      "reels": [[0, 2]]
+    }
+  ]
+}

@@ -1,0 +1,149 @@
+{
+  "note": [
+    "Shared expected values for focusOffset() / focus_offset() — the THIRD RSVP fixture,",
+    "read by backend/tests/test_rsvp_core.py, src/renderer/src/lib/rsvp.test.ts and",
+    "src/renderer/src/lib/rsvp.embedded.test.ts. Never hand-write an expected offset in a",
+    "suite; add a case here so all three languages are pinned by the same numbers.",
+    "",
+    "The contract under test is that a token is indexed and sliced in Unicode CODE POINTS,",
+    "not UTF-16 code units (backend/exporters/rsvp.py is the reference; both JS copies",
+    "normalize with Array.from). Widths therefore differ per character, so a code-unit",
+    "implementation measuring a surrogate HALF lands on a different offset instead of",
+    "coincidentally matching.",
+    "",
+    "measure(s) = sum over the CODE POINTS of s of (charWidths[cp] or defaultCharWidth).",
+    "Each suite builds that stub natively (Array.from / for c in s) — the stub is not the",
+    "thing under test, the implementation's own slicing is.",
+    "",
+    "f: null means 'derive it with orpIndex(token)', which covers the composition of the",
+    "two functions end to end. A number is passed through verbatim (clamping included).",
+    "",
+    "Fixture keys are deliberately camelCase in EVERY rsvp_*.json file — one shape read by",
+    "both a Python suite and two TS suites, so the Python side reads case[\"wordX\"] and",
+    "root[\"defaultCharWidth\"] rather than each language getting its own casing. Do NOT",
+    "'fix' these to snake_case: it breaks two suites."
+  ],
+  "defaultCharWidth": 10,
+  "charWidths": {
+    "🎬": 30,
+    "🚀": 34,
+    "𝔘": 24,
+    "𝔫": 26,
+    "𝔦": 12,
+    "\ud83c": 7,
+    "\udfac": 5,
+    "\u00e9": 11,
+    "\u00f1": 13,
+    "\u00ef": 9,
+    "\u0301": 3,
+    "\u0303": 4,
+    "\u0308": 5,
+    "\u0348": 6
+  },
+  "cases": [
+    {
+      "name": "ASCII control",
+      "why": "'the' -> f 1, so 10 px of prefix plus half of 'h': the same arithmetic the astral cases use",
+      "wordX": 100,
+      "token": "the",
+      "f": 1,
+      "expected": 115
+    },
+    {
+      "name": "empty token returns wordX",
+      "why": "no glyph to centre on",
+      "wordX": 42,
+      "token": "",
+      "f": 0,
+      "expected": 42
+    },
+    {
+      "name": "astral focus char, ASCII on both sides",
+      "why": "'a🎬b' -> f 1 is the EMOJI: 10 + 30/2 = 25. A code-unit impl slices token[1] = the lone HIGH surrogate (7) and gets 13.5",
+      "wordX": 0,
+      "token": "a🎬b",
+      "f": null,
+      "expected": 25
+    },
+    {
+      "name": "astral prefix, ASCII focus",
+      "why": "'🎬clap' with f 1 measures the whole emoji as the prefix: 100 + 30 + 10/2 = 135. A code-unit impl measures the HIGH surrogate as the prefix and the LOW one as the focus -> 109.5",
+      "wordX": 100,
+      "token": "🎬clap",
+      "f": 1,
+      "expected": 135
+    },
+    {
+      "name": "astral prefix, astral focus, derived f",
+      "why": "'🎬clap' composed with orpIndex (5 code points -> 1): prefix 30 + 10/2 = 35. Pins the composition, not the divergence",
+      "wordX": 0,
+      "token": "🎬clap",
+      "f": null,
+      "expected": 35
+    },
+    {
+      "name": "all-astral token",
+      "why": "'𝔘𝔫𝔦' -> f 1: prefix '𝔘' 24 + '𝔫' 26/2 = 37. A code-unit impl picks f 2 (the high surrogate of '𝔫') and gets 29",
+      "wordX": 0,
+      "token": "𝔘𝔫𝔦",
+      "f": null,
+      "expected": 37
+    },
+    {
+      "name": "astral in the SUFFIX only",
+      "why": "'ab🎬cd' -> f 1: nothing past the focus glyph may affect the offset, so it is 'ab'-like (10 + 10/2 = 15). A code-unit impl picks f 2 and gets 23.5",
+      "wordX": 0,
+      "token": "ab🎬cd",
+      "f": null,
+      "expected": 15
+    },
+    {
+      "name": "astral across a breakpoint, derived f",
+      "why": "'🚀…abcdef' is 13 code points -> f 3: prefix 3x34 = 102 + 34/2 = 119. A code-unit impl picks f 4 (a surrogate half) and gets 73",
+      "wordX": 0,
+      "token": "🚀🚀🚀🚀🚀🚀🚀abcdef",
+      "f": null,
+      "expected": 119
+    },
+    {
+      "name": "out-of-range f clamps in code points",
+      "why": "'🎬' has ONE unit, so f 5 clamps to 0 and the whole emoji is centred: 30/2 = 15. A code-unit impl clamps to 1 and centres the LOW surrogate -> 9.5",
+      "wordX": 0,
+      "token": "🎬",
+      "f": 5,
+      "expected": 15
+    },
+    {
+      "name": "NFD single letter is measured composed",
+      "why": "'e' + U+0301 normalises to one code point, so f 0 centres the composed '\u00e9' (11): 11/2 = 5.5. Without the NFC pin f is 1, the prefix is 'e' (10) and the focus is the bare acute (3) -> 11.5",
+      "wordX": 0,
+      "token": "e\u0301",
+      "f": null,
+      "expected": 5.5
+    },
+    {
+      "name": "NFD mark inside the token shifts the measured prefix",
+      "why": "'n' + U+0303 + 'o' composes to 2 code points, so f 1 measures the prefix '\u00f1' (13) and centres 'o' (10): 18. Un-normalised, the prefix is 'n' (10) and the focus is the tilde (4) -> 12",
+      "wordX": 0,
+      "token": "n\u0303o",
+      "f": null,
+      "expected": 18
+    },
+    {
+      "name": "RESIDUAL: mark with no precomposed form is measured as its own glyph",
+      "why": "ACCEPTED DELTA: U+0348 cannot compose, so f 1 measures the prefix 'a' (10) and centres the mark (6) -> 13, with or without normalisation. Pinned so the residual is a known number rather than a surprise",
+      "wordX": 0,
+      "token": "a\u0348",
+      "f": null,
+      "expected": 13
+    },
+    {
+      "name": "unpaired surrogate is measured whole, as one unit",
+      "why": "MALFORMED but documented: 'a\\ud83cb' -> f 1 measures the lone surrogate itself (7), so 10 + 3.5 = 13.5. Both indexings agree here — the point is that it can never be split or dropped",
+      "wordX": 0,
+      "token": "a\ud83cb",
+      "f": null,
+      "expected": 13.5
+    }
+  ]
+}

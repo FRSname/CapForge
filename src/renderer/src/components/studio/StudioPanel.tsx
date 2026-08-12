@@ -16,6 +16,7 @@ import { ColorsCard } from './sections/ColorsCard'
 import { LayoutCard } from './sections/LayoutCard'
 import { BackgroundCard } from './sections/BackgroundCard'
 import { AnimationCard } from './sections/AnimationCard'
+import { ReadingCard } from './sections/ReadingCard'
 import { DirtyMeta, type StudioCardProps } from './sections/StudioSectionShared'
 import { useRender } from '../../hooks/useRender'
 import {
@@ -27,6 +28,11 @@ import {
 import {
   DEFAULT_GAP_CLOSE_THRESHOLD,
   DEFAULT_LAST_GROUP_HOLD,
+  RSVP_DEFAULT_CONTEXT_OPACITY,
+  RSVP_DEFAULT_EDGE_FADE,
+  RSVP_DEFAULT_FOCUS_COLOR,
+  RSVP_DEFAULT_PIVOT_X,
+  RSVP_DEFAULT_SLIDE_DURATION,
 } from '../../lib/renderConstants'
 import type { Segment } from '../../types/app'
 import type { VideoInfo } from '../../lib/api'
@@ -91,6 +97,43 @@ export interface StudioSettings {
   animationType: string
   animDuration: number
   wordStyle: string
+  // ── Reading mode (RSVP) ─────────────────────────────────────
+  /**
+   * Caption LAYOUT axis, orthogonal to `wordStyle`/`word_transition`:
+   * 'wrap' draws rows of wrapped words, 'rsvp' draws one unwrapped line that
+   * slides so each word's Optimal Recognition Point stays on a fixed pivot
+   * column (the "Spritz" speed-reading technique).
+   *
+   * While 'rsvp' is active, `lines` is forced to 1, `textAlignH`/`textAlignV`
+   * no longer position the line (the pivot does) and `wordStyle` is unused
+   * (RSVP owns word colouring). Group entry/exit `animationType` still applies.
+   */
+  readingMode: 'wrap' | 'rsvp'
+  /** RSVP focus column as a percentage of the caption band (0–100, pct()'d). */
+  rsvpPivotX: number
+  /** RSVP focus-glyph color (hex) — the letter pinned to the pivot column. */
+  rsvpFocusColor: string
+  /**
+   * Opacity of the non-active (context) words in the RSVP line.
+   *
+   * 0–1 FRACTION, like `shadowOpacity`/`highlightOpacity` and unlike the 0–100
+   * percentages around it. It reaches the backend unscaled (no pct() in
+   * render.ts) and IS marked `fraction: true` in NUMERIC_SETTING_SPECS, so an
+   * external writer that means 75% and writes `75` is read as 0.75.
+   */
+  rsvpContextOpacity: number
+  /**
+   * How long the line takes to slide to the next word.
+   *
+   * PLAIN SECONDS — same unit contract as `gapCloseThreshold`/`lastGroupHold`.
+   * Never mark it `fraction: true`: the percentage heuristic fires above 1, so
+   * that would re-read a legitimate 1.5s slide as 0.015s.
+   */
+  rsvpSlideDuration: number
+  /** RSVP edge fade width as a percentage of the band (0–100, pct()'d). */
+  rsvpEdgeFade: number
+  /** Draw the RSVP reticle (rule + notch) at the pivot column. */
+  rsvpReticle: boolean
   // Per-effect options
   highlightRadius: number
   highlightPadX: number
@@ -159,6 +202,13 @@ const DEFAULTS: StudioSettings = {
   animationType: 'fade',
   animDuration: 12,
   wordStyle: 'highlight',
+  readingMode: 'wrap',
+  rsvpPivotX: RSVP_DEFAULT_PIVOT_X,
+  rsvpFocusColor: RSVP_DEFAULT_FOCUS_COLOR,
+  rsvpContextOpacity: RSVP_DEFAULT_CONTEXT_OPACITY,
+  rsvpSlideDuration: RSVP_DEFAULT_SLIDE_DURATION,
+  rsvpEdgeFade: RSVP_DEFAULT_EDGE_FADE,
+  rsvpReticle: true,
   highlightRadius: 16,
   highlightPadX: 17,
   highlightPadY: 17,
@@ -360,6 +410,9 @@ export function StudioPanel({
 
         {/* ── Animation ───────────────────────────────────────── */}
         <AnimationCard {...sectionProps} />
+
+        {/* ── Reading (wrap vs RSVP speed reading) ────────────── */}
+        <ReadingCard {...sectionProps} />
 
         {/* Export + Custom Render never match settings search — hide while filtering. */}
         {!filter && (

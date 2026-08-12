@@ -253,12 +253,27 @@ def set_style(patch: dict) -> dict:
     e.g. {"fontSize": 84}, {"posY": 70}, {"textColor": "#FFFFFF"},
     {"wordStyle": "highlight"}, {"animationType": "pop"}. Unknown keys are ignored.
 
-    UNITS ARE NOT UNIFORM. `bgOpacity`, `maxWidth`, `posX`, `posY` and
-    `animDuration` are 0–100; `shadowOpacity`, `highlightOpacity` and
-    `bounceStrength` are 0–1 fractions. Read the current value from
-    `get_ui_state().settings` first and match its scale. Out-of-range numbers are
-    clamped by the app (a 0–1 field given 90 is read as 90%), so re-read the
-    state if the exact value matters.
+    UNITS ARE NOT UNIFORM. Read the current value from `get_ui_state().settings`
+    first and match its scale:
+
+    * 0–100 percentages: `bgOpacity`, `maxWidth`, `posX`, `posY`, `animDuration`,
+      and the RSVP band fractions `rsvpPivotX` (0–100) and `rsvpEdgeFade` (0–50).
+    * 0–1 fractions: `shadowOpacity`, `highlightOpacity`, `rsvpContextOpacity`.
+      These three are the ones where writing 90 by analogy with `bgOpacity` is the
+      classic mistake, so the app re-reads a value in (1, 100] as a percentage
+      (90 → 0.9) rather than clamping it to 1.
+    * PLAIN SECONDS, never fractions: `gapCloseThreshold`, `lastGroupHold`,
+      `rsvpSlideDuration`. A 1.5 here means 1.5 seconds and stays 1.5.
+    * `bounceStrength` is a fraction OF FONT SIZE with no upper bound, so 1.5 is
+      legal and is NOT re-read as a percentage.
+
+    Non-numeric: `readingMode` is `'wrap' | 'rsvp'` (RSVP is the Spritz
+    speed-reading layout — one sliding line, not a `wordStyle` value);
+    `rsvpFocusColor` is a hex colour; `rsvpReticle` is a bool. An unrecognised
+    value for any of these is rejected and leaves the current setting alone.
+
+    Out-of-range numbers are clamped by the app, so re-read the state if the exact
+    value matters.
     """
     _client.send_command("set_settings", {"patch": patch})
     return {"status": "ok"}

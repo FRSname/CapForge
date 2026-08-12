@@ -8,10 +8,19 @@
  * Settings come from StudioSettings (props) instead of DOM references.
  */
 
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Segment, WordOverrides } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
-import { DEFAULT_PAD_V, CROSSFADE_DUR, DEFAULT_LINE_HEIGHT } from '../lib/renderConstants'
+import {
+  DEFAULT_PAD_V,
+  CROSSFADE_DUR,
+  DEFAULT_LINE_HEIGHT,
+  RSVP_DEFAULT_CONTEXT_OPACITY,
+  RSVP_DEFAULT_EDGE_FADE,
+  RSVP_DEFAULT_FOCUS_COLOR,
+  RSVP_DEFAULT_PIVOT_X,
+  RSVP_DEFAULT_SLIDE_DURATION,
+} from '../lib/renderConstants'
 import {
   quadEaseOut,
   lerp,
@@ -26,9 +35,33 @@ import {
   computeWordProgress,
   computeCrossfadeFactors,
   computeBounceAmount,
+  computeRsvpPositions,
+  computeRsvpReticleRects,
+  computeRsvpStatic,
+  rsvpCaptionBand,
+  rsvpCullBleed,
+  rsvpFadeGradientStops,
+  rsvpPivotColumn,
+  rsvpTrackingGap,
+  rsvpVisibleRange,
+  rsvpVisibleWindow,
+  rsvpWordAlpha,
   hexToRgb,
   lerpColor,
+  type CaptionBand,
+  type RsvpStaticLayout,
+  type RsvpWordMetric,
 } from '../lib/overlayGeometry'
+import { focusSlices, orpIndex } from '../lib/rsvp'
+import { mergeRsvpReels } from '../lib/rsvpReels'
+
+/**
+ * One measured word of the active group: the RSVP layout's input plus the full
+ * per-word override object the wrap path's decorations read.
+ */
+interface OverlayWordMetric extends RsvpWordMetric {
+  overrides?: WordOverrides
+}
 
 export interface OverlayOptions {
   canvasRef: React.RefObject<HTMLCanvasElement | null>
@@ -48,6 +81,39 @@ export function useSubtitleOverlay({
   // Last drawn time, so a resize can repaint the same frame while paused.
   const lastTimeRef = useRef(0)
 
+  // In RSVP the unit of layout is a *reel*, not a caption group: consecutive
+  // groups that leave no blank frame between them are one continuously sliding
+  // line (`lib/rsvpReels.ts`). The backend applies the same pass at the single
+  // point every render path shares (`groups_for_render`), to the same groups, so
+  // preview and render agree. It is the identity in `'wrap'` mode and whenever no
+  // two groups touch.
+  const groups = useMemo(
+    () => ((settings.readingMode ?? 'wrap') === 'rsvp' ? mergeRsvpReels(segments) : segments),
+    [segments, settings.readingMode]
+  )
+
+  /**
+   * The time-independent half of the active line, memoised across frames.
+   *
+   * Measuring every word of a reel — its advance, plus its focus prefix and glyph
+   * for RSVP — is O(words) `measureText` calls, and a reel can be a whole
+   * paragraph, so doing it inside `draw()` costs that on every animation frame.
+   * All of it is a pure function of the group, the settings and the resolution, so
+   * an identity check on those is enough to reuse it. `probe` is the width of the
+   * reference string the metrics are derived from: it changes the moment a webfont
+   * finishes loading, which nothing else in the key would catch (`settings` has
+   * not changed, but every measurement has).
+   */
+  const layoutRef = useRef<{
+    group: Segment
+    settings: StudioSettings
+    resW: number
+    resH: number
+    probe: number
+    wm: OverlayWordMetric[]
+    rsvpStatic: RsvpStaticLayout | null
+  } | null>(null)
+
   const draw = useCallback(
     (currentTime: number) => {
       lastTimeRef.current = currentTime
@@ -65,7 +131,7 @@ export function useSubtitleOverlay({
       const ctx = canvas.getContext('2d')!
       ctx.clearRect(0, 0, resW, resH)
 
-      if (!segments.length) return
+      if (!groups.length) return
 
       // Scale the canvas CSS size to letterbox-fit inside the anchor element
       const anchor = anchorRef.current
@@ -84,9 +150,9 @@ export function useSubtitleOverlay({
         }
       }
 
-      // Find the active group
+      // Find the active group — a reel in RSVP mode, see `groups` above.
       let activeGroup: Segment | null = null
-      for (const seg of segments) {
+      for (const seg of groups) {
         if (seg.start <= currentTime && currentTime < seg.end) {
           activeGroup = seg
           break
@@ -118,6 +184,20 @@ export function useSubtitleOverlay({
       } = settings
 
       const bgOpacity = bgOpacityPct / 100
+      // ── Reading mode (RSVP) ─────────────────────────────────────
+      // A LAYOUT mode: it replaces row splitting and word positioning instead of
+      // branching inside the per-word draw switch. backend/exporters/rsvp_layout.py
+      // is the source of truth for every formula below — read its module docstring
+      // first. `?? default` because a restored project may predate these fields.
+      const isRsvp = (settings.readingMode ?? 'wrap') === 'rsvp'
+      // Pivot + edge fade are 0-100 UI percentages (pct()'d in render.ts);
+      // context opacity is already a 0-1 fraction and slide duration is seconds.
+      const rsvpPivotFrac = (settings.rsvpPivotX ?? RSVP_DEFAULT_PIVOT_X) / 100
+      const rsvpFadeFrac = (settings.rsvpEdgeFade ?? RSVP_DEFAULT_EDGE_FADE) / 100
+      const rsvpContextOpacity = settings.rsvpContextOpacity ?? RSVP_DEFAULT_CONTEXT_OPACITY
+      const rsvpSlideDuration = settings.rsvpSlideDuration ?? RSVP_DEFAULT_SLIDE_DURATION
+      const rsvpFocusColor = settings.rsvpFocusColor || RSVP_DEFAULT_FOCUS_COLOR
+      const rsvpReticleOn = settings.rsvpReticle ?? true
       // Bold is no longer a toggle — the user picks the font face directly
       // (e.g. "Inter Bold"). Browser would synthesize fake-bold otherwise, which
       // wouldn't match the Pillow render that just loads the file as-is.
@@ -215,34 +295,36 @@ export function useSubtitleOverlay({
         return wAsc + wDesc
       }
 
-      const wm = activeGroup.words.map((w) => ({
-        word: w.word,
-        width: measureWordWidth(w.word, w.overrides),
-        start: w.start,
-        end: w.end,
-        overrides: w.overrides,
-      }))
+      // Per-word measurement, memoised — see `layoutRef`. Everything below the
+      // cache line is a pure function of (group, settings, resolution, font
+      // metrics), none of which change while the clip plays.
+      const cached = layoutRef.current
+      const cacheHit =
+        cached !== null &&
+        cached.group === activeGroup &&
+        cached.settings === settings &&
+        cached.resW === resW &&
+        cached.resH === resH &&
+        cached.probe === aygMetrics.width
 
-      // Split into rows
+      const wm: OverlayWordMetric[] = cacheHit
+        ? cached.wm
+        : activeGroup.words.map((w) => ({
+            word: w.word,
+            width: measureWordWidth(w.word, w.overrides),
+            start: w.start,
+            end: w.end,
+            overrides: w.overrides,
+          }))
+
+      // Split into rows. RSVP is a layout mode: exactly ONE unwrapped row,
+      // however wide, so `lines` is ignored (mirrors video_render's `is_rsvp`
+      // branch, which sets `rows = [all_metrics]`).
       const maxW = ((settings.maxWidth ?? 90) / 100) * resW
-      const rows = splitIntoRows(wm, numLines, maxW, effectiveSpaceW)
+      const rows = isRsvp ? [wm] : splitIntoRows(wm, numLines, maxW, effectiveSpaceW)
 
       const rowWidths = computeRowWidths(rows, effectiveSpaceW)
-      const maxRowW = Math.max(...rowWidths)
 
-      // Match backend: bg includes stroke padding so the box matches when stroke > 0.
-      const strokePad = sStroke
-      const { bgW, bgH, totalTextH } = computeBgBox(
-        maxRowW,
-        padH,
-        strokePad,
-        bgWidthExtra,
-        rows.length,
-        textH,
-        rowLineGap,
-        padV,
-        bgHeightExtra
-      )
       // Per-group position override (fractions) beats the global percent setting.
       const gpo = activeGroup.positionOverride
       const effPosX = gpo?.position_x != null ? gpo.position_x * 100 : posX
@@ -263,23 +345,129 @@ export function useSubtitleOverlay({
         bgHeightExtra
       )
 
+      // The RSVP caption band: `maxW` (the wrap path's usable caption width, NOT a
+      // second width concept) centred on the exact column the row's text is placed
+      // around. `textAlignH` no longer aligns text inside the row — the pivot does —
+      // but it still feeds `alignShiftX`, so it moves the whole band (box, pivot,
+      // reticle, fade) whenever bgWidthExtra opens up slack.
+      const rowCenterX = cx + alignShiftX + txOff
+      const rsvpBand: CaptionBand | null = isRsvp ? rsvpCaptionBand(maxW, rowCenterX) : null
+      const rsvpPivotPx = rsvpBand ? rsvpPivotColumn(rsvpBand, rsvpPivotFrac) : 0
+
+      // In RSVP the group background box frames the BAND — the window the line
+      // slides inside — never the row: the row is unwrapped and can be far wider
+      // than the frame, and a text-sized box is one the caption slides out of.
+      const maxRowW = rsvpBand ? rsvpBand.width : Math.max(...rowWidths)
+      const bgCenterX = rsvpBand ? rsvpBand.left + rsvpBand.width / 2 : cx
+
+      // Match backend: bg includes stroke padding so the box matches when stroke > 0.
+      const strokePad = sStroke
+      const { bgW, bgH, totalTextH } = computeBgBox(
+        maxRowW,
+        padH,
+        strokePad,
+        bgWidthExtra,
+        rows.length,
+        textH,
+        rowLineGap,
+        padV,
+        bgHeightExtra
+      )
+
       // Pre-compute word positions. wordYPos is the *visual centre* of each row
       // (matches backend's center_y for that row). When we draw text we shift to
       // alphabetic baseline; pill / underline / bounce can use it directly.
-      const { wordXPos, wordYPos } = computeWordPositions(
-        rows,
-        rowWidths,
-        cx,
-        cy,
-        alignShiftX,
-        alignShiftY,
-        txOff,
-        tyOff,
-        totalTextH,
-        textH,
-        rowLineGap,
-        effectiveSpaceW
-      )
+      // The prefix is measured in the word's OWN font (family/size/bold/custom
+      // font override included), so its focus glyph still lands on the pivot.
+      const rsvpStaticInput = {
+        words: wm,
+        measurePrefix: (index: number, text: string) =>
+          measureWordWidth(text, wm[index].overrides),
+        spaceW: effectiveSpaceW,
+        tracking: trk,
+      }
+      const rsvpStatic = rsvpBand
+        ? ((cacheHit && cached.rsvpStatic) || computeRsvpStatic(rsvpStaticInput))
+        : null
+
+      // One cache entry per (group, settings, resolution, font metrics); see
+      // `layoutRef`. Stored after both halves exist so a hit never carries a
+      // half-populated entry.
+      if (!cacheHit || (rsvpBand && !cached.rsvpStatic)) {
+        layoutRef.current = {
+          group: activeGroup,
+          settings,
+          resW,
+          resH,
+          probe: aygMetrics.width,
+          wm,
+          rsvpStatic,
+        }
+      }
+
+      const rsvp =
+        rsvpStatic &&
+        computeRsvpPositions({
+          ...rsvpStaticInput,
+          static: rsvpStatic,
+          pivotPx: rsvpPivotPx,
+          slideDuration: rsvpSlideDuration,
+          currentTime,
+          cy,
+          alignShiftY,
+          tyOff,
+          totalTextH,
+          textH,
+        })
+      // Culling. A reel's line is as long as the run of speech it carries, so most
+      // of it is nowhere near the frame and drawing it would cost a `fillText` per
+      // word per frame for nothing. Pixel-neutral by construction (see
+      // `rsvpCullBleed`) — the HTML layer draws every word and lets its mask do the
+      // work, so a word this skips must be one that renders to nothing anyway.
+      let firstWord = 0
+      let lastWord = wm.length
+      if (rsvp && rsvpBand) {
+        const shadowOn = settings.shadowEnabled === true
+        const { left, right } = rsvpVisibleWindow(
+          rsvpBand,
+          rsvpFadeFrac,
+          resW,
+          rsvpCullBleed({
+            textH,
+            strokeWidth: sStroke,
+            shadowBlur: shadowOn ? (settings.shadowBlur ?? 8) : 0,
+            shadowOffsetX: shadowOn ? (settings.shadowOffsetX ?? 3) : 0,
+            maxPosOffsetX: rsvp.maxPosOffsetX,
+          })
+        )
+        const visible = rsvpVisibleRange(
+          rsvp.wordX,
+          wm.map((m) => m.width),
+          rsvp.lineX,
+          left,
+          right
+        )
+        firstWord = visible.first
+        lastWord = visible.last
+      }
+      const isCulled = (i: number): boolean => i < firstWord || i >= lastWord
+
+      const { wordXPos, wordYPos } = rsvp
+        ? rsvp
+        : computeWordPositions(
+            rows,
+            rowWidths,
+            cx,
+            cy,
+            alignShiftX,
+            alignShiftY,
+            txOff,
+            tyOff,
+            totalTextH,
+            textH,
+            rowLineGap,
+            effectiveSpaceW
+          )
 
       // ── Pop scale transform ─────────────────────────────────────
       if (popScale !== 1) {
@@ -290,14 +478,39 @@ export function useSubtitleOverlay({
       }
 
       // ── Background ──────────────────────────────────────────────
-      if (bgOpacity > 0) {
+      // Both unmasked guides are closures because RSVP's edge fade must not touch
+      // them: with the fade on they are composited *under* the masked caption after
+      // the mask is applied (see the edge-fade block at the end of draw()). The
+      // `bgW/bgH > 0` guard is RSVP-only on purpose — bg_*_extra reaches -50 and can
+      // invert the box, which Pillow skips; mirroring that on the wrap path would
+      // change long-standing preview behaviour, outside this phase's scope.
+      const bgVisible = bgOpacity > 0 && (!isRsvp || (bgW > 0 && bgH > 0))
+      const drawGroupBg = () => {
+        if (!bgVisible) return
         ctx.save()
         ctx.globalAlpha = bgOpacity * animAlpha
         ctx.fillStyle = bgColor
-        roundRect(ctx, cx - bgW / 2, cy - bgH / 2, bgW, bgH, sr)
+        roundRect(ctx, bgCenterX - bgW / 2, cy - bgH / 2, bgW, bgH, sr)
         ctx.fill()
         ctx.restore()
       }
+
+      // The RSVP pivot reticle: a fixed guide in the focus colour, exempt from the
+      // edge fade (Pillow gives it its own unmasked layer for this reason) —
+      // otherwise a pivot inside the ramp gets an invisible reticle.
+      const drawRsvpReticle = () => {
+        if (!rsvp || !rsvpReticleOn) return
+        ctx.save()
+        ctx.globalAlpha = animAlpha
+        ctx.fillStyle = rsvpFocusColor
+        for (const r of computeRsvpReticleRects(rsvpPivotPx, rsvp.rowCenterY, textH)) {
+          ctx.fillRect(r.x, r.y, r.w, r.h)
+        }
+        ctx.restore()
+      }
+
+      const rsvpFadeStops = rsvpBand ? rsvpFadeGradientStops(rsvpBand, rsvpFadeFrac) : null
+      if (!rsvpFadeStops) drawGroupBg()
 
       // ── Per-effect settings (with safe defaults for older projects) ──
       const hlPadX = settings.highlightPadX ?? 6
@@ -319,6 +532,7 @@ export function useSubtitleOverlay({
       // Transition-independent; decoration only, never mutates layout state.
       // See docs/plans/per-word-background.md
       wm.forEach((m, i) => {
+        if (isCulled(i)) return
         const ov = m.overrides
         // Enable gate: presence AND value. Opacity alone does NOT inherit — an
         // absent key must not box every word whenever the global bg is on.
@@ -349,17 +563,27 @@ export function useSubtitleOverlay({
         const boxCY = wordYPos[i] + (ov?.pos_offset_y ?? 0) + wBgOffY
 
         ctx.save()
-        ctx.globalAlpha = wBgOpacity * animAlpha
+        // In RSVP a CONTEXT word's box is dimmed by rsvpContextOpacity — the same
+        // factor as its fill and stroke, so a dimmed word never keeps a
+        // full-strength box. The anchor word's box matches its undimmed glyphs.
+        ctx.globalAlpha =
+          wBgOpacity *
+          (rsvp ? rsvpWordAlpha(animAlpha, rsvpContextOpacity, i === rsvp.anchorIndex) : animAlpha)
         ctx.fillStyle = wBgColor
         roundRect(ctx, boxCX - boxW / 2, boxCY - boxH / 2, boxW, boxH, wBgRadius)
         ctx.fill()
         ctx.restore()
       })
 
+      // Above the per-word boxes, below the words: Pillow's bg → boxes → guide → text.
+      if (!rsvpFadeStops) drawRsvpReticle()
+
       // ── Highlight pill (drawn BEFORE words) ─────────────────────
       // The highlight is per-active-word, so per-word overrides for the active
-      // word's effective transition + sub-settings apply here.
-      {
+      // word's effective transition + sub-settings apply here. Never in RSVP:
+      // that mode owns word colouring, so `wordStyle` and all of its
+      // sub-settings (pill, underline, bounce, scale) are ignored by design.
+      if (!isRsvp) {
         const ai = wm.findIndex((m) => m.start <= currentTime && currentTime < m.end)
         if (ai >= 0) {
           const m = wm[ai]
@@ -418,6 +642,7 @@ export function useSubtitleOverlay({
 
       // ── Words ────────────────────────────────────────────────────
       wm.forEach((m, i) => {
+        if (isCulled(i)) return
         const wOffX = m.overrides?.pos_offset_x ?? 0
         const wOffY = m.overrides?.pos_offset_y ?? 0
         const x = wordXPos[i] + wOffX
@@ -503,6 +728,42 @@ export function useSubtitleOverlay({
           }
         }
 
+        // ── RSVP: one colouring rule, the line's own anchor ────────
+        // The coloured word is the word the line is parked on (`anchorIndex` = last
+        // word whose `start` has passed) — NOT the `start <= t < end` test the
+        // decoration modes use above: that has no answer in inter-word silence, and
+        // where the two merely disagree (overlapping timings, a manually reordered
+        // group) it colours a word that is not on the pivot column, leaving the
+        // reticle marking an empty one. Pillow's draw_line has no `active_idx`.
+        if (rsvp) {
+          if (i === rsvp.anchorIndex) {
+            // Three pieces so the focus glyph's CENTRE lands on the pivot: the pen
+            // walks the same advances the layout used (`measureWord` + the one
+            // missing tracking gap). Accepted delta, same class as the karaoke
+            // branch: kerning is lost across the seams.
+            const { prefix, focus, suffix } = focusSlices(m.word, orpIndex(m.word))
+            let pen = x
+            for (const [piece, color] of [
+              [prefix, wActiveColor],
+              [focus, rsvpFocusColor],
+              [suffix, wActiveColor],
+            ] as const) {
+              if (!piece) continue
+              ctx.fillStyle = color
+              drawW(piece, pen, wy)
+              pen += measureWord(piece) + rsvpTrackingGap(piece, trk)
+            }
+          } else {
+            // globalAlpha dims fill, stroke AND shadow together — Pillow needs an
+            // explicit `_dim_alpha` on its stroke to get the same result.
+            ctx.globalAlpha = rsvpWordAlpha(animAlpha, rsvpContextOpacity, false)
+            ctx.fillStyle = wTextColor
+            drawW(m.word, x, wy)
+          }
+          ctx.restore()
+          return
+        }
+
         switch (wTransition) {
           case 'crossfade': {
             const { fi, fo } = computeCrossfadeFactors(currentTime, m.start, m.end, CROSSFADE_DUR)
@@ -578,9 +839,48 @@ export function useSubtitleOverlay({
         ctx.restore()
       })
 
+      // ── RSVP edge fade ──────────────────────────────────────────
+      // An alpha ramp over the leftmost/rightmost `rsvpEdgeFade` of the band, applied
+      // to the caption (words + per-word boxes) as a MASK, never a clip: a word
+      // straddling the band edge dissolves instead of being sliced. The two unmasked
+      // guides — the group background box, which frames the band rather than sliding
+      // inside it, and the reticle — go down afterwards with `destination-over`,
+      // which puts them *behind* the already-drawn caption.
+      //
+      // Two deliberate deviations from Pillow, confined to this branch because one
+      // canvas cannot reproduce its four-layer stack: the reticle lands below the
+      // per-word background boxes rather than above them (both are behind the text
+      // either way, and they only overlap when a box's padding reaches past the
+      // reticle's 0.32em clearance); and under the `pop` entry animation the ramp is
+      // applied after the pop scale rather than before it, so the band stays in
+      // frame coordinates while the ink has already shrunk toward its centre.
+      if (rsvpBand && rsvpFadeStops) {
+        ctx.save()
+        // The band is in frame coordinates, so the mask must ignore the pop
+        // transform that may still be active.
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+        const bandRight = rsvpBand.left + rsvpBand.width
+        const gradient = ctx.createLinearGradient(rsvpBand.left, 0, bandRight, 0)
+        for (const [offset, alpha] of rsvpFadeStops) {
+          gradient.addColorStop(offset, `rgba(0,0,0,${alpha})`)
+        }
+        ctx.globalCompositeOperation = 'destination-in'
+        ctx.fillStyle = gradient
+        // Whole canvas: a gradient extends its terminal stops, so the alpha-0 ends
+        // also clear every pixel outside the band.
+        ctx.fillRect(0, 0, resW, resH)
+        ctx.restore()
+
+        ctx.save()
+        ctx.globalCompositeOperation = 'destination-over'
+        drawRsvpReticle()
+        drawGroupBg()
+        ctx.restore()
+      }
+
       if (popScale !== 1) ctx.restore()
     },
-    [canvasRef, anchorRef, segments, settings, resolution]
+    [canvasRef, anchorRef, groups, settings, resolution]
   ) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Re-fit the letterbox transform when the anchor resizes (flex layout /

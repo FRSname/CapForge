@@ -48,7 +48,16 @@ GSAP_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
 # a fresh scaffold would today. The fingerprint cache keys on (fingerprint,
 # SCAFFOLD_VERSION); bumping this forces every cached project to re-scaffold so a
 # code change to the HTML generator can never serve a stale (old-shape) preview.
-SCAFFOLD_VERSION = 7
+# 10: the caption runtime gained the RSVP renderer (``reading_mode='rsvp'``) —
+# ``RSVP_BUILD_JS`` plus the ``.crsvp-*`` CSS and the reordered background-box
+# sizing in ``__capBuild``.
+# 11: RSVP reels — ``groups_for_render`` now joins continuous caption groups into
+# one (``rsvp_reels.py``) in ``reading_mode='rsvp'``, so the same transcript emits
+# one ``.cgroup`` per *reel* instead of per group. The fingerprint feeds the
+# post-merge groups and would already invalidate on its own; the bump is belt and
+# braces for the case this constant exists for — an old cache serving a preview
+# built by yesterday's generator.
+SCAFFOLD_VERSION = 11
 
 # Fingerprint sidecar written next to ``index.html`` after a successful scaffold.
 # ``ensure_hyperframes_project`` reads it to decide whether the existing scaffold

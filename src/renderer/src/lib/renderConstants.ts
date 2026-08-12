@@ -27,3 +27,26 @@ export const DEFAULT_GAP_CLOSE_THRESHOLD = 0.25
  *  stops. Travels as `last_group_hold`. NOT idempotent — apply once per
  *  pipeline. */
 export const DEFAULT_LAST_GROUP_HOLD = 1.0
+
+/* ── RSVP ("speed reading") defaults ───────────────────────────────────────
+ * The pivot column and the focus colour are MEASURED ground truth from the
+ * reference clip (docs/plans/rsvp-speed-reading-mode.md → "Measurements taken
+ * from the reference clip"): the orange focus glyph sits at 35% of the caption
+ * band across all 156 sampled frames, in rgb(228,133,31). Do not re-derive or
+ * "tidy" these two values.
+ */
+
+/** RSVP focus column, as a UI percentage of the caption band width (0–100). */
+export const RSVP_DEFAULT_PIVOT_X = 35
+
+/** RSVP focus-glyph colour — the one letter pinned to the pivot column. */
+export const RSVP_DEFAULT_FOCUS_COLOR = '#E4851F'
+
+/** Opacity of the non-active (context) words. 0–1 FRACTION, not a percentage. */
+export const RSVP_DEFAULT_CONTEXT_OPACITY = 0.75
+
+/** Line-slide duration in SECONDS (eased power1.out at each word boundary). */
+export const RSVP_DEFAULT_SLIDE_DURATION = 0.06
+
+/** Edge fade width, as a UI percentage of the caption band width (0–100). */
+export const RSVP_DEFAULT_EDGE_FADE = 12

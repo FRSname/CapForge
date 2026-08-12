@@ -58,6 +58,87 @@ describe('applySettingsCommand', () => {
     expect(next?.posY).toBe(70)
   })
 
+  it('skips an unknown readingMode instead of sending it to the backend', () => {
+    // reading_mode is a Literal['wrap','rsvp'] on VideoRenderConfig: an unknown
+    // mode in the mirrored config fails every later render with a 422. Nothing
+    // in the patch is usable, so nothing changed — the command reports null.
+    expect(
+      applySettingsCommand(STUDIO_DEFAULTS, {
+        op: 'set_settings',
+        payload: { patch: { readingMode: 'turbo', rsvpFocusColor: 'orange' } },
+      })
+    ).toBeNull()
+  })
+
+  it('keeps the user in RSVP when an agent typos readingMode', () => {
+    // The destructive version of this bug: resetting to the *default* would flip
+    // a user who is mid-RSVP back to wrap and still report success.
+    const rsvpUser = { ...STUDIO_DEFAULTS, readingMode: 'rsvp' as const }
+    expect(
+      applySettingsCommand(rsvpUser, {
+        op: 'set_settings',
+        payload: { patch: { readingMode: 'turbo' } },
+      })
+    ).toBeNull()
+    // ...while a valid mode change still lands.
+    const next = applySettingsCommand(rsvpUser, {
+      op: 'set_settings',
+      payload: { patch: { readingMode: 'wrap' } },
+    })
+    expect(next?.readingMode).toBe('wrap')
+  })
+
+  it('keeps the current rsvpFocusColor / rsvpReticle on an invalid write', () => {
+    const styled = { ...STUDIO_DEFAULTS, rsvpFocusColor: '#00FF00', rsvpReticle: false }
+    expect(
+      applySettingsCommand(styled, {
+        op: 'set_settings',
+        payload: { patch: { rsvpFocusColor: 'orange', rsvpReticle: 'maybe' } },
+      })
+    ).toBeNull()
+
+    const next = applySettingsCommand(styled, {
+      op: 'set_settings',
+      payload: { patch: { rsvpFocusColor: '#123456', rsvpReticle: true } },
+    })
+    expect(next?.rsvpFocusColor).toBe('#123456')
+    expect(next?.rsvpReticle).toBe(true)
+  })
+
+  it('applies the good keys of a patch whose non-numeric value is invalid', () => {
+    const rsvpUser = { ...STUDIO_DEFAULTS, readingMode: 'rsvp' as const }
+    const next = applySettingsCommand(rsvpUser, {
+      op: 'set_settings',
+      payload: { patch: { readingMode: 'turbo', rsvpPivotX: 25 } },
+    })
+    expect(next?.readingMode).toBe('rsvp')
+    expect(next?.rsvpPivotX).toBe(25)
+  })
+
+  it('applies a valid RSVP patch, honouring each field’s unit', () => {
+    const next = applySettingsCommand(STUDIO_DEFAULTS, {
+      op: 'set_settings',
+      payload: {
+        patch: {
+          readingMode: 'rsvp',
+          rsvpPivotX: 40,
+          rsvpFocusColor: '#123456',
+          // 75 into a 0-1 fraction field is the shadowOpacity mistake again.
+          rsvpContextOpacity: 75,
+          // ...while 1 here is a legitimate one-second slide.
+          rsvpSlideDuration: 1,
+          rsvpReticle: false,
+        },
+      },
+    })
+    expect(next?.readingMode).toBe('rsvp')
+    expect(next?.rsvpPivotX).toBe(40)
+    expect(next?.rsvpFocusColor).toBe('#123456')
+    expect(next?.rsvpContextOpacity).toBe(0.75)
+    expect(next?.rsvpSlideDuration).toBe(1)
+    expect(next?.rsvpReticle).toBe(false)
+  })
+
   it('drops a numeric key whose value is not a number, keeping the current one', () => {
     const next = applySettingsCommand(STUDIO_DEFAULTS, {
       op: 'set_settings',
@@ -213,7 +294,10 @@ describe('toastMessageForCommand', () => {
   })
 
   it('names the preset when the resolved name is known', () => {
-    const toast = toastMessageForCommand({ op: 'apply_preset', payload: { name: 'my style' } }, 'My Style')
+    const toast = toastMessageForCommand(
+      { op: 'apply_preset', payload: { name: 'my style' } },
+      'My Style'
+    )
     expect(toast.message).toBe('Agent applied the "My Style" preset.')
   })
 })

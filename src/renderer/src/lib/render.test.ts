@@ -62,6 +62,14 @@ const GOLDEN_DEFAULT_CONFIG = {
   word_transition: 'highlight',
   crossfade_duration: 0.06,
 
+  reading_mode: 'wrap',
+  rsvp_pivot_x: 0.35,
+  rsvp_focus_color: '#E4851F',
+  rsvp_context_opacity: 0.75,
+  rsvp_slide_duration: 0.06,
+  rsvp_edge_fade: 0.12,
+  rsvp_reticle: true,
+
   highlight_radius: 16,
   highlight_padding_x: 17,
   highlight_padding_y: 17,
@@ -131,6 +139,32 @@ describe('buildRenderBody — unit conversions', () => {
     )
     expect(body.config.gap_close_threshold).toBe(0.4)
     expect(body.config.last_group_hold).toBe(2)
+  })
+
+  test('the RSVP band percentages become fractions', () => {
+    const body = buildRenderBody(
+      { ...STUDIO_DEFAULTS, readingMode: 'rsvp', rsvpPivotX: 35, rsvpEdgeFade: 12 },
+      [],
+      false
+    )
+    expect(body.config.reading_mode).toBe('rsvp')
+    expect(body.config.rsvp_pivot_x).toBe(0.35)
+    expect(body.config.rsvp_edge_fade).toBe(0.12)
+  })
+
+  test('rsvpSlideDuration crosses the bridge in plain seconds', () => {
+    // The test that catches a wrong `fraction: true`/pct(): a 1s slide must
+    // arrive as 1, not 0.01.
+    const fast = buildRenderBody({ ...STUDIO_DEFAULTS, rsvpSlideDuration: 0.06 }, [], false)
+    expect(fast.config.rsvp_slide_duration).toBe(0.06)
+
+    const slow = buildRenderBody({ ...STUDIO_DEFAULTS, rsvpSlideDuration: 1 }, [], false)
+    expect(slow.config.rsvp_slide_duration).toBe(1)
+  })
+
+  test('rsvpContextOpacity is already a fraction and is never rescaled', () => {
+    const body = buildRenderBody({ ...STUDIO_DEFAULTS, rsvpContextOpacity: 0.4 }, [], false)
+    expect(body.config.rsvp_context_opacity).toBe(0.4)
   })
 
   test('a zero on either timing dial survives as 0, not the default', () => {

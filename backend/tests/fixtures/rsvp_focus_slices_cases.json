@@ -1,0 +1,205 @@
+{
+  "note": [
+    "Shared expected values for focusSlices() / focus_slices() / __capRsvp.focusSlices — the",
+    "FOURTH RSVP fixture, read by backend/tests/test_rsvp_core.py,",
+    "src/renderer/src/lib/rsvp.test.ts and src/renderer/src/lib/rsvp.embedded.test.ts. Never",
+    "hand-write an expected slice in a suite; add a case here so all three languages are pinned",
+    "by the same strings.",
+    "",
+    "focusSlices splits the ACTIVE word into the three pieces every renderer draws separately:",
+    "everything before the focus glyph, the focus glyph, everything after. Pillow draws three",
+    "Pillow pieces, the Canvas preview draws three fillText calls and the HTML layer emits three",
+    "<span>s, so the split has to live in one place per language or the rule gets hand-rolled a",
+    "fourth time and drifts.",
+    "",
+    "The contract under test is that the split is in Unicode CODE POINTS, not UTF-16 code units",
+    "(backend/exporters/rsvp.py is the reference; both JS copies normalize with Array.from). A",
+    "code-unit implementation cuts an astral glyph in half: 'a\\ud83c\\udfacb' sliced at unit 1",
+    "yields focus = the lone HIGH surrogate and suffix = the LOW surrogate + 'b' — two tofu",
+    "glyphs on screen and a wrong pivot. 7 of the 14 cases below fail such an implementation",
+    "(8 when its orpIndex counts code units too).",
+    "",
+    "prefix + focus + suffix must always rebuild the token; each suite asserts that separately,",
+    "derived rather than restated, so it also covers the cases listed here.",
+    "",
+    "f: null means 'derive it with orpIndex(token)', which covers the composition of the two",
+    "functions end to end. A number is passed through verbatim (clamping included).",
+    "",
+    "Fixture keys are deliberately camelCase in EVERY rsvp_*.json file — one shape read by both",
+    "a Python suite and two TS suites, so the Python side reads case[\"wordX\"] rather than each",
+    "language getting its own casing. Do NOT 'fix' these to snake_case: it breaks two suites."
+  ],
+  "cases": [
+    {
+      "name": "ASCII control",
+      "why": "'the' with f 1 splits into 't' / 'h' / 'e' — the same arithmetic the astral cases use",
+      "token": "the",
+      "f": 1,
+      "prefix": "t",
+      "focus": "h",
+      "suffix": "e"
+    },
+    {
+      "name": "f = 0 leaves an empty prefix",
+      "why": "the first glyph is the focus, so there is nothing before it — no undefined, no off-by-one",
+      "token": "the",
+      "f": 0,
+      "prefix": "",
+      "focus": "t",
+      "suffix": "he"
+    },
+    {
+      "name": "f at the last character leaves an empty suffix",
+      "why": "the mirror of the f = 0 case; the suffix slice must not wrap around",
+      "token": "the",
+      "f": 2,
+      "prefix": "th",
+      "focus": "e",
+      "suffix": ""
+    },
+    {
+      "name": "empty token yields three empty strings",
+      "why": "nothing to split; must not return undefined for the focus (which would draw 'undefined')",
+      "token": "",
+      "f": 0,
+      "prefix": "",
+      "focus": "",
+      "suffix": ""
+    },
+    {
+      "name": "astral focus char, ASCII on both sides",
+      "why": "'a🎬b' -> f 1 is the EMOJI, whole. A code-unit impl yields focus = the lone HIGH surrogate and suffix = the LOW surrogate + 'b'",
+      "token": "a🎬b",
+      "f": null,
+      "prefix": "a",
+      "focus": "🎬",
+      "suffix": "b"
+    },
+    {
+      "name": "astral in the PREFIX, ASCII focus and suffix",
+      "why": "'ab🎬cd' with f 3 puts the whole emoji in the prefix. A code-unit impl cuts it: prefix 'ab' + HIGH surrogate, focus = the LOW one",
+      "token": "ab🎬cd",
+      "f": 3,
+      "prefix": "ab🎬",
+      "focus": "c",
+      "suffix": "d"
+    },
+    {
+      "name": "astral in the SUFFIX only",
+      "why": "'ab🎬cd' -> f 1, so the emoji sits untouched in the suffix. Both indexings slice the same HERE — the case exists so a suffix pair is pinned as whole; it fails an impl whose orpIndex also counts code units (f 2)",
+      "token": "ab🎬cd",
+      "f": null,
+      "prefix": "a",
+      "focus": "b",
+      "suffix": "🎬cd"
+    },
+    {
+      "name": "all-astral token, derived f",
+      "why": "'𝔘𝔫𝔦' is 3 code points -> f 1. A code-unit impl splits '𝔘' itself in half and puts '𝔫𝔦' in the suffix",
+      "token": "𝔘𝔫𝔦",
+      "f": null,
+      "prefix": "𝔘",
+      "focus": "𝔫",
+      "suffix": "𝔦"
+    },
+    {
+      "name": "all-astral token, explicit last index",
+      "why": "f 2 of 3 code points: prefix is two whole glyphs and the suffix is empty. A code-unit impl reads unit 2 = the HIGH surrogate of '𝔫'",
+      "token": "𝔘𝔫𝔦",
+      "f": 2,
+      "prefix": "𝔘𝔫",
+      "focus": "𝔦",
+      "suffix": ""
+    },
+    {
+      "name": "astral across a breakpoint, derived f",
+      "why": "'🚀…abcdef' is 13 code points -> f 3, the fourth rocket. A code-unit impl lands inside the second rocket",
+      "token": "🚀🚀🚀🚀🚀🚀🚀abcdef",
+      "f": null,
+      "prefix": "🚀🚀🚀",
+      "focus": "🚀",
+      "suffix": "🚀🚀🚀abcdef"
+    },
+    {
+      "name": "out-of-range f clamps in code points",
+      "why": "'🎬' is ONE unit, so f 5 clamps to 0 and the whole emoji is the focus. A code-unit impl clamps to 1 and focuses the LOW surrogate",
+      "token": "🎬",
+      "f": 5,
+      "prefix": "",
+      "focus": "🎬",
+      "suffix": ""
+    },
+    {
+      "name": "negative f clamps to 0",
+      "why": "the low end of the same clamp; must not slice from the end of the token",
+      "token": "the",
+      "f": -3,
+      "prefix": "",
+      "focus": "t",
+      "suffix": "he"
+    },
+    {
+      "name": "unpaired surrogate is one whole unit",
+      "why": "MALFORMED but documented: 'a\\ud83cb' -> f 1 is the lone surrogate itself. Both indexings agree here — the point is that it can never be split, dropped or merged with a neighbour",
+      "token": "a\ud83cb",
+      "f": null,
+      "prefix": "a",
+      "focus": "\ud83c",
+      "suffix": "b"
+    },
+    {
+      "name": "NFD single letter composes to ONE code point",
+      "why": "'e' + U+0301 is NFC-normalised first, so f 0 focuses the composed 'e\u0301'. Without the NFC pin it is 2 code points -> f 1 -> the focus glyph is the BARE combining mark, which Pillow draws alone and a browser draws on a dotted circle (U+25CC)",
+      "token": "e\u0301",
+      "f": null,
+      "prefix": "",
+      "focus": "\u00e9",
+      "suffix": ""
+    },
+    {
+      "name": "NFD mark inside the token",
+      "why": "'n' + U+0303 + 'o' composes to 2 code points, so f 1 is the 'o'. Un-normalised it is 3 code points and f 1 is the tilde — the same index pointing at a different glyph, which is why rsvp_orp_cases alone cannot pin this",
+      "token": "n\u0303o",
+      "f": null,
+      "prefix": "\u00f1",
+      "focus": "o",
+      "suffix": ""
+    },
+    {
+      "name": "NFD token that also crosses an ORP breakpoint",
+      "why": "NFD 'naive' with a diaeresis composes to 5 code points -> f 1 -> 'a'; un-normalised it is 6 -> f 2 -> the bare diaeresis, and the suffix keeps the mark instead of the composed letter",
+      "token": "nai\u0308ve",
+      "f": null,
+      "prefix": "n",
+      "focus": "a",
+      "suffix": "\u00efve"
+    },
+    {
+      "name": "NFD mark in the SUFFIX composes too",
+      "why": "the pieces rebuild the NFC form, not the input: 'cafe' + U+0301 has the same f as the composed spelling, and the suffix is 'f\u00e9' — one code point per glyph, so no renderer is handed a lone mark",
+      "token": "cafe\u0301",
+      "f": null,
+      "prefix": "c",
+      "focus": "a",
+      "suffix": "f\u00e9"
+    },
+    {
+      "name": "RESIDUAL: a combining mark with no precomposed form",
+      "why": "ACCEPTED DELTA, documented rather than solved: U+0348 has no composition, so NFC leaves 2 code points and f 1 focuses the mark itself. All three renderers agree on the split; what they draw for a lone mark still differs (bare mark vs U+25CC). Unicode gives NFC nothing to compose here",
+      "token": "a\u0348",
+      "f": null,
+      "prefix": "a",
+      "focus": "\u0348",
+      "suffix": ""
+    },
+    {
+      "name": "unpaired surrogate beside a real pair",
+      "why": "MALFORMED: '\\ud83c' + '🎬' is 2 code points, so f 1 is the whole emoji. A code-unit impl focuses the emoji's HIGH surrogate and leaves the LOW one as the suffix",
+      "token": "\ud83c🎬",
+      "f": 1,
+      "prefix": "\ud83c",
+      "focus": "🎬",
+      "suffix": ""
+    }
+  ]
+}

@@ -60,6 +60,16 @@ export interface VanillaPreset {
   wordTransition?: string
   animation?: string
   animDur?: string | number
+  /** Caption layout mode — 'wrap' | 'rsvp'. Unknown values are dropped. */
+  readingMode?: string
+  rsvpPivotX?: string | number
+  rsvpFocusColor?: string
+  /** 0–1 fraction (like highlightOpacity), NOT a 0–100 percentage. */
+  rsvpContextOpacity?: string | number
+  /** Plain seconds — never rescaled on the way in or out. */
+  rsvpSlideDuration?: string | number
+  rsvpEdgeFade?: string | number
+  rsvpReticle?: boolean
   highlightRadius?: string | number
   highlightPadX?: string | number
   highlightPadY?: string | number
@@ -154,6 +164,19 @@ export function vanillaToStudio(p: VanillaPreset): Partial<StudioSettings> {
   if (p.animDur != null) out.animDuration = num(p.animDur, STUDIO_DEFAULTS.animDuration)
   if (p.wordTransition != null) out.wordStyle = p.wordTransition
 
+  // RSVP reading mode — a visual style, so a preset carries it. The mode itself
+  // is an enum: an unknown value is dropped (same shape as textAlignH above)
+  // rather than passed through to a backend Literal that would reject it.
+  if (p.readingMode === 'wrap' || p.readingMode === 'rsvp') out.readingMode = p.readingMode
+  if (p.rsvpPivotX != null) out.rsvpPivotX = num(p.rsvpPivotX, STUDIO_DEFAULTS.rsvpPivotX)
+  if (p.rsvpFocusColor != null) out.rsvpFocusColor = p.rsvpFocusColor
+  if (p.rsvpContextOpacity != null)
+    out.rsvpContextOpacity = num(p.rsvpContextOpacity, STUDIO_DEFAULTS.rsvpContextOpacity)
+  if (p.rsvpSlideDuration != null)
+    out.rsvpSlideDuration = num(p.rsvpSlideDuration, STUDIO_DEFAULTS.rsvpSlideDuration)
+  if (p.rsvpEdgeFade != null) out.rsvpEdgeFade = num(p.rsvpEdgeFade, STUDIO_DEFAULTS.rsvpEdgeFade)
+  if (p.rsvpReticle != null) out.rsvpReticle = Boolean(p.rsvpReticle)
+
   if (p.highlightRadius != null)
     out.highlightRadius = num(p.highlightRadius, STUDIO_DEFAULTS.highlightRadius)
   if (p.highlightPadX != null)
@@ -241,6 +264,13 @@ export function studioToVanilla(s: StudioSettings): VanillaPreset {
     animation: s.animationType,
     animDur: String(s.animDuration),
     wordTransition: s.wordStyle,
+    readingMode: s.readingMode,
+    rsvpPivotX: String(s.rsvpPivotX),
+    rsvpFocusColor: s.rsvpFocusColor,
+    rsvpContextOpacity: String(s.rsvpContextOpacity),
+    rsvpSlideDuration: String(s.rsvpSlideDuration),
+    rsvpEdgeFade: String(s.rsvpEdgeFade),
+    rsvpReticle: s.rsvpReticle,
     highlightRadius: String(s.highlightRadius),
     highlightPadX: String(s.highlightPadX),
     highlightPadY: String(s.highlightPadY),

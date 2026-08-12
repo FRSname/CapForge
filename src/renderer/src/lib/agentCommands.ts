@@ -11,7 +11,12 @@ import type { StudioSettings } from '../components/studio/StudioPanel'
 import type { ToastType } from '../hooks/useToast'
 import type { UserPreset } from '../hooks/useUserPresets'
 import { BUILTIN_PRESETS, applyPreset, type VanillaPreset } from './presets'
-import { isNumericSetting, sanitizeSettingValue } from './settingsSanitize'
+import {
+  coerceNonNumericSettingValue,
+  isNumericSetting,
+  isSanitizedNonNumericSetting,
+  sanitizeSettingValue,
+} from './settingsSanitize'
 
 /** A preset matched by name, carrying its canonical (as-saved) spelling. */
 export interface ResolvedPreset {
@@ -58,7 +63,13 @@ export function resolvePreset(
  * `sanitizeSettingValue` — an agent writing a value the backend's schema
  * rejects (most often a 0–100 percentage into a 0–1 fraction field like
  * `shadowOpacity`) would otherwise poison the mirrored render config and every
- * later render with it.
+ * later render with it. The few non-numeric keys with a closed value space
+ * (`readingMode`, `rsvpFocusColor`, `rsvpReticle`) go through
+ * `coerceNonNumericSettingValue` for the same reason. Both guards SKIP an
+ * unusable value rather than substituting a default: this is a live patch onto
+ * settings the user is looking at, so a typo must not drag them out of RSVP or
+ * reset their focus colour — and a patch of nothing but bad values reports no
+ * change at all (returns null), instead of a silent success.
  *
  * `userPresets` is optional so existing callers/tests that only care about
  * built-ins keep working; pass the live library to make user presets reachable.
@@ -79,6 +90,15 @@ export function applySettingsCommand(
         // valid value survives instead of writing something unrenderable.
         const clean = sanitizeSettingValue(key, value)
         if (clean == null) continue
+        ;(next as unknown as Record<string, unknown>)[key] = clean
+      } else if (isSanitizedNonNumericSetting(key)) {
+        // Closed value space (readingMode's enum, a hex colour, a bool). An
+        // unrecognised value would be rejected by the backend at render time, so
+        // drop the key — same contract as the numeric branch above, and NOT the
+        // reset-to-default that `sanitizeNonNumericSettingValue` does when
+        // repairing already-stored data.
+        const clean = coerceNonNumericSettingValue(key, value)
+        if (clean === undefined) continue
         ;(next as unknown as Record<string, unknown>)[key] = clean
       } else {
         ;(next as unknown as Record<string, unknown>)[key] = value

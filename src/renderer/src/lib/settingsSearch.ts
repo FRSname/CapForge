@@ -20,7 +20,7 @@
 
 import type { StudioSettings } from '../components/studio/StudioPanel'
 
-export type CardId = 'typography' | 'colors' | 'layout' | 'background' | 'animation'
+export type CardId = 'typography' | 'colors' | 'layout' | 'background' | 'animation' | 'reading'
 
 export const CARD_TITLES: Record<CardId, string> = {
   typography: 'Typography',
@@ -28,6 +28,7 @@ export const CARD_TITLES: Record<CardId, string> = {
   layout: 'Layout',
   background: 'Background',
   animation: 'Animation',
+  reading: 'Reading',
 }
 
 /** Keys reset by each card's "reset section" button. */
@@ -85,6 +86,15 @@ export const CARD_SETTINGS: Record<CardId, Array<keyof StudioSettings>> = {
     'underlineWidth',
     'bounceStrength',
     'scaleFactor',
+  ],
+  reading: [
+    'readingMode',
+    'rsvpPivotX',
+    'rsvpSlideDuration',
+    'rsvpContextOpacity',
+    'rsvpEdgeFade',
+    'rsvpFocusColor',
+    'rsvpReticle',
   ],
 }
 
@@ -233,6 +243,43 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
   { label: 'Color', cardId: 'animation', keywords: ['underline color'] },
   { label: 'Strength', cardId: 'animation', keywords: ['bounce strength'] },
   { label: 'Factor', cardId: 'animation', keywords: ['scale factor', 'zoom'] },
+  // Reading (RSVP). Every row carries the mode's own vocabulary as well as its
+  // own, so searching "spritz" or "orp" surfaces the whole card.
+  {
+    label: 'Reading mode',
+    cardId: 'reading',
+    keywords: ['speed read', 'rsvp', 'spritz', 'reading', 'wrap', 'layout'],
+  },
+  {
+    label: 'Focus column',
+    cardId: 'reading',
+    keywords: ['pivot', 'focus letter', 'orp', 'speed read', 'rsvp', 'spritz', 'reading'],
+  },
+  {
+    label: 'Slide',
+    cardId: 'reading',
+    keywords: ['speed read', 'rsvp', 'spritz', 'reading', 'slide duration', 'seconds'],
+  },
+  {
+    label: 'Context',
+    cardId: 'reading',
+    keywords: ['speed read', 'rsvp', 'spritz', 'reading', 'context opacity', 'transparency'],
+  },
+  {
+    label: 'Edge fade',
+    cardId: 'reading',
+    keywords: ['speed read', 'rsvp', 'spritz', 'reading', 'fade', 'mask'],
+  },
+  {
+    label: 'Focus color',
+    cardId: 'reading',
+    keywords: ['speed read', 'rsvp', 'spritz', 'reading', 'focus letter', 'orp', 'color'],
+  },
+  {
+    label: 'Reticle',
+    cardId: 'reading',
+    keywords: ['speed read', 'rsvp', 'spritz', 'reading', 'guide', 'notch', 'crosshair'],
+  },
 ]
 
 export interface SearchFilter {
