@@ -114,6 +114,8 @@ export function activeInWindow(
  * `backend/tests/test_rsvp_core.py`).
  */
 export const MIN_ORP_CASES = 20
+/** Mirrored by `MIN_REEL_CASES` in `backend/tests/test_rsvp_reels.py`. */
+export const MIN_REEL_CASES = 18
 export const MIN_FOCUS_OFFSET_CASES = 8
 export const MIN_FOCUS_SLICES_CASES = 8
 export const MIN_LAST_STARTED_CASES = 15
@@ -358,6 +360,68 @@ export function loadLastStartedCases(): LastStartedCase[] {
       t: time(c.t, `${at}.t`),
       expected: num(c.expected, `${at}.expected`),
       activeInWindow: num(c.activeInWindow, `${at}.activeInWindow`),
+    }
+  })
+}
+
+/**
+ * One normalised group in `rsvp_reel_cases.json`: the shape both reel
+ * implementations map their own group type into. `start`/`end` may be the `"NaN"`
+ * sentinel; `speaker`/`posX`/`posY` are `null` when unset.
+ */
+export interface ReelGroupRow {
+  readonly start: number
+  readonly end: number
+  readonly speaker: string | null
+  readonly posX: number | null
+  readonly posY: number | null
+}
+
+export interface ReelCase {
+  readonly name: string
+  readonly groups: readonly ReelGroupRow[]
+  /** Expected `[startIndex, endIndexExclusive]` ranges over `groups`. */
+  readonly reels: ReadonlyArray<readonly [number, number]>
+}
+
+/** `null` or a number — an unset position-override component. */
+function optionalNumber(value: unknown, where: string): number | null {
+  return value === null ? null : num(value, where)
+}
+
+/**
+ * `rsvp_reel_cases.json` → the shared break-rule cases.
+ *
+ * Read by `rsvpReels.test.ts` here and by `backend/tests/test_rsvp_reels.py` on the
+ * other side, so the two implementations of the rule cannot drift.
+ */
+export function loadReelCases(): ReelCase[] {
+  const file = 'rsvp_reel_cases.json'
+  const root = obj(readJson(file), file)
+  return asArray(root.cases, `${file}.cases`).map((raw, i) => {
+    const at = `${file}.cases[${i}]`
+    const c = obj(raw, at)
+    if (!Array.isArray(c.groups)) throw new Error(`${at}.groups must be an array`)
+    if (!Array.isArray(c.reels)) throw new Error(`${at}.reels must be an array`)
+    return {
+      name: str(c.name, `${at}.name`),
+      groups: c.groups.map((rawGroup, j) => {
+        const g = obj(rawGroup, `${at}.groups[${j}]`)
+        return {
+          start: time(g.start, `${at}.groups[${j}].start`),
+          end: time(g.end, `${at}.groups[${j}].end`),
+          speaker: g.speaker === null ? null : str(g.speaker, `${at}.groups[${j}].speaker`),
+          posX: optionalNumber(g.posX, `${at}.groups[${j}].posX`),
+          posY: optionalNumber(g.posY, `${at}.groups[${j}].posY`),
+        }
+      }),
+      reels: c.reels.map((rawRange, j) => {
+        const where = `${at}.reels[${j}]`
+        if (!Array.isArray(rawRange) || rawRange.length !== 2) {
+          throw new Error(`${where}: expected a [start, end] pair`)
+        }
+        return [num(rawRange[0], `${where}[0]`), num(rawRange[1], `${where}[1]`)] as const
+      }),
     }
   })
 }
