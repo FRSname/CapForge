@@ -2,6 +2,8 @@
 
 ![CapForge demo](capforge-anim.gif)
 
+▶ **[Watch the tutorial — how to use CapForge](https://www.youtube.com/watch?v=7xxLt5FEq1E)**
+
 **Automatic subtitle generator with word-by-word alignment, inline editing, and styled video rendering.**
 
 A standalone desktop app built with **Electron + React + TypeScript** on top of a **Python FastAPI** backend powered by [WhisperX](https://github.com/m-bain/whisperX) and NVIDIA CUDA.
