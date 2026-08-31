@@ -22,13 +22,13 @@ def test_cues_have_no_entry_numbers(transcription_result):
 def test_timestamps_use_dot_millisecond_separator(transcription_result):
     out = export_vtt(transcription_result)
     assert "," not in out
-    assert "00:01:01.250 --> 01:02:03.500" in out
+    assert "01:02:02.000 --> 01:02:03.500" in out
 
 
 def test_text_is_stripped(transcription_result):
     out = export_vtt(transcription_result)
-    assert "Crossing the hour" in out.splitlines()
-    assert "  Crossing the hour  " not in out
+    assert "Crossing" in out.splitlines()
+    assert "  Crossing" not in out
 
 
 def test_milliseconds_truncate_to_three_digits():

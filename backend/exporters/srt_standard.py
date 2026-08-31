@@ -1,5 +1,13 @@
-"""Standard sentence-level SRT exporter."""
+"""Standard sentence-level SRT exporter.
 
+One cue per *sentence-sized chunk*, not per WhisperX segment — a segment is a
+VAD/decoder chunk that routinely spans several sentences, which used to produce
+single subtitles holding a whole paragraph on one line. ``cue_split`` owns that
+policy (line length, line count, duration) and the timing rules; this module
+only formats.
+"""
+
+from backend.exporters.cue_split import split_segments
 from backend.models.schemas import TranscriptionResult
 
 
@@ -12,11 +20,11 @@ def _fmt(seconds: float) -> str:
 
 
 def export_srt_standard(result: TranscriptionResult) -> str:
-    """Return SRT string with one segment (sentence/phrase) per entry."""
+    """Return SRT string with one readable subtitle cue per entry."""
     lines: list[str] = []
-    for idx, seg in enumerate(result.segments, start=1):
+    for idx, cue in enumerate(split_segments(result.segments), start=1):
         lines.append(str(idx))
-        lines.append(f"{_fmt(seg.start)} --> {_fmt(seg.end)}")
-        lines.append(seg.text.strip())
+        lines.append(f"{_fmt(cue.start)} --> {_fmt(cue.end)}")
+        lines.extend(cue.lines)
         lines.append("")
     return "\n".join(lines)

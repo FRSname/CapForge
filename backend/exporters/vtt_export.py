@@ -1,5 +1,9 @@
-"""WebVTT exporter."""
+"""WebVTT exporter.
 
+Shares the cue-splitting policy with the SRT exporter — see ``cue_split``.
+"""
+
+from backend.exporters.cue_split import split_segments
 from backend.models.schemas import TranscriptionResult
 
 
@@ -12,10 +16,10 @@ def _fmt(seconds: float) -> str:
 
 
 def export_vtt(result: TranscriptionResult) -> str:
-    """Return WebVTT string with one segment per cue."""
+    """Return WebVTT string with one readable subtitle cue per entry."""
     lines: list[str] = ["WEBVTT", ""]
-    for seg in result.segments:
-        lines.append(f"{_fmt(seg.start)} --> {_fmt(seg.end)}")
-        lines.append(seg.text.strip())
+    for cue in split_segments(result.segments):
+        lines.append(f"{_fmt(cue.start)} --> {_fmt(cue.end)}")
+        lines.extend(cue.lines)
         lines.append("")
     return "\n".join(lines)

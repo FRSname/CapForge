@@ -240,7 +240,7 @@ const DEFAULTS: StudioSettings = {
 interface StudioPanelProps {
   settings?: StudioSettings
   onChange?: (s: StudioSettings) => void
-  /** Current display groups — forwarded to ExportPanel for custom_groups payload. */
+  /** Current display groups — sent as the render's custom_groups payload (useRender). */
   groups?: Segment[]
   /** True once the user has manually edited groups (merge/split/reorder/overrides). */
   groupsEdited?: boolean
