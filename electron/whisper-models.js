@@ -36,7 +36,7 @@ const WHISPER_MODELS = [
   {
     id: 'large-v3-turbo',
     label: 'Large Turbo',
-    blurb: 'Best accuracy — needs a GPU or a fast, roomy machine',
+    blurb: 'Best accuracy — the default; slower on CPU-only machines',
     sizeMb: 1600,
   },
 ]
@@ -46,38 +46,18 @@ function formatModelSize(sizeMb) {
   return sizeMb >= 1000 ? `${(sizeMb / 1000).toFixed(1)} GB` : `${sizeMb} MB`
 }
 
-// RAM thresholds (GB) for the CPU-only ladder. Named rather than inlined so the
-// wizard copy and the test read the same numbers.
-const RAM_GB_FOR_SMALL = 16
-const RAM_GB_FOR_BASE = 8
-
 /**
- * Which model to PRE-SELECT in the first-run wizard. A suggestion only — every
- * option stays choosable, and the user can change it later in Settings.
+ * The model the first-run wizard pre-selects, on every machine.
  *
- * Note this is a *different* ladder from `backend/engine/hardware.py`'s: that one
- * is VRAM-based and re-runs per transcription, this one is RAM-based and runs
- * once, because `platform.detectAccelerator()` reports no VRAM (only
- * `{present, name, kind}`) — so any CUDA GPU is treated as turbo-capable here and
- * the backend's finer VRAM ladder still applies at transcription time.
+ * Deliberately the largest option: smaller models are noticeably worse at
+ * transcription quality, so turbo is what most users should end up with. The
+ * point of the picker is that the 1.6 GB is now an *informed* choice with the
+ * size on screen and a one-click downgrade, not a silent default.
  *
- * @param {{ acceleratorKind?: string, totalRamGb?: number }} profile
- * @returns {string} a model id from WHISPER_MODELS
+ * Note the wizard does NOT record this choice in app-state when the user
+ * accepts it — see the seeding rule in main.js — so `hardware.py`'s VRAM ladder
+ * still downgrades small-VRAM GPUs at transcription time.
  */
-function suggestModel({ acceleratorKind, totalRamGb } = {}) {
-  if (acceleratorKind === 'cuda') return 'large-v3-turbo'
-  // Unknown RAM (detection failed) is treated as the conservative middle rather
-  // than as 0 — guessing 'tiny' for a capable machine is as wrong as the reverse.
-  if (typeof totalRamGb !== 'number' || !Number.isFinite(totalRamGb)) return 'base'
-  if (totalRamGb >= RAM_GB_FOR_SMALL) return 'small'
-  if (totalRamGb >= RAM_GB_FOR_BASE) return 'base'
-  return 'tiny'
-}
+const RECOMMENDED_MODEL = 'large-v3-turbo'
 
-module.exports = {
-  WHISPER_MODELS,
-  formatModelSize,
-  suggestModel,
-  RAM_GB_FOR_SMALL,
-  RAM_GB_FOR_BASE,
-}
+module.exports = { WHISPER_MODELS, formatModelSize, RECOMMENDED_MODEL }

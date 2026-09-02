@@ -335,3 +335,50 @@ Landed on `feat/selectable-whisper-model`. Deviations from the plan as written:
    `isRuntimeReady()`, so `whisper_model` stays unset and behaviour is unchanged — but
    confirm it).
 4. Windows wizard layout at 560x620 (only checked on macOS).
+
+
+---
+
+## Follow-up (2026-09-02, after first live test)
+
+Live test confirmed the Settings dropdown actually switches the model used. Two
+changes on top of the first commit:
+
+### 1. Large Turbo is the recommendation on every machine
+
+Product call by the owner: smaller models give noticeably worse transcription
+quality. The RAM ladder (`suggestModel`, `RAM_GB_FOR_*`) is deleted and replaced by
+a plain `RECOMMENDED_MODEL = 'large-v3-turbo'` constant.
+
+This does **not** undo the feature. The original complaint was that CapForge
+*silently* downloaded and used 1.6 GB with no alternative. The picker now shows every
+option with its size, and Settings changes it afterwards — the 1.6 GB is an informed
+choice rather than an invisible default. `os.totalmem()` is kept, but only to display
+"· 8 GB RAM" next to the accelerator so the user can judge whether to override.
+
+Turbo's blurb was reworded from "needs a GPU or a fast, roomy machine" to
+"the default; slower on CPU-only machines" — recommending a model whose own
+description says it needs hardware the user doesn't have reads badly.
+
+### 2. Fixed a VRAM regression introduced by the first commit
+
+Seeding `app-state.whisper_model` with the installed model made *every* transcription
+pass an explicit model, which **bypasses `hardware.py`'s VRAM ladder**
+(`backend/engine/hardware.py:44-52`). A CUDA GPU with < 4 GB VRAM used to be
+auto-downgraded to `small`/`base`; after the first commit it would have been forced
+onto turbo and could OOM.
+
+The fix is a seeding rule in `main.js`: **record the installed model only when the user
+overrode the recommendation.** Accepting it leaves `whisper_model` unset ("Auto"), so
+the backend keeps deciding and the VRAM ladder still protects small-VRAM GPUs.
+"Auto" is the honest label for "I took the recommendation".
+
+Consequence to know: on a small-VRAM GPU the wizard installs turbo but the first
+transcription resolves to `small` and downloads it (~485 MB). Wasteful in that narrow
+case, but correct — and the alternative is an OOM.
+
+### Verified after the follow-up
+
+- typecheck clean; 942 vitest passed / 35 files; lint 0 errors; 106 electron tests passed.
+- Wizard re-rendered against the same simulated 8 GB CPU-only profile: **Large Turbo —
+  RECOMMENDED** pre-selected, total ~2.2 GB, Install enabled, fits the 560x620 window.

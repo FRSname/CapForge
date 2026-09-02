@@ -8,13 +8,7 @@
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
 
-const {
-  WHISPER_MODELS,
-  formatModelSize,
-  suggestModel,
-  RAM_GB_FOR_SMALL,
-  RAM_GB_FOR_BASE,
-} = require('./whisper-models')
+const { WHISPER_MODELS, formatModelSize, RECOMMENDED_MODEL } = require('./whisper-models')
 
 // --- the list ---------------------------------------------------------------
 
@@ -58,51 +52,22 @@ test('formatModelSize switches to GB at 1000 MB', () => {
   assert.equal(formatModelSize(1600), '1.6 GB')
 })
 
-// --- suggestModel -----------------------------------------------------------
+// --- RECOMMENDED_MODEL -------------------------------------------------------
 
-test('a CUDA GPU is suggested turbo regardless of system RAM', () => {
-  // detectAccelerator reports no VRAM, so any CUDA card is treated as capable;
-  // the backend's finer VRAM ladder still applies at transcription time.
-  assert.equal(suggestModel({ acceleratorKind: 'cuda', totalRamGb: 4 }), 'large-v3-turbo')
-  assert.equal(suggestModel({ acceleratorKind: 'cuda', totalRamGb: 64 }), 'large-v3-turbo')
+test('the wizard recommends Large Turbo', () => {
+  // Quality first: smaller models are noticeably worse, so turbo is the default
+  // everywhere. The picker makes the 1.6 GB an informed choice, not a silent one.
+  assert.equal(RECOMMENDED_MODEL, 'large-v3-turbo')
 })
 
-test('CPU-only machines get a model matched to their RAM', () => {
-  assert.equal(suggestModel({ acceleratorKind: 'cpu', totalRamGb: 4 }), 'tiny')
-  assert.equal(suggestModel({ acceleratorKind: 'cpu', totalRamGb: 7.9 }), 'tiny')
-  assert.equal(suggestModel({ acceleratorKind: 'cpu', totalRamGb: 8 }), 'base')
-  assert.equal(suggestModel({ acceleratorKind: 'cpu', totalRamGb: 12 }), 'base')
-  assert.equal(suggestModel({ acceleratorKind: 'cpu', totalRamGb: 16 }), 'small')
-  assert.equal(suggestModel({ acceleratorKind: 'cpu', totalRamGb: 64 }), 'small')
-})
-
-test('the reported 8 GB / integrated-graphics laptop is suggested base', () => {
-  // The machine from the original feature request: 8 GB RAM, no CUDA.
-  assert.equal(suggestModel({ acceleratorKind: 'cpu', totalRamGb: 8 }), 'base')
-})
-
-test('the ladder boundaries match the exported constants', () => {
-  assert.equal(suggestModel({ acceleratorKind: 'cpu', totalRamGb: RAM_GB_FOR_SMALL }), 'small')
-  assert.equal(suggestModel({ acceleratorKind: 'cpu', totalRamGb: RAM_GB_FOR_BASE }), 'base')
-})
-
-test('unknown RAM falls back to the conservative middle, not to tiny', () => {
-  assert.equal(suggestModel({ acceleratorKind: 'cpu' }), 'base')
-  assert.equal(suggestModel({ acceleratorKind: 'cpu', totalRamGb: NaN }), 'base')
-  assert.equal(suggestModel({}), 'base')
-  assert.equal(suggestModel(), 'base')
-})
-
-test('every suggestion is an id the wizard can actually install', () => {
+test('the recommendation is a model the wizard can actually install', () => {
   const ids = new Set(WHISPER_MODELS.map((m) => m.id))
-  const profiles = [
-    { acceleratorKind: 'cuda' },
-    { acceleratorKind: 'cpu', totalRamGb: 2 },
-    { acceleratorKind: 'cpu', totalRamGb: 8 },
-    { acceleratorKind: 'cpu', totalRamGb: 32 },
-    {},
-  ]
-  for (const p of profiles) {
-    assert.ok(ids.has(suggestModel(p)), `${JSON.stringify(p)} suggested an unknown id`)
-  }
+  assert.ok(ids.has(RECOMMENDED_MODEL), `${RECOMMENDED_MODEL} is not in WHISPER_MODELS`)
+})
+
+test('the recommendation is the largest option', () => {
+  // If a bigger model is ever added, this fails as a prompt to decide whether
+  // it should become the new recommendation rather than sitting unused.
+  const largest = WHISPER_MODELS.reduce((a, b) => (b.sizeMb > a.sizeMb ? b : a))
+  assert.equal(RECOMMENDED_MODEL, largest.id)
 })

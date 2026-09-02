@@ -35,7 +35,7 @@ export const WHISPER_MODELS: WhisperModelOption[] = [
   {
     id: 'large-v3-turbo',
     label: 'Large Turbo',
-    blurb: 'Best accuracy — needs a GPU or a fast, roomy machine',
+    blurb: 'Best accuracy — the default; slower on CPU-only machines',
     sizeMb: 1600,
   },
 ]
@@ -44,3 +44,10 @@ export const WHISPER_MODELS: WhisperModelOption[] = [
 export function formatModelSize(sizeMb: number): string {
   return sizeMb >= 1000 ? `${(sizeMb / 1000).toFixed(1)} GB` : `${sizeMb} MB`
 }
+
+/**
+ * The model the first-run wizard pre-selects, on every machine. Mirrored from
+ * the Electron module; see the note there on why accepting it deliberately
+ * leaves the Settings dropdown on "Auto".
+ */
+export const RECOMMENDED_MODEL = 'large-v3-turbo'

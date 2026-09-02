@@ -8,6 +8,7 @@ const path = require('path')
 const fs = require('fs')
 const { PythonBackend } = require('./python-manager')
 const { ensureRuntime, isRuntimeReady, detectSetupProfile } = require('./runtime-setup')
+const { RECOMMENDED_MODEL } = require('./whisper-models')
 const { ensureNodeRuntime } = require('./node-provision')
 const { ensureHyperframesRuntime, isHyperframesCurrent } = require('./hyperframes-provision')
 const { isNodeRuntimeReady } = require('./node-runtime')
@@ -308,10 +309,13 @@ async function runFirstTimeSetup() {
           onProgress: reportProgress,
           model: options.model,
         })
-        // Seed the Settings dropdown with what was actually installed, so the
-        // first transcription uses it instead of silently re-downloading the
-        // hardware default.
-        if (installedModel) appState.set('whisper_model', installedModel)
+        // Record the installed model ONLY when the user overrode the
+        // recommendation. Accepting it leaves whisper_model unset ("Auto"), so
+        // hardware.py's VRAM ladder still applies and a small-VRAM GPU gets
+        // downgraded at transcription time instead of being forced onto turbo.
+        if (installedModel && installedModel !== RECOMMENDED_MODEL) {
+          appState.set('whisper_model', installedModel)
+        }
         // Provision the Node 22 runtime for HyperFrames. Best-effort: a failure
         // here must NOT block setup — HyperFrames degrades to "needs Node" while
         // classic captions and rendering still work.

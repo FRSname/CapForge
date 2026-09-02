@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createRequire } from 'node:module'
-import { WHISPER_MODELS, formatModelSize } from './whisperModels'
+import { WHISPER_MODELS, formatModelSize, RECOMMENDED_MODEL } from './whisperModels'
 
 const require_ = createRequire(import.meta.url)
 const ELECTRON_LIST = resolve(__dirname, '../../../../electron/whisper-models.js')
@@ -52,6 +52,12 @@ describe('whisperModels', () => {
     for (const m of WHISPER_MODELS) {
       expect(KNOWN.has(m.id), `${m.id} is not a faster-whisper model`).toBe(true)
     }
+  })
+
+  test('mirrors the Electron recommendation', () => {
+    const electron = require_(ELECTRON_LIST) as { RECOMMENDED_MODEL: string }
+    expect(RECOMMENDED_MODEL).toBe(electron.RECOMMENDED_MODEL)
+    expect(WHISPER_MODELS.map((m) => m.id)).toContain(RECOMMENDED_MODEL)
   })
 
   test('formats sizes for the download hint', () => {

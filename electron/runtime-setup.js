@@ -35,7 +35,7 @@ const https = require('https')
 const os = require('os')
 
 const platform = require('./platform')
-const { WHISPER_MODELS, formatModelSize, suggestModel } = require('./whisper-models')
+const { WHISPER_MODELS, formatModelSize, RECOMMENDED_MODEL } = require('./whisper-models')
 
 // Bump this whenever the install recipe changes (python version, package set,
 // platform module logic, etc.) — a mismatch forces a clean reinstall on next
@@ -59,9 +59,9 @@ const BACKEND_PACKAGES = [
 const GET_PIP_URL = 'https://bootstrap.pypa.io/get-pip.py'
 
 // Fallback Whisper model when the wizard passes no choice (e.g. a `force`
-// reinstall that skips the picker). The wizard normally supplies one — see
-// `suggestModel` in ./whisper-models.js for how it is pre-selected.
-const DEFAULT_MODEL = 'base'
+// reinstall that skips the picker). Same as what the wizard pre-selects, so the
+// two paths agree.
+const DEFAULT_MODEL = RECOMMENDED_MODEL
 
 /** Model ids the wizard is allowed to install — anything else is rejected. */
 const VALID_MODEL_IDS = new Set(WHISPER_MODELS.map((m) => m.id))
@@ -332,19 +332,19 @@ async function downloadModel(report, modelId) {
 }
 
 /**
- * Everything the first-run wizard needs to pre-select a model: the accelerator
- * plus total system RAM, which `platform.detectAccelerator()` does not report.
+ * Everything the first-run wizard needs to show its model picker: the
+ * accelerator, total system RAM (which `platform.detectAccelerator()` does not
+ * report), the model list, and which one to pre-select.
  */
 async function detectSetupProfile() {
   const accelerator = await platform.detectAccelerator()
+  // Shown next to the accelerator so the user can judge whether to accept the
+  // recommendation — it no longer feeds the choice itself.
   const totalRamGb = os.totalmem() / 1024 ** 3
   return {
     accelerator,
     totalRamGb,
-    suggestedModel: suggestModel({
-      acceleratorKind: accelerator.kind,
-      totalRamGb,
-    }),
+    suggestedModel: RECOMMENDED_MODEL,
     // Shipped over IPC rather than require()d by setup-window.html, so the
     // wizard never has to resolve a relative module path inside the asar.
     models: WHISPER_MODELS.map((m) => ({ ...m, sizeLabel: formatModelSize(m.sizeMb) })),
