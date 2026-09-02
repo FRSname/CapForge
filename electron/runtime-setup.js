@@ -8,7 +8,7 @@
  *   4. Bootstrap pip                    — shared
  *   5. Install WhisperX + backend deps  — shared
  *   6. Install correct torch variant    — platform.installTorch()
- *   7. Pre-download the default model   — shared
+ *   7. Pre-download the chosen Whisper model — shared (see ./whisper-models.js)
  *
  * Everything truly different between Windows and macOS lives in
  * `./platform/{win,mac}.js`. The rest — state file, progress plumbing, pip
@@ -32,8 +32,10 @@ const { spawn } = require('child_process')
 const path = require('path')
 const fs = require('fs')
 const https = require('https')
+const os = require('os')
 
 const platform = require('./platform')
+const { WHISPER_MODELS, formatModelSize, suggestModel } = require('./whisper-models')
 
 // Bump this whenever the install recipe changes (python version, package set,
 // platform module logic, etc.) — a mismatch forces a clean reinstall on next
@@ -56,9 +58,13 @@ const BACKEND_PACKAGES = [
 
 const GET_PIP_URL = 'https://bootstrap.pypa.io/get-pip.py'
 
-// Default Whisper model preloaded during first-run setup.
-// large-v3-turbo: ~1.6 GB, near-v3 quality at ~4x speed.
-const DEFAULT_MODEL = 'large-v3-turbo'
+// Fallback Whisper model when the wizard passes no choice (e.g. a `force`
+// reinstall that skips the picker). The wizard normally supplies one — see
+// `suggestModel` in ./whisper-models.js for how it is pre-selected.
+const DEFAULT_MODEL = 'base'
+
+/** Model ids the wizard is allowed to install — anything else is rejected. */
+const VALID_MODEL_IDS = new Set(WHISPER_MODELS.map((m) => m.id))
 
 // ---------------------------------------------------------------------------
 // Paths
@@ -258,16 +264,22 @@ async function installPackages(accelerator, report) {
 }
 
 /**
- * Pre-download the default Whisper model into CAPFORGE_MODEL_DIR by asking
+ * Pre-download the chosen Whisper model into CAPFORGE_MODEL_DIR by asking
  * the just-installed Python to call `whisperx.load_model` with
  * `download_root` pointed at our managed folder.
+ *
+ * `modelId` comes from the first-run wizard's picker. It is validated against
+ * WHISPER_MODELS rather than trusted, because it is interpolated into a Python
+ * source string below.
  */
-async function downloadDefaultModel(report) {
+async function downloadModel(report, modelId) {
+  const model = VALID_MODEL_IDS.has(modelId) ? modelId : DEFAULT_MODEL
+  const meta = WHISPER_MODELS.find((m) => m.id === model)
   const { pythonExe, modelDir } = getRuntimePaths()
   fs.mkdirSync(modelDir, { recursive: true })
   report({
     stage: 'model',
-    message: `Downloading Whisper model (${DEFAULT_MODEL}, ~1.6 GB)…`,
+    message: `Downloading Whisper model (${model}, ${formatModelSize(meta.sizeMb)})…`,
   })
   const script = [
     'import os, sys, traceback',
@@ -293,7 +305,7 @@ async function downloadDefaultModel(report) {
     'os.makedirs(model_dir, exist_ok=True)',
     'print(f"[capforge] Downloading into {model_dir}", flush=True)',
     'try:',
-    `    whisperx.load_model("${DEFAULT_MODEL}", "cpu", compute_type="int8", download_root=model_dir)`,
+    `    whisperx.load_model("${model}", "cpu", compute_type="int8", download_root=model_dir)`,
     'except Exception as e:',
     "    print('[capforge] load_model FAILED — full cause chain:', flush=True)",
     '    traceback.print_exc()',
@@ -316,6 +328,27 @@ async function downloadDefaultModel(report) {
     },
     onLine: (line) => report({ stage: 'model', message: line }),
   })
+  return model
+}
+
+/**
+ * Everything the first-run wizard needs to pre-select a model: the accelerator
+ * plus total system RAM, which `platform.detectAccelerator()` does not report.
+ */
+async function detectSetupProfile() {
+  const accelerator = await platform.detectAccelerator()
+  const totalRamGb = os.totalmem() / 1024 ** 3
+  return {
+    accelerator,
+    totalRamGb,
+    suggestedModel: suggestModel({
+      acceleratorKind: accelerator.kind,
+      totalRamGb,
+    }),
+    // Shipped over IPC rather than require()d by setup-window.html, so the
+    // wizard never has to resolve a relative module path inside the asar.
+    models: WHISPER_MODELS.map((m) => ({ ...m, sizeLabel: formatModelSize(m.sizeMb) })),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -326,7 +359,7 @@ async function downloadDefaultModel(report) {
  * Ensure the runtime is ready. Idempotent: returns immediately if already
  * installed and the state file matches RUNTIME_VERSION.
  */
-async function ensureRuntime({ onProgress, force = false } = {}) {
+async function ensureRuntime({ onProgress, force = false, model } = {}) {
   const report = (p) => {
     if (onProgress) onProgress(p)
   }
@@ -337,6 +370,7 @@ async function ensureRuntime({ onProgress, force = false } = {}) {
       pythonExe: getRuntimePaths().pythonExe,
       accelerator: state.accelerator || state.gpu,
       torchVariant: state.torchVariant,
+      model: state.model,
       alreadyReady: true,
     }
   }
@@ -356,7 +390,7 @@ async function ensureRuntime({ onProgress, force = false } = {}) {
   platform.patchPythonConfig(getRuntimePaths().pythonDir)
   await installPip(report)
   const torchVariant = await installPackages(accelerator, report)
-  await downloadDefaultModel(report)
+  const installedModel = await downloadModel(report, model)
 
   const state = {
     version: RUNTIME_VERSION,
@@ -365,7 +399,7 @@ async function ensureRuntime({ onProgress, force = false } = {}) {
     platform: platform.id,
     accelerator,
     torchVariant,
-    defaultModel: DEFAULT_MODEL,
+    model: installedModel,
   }
   writeState(state)
   report({ stage: 'done', message: 'Runtime ready.' })
@@ -374,6 +408,7 @@ async function ensureRuntime({ onProgress, force = false } = {}) {
     pythonExe: getRuntimePaths().pythonExe,
     accelerator,
     torchVariant,
+    model: installedModel,
     alreadyReady: false,
   }
 }
@@ -383,6 +418,7 @@ module.exports = {
   getRuntimePaths,
   isRuntimeReady,
   detectAccelerator: platform.detectAccelerator,
+  detectSetupProfile,
   RUNTIME_VERSION,
   // Reused by node-provision.js / hyperframes-provision.js (Node + HyperFrames).
   downloadFile,

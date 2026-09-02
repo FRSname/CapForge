@@ -165,16 +165,26 @@ def remove_filler_words(extra_fillers: Optional[list[str]] = None) -> dict:
 def transcribe(
     audio_path: str,
     language: Optional[str] = None,
+    model: Optional[str] = None,
     diarize: bool = False,
     output_dir: str = "output",
 ) -> dict:
-    """Start transcription of a media file. Blocks until done (can take minutes)."""
+    """Start transcription of a media file. Blocks until done (can take minutes).
+
+    `model` picks the Whisper model ("tiny", "base", "small", "large-v3-turbo");
+    omit it to use the model chosen at install time or matched to the hardware.
+    A model that is not on disk yet is downloaded on first use.
+    """
     payload = {
         "audio_path": audio_path,
         "language": language,
         "enable_diarization": diarize,
         "output_dir": output_dir,
     }
+    # Only send `model` when set — the backend reads a missing key as "auto",
+    # while an explicit null fails ModelSize validation.
+    if model:
+        payload["model"] = model
     return _client.transcribe(payload)
 
 

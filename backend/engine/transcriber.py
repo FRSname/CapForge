@@ -92,7 +92,16 @@ class Transcriber:
         hw = detect_hardware()
         device = hw.recommended_device.value
         compute_type = hw.recommended_compute_type.value
-        model_size = hw.recommended_model.value
+        # An explicit request.model wins over the hardware recommendation; device and
+        # compute type still come from the hardware, so picking a small model on a
+        # CUDA box keeps the fast path.
+        model_size = (request.model or hw.recommended_model).value
+        print(
+            f"[capforge] model={model_size} "
+            f"({'explicit' if request.model else 'auto'}) device={device} "
+            f"compute_type={compute_type}",
+            flush=True,
+        )
 
         self._device = device
         self._compute_type = compute_type

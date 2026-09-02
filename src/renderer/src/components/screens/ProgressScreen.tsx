@@ -56,13 +56,16 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
     startedRef.current = true
 
     async function run() {
-      const [language, diarize, hfToken] = await Promise.all([
+      const [language, model, diarize, hfToken] = await Promise.all([
         window.subforge.getState<string>('language', ''),
+        window.subforge.getState<string>('whisper_model', ''),
         window.subforge.getState<boolean>('diarize', false),
         window.subforge.getState<string>('hf_token', ''),
       ])
       return start(filePath, {
         language: language || undefined,
+        // '' means "auto" — the backend then picks from detected hardware.
+        model: model || undefined,
         diarize,
         hfToken: hfToken || undefined,
       })

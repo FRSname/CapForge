@@ -52,6 +52,8 @@ export function formatValidationDetail(detail: unknown[]): string {
 export interface TranscribeParams {
   audio_path: string
   language?: string
+  /** Whisper model name; omit for the backend's hardware-recommended default. */
+  model?: string
   enable_diarization?: boolean
   hf_token?: string
   output_dir?: string

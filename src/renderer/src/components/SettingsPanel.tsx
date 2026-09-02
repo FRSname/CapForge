@@ -12,6 +12,7 @@ import { Toggle } from './ui/Toggle'
 import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
 import { Select } from './ui/Select'
+import { WHISPER_MODELS, formatModelSize } from '../lib/whisperModels'
 
 interface SettingsPanelProps {
   open: boolean
@@ -44,6 +45,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
 
   const [languages, setLanguages] = useState<string[]>([])
   const [language, setLanguage] = useState('')
+  const [whisperModel, setWhisperModel] = useState('')
   const [diarize, setDiarize] = useState(false)
   const [hfToken, setHfToken] = useState('')
   const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null)
@@ -73,16 +75,19 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         const port = await window.subforge.getBackendPort()
         api.setPort(port)
         api.setLocalToken(await window.subforge.getLocalToken())
-        const [langs, info, savedLang, savedDiarize, savedToken] = await Promise.all([
-          api.getLanguages(),
-          api.getSystemInfo() as Promise<SystemInfo>,
-          window.subforge.getState('language', ''),
-          window.subforge.getState('diarize', false),
-          window.subforge.getState('hf_token', ''),
-        ])
+        const [langs, info, savedLang, savedModel, savedDiarize, savedToken] =
+          await Promise.all([
+            api.getLanguages(),
+            api.getSystemInfo() as Promise<SystemInfo>,
+            window.subforge.getState('language', ''),
+            window.subforge.getState('whisper_model', ''),
+            window.subforge.getState('diarize', false),
+            window.subforge.getState('hf_token', ''),
+          ])
         setLanguages(Array.isArray(langs) ? langs : [])
         setSysInfo(info)
         setLanguage(savedLang as string)
+        setWhisperModel(savedModel as string)
         setDiarize(savedDiarize as boolean)
         setHfToken(savedToken as string)
       } catch {
@@ -95,6 +100,11 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   async function handleLanguageChange(lang: string) {
     setLanguage(lang)
     await window.subforge.setState('language', lang)
+  }
+
+  async function handleWhisperModelChange(id: string) {
+    setWhisperModel(id)
+    await window.subforge.setState('whisper_model', id)
   }
 
   async function handleDiarizeChange(v: boolean) {
@@ -215,6 +225,26 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 </option>
               ))}
             </Select>
+          </div>
+
+          {/* Transcription model */}
+          <div className="flex flex-col gap-2">
+            <label className="label-xs">Transcription Model</label>
+            <Select
+              value={whisperModel}
+              onChange={(e) => handleWhisperModelChange(e.target.value)}
+            >
+              <option value="">Auto (match my hardware)</option>
+              {WHISPER_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.label} — {m.blurb} ({formatModelSize(m.sizeMb)})
+                </option>
+              ))}
+            </Select>
+            <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+              Smaller models are faster and use less memory. A model you haven't used
+              yet downloads the first time you transcribe with it.
+            </p>
           </div>
 
           {/* Diarization */}

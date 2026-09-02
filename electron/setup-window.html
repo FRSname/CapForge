@@ -117,6 +117,24 @@
     }
     button.ghost:hover:not(:disabled) { color: var(--text); border-color: var(--muted); }
 
+    .models { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; }
+    .models label {
+      display: flex; align-items: flex-start; gap: 10px;
+      border: 1px solid var(--border); border-radius: 6px;
+      padding: 9px 11px; cursor: pointer; font-size: 12px;
+    }
+    .models label:hover { border-color: var(--muted); }
+    .models label.selected { border-color: var(--accent); background: rgba(88,166,255,0.06); }
+    .models input { margin: 2px 0 0; accent-color: var(--accent); flex-shrink: 0; }
+    .models .m-body { flex: 1; min-width: 0; }
+    .models .m-title { color: var(--text); font-weight: 600; }
+    .models .m-size { color: var(--text); font-variant-numeric: tabular-nums; margin-left: 8px; }
+    .models .m-blurb { color: var(--muted); margin-top: 2px; }
+    .models .m-tag {
+      color: var(--success); font-weight: 600; margin-left: 8px;
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em;
+    }
+
     .stages {
       display: flex; flex-direction: column; gap: 6px;
       font-size: 12px; margin-bottom: 14px;
@@ -154,12 +172,15 @@
         <div class="value" id="gpuValue">Detecting…</div>
       </div>
 
+      <p class="muted">Transcription model — bigger is more accurate but slower and heavier. You can change this later in Settings.</p>
+      <div class="models" id="models"></div>
+
       <p class="muted">What will be installed:</p>
       <ul class="size-list" id="sizeList">
         <li><span>Python 3.11 runtime</span><span>~30 MB</span></li>
         <li><span>PyTorch</span><span id="torchSize">…</span></li>
         <li><span>WhisperX + dependencies</span><span>~400 MB</span></li>
-        <li><span>Whisper model (large-v3-turbo)</span><span>~1.6 GB</span></li>
+        <li><span>Whisper model (<span id="modelName">…</span>)</span><span id="modelSize">…</span></li>
       </ul>
       <p class="muted" id="totalLine">Total download: <strong id="totalSize">…</strong></p>
     </section>
@@ -186,7 +207,7 @@
   </main>
 
   <footer>
-    <button id="btnInstall">Install</button>
+    <button id="btnInstall" disabled>Install</button>
     <button id="btnLaunch" style="display:none">Launch CapForge</button>
   </footer>
 
@@ -207,25 +228,108 @@
     const gpuValue  = document.getElementById("gpuValue");
     const torchSize = document.getElementById("torchSize");
     const totalSize = document.getElementById("totalSize");
+    const modelsEl  = document.getElementById("models");
+    const modelName = document.getElementById("modelName");
+    const modelSize = document.getElementById("modelSize");
     const stageMsg  = document.getElementById("stageMsg");
     const logEl     = document.getElementById("log");
     const hdrSub    = document.getElementById("hdrSub");
     const btnInstall = document.getElementById("btnInstall");
     const btnLaunch  = document.getElementById("btnLaunch");
 
-    // Ask main for accelerator info as soon as the DOM is ready.
-    ipcRenderer.invoke("setup:detect-accelerator").then((acc) => {
+    // Download sizes of the fixed parts, in MB. The model is added on top and
+    // varies with the user's pick, so the total is computed rather than fixed.
+    const PYTHON_MB = 30;
+    const DEPS_MB = 400;
+    const TORCH_CPU_MB = 200;
+    const TORCH_CUDA_MB = 2500;
+
+    let models = [];
+    let selectedModel = null;
+    let torchMb = TORCH_CPU_MB;
+
+    function formatGb(mb) {
+      return mb >= 1000 ? `~${(mb / 1000).toFixed(1)} GB` : `~${mb} MB`;
+    }
+
+    function renderTotal() {
+      const model = models.find((m) => m.id === selectedModel);
+      if (!model) return;
+      modelName.textContent = model.id;
+      modelSize.textContent = model.sizeLabel;
+      totalSize.textContent = formatGb(PYTHON_MB + DEPS_MB + torchMb + model.sizeMb);
+    }
+
+    function renderModels(suggestedId) {
+      modelsEl.innerHTML = "";
+      models.forEach((m) => {
+        const label = document.createElement("label");
+        label.className = m.id === selectedModel ? "selected" : "";
+
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "model";
+        radio.value = m.id;
+        radio.checked = m.id === selectedModel;
+        radio.addEventListener("change", () => {
+          selectedModel = m.id;
+          renderModels(suggestedId);
+          renderTotal();
+        });
+
+        const body = document.createElement("div");
+        body.className = "m-body";
+        const title = document.createElement("div");
+        title.className = "m-title";
+        title.textContent = m.label;
+
+        const size = document.createElement("span");
+        size.className = "m-size";
+        size.textContent = m.sizeLabel;
+        title.appendChild(size);
+
+        if (m.id === suggestedId) {
+          const tag = document.createElement("span");
+          tag.className = "m-tag";
+          tag.textContent = "Recommended";
+          title.appendChild(tag);
+        }
+
+        const blurb = document.createElement("div");
+        blurb.className = "m-blurb";
+        blurb.textContent = m.blurb;
+
+        body.appendChild(title);
+        body.appendChild(blurb);
+        label.appendChild(radio);
+        label.appendChild(body);
+        modelsEl.appendChild(label);
+      });
+    }
+
+    // Ask main for the hardware profile as soon as the DOM is ready. The reply
+    // carries the model list and which one suits this machine.
+    ipcRenderer.invoke("setup:detect-profile").then((profile) => {
+      const acc = profile.accelerator;
       if (acc.kind === "cuda") {
         gpuCard.classList.add("gpu");
         gpuValue.textContent = `NVIDIA ${acc.name} — GPU acceleration`;
+        torchMb = TORCH_CUDA_MB;
         torchSize.textContent = "~2.5 GB (CUDA 12.4)";
-        totalSize.textContent = "~4.5 GB";
       } else {
         gpuCard.classList.add("cpu");
-        gpuValue.textContent = `${acc.name} — CPU mode`;
+        const ram = Math.round(profile.totalRamGb);
+        gpuValue.textContent = `${acc.name} — CPU mode${ram ? ` · ${ram} GB RAM` : ""}`;
+        torchMb = TORCH_CPU_MB;
         torchSize.textContent = "~200 MB (CPU)";
-        totalSize.textContent = "~2.2 GB";
       }
+      models = profile.models || [];
+      selectedModel = profile.suggestedModel;
+      renderModels(profile.suggestedModel);
+      renderTotal();
+      // Only now is a model actually selected — installing before this point
+      // would silently fall back to the default instead of the user's pick.
+      btnInstall.disabled = false;
     });
 
     const stepEls = {};
@@ -247,7 +351,7 @@
       show("progress");
       hdrSub.textContent = "Installing";
       btnInstall.style.display = "none";
-      ipcRenderer.send("setup:begin");
+      ipcRenderer.send("setup:begin", { model: selectedModel });
     });
 
     btnLaunch.addEventListener("click", () => {

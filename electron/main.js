@@ -7,7 +7,7 @@ const { app, BrowserWindow, Menu, shell, ipcMain, dialog } = require('electron')
 const path = require('path')
 const fs = require('fs')
 const { PythonBackend } = require('./python-manager')
-const { ensureRuntime, isRuntimeReady, detectAccelerator } = require('./runtime-setup')
+const { ensureRuntime, isRuntimeReady, detectSetupProfile } = require('./runtime-setup')
 const { ensureNodeRuntime } = require('./node-provision')
 const { ensureHyperframesRuntime, isHyperframesCurrent } = require('./hyperframes-provision')
 const { isNodeRuntimeReady } = require('./node-runtime')
@@ -253,7 +253,8 @@ function buildAppMenu() {
 function createSetupWindow() {
   setupWindow = new BrowserWindow({
     width: 560,
-    height: 420,
+    // Taller than the original 420 to fit the model picker on the welcome screen.
+    height: 620,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -282,8 +283,9 @@ function createSetupWindow() {
 async function runFirstTimeSetup() {
   if (isRuntimeReady()) return
 
-  // GPU detection IPC — the renderer asks for this before the user picks Install.
-  ipcMain.handle('setup:detect-accelerator', () => detectAccelerator())
+  // Hardware profile IPC — the wizard asks for this before the user picks Install,
+  // so it can pre-select a model that suits the machine.
+  ipcMain.handle('setup:detect-profile', () => detectSetupProfile())
 
   createSetupWindow()
   await new Promise((resolve) => {
@@ -295,14 +297,21 @@ async function runFirstTimeSetup() {
   })
 
   return new Promise((resolve, reject) => {
-    ipcMain.once('setup:begin', async () => {
+    ipcMain.once('setup:begin', async (_event, options = {}) => {
       try {
         const reportProgress = (p) => {
           if (setupWindow && !setupWindow.isDestroyed()) {
             setupWindow.webContents.send('setup:progress', p)
           }
         }
-        await ensureRuntime({ onProgress: reportProgress })
+        const { model: installedModel } = await ensureRuntime({
+          onProgress: reportProgress,
+          model: options.model,
+        })
+        // Seed the Settings dropdown with what was actually installed, so the
+        // first transcription uses it instead of silently re-downloading the
+        // hardware default.
+        if (installedModel) appState.set('whisper_model', installedModel)
         // Provision the Node 22 runtime for HyperFrames. Best-effort: a failure
         // here must NOT block setup — HyperFrames degrades to "needs Node" while
         // classic captions and rendering still work.

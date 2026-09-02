@@ -320,6 +320,29 @@ describe('CapForgeAPI', () => {
       expect(init.body).toBe(JSON.stringify({ audio_path: '/a.mp4', language: 'en' }))
     })
 
+    test('startTranscription forwards an explicit model', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({}))
+
+      await api.startTranscription({ audio_path: '/a.mp4', model: 'tiny' })
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(JSON.parse(init.body as string)).toEqual({
+        audio_path: '/a.mp4',
+        model: 'tiny',
+      })
+    })
+
+    test('startTranscription omits model entirely when unset', async () => {
+      // The backend reads a missing `model` as "auto"; sending null/'' instead
+      // would fail Pydantic's ModelSize validation.
+      fetchMock.mockResolvedValue(jsonResponse({}))
+
+      await api.startTranscription({ audio_path: '/a.mp4' })
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(JSON.parse(init.body as string)).not.toHaveProperty('model')
+    })
+
     test('updateResult PUTs to /api/result', async () => {
       fetchMock.mockResolvedValue(jsonResponse({}))
 

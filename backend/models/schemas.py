@@ -69,6 +69,9 @@ class SystemInfo(BaseModel):
 class TranscribeRequest(BaseModel):
     audio_path: str
     language: Optional[str] = Field(None, description="ISO language code or None for auto-detect")
+    model: Optional[ModelSize] = Field(
+        None, description="Whisper model; None = hardware-recommended auto-selection"
+    )
     enable_diarization: bool = False
     hf_token: Optional[str] = Field(None, description="HuggingFace token for diarization")
     output_dir: str = "output"

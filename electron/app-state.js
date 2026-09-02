@@ -11,6 +11,8 @@
  *   lastPreset       string   — last selected style preset name
  *   lastInputPath    string   — last audio/video file opened
  *   favoriteFonts    string[] — font families pinned to the top of the picker
+ *   whisper_model    string   — chosen Whisper model id ('' = auto-detect);
+ *                               seeded by first-run setup, edited in Settings
  *
  * Missing keys return `undefined`; callers should have their own defaults.
  */

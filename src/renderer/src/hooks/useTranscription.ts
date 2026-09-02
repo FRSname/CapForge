@@ -11,6 +11,7 @@ import type { TranscriptionResult } from '../types/app'
 
 interface TranscriptionOptions {
   language?: string
+  model?: string
   diarize?: boolean
   hfToken?: string
   outputDir?: string
@@ -57,6 +58,7 @@ export function useTranscription(): UseTranscriptionReturn {
         await api.startTranscription({
           audio_path: filePath,
           language: options.language || undefined,
+          model: options.model || undefined,
           enable_diarization: options.diarize ?? false,
           hf_token: options.hfToken || undefined,
           output_dir: options.outputDir || undefined,
