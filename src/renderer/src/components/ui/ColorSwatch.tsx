@@ -9,7 +9,8 @@
  * downstream would honour a gradient there.
  */
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   MAX_STOPS,
   MIN_STOPS,
@@ -52,18 +53,72 @@ export function ColorSwatch({
   // The hex fields track the SOLID reading only; in gradient mode the stops own
   // the value, so there is nothing here to keep in sync.
   const [hex, setHexRaw] = useState(isGradient ? '' : value.toUpperCase())
+  const anchorRef = useRef<HTMLDivElement>(null)
   const popRef = useRef<HTMLDivElement>(null)
+  const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({})
+
+  const popWidth = isGradient ? 240 : 176
 
   // Sync external value
   useEffect(() => {
     if (!isGradient) setHexRaw(value.toUpperCase())
   }, [value, isGradient])
 
-  // Close on outside click
+  /**
+   * Place the portaled popover against the swatch, flipping above when there is
+   * no room below and clamping to the viewport on both axes.
+   */
+  const updatePopupPosition = useCallback(() => {
+    const anchor = anchorRef.current
+    if (!anchor) return
+    const rect = anchor.getBoundingClientRect()
+    const maxHeight = Math.min(360, window.innerHeight - 24)
+    const spaceBelow = window.innerHeight - rect.bottom - 8
+    const desired = popRef.current?.offsetHeight ?? 220
+    const top =
+      spaceBelow >= Math.min(maxHeight, desired)
+        ? rect.bottom + 6
+        : Math.max(8, rect.top - Math.min(maxHeight, desired) - 6)
+    const left = Math.min(Math.max(8, rect.left), Math.max(8, window.innerWidth - popWidth - 8))
+    setPopupStyle({
+      position: 'fixed',
+      top,
+      left,
+      width: popWidth,
+      maxHeight,
+      zIndex: 'var(--z-dropdown)',
+    })
+  }, [popWidth])
+
+  // Position on open, and follow the anchor while the sidebar scrolls. `true`
+  // on the scroll listener because the StudioPanel scrolls an inner container,
+  // and a scroll event there does not bubble to window.
+  useLayoutEffect(() => {
+    if (!open) return
+    updatePopupPosition()
+    window.addEventListener('scroll', updatePopupPosition, true)
+    window.addEventListener('resize', updatePopupPosition)
+    return () => {
+      window.removeEventListener('scroll', updatePopupPosition, true)
+      window.removeEventListener('resize', updatePopupPosition)
+    }
+  }, [open, updatePopupPosition])
+
+  // Re-measure once the gradient editor's own height changes (a stop added or
+  // removed), so a flipped-above popover stays anchored to the swatch.
+  useLayoutEffect(() => {
+    if (open) updatePopupPosition()
+  }, [open, spec?.stops.length, isGradient, updatePopupPosition])
+
+  // Close on outside click. The popover is portaled to document.body, so it is
+  // NOT inside `anchorRef` — both have to be checked.
   useEffect(() => {
     if (!open) return
     function handler(e: MouseEvent) {
-      if (popRef.current && !popRef.current.contains(e.target as Node)) setOpen(false)
+      const target = e.target as Node
+      if (anchorRef.current?.contains(target)) return
+      if (popRef.current?.contains(target)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
@@ -121,7 +176,7 @@ export function ColorSwatch({
       </span>
 
       {/* Swatch button — `background` renders a gradient string as-is. */}
-      <div ref={popRef} className="relative">
+      <div ref={anchorRef} className="relative">
         <button
           type="button"
           className="w-6 h-6 rounded border border-[var(--color-border-2)] cursor-pointer shrink-0 hover:ring-1 hover:ring-[var(--color-accent)] transition-all"
@@ -130,142 +185,158 @@ export function ColorSwatch({
           title={swatchTitle}
         />
 
-        {open && (
-          <div
-            className={`absolute left-0 top-8 z-[var(--z-dropdown)] ${
-              isGradient ? 'w-60' : 'w-44'
-            } p-3 rounded-lg border border-[var(--color-border-2)] bg-[var(--color-surface-2)] shadow-2xl flex flex-col gap-2.5`}
-          >
-            {allowGradient && (
-              <div className="flex gap-1">
-                <button
-                  type="button"
-                  className={`flex-1 text-[11px] py-1 rounded ${isGradient ? '' : 'font-semibold'}`}
-                  style={{
-                    background: isGradient ? 'var(--color-surface-3)' : 'var(--color-accent)',
-                    color: isGradient ? 'var(--color-text-2)' : 'var(--color-bg)',
-                  }}
-                  onClick={() => onChange(spec ? spec.stops[0].color : value)}
-                >
-                  Solid
-                </button>
-                <button
-                  type="button"
-                  className={`flex-1 text-[11px] py-1 rounded ${isGradient ? 'font-semibold' : ''}`}
-                  style={{
-                    background: isGradient ? 'var(--color-accent)' : 'var(--color-surface-3)',
-                    color: isGradient ? 'var(--color-bg)' : 'var(--color-text-2)',
-                  }}
-                  onClick={() => commitSpec(seedGradient(value))}
-                >
-                  Gradient
-                </button>
-              </div>
-            )}
-
-            {isGradient ? (
-              <>
-                {/* Live preview of exactly what will be stored */}
-                <div
-                  className="h-8 rounded border border-[var(--color-border-2)]"
-                  style={{ background: gradientToCss(spec) }}
-                />
-
-                <label className="flex items-center gap-2 text-[11px]" style={{ color: 'var(--color-text-2)' }}>
-                  <span className="w-10 shrink-0">Angle</span>
-                  <input
-                    type="number"
-                    min={0}
-                    max={359}
-                    step={1}
-                    value={Math.round(spec.angle)}
-                    onChange={(e) => {
-                      const n = Number(e.target.value)
-                      if (Number.isFinite(n)) commitSpec({ ...spec, angle: ((n % 360) + 360) % 360 })
+        {/* Portaled to document.body: StudioCard's root is `overflow-hidden`
+            (for its rounded header), which CLIPS any popover positioned inside
+            it — the taller gradient editor made that visible, but the solid
+            picker was being cut off too. Same fix, same `data-cf-popover`
+            marker as FontCombobox, so an ancestor popup's outside-click closer
+            does not treat a click in here as an outside click. */}
+        {open &&
+          createPortal(
+            <div
+              ref={popRef}
+              data-cf-popover=""
+              style={popupStyle}
+              className="pop-in overflow-y-auto p-3 rounded-lg border border-[var(--color-border-2)] bg-[var(--color-surface-2)] shadow-2xl flex flex-col gap-2.5"
+            >
+              {allowGradient && (
+                <div className="flex gap-1">
+                  <button
+                    type="button"
+                    className={`flex-1 text-[11px] py-1 rounded ${isGradient ? '' : 'font-semibold'}`}
+                    style={{
+                      background: isGradient ? 'var(--color-surface-3)' : 'var(--color-accent)',
+                      color: isGradient ? 'var(--color-text-2)' : 'var(--color-bg)',
                     }}
-                    className="field-input font-mono text-xs w-full"
-                  />
-                  <span className="shrink-0">°</span>
-                </label>
-
-                <div className="flex flex-col gap-1.5">
-                  {spec.stops.map((stop, i) => (
-                    <div key={i} className="flex items-center gap-1.5">
-                      <input
-                        type="color"
-                        value={stop.color}
-                        onChange={(e) => patchStop(i, { color: e.target.value.toUpperCase() })}
-                        className="w-7 h-6 rounded cursor-pointer border-0 bg-transparent p-0 shrink-0"
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        step={1}
-                        value={Math.round(stop.offset * 100)}
-                        onChange={(e) => {
-                          const n = Number(e.target.value)
-                          if (Number.isFinite(n)) {
-                            patchStop(i, { offset: Math.min(100, Math.max(0, n)) / 100 })
-                          }
-                        }}
-                        className="field-input font-mono text-xs w-full"
-                      />
-                      <span className="text-[11px] shrink-0" style={{ color: 'var(--color-text-3)' }}>
-                        %
-                      </span>
-                      <button
-                        type="button"
-                        disabled={spec.stops.length <= MIN_STOPS}
-                        onClick={() => removeStop(i)}
-                        className="w-5 h-5 shrink-0 rounded text-[11px] leading-none disabled:opacity-30"
-                        style={{ color: 'var(--color-text-3)' }}
-                        title="Remove stop"
-                      >
-                        ×
-                      </button>
-                    </div>
-                  ))}
+                    onClick={() => onChange(spec ? spec.stops[0].color : value)}
+                  >
+                    Solid
+                  </button>
+                  <button
+                    type="button"
+                    className={`flex-1 text-[11px] py-1 rounded ${isGradient ? 'font-semibold' : ''}`}
+                    style={{
+                      background: isGradient ? 'var(--color-accent)' : 'var(--color-surface-3)',
+                      color: isGradient ? 'var(--color-bg)' : 'var(--color-text-2)',
+                    }}
+                    onClick={() => commitSpec(seedGradient(value))}
+                  >
+                    Gradient
+                  </button>
                 </div>
+              )}
 
-                <button
-                  type="button"
-                  disabled={spec.stops.length >= MAX_STOPS}
-                  onClick={addStop}
-                  className="text-[11px] py-1 rounded disabled:opacity-30"
-                  style={{ background: 'var(--color-surface-3)', color: 'var(--color-text-2)' }}
-                >
-                  + Add stop
-                </button>
+              {isGradient ? (
+                <>
+                  {/* Live preview of exactly what will be stored */}
+                  <div
+                    className="h-8 rounded border border-[var(--color-border-2)]"
+                    style={{ background: gradientToCss(spec) }}
+                  />
 
-                {/* Stops must be non-decreasing — the renderers reject a
+                  <label
+                    className="flex items-center gap-2 text-[11px]"
+                    style={{ color: 'var(--color-text-2)' }}
+                  >
+                    <span className="w-10 shrink-0">Angle</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={359}
+                      step={1}
+                      value={Math.round(spec.angle)}
+                      onChange={(e) => {
+                        const n = Number(e.target.value)
+                        if (Number.isFinite(n))
+                          commitSpec({ ...spec, angle: ((n % 360) + 360) % 360 })
+                      }}
+                      className="field-input font-mono text-xs w-full"
+                    />
+                    <span className="shrink-0">°</span>
+                  </label>
+
+                  <div className="flex flex-col gap-1.5">
+                    {spec.stops.map((stop, i) => (
+                      <div key={i} className="flex items-center gap-1.5">
+                        <input
+                          type="color"
+                          value={stop.color}
+                          onChange={(e) => patchStop(i, { color: e.target.value.toUpperCase() })}
+                          className="w-7 h-6 rounded cursor-pointer border-0 bg-transparent p-0 shrink-0"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={Math.round(stop.offset * 100)}
+                          onChange={(e) => {
+                            const n = Number(e.target.value)
+                            if (Number.isFinite(n)) {
+                              patchStop(i, { offset: Math.min(100, Math.max(0, n)) / 100 })
+                            }
+                          }}
+                          className="field-input font-mono text-xs w-full"
+                        />
+                        <span
+                          className="text-[11px] shrink-0"
+                          style={{ color: 'var(--color-text-3)' }}
+                        >
+                          %
+                        </span>
+                        <button
+                          type="button"
+                          disabled={spec.stops.length <= MIN_STOPS}
+                          onClick={() => removeStop(i)}
+                          className="w-5 h-5 shrink-0 rounded text-[11px] leading-none disabled:opacity-30"
+                          style={{ color: 'var(--color-text-3)' }}
+                          title="Remove stop"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button
+                    type="button"
+                    disabled={spec.stops.length >= MAX_STOPS}
+                    onClick={addStop}
+                    className="text-[11px] py-1 rounded disabled:opacity-30"
+                    style={{ background: 'var(--color-surface-3)', color: 'var(--color-text-2)' }}
+                  >
+                    + Add stop
+                  </button>
+
+                  {/* Stops must be non-decreasing — the renderers reject a
                     descending list rather than silently reordering it. */}
-                <p className="text-[10px] leading-snug" style={{ color: 'var(--color-text-3)' }}>
-                  Stops run in order, 0% to 100%.
-                </p>
-              </>
-            ) : (
-              <>
-                {/* Native color wheel */}
-                <input
-                  type="color"
-                  value={value}
-                  onChange={handlePicker}
-                  className="w-full h-28 rounded cursor-pointer border-0 bg-transparent p-0 block"
-                />
-                {/* Hex field */}
-                <input
-                  type="text"
-                  value={hex}
-                  maxLength={7}
-                  onChange={handleHex}
-                  className="field-input font-mono text-xs"
-                  placeholder="#RRGGBB"
-                />
-              </>
-            )}
-          </div>
-        )}
+                  <p className="text-[10px] leading-snug" style={{ color: 'var(--color-text-3)' }}>
+                    Stops run in order, 0% to 100%.
+                  </p>
+                </>
+              ) : (
+                <>
+                  {/* Native color wheel */}
+                  <input
+                    type="color"
+                    value={value}
+                    onChange={handlePicker}
+                    className="w-full h-28 rounded cursor-pointer border-0 bg-transparent p-0 block"
+                  />
+                  {/* Hex field */}
+                  <input
+                    type="text"
+                    value={hex}
+                    maxLength={7}
+                    onChange={handleHex}
+                    className="field-input font-mono text-xs"
+                    placeholder="#RRGGBB"
+                  />
+                </>
+              )}
+            </div>,
+            document.body
+          )}
       </div>
 
       {/* Inline editable hex — read-only summary while a gradient is set. */}
