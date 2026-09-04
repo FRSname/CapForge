@@ -209,6 +209,20 @@ PILLOW_HONORED_OVERRIDE_KEYS = frozenset({
     "word_bg_offset_y",
 })
 
+# caption_cfg keys that are NOT a 1:1 mirror of a model field: each is DERIVED
+# from a field that IS registered in EXPECTED_IN_CAP_CFG above, because that one
+# field now emits two keys. `text_color`/`bg_color` accept either a plain hex or
+# a `linear-gradient(...)` string, so the payload carries both readings: the
+# camel key is the FLAT one (every consumer that cannot take a gradient), and
+# the `*Gradient` key is the canonical CSS, or "" when the value is a plain hex.
+#
+# Registering them here — rather than widening EXPECTED_IN_CAP_CFG, whose values
+# must stay unique — keeps the "no unregistered caption_cfg key" guarantee.
+DERIVED_CAP_CFG_KEYS: dict[str, str] = {
+    "textGradient": "text_color",
+    "bgGradient": "bg_color",
+}
+
 # Honored by Pillow but DELIBERATELY excluded from the HTML payload: a local path
 # must never cross into HTML. The per-word font is embedded server-side via a
 # per-word @font-face (hyperframes_project._word_font_face_blocks), exactly like
@@ -232,6 +246,9 @@ _SENTINELS: dict[str, object] = {
     "position_y": 0.41,
     "bg_padding_h": 43,
     "bg_padding_v": 47,
+    # NOTE: `bg_color` and `text_color` now pass through `gradient.flat_color`,
+    # which upper-cases the hex. These two sentinels are digits-only so the
+    # round-trip is exact — keep them that way, or compare case-insensitively.
     "bg_color": "#101112",
     "bg_opacity": 0.53,
     "bg_corner_radius": 19,
@@ -341,11 +358,16 @@ def test_caption_cfg_emits_exactly_the_expected_keys():
     fails, keeping the map honest.
     """
     out_keys = set(caption_cfg(VideoRenderConfig()).keys())
-    expected_keys = set(EXPECTED_IN_CAP_CFG.values())
+    mirror_keys = set(EXPECTED_IN_CAP_CFG.values())
     # camelCase targets must be unique (a dup would hide a dropped field).
-    assert len(expected_keys) == len(EXPECTED_IN_CAP_CFG), (
+    assert len(mirror_keys) == len(EXPECTED_IN_CAP_CFG), (
         "Two model fields map to the same caption_cfg key in EXPECTED_IN_CAP_CFG."
     )
+    # ...and a derived key must not collide with a mirror key either.
+    assert not (mirror_keys & set(DERIVED_CAP_CFG_KEYS)), (
+        "A DERIVED_CAP_CFG_KEYS entry shadows a 1:1 field mirror."
+    )
+    expected_keys = mirror_keys | set(DERIVED_CAP_CFG_KEYS)
     assert out_keys == expected_keys, (
         f"caption_cfg keys drifted from the contract.\n"
         f"  Only in caption_cfg(): {sorted(out_keys - expected_keys)}\n"
@@ -415,3 +437,45 @@ def test_html_word_overrides_match_pillow_minus_deliberate_exclusion():
     assert not (HTML_EXCLUDED_OVERRIDE_KEYS & html_keys), (
         "A deliberately HTML-excluded override key leaked into _WORD_OVERRIDE_KEYS."
     )
+
+
+def test_derived_keys_name_a_registered_source_field():
+    """Every derived key must derive from a field the contract already covers.
+
+    Otherwise a derived key would be a back door for exactly the drift
+    EXPECTED_IN_CAP_CFG exists to catch: a style field reaching the HTML layer
+    with nothing pinning it.
+    """
+    for derived_key, source_field in DERIVED_CAP_CFG_KEYS.items():
+        assert source_field in EXPECTED_IN_CAP_CFG, (
+            f"{derived_key!r} derives from {source_field!r}, which is not in "
+            f"EXPECTED_IN_CAP_CFG"
+        )
+
+
+@pytest.mark.parametrize(
+    "derived_key,source_field", sorted(DERIVED_CAP_CFG_KEYS.items())
+)
+def test_derived_gradient_keys_carry_the_gradient(derived_key: str, source_field: str):
+    """A gradient in the source field surfaces as canonical CSS in the derived key.
+
+    Also pins the re-emission: the payload must carry the *canonical* form, not
+    the caller's raw string, because that string reaches the render page's CSS.
+    """
+    raw = f"LINEAR-GRADIENT(90deg,#abc 0%,#123456 100%)"
+    out = caption_cfg(VideoRenderConfig(**{source_field: raw}))
+    assert out[derived_key] == "linear-gradient(90deg, #AABBCC 0%, #123456 100%)"
+    # ...and the flat half falls back to the gradient's first stop.
+    assert out[EXPECTED_IN_CAP_CFG[source_field]] == "#AABBCC"
+
+
+@pytest.mark.parametrize(
+    "derived_key,source_field", sorted(DERIVED_CAP_CFG_KEYS.items())
+)
+def test_derived_gradient_keys_are_empty_for_a_plain_hex(
+    derived_key: str, source_field: str
+):
+    """A plain hex leaves the derived key empty — the runtime's flat fast path."""
+    out = caption_cfg(VideoRenderConfig(**{source_field: "#123456"}))
+    assert out[derived_key] == ""
+    assert out[EXPECTED_IN_CAP_CFG[source_field]] == "#123456"

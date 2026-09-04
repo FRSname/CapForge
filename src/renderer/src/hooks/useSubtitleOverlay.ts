@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 import type { Segment, WordOverrides } from '../types/app'
+import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import {
   DEFAULT_PAD_V,
@@ -52,6 +53,8 @@ import {
   type RsvpStaticLayout,
   type RsvpWordMetric,
 } from '../lib/overlayGeometry'
+import { flatColor, gradientLine, parseGradient } from '../lib/gradient'
+import type { GradientBox } from '../lib/gradient'
 import { focusSlices, orpIndex } from '../lib/rsvp'
 import { mergeRsvpReels } from '../lib/rsvpReels'
 
@@ -374,6 +377,38 @@ export function useSubtitleOverlay({
         bgHeightExtra
       )
 
+      // ── Gradient fills ──────────────────────────────────────────
+      // `textColor` and `bgColor` hold either a plain hex (the unchanged fast
+      // path — `parseGradient` returns null and nothing here allocates) or a
+      // `linear-gradient(...)` string. Both are anchored to the **caption block
+      // box**: the same rect the background box occupies, which is exactly the
+      // `caption_box` Pillow uses (`video_render._render_frame`). The gradient
+      // line itself comes from the shared core so the three renderers cannot
+      // drift — see docs/caption-parity.md → "Gradient fills".
+      const captionBox: GradientBox = [bgCenterX - bgW / 2, cy - bgH / 2, bgW, bgH]
+      const makeFill = (value: string, fallback: string): string | CanvasGradient => {
+        const spec = parseGradient(value)
+        if (!spec) return flatColor(value, fallback)
+        const [x0, y0, x1, y1] = gradientLine(spec, captionBox)
+        // A degenerate line paints nothing on Canvas but paints the first stop
+        // in Pillow, so collapse it to the first stop here too. A non-finite
+        // coordinate (a NaN somewhere upstream in the box) makes
+        // createLinearGradient THROW, which would take out the whole preview —
+        // fall back rather than lose the frame.
+        if (!(x0 !== x1 || y0 !== y1)) return spec.stops[0].color
+        if (![x0, y0, x1, y1].every(Number.isFinite)) return spec.stops[0].color
+        const fill = ctx.createLinearGradient(x0, y0, x1, y1)
+        for (const stop of spec.stops) fill.addColorStop(stop.offset, stop.color)
+        return fill
+      }
+      // The gradient-capable fills, and the flat readings for the consumers that
+      // cannot take one (a mid-crossfade lerp; the highlight pill's text and a
+      // per-word background box, both of which inherit `bgColor`).
+      const textFill = makeFill(textColor, STUDIO_DEFAULTS.textColor)
+      const bgFill = makeFill(bgColor, STUDIO_DEFAULTS.bgColor)
+      const textColorFlat = flatColor(textColor, STUDIO_DEFAULTS.textColor)
+      const bgColorFlat = flatColor(bgColor, STUDIO_DEFAULTS.bgColor)
+
       // Pre-compute word positions. wordYPos is the *visual centre* of each row
       // (matches backend's center_y for that row). When we draw text we shift to
       // alphabetic baseline; pill / underline / bounce can use it directly.
@@ -489,7 +524,7 @@ export function useSubtitleOverlay({
         if (!bgVisible) return
         ctx.save()
         ctx.globalAlpha = bgOpacity * animAlpha
-        ctx.fillStyle = bgColor
+        ctx.fillStyle = bgFill
         roundRect(ctx, bgCenterX - bgW / 2, cy - bgH / 2, bgW, bgH, sr)
         ctx.fill()
         ctx.restore()
@@ -538,7 +573,9 @@ export function useSubtitleOverlay({
         // absent key must not box every word whenever the global bg is on.
         const wBgOpacity = ov?.word_bg_opacity
         if (wBgOpacity == null || wBgOpacity <= 0) return
-        const wBgColor = ov?.word_bg_color || bgColor
+        // Inherits the global colour, and cannot hold a gradient: `flatColor`
+        // gives it the gradient's first stop rather than an unrelated default.
+        const wBgColor = ov?.word_bg_color || bgColorFlat
         const wBgRadius = ov?.word_bg_radius ?? sr
         // The min-pad clamp (stroke never clipped) and the strokePad*2 below are
         // BOTH intentional — the group box double-counts the stroke the same way.
@@ -650,7 +687,13 @@ export function useSubtitleOverlay({
         const isActive = m.start <= currentTime && currentTime < m.end
         const wordProg = computeWordProgress(currentTime, m.start, m.end, isActive)
 
-        const wTextColor = m.overrides?.text_color ?? textColor
+        // Two readings of the same setting: `wTextFill` is what gets painted
+        // (a CanvasGradient when `textColor` is a gradient), `wTextColor` is
+        // the flat hex the crossfade lerp needs. A per-word override wins in
+        // both and stays flat — matching Pillow's `_word_target` rule.
+        const wTextOverride = m.overrides?.text_color
+        const wTextFill: string | CanvasGradient = wTextOverride ?? textFill
+        const wTextColor = wTextOverride ?? textColorFlat
         const wActiveColor = m.overrides?.active_word_color ?? activeColor
         const wBold = m.overrides?.bold ?? fwNum >= 700
         const wFontFamily = m.overrides?.font_family ?? fontName
@@ -757,7 +800,7 @@ export function useSubtitleOverlay({
             // globalAlpha dims fill, stroke AND shadow together — Pillow needs an
             // explicit `_dim_alpha` on its stroke to get the same result.
             ctx.globalAlpha = rsvpWordAlpha(animAlpha, rsvpContextOpacity, false)
-            ctx.fillStyle = wTextColor
+            ctx.fillStyle = wTextFill
             drawW(m.word, x, wy)
           }
           ctx.restore()
@@ -767,18 +810,22 @@ export function useSubtitleOverlay({
         switch (wTransition) {
           case 'crossfade': {
             const { fi, fo } = computeCrossfadeFactors(currentTime, m.start, m.end, CROSSFADE_DUR)
+            // Crossfade words stay FLAT, gradient or not: the HTML layer animates
+            // their `color`, which a `background-clip: text` fill would hide, so
+            // all three renderers agree that a colour-ANIMATING word is flat.
+            // See docs/caption-parity.md → "Gradient fills".
             ctx.fillStyle = lerpColor(hexToRgb(wTextColor), hexToRgb(wActiveColor), fi * fo)
             drawW(m.word, x, wy)
             break
           }
           case 'highlight': {
-            const hlTextCol = settings.highlightTextColor || bgColor
-            ctx.fillStyle = isActive ? hlTextCol : wTextColor
+            const hlTextCol = settings.highlightTextColor || bgColorFlat
+            ctx.fillStyle = isActive ? hlTextCol : wTextFill
             drawW(m.word, x, wy)
             break
           }
           case 'underline':
-            ctx.fillStyle = isActive ? wActiveColor : wTextColor
+            ctx.fillStyle = isActive ? wActiveColor : wTextFill
             drawW(m.word, x, wy)
             if (isActive) {
               ctx.fillStyle = wUlColor || wActiveColor
@@ -789,7 +836,7 @@ export function useSubtitleOverlay({
             break
           case 'bounce': {
             const bounceY = isActive ? wy - computeBounceAmount(textH, wBStrength, wordProg) : wy
-            ctx.fillStyle = isActive ? wActiveColor : wTextColor
+            ctx.fillStyle = isActive ? wActiveColor : wTextFill
             drawW(m.word, x, bounceY)
             break
           }
@@ -801,14 +848,14 @@ export function useSubtitleOverlay({
               ctx.translate(-wordCx, -wy)
               ctx.fillStyle = wActiveColor
             } else {
-              ctx.fillStyle = wTextColor
+              ctx.fillStyle = wTextFill
             }
             drawW(m.word, x, wy)
             break
           case 'karaoke': {
             // Already-spoken words stay in active color; future words in text color.
             const isPast = currentTime >= m.end
-            ctx.fillStyle = isPast ? wActiveColor : wTextColor
+            ctx.fillStyle = isPast ? wActiveColor : wTextFill
             drawW(m.word, x, wy)
             if (isActive && wordProg > 0) {
               ctx.save()
@@ -823,16 +870,16 @@ export function useSubtitleOverlay({
           }
           case 'reveal':
             if (currentTime >= m.start) {
-              ctx.fillStyle = isActive ? wActiveColor : wTextColor
+              ctx.fillStyle = isActive ? wActiveColor : wTextFill
               drawW(m.word, x, wy)
             }
             break
           case 'none':
-            ctx.fillStyle = wTextColor
+            ctx.fillStyle = wTextFill
             drawW(m.word, x, wy)
             break
           default: // instant
-            ctx.fillStyle = isActive ? wActiveColor : wTextColor
+            ctx.fillStyle = isActive ? wActiveColor : wTextFill
             drawW(m.word, x, wy)
         }
 

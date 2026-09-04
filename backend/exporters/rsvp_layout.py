@@ -147,7 +147,9 @@ from typing import NamedTuple, Optional
 
 from PIL import Image, ImageChops, ImageDraw, ImageFont
 
+from backend.exporters import gradient
 from backend.exporters.caption_draw import (
+    DEFAULT_TEXT_COLOR,
     _draw_single_word,
     _hex_to_rgba,
     _measure_tracked,
@@ -596,6 +598,7 @@ def draw_line(
     resolve_font: FontResolver,
     draw_bg_boxes: Optional[BgBoxDrawer] = None,
     reticle_draw: Optional[ImageDraw.ImageDraw] = None,
+    grad_draw: Optional[ImageDraw.ImageDraw] = None,
     static_cache: Optional[dict] = None,
 ) -> RsvpLine:
     """Draw one group as a single sliding RSVP line. Returns the layout it used.
@@ -723,10 +726,20 @@ def draw_line(
             )
             continue
 
-        context_hex = ov["text_color"] if "text_color" in ov else config.text_color
+        # A context word with no per-word override takes the config's text
+        # colour, so it is exactly the set that a gradient re-colours; it goes to
+        # `grad_draw` when the caller allocated one. `context_opacity` is uniform
+        # across context words and is baked into the glyph alpha here, which
+        # `paint_gradient` preserves — so the whole layer dims correctly.
+        has_override = "text_color" in ov
+        context_hex = ov["text_color"] if has_override else config.text_color
         _draw_single_word(
-            draw, wm["word"], x, y, w_font,
-            _hex_to_rgba(context_hex, anim_alpha * context_opacity),
+            draw if (has_override or grad_draw is None) else grad_draw,
+            wm["word"], x, y, w_font,
+            _hex_to_rgba(
+                gradient.flat_color(context_hex, DEFAULT_TEXT_COLOR),
+                anim_alpha * context_opacity,
+            ),
             tracking, outline_sw,
             # The stroke is dimmed too — see _dim_alpha.
             _dim_alpha(stroke_rgba, context_opacity),

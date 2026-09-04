@@ -8,7 +8,12 @@ export function ColorsCard({ s, defaults, filter, set, cardProps }: StudioSectio
   return (
     <StudioCard title="Colors" {...cardProps('colors')}>
       <Row label="Text" filter={filter}>
-        <ColorSwatch label="Text" value={s.textColor} onChange={(v) => set('textColor', v)} />
+        <ColorSwatch
+          label="Text"
+          value={s.textColor}
+          onChange={(v) => set('textColor', v)}
+          allowGradient
+        />
       </Row>
       <Row label="Outline" filter={filter}>
         <ColorSwatch
@@ -18,7 +23,12 @@ export function ColorsCard({ s, defaults, filter, set, cardProps }: StudioSectio
         />
       </Row>
       <Row label="BG" filter={filter}>
-        <ColorSwatch label="BG" value={s.bgColor} onChange={(v) => set('bgColor', v)} />
+        <ColorSwatch
+          label="BG"
+          value={s.bgColor}
+          onChange={(v) => set('bgColor', v)}
+          allowGradient
+        />
       </Row>
       <Row label="Active" filter={filter}>
         <ColorSwatch label="Active" value={s.activeColor} onChange={(v) => set('activeColor', v)} />

@@ -20,11 +20,15 @@
  *
  * A second, narrower path repairs the non-numeric settings whose value space is
  * closed (`readingMode`'s enum, `rsvpFocusColor`'s hex, `rsvpReticle`'s bool) —
- * see ENUM_SETTING_VALUES below for why that list is deliberately short.
+ * see ENUM_SETTING_VALUES below for why that list is deliberately short — plus
+ * `textColor`/`bgColor`, which accept a hex OR a `linear-gradient(...)` string
+ * and are enrolled because that widened half reaches the HTML renderer's CSS
+ * (see GRADIENT_SETTINGS).
  */
 
 import type { StudioSettings } from '../components/studio/StudioPanel'
-import { RSVP_DEFAULT_FOCUS_COLOR } from './renderConstants'
+import { gradientToCss, parseGradient } from './gradient'
+import { DEFAULT_BG_COLOR, DEFAULT_TEXT_COLOR, RSVP_DEFAULT_FOCUS_COLOR } from './renderConstants'
 
 interface NumericSpec {
   min?: number
@@ -107,6 +111,22 @@ const ENUM_SETTING_VALUES: Partial<Record<keyof StudioSettings, readonly string[
 /** Settings that must hold a `#rrggbb` / `#rgb` hex colour. */
 const COLOR_SETTINGS: ReadonlySet<keyof StudioSettings> = new Set(['rsvpFocusColor'])
 
+/**
+ * Settings that accept a hex colour **or** a `linear-gradient(...)` string.
+ *
+ * These two are enrolled where the other pre-existing colour settings still are
+ * not, and deliberately so: gradients WIDENED what may be stored here, and the
+ * widened half is a string the HTML renderer interpolates into the page's CSS
+ * (`hyperframes_caption_html._gradient_css`). Leaving them unvalidated would
+ * mean a `.cfpreset` or an MCP `set_style` could put arbitrary text one hop from
+ * a stylesheet — so validating them is part of the same change, not a separate
+ * decision about agent write permissions.
+ *
+ * A malformed value is still rejected rather than repaired: `parseGradient`
+ * accepts only the closed grammar in `lib/gradient.ts`.
+ */
+const GRADIENT_SETTINGS: ReadonlySet<keyof StudioSettings> = new Set(['textColor', 'bgColor'])
+
 /** Settings coerced to a real boolean (a preset stores 'true'/1 just as happily). */
 const BOOLEAN_SETTINGS: ReadonlySet<keyof StudioSettings> = new Set(['rsvpReticle'])
 
@@ -115,6 +135,10 @@ const NON_NUMERIC_FALLBACKS: Partial<Record<keyof StudioSettings, string | boole
   readingMode: 'wrap',
   rsvpFocusColor: RSVP_DEFAULT_FOCUS_COLOR,
   rsvpReticle: true,
+  // The schema defaults, matching `caption_draw.DEFAULT_TEXT_COLOR`/`DEFAULT_BG_COLOR`
+  // — a corrupt stored value renders as the stock style rather than failing.
+  textColor: DEFAULT_TEXT_COLOR,
+  bgColor: DEFAULT_BG_COLOR,
 }
 
 const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
@@ -123,6 +147,7 @@ const HEX_COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/
 const NON_NUMERIC_SETTING_KEYS: readonly (keyof StudioSettings)[] = [
   ...(Object.keys(ENUM_SETTING_VALUES) as (keyof StudioSettings)[]),
   ...COLOR_SETTINGS,
+  ...GRADIENT_SETTINGS,
   ...BOOLEAN_SETTINGS,
 ]
 
@@ -148,6 +173,14 @@ export function coerceNonNumericSettingValue(
   if (COLOR_SETTINGS.has(key)) {
     const raw = typeof value === 'string' ? value.trim() : ''
     return HEX_COLOR_RE.test(raw) ? raw : undefined
+  }
+  if (GRADIENT_SETTINGS.has(key)) {
+    const raw = typeof value === 'string' ? value.trim() : ''
+    if (HEX_COLOR_RE.test(raw)) return raw
+    // Store the CANONICAL form, so what reaches the backend (and from there the
+    // HTML layer's CSS) is what this module actually validated.
+    const spec = parseGradient(raw)
+    return spec ? gradientToCss(spec) : undefined
   }
   if (BOOLEAN_SETTINGS.has(key)) {
     if (typeof value === 'boolean') return value

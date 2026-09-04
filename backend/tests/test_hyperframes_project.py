@@ -264,6 +264,19 @@ def test_classic_captions_defer_build_until_fonts_ready(transcription_result, tm
     assert "window.__renderReady = true;" in html  # signals the CLI we're ready
 
 
+def test_classic_captions_embed_the_gradient_core(transcription_result, tmp_path):
+    # Pins the ONE link nothing else covers: that GRADIENT_RUNTIME_JS is actually
+    # spliced into CAPTION_RUNTIME_JS. `gradient.embedded.test.ts` extracts the
+    # constant from *source*, so dropping the `+ GRADIENT_RUNTIME_JS` term would
+    # leave every suite green and fail only inside headless Chromium, at render
+    # time, with `__capGradient is not defined`.
+    html = (_generate(transcription_result, tmp_path) / "index.html").read_text()
+    assert "var __capGradient" in html
+    assert "toCss:" in html and "flatColor:" in html
+    # ...and it must precede the builder that consumes it.
+    assert html.index("var __capGradient") < html.index("function __capBuild")
+
+
 def test_classic_captions_embed_the_rsvp_core(transcription_result, tmp_path):
     # Pins the ONE link nothing else covers: that RSVP_RUNTIME_JS is actually
     # spliced into CAPTION_RUNTIME_JS. `rsvp.embedded.test.ts` extracts the

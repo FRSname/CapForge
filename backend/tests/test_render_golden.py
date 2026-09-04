@@ -13,11 +13,14 @@ so tiny cross-version Pillow rasterization drift does not flake, while real
 formula changes still fail loudly.
 """
 
+import json
 from pathlib import Path
 
 import pytest
 from PIL import Image, ImageChops, ImageFont
 
+from backend.exporters import gradient
+from backend.exporters.caption_draw import gradient_rgb
 from backend.exporters.video_render import _get_font, _render_frame
 from backend.models.schemas import VideoRenderConfig
 
@@ -224,6 +227,35 @@ SCENARIOS: dict[str, tuple[dict, list[str], float]] = {
     # of the way from word 2's target to word 3's. A hold-only golden would pass
     # with the wrong ease; this one does not.
     "rsvp_mid_slide": (RSVP_CONFIG, RSVP_WORDS, 2.03),
+    # Gradient TEXT fill at a non-axis-aligned angle — 45° is the case a naive
+    # "corner to corner" gradient line gets right by accident and every other
+    # angle gets wrong, so the diagonal is the one worth pinning in pixels.
+    # `word_transition: none` keeps every word on the base colour, so the whole
+    # caption is gradient-filled and a routing regression (words falling back to
+    # the flat layer) shows up immediately. Word 2 carries a per-word
+    # `text_color`: it must stay FLAT red while its neighbours are gradient —
+    # that is the override-preservation rule, in pixels.
+    "gradient_text": (
+        {
+            "word_transition": "none",
+            "text_color": "linear-gradient(45deg, #FF0080 0%, #21D4FD 100%)",
+        },
+        GROUP_WORDS,
+        2.25,
+    ),
+    # Gradient BACKGROUND BOX. Vertical (180° = to bottom) over a rounded,
+    # semi-transparent box, so the golden pins three things at once: the box
+    # keeps its corner anti-aliasing, `bg_opacity` still applies, and the
+    # gradient runs the right way down. Text stays flat white on top.
+    "gradient_bg_box": (
+        {
+            "bg_opacity": 0.85,
+            "bg_corner_radius": 18,
+            "bg_color": "linear-gradient(180deg, #7928CA 0%, #FF0080 100%)",
+        },
+        GROUP_WORDS,
+        2.25,
+    ),
 }
 
 # Scenario name -> extra keys merged into the group dict (per-group overrides).
@@ -267,6 +299,11 @@ WORD_OVERRIDES: dict[str, dict[int, dict]] = {
             "word_bg_offset_y": -10,
         },
     },
+    # A per-word `text_color` must survive a global gradient: word 2 stays flat
+    # red while every other word is poured through the gradient. Pinned in
+    # pixels by the gradient_text golden, and by
+    # test_gradient_text_leaves_word_overrides_flat below.
+    "gradient_text": {1: {"text_color": "#FF0000"}},
 }
 
 # The six geometry keys word 5 of the word_bg_box scenario sets explicitly.
@@ -275,6 +312,16 @@ WORD_BG_GEOMETRY_KEYS = (
     "word_bg_width_extra", "word_bg_height_extra",
     "word_bg_offset_x", "word_bg_offset_y",
 )
+
+
+def _pixels(img: Image.Image):
+    """``((x, y), rgba)`` for every pixel — used by the gradient sanity tests to
+    compare *which* pixels hold a colour, not just how many."""
+    width, height = img.size
+    data = img.convert("RGBA").load()
+    for y in range(height):
+        for x in range(width):
+            yield (x, y), data[x, y]
 
 
 def render_variant(
@@ -481,3 +528,190 @@ def test_group_position_override_moves_caption() -> None:
     without_override = _render_frame(config, font, build_group(words), t)
     mean_diff, _ = diff_stats(with_override, without_override)
     assert mean_diff > 0.1, "expected the position override to move the caption"
+
+
+# ---------------------------------------------------------------------------
+# Gradient fills — sanity tests around the two gradient goldens
+# ---------------------------------------------------------------------------
+
+
+def test_gradient_text_actually_changes_the_frame() -> None:
+    """The gradient golden must pin the gradient, not a flat fallback.
+
+    If the routing regressed so that every word stayed on the flat text layer,
+    ``gradient_text`` would still render — in the base ``#FFFFFF`` — and the
+    golden would silently pin that. Comparing against the same frame with a flat
+    ``text_color`` is what makes the golden mean something.
+    """
+    overrides, _, _ = SCENARIOS["gradient_text"]
+    gradient_frame = render_scenario("gradient_text")
+    flat_frame = render_variant(
+        "gradient_text",
+        WORD_OVERRIDES["gradient_text"],
+        {"text_color": "#FFFFFF"},
+    )
+    mean_diff, _ = diff_stats(gradient_frame, flat_frame)
+    assert "linear-gradient" in overrides["text_color"]
+    assert mean_diff > 0.1, "expected the gradient to re-colour the caption text"
+
+
+def test_gradient_text_leaves_word_overrides_flat() -> None:
+    """A per-word ``text_color`` keeps its own colour under a global gradient.
+
+    The whole point of routing base-coloured words to a separate layer: word 2
+    is pinned to ``#FF0000``, so changing the *gradient's* stops must leave its
+    pixels untouched. A whole-layer re-colour would fail this.
+    """
+    red_ov = WORD_OVERRIDES["gradient_text"]
+    frame_a = render_scenario("gradient_text")
+    frame_b = render_variant(
+        "gradient_text",
+        red_ov,
+        {"text_color": "linear-gradient(45deg, #00FF00 0%, #00FF00 100%)"},
+    )
+    # The overridden word occupies the middle of the caption; compare only the
+    # pixels that are pure red in BOTH frames — they must be the same pixels.
+    red_a = {xy for xy, px in _pixels(frame_a) if px[:3] == (255, 0, 0) and px[3] > 200}
+    red_b = {xy for xy, px in _pixels(frame_b) if px[:3] == (255, 0, 0) and px[3] > 200}
+    assert red_a, "expected the per-word override to paint pure red pixels"
+    assert red_a == red_b, (
+        "the per-word text_color moved or changed when only the gradient stops "
+        "changed — the override is being poured through the gradient"
+    )
+
+
+def test_gradient_text_shadow_stays_flat() -> None:
+    """The drop shadow is built from alpha, so a gradient must not tint it.
+
+    ``_render_frame`` derives the shadow from ``text_layer.getchannel("A")``,
+    and the gradient only ever rewrites RGB. Rendering the same frame with two
+    completely different gradients must therefore leave the shadow-only pixels
+    (outside the glyphs, where only the shadow was drawn) identical.
+    """
+    base = {"shadow_enabled": True, "shadow_color": "#000000", "shadow_blur": 0,
+            "shadow_offset_x": 12, "shadow_offset_y": 12}
+    warm = render_variant(
+        "gradient_text", {},
+        {**base, "text_color": "linear-gradient(45deg, #FF0000 0%, #FFAA00 100%)"},
+    )
+    cool = render_variant(
+        "gradient_text", {},
+        {**base, "text_color": "linear-gradient(45deg, #0000FF 0%, #00AAFF 100%)"},
+    )
+    shadow_warm = {xy for xy, px in _pixels(warm) if px[:3] == (0, 0, 0) and px[3] > 200}
+    shadow_cool = {xy for xy, px in _pixels(cool) if px[:3] == (0, 0, 0) and px[3] > 200}
+    assert shadow_warm, "expected an opaque black shadow to be drawn"
+    assert shadow_warm == shadow_cool, (
+        "the drop shadow changed with the gradient — it must stay flat "
+        "shadow_color, because it is built from alpha only"
+    )
+
+
+def test_gradient_bg_box_actually_changes_the_frame() -> None:
+    """Same guard for the background box: pin the gradient, not the fallback."""
+    gradient_frame = render_scenario("gradient_bg_box")
+    flat_frame = render_variant("gradient_bg_box", {}, {"bg_color": "#7928CA"})
+    mean_diff, _ = diff_stats(gradient_frame, flat_frame)
+    assert mean_diff > 0.1, "expected the gradient to re-colour the background box"
+
+
+@pytest.mark.parametrize(
+    "field,broken",
+    [
+        ("text_color", "linear-gradient(90deg, rgb(255,0,0) 0%, #00FF00 100%)"),
+        ("text_color", "not-a-colour"),
+        ("bg_color", "linear-gradient(bogus)"),
+        ("bg_color", "#GGGGGG"),
+    ],
+)
+def test_malformed_colour_falls_back_instead_of_aborting(field: str, broken: str) -> None:
+    """A corrupt preset must not kill the render job.
+
+    Widening these two fields to accept gradients also widened what a bad
+    ``.cfpreset``/``.cfproj`` can put in them, and the flat path ends in
+    ``_hex_to_rgba``'s ``int(h[0:2], 16)``. ``gradient.flat_hex`` is the guard:
+    the frame renders in the schema default rather than raising.
+    """
+    frame = render_variant("plain_steady", {}, {field: broken, "bg_opacity": 0.85})
+    default = render_variant("plain_steady", {}, {"bg_opacity": 0.85})
+    _, max_diff = diff_stats(frame, default)
+    assert max_diff == 0, (
+        f"a malformed {field} should render exactly like the schema default, "
+        f"differed by up to {max_diff}/255"
+    )
+
+
+@pytest.mark.parametrize(
+    "config_overrides,word_overrides,note",
+    [
+        (
+            {"word_transition": "highlight", "bg_opacity": 0.0},
+            {},
+            "the highlight pill's text colour, which falls back to bg_color",
+        ),
+        (
+            # bg_opacity 0 so the GROUP box is not drawn: with it on, the frames
+            # would differ because of the group box's own gradient and the
+            # per-word box would prove nothing. The per-word box's enable gate
+            # is the presence of `word_bg_opacity`, not the global opacity.
+            {"bg_opacity": 0.0},
+            {1: {"word_bg_opacity": 0.9}},
+            "a per-word background box inheriting the global bg_color",
+        ),
+    ],
+    ids=["highlight_text_color", "word_bg_box"],
+)
+def test_gradient_bg_inherits_as_its_first_stop(
+    config_overrides: dict, word_overrides: dict, note: str,
+) -> None:
+    """Flat-only consumers of ``bg_color`` read a gradient as its FIRST STOP.
+
+    Neither the highlight pill's text nor a per-word background box can hold a
+    gradient, and both inherit ``bg_color``. Snapping them to the schema default
+    would be arbitrary, so ``gradient.flat_color`` gives them the gradient's
+    first stop — asserted here by rendering against an explicitly flat
+    ``bg_color`` set to that same stop and requiring identical pixels.
+    """
+    first_stop = "#7928CA"
+    with_gradient = render_variant(
+        "plain_steady", word_overrides,
+        {**config_overrides, "bg_color": f"linear-gradient(180deg, {first_stop} 0%, #FF0080 100%)"},
+    )
+    with_flat_stop = render_variant(
+        "plain_steady", word_overrides, {**config_overrides, "bg_color": first_stop},
+    )
+    _, max_diff = diff_stats(with_gradient, with_flat_stop)
+    assert max_diff == 0, f"{note} did not inherit the gradient's first stop"
+
+
+# ---------------------------------------------------------------------------
+# Gradient rasterisation — the Pillow half of a Canvas cross-check
+# ---------------------------------------------------------------------------
+
+_GRADIENT_RASTER = json.loads(
+    (Path(__file__).parent / "fixtures" / "gradient_cases.json").read_text(encoding="utf-8")
+)["raster"]
+
+
+@pytest.mark.parametrize(
+    "case", _GRADIENT_RASTER["cases"], ids=lambda c: c["css"][16:32]
+)
+def test_gradient_rasterisation_matches_fixture(case: dict) -> None:
+    """Pins the *pixels* `gradient_rgb` produces, not just the gradient line.
+
+    The line formula is pinned across three languages by
+    `test_gradient_core.py`; this pins what Pillow actually paints from it —
+    the 256-step parameter map and the stop-sampling rule, neither of which the
+    scalar fixture can see. The expected values were cross-checked in a real
+    browser against the identical `ctx.createLinearGradient` fill built from
+    `lib/gradient.ts`: worst channel delta 3/255 over all 21 probes.
+
+    Probes deliberately include points OUTSIDE the box, where both Pillow and
+    Canvas must clamp to an end stop rather than repeat or fade out.
+    """
+    spec = gradient.parse_gradient(case["css"])
+    assert spec is not None
+    img = gradient_rgb((_GRADIENT_RASTER["w"], _GRADIENT_RASTER["h"]), spec, tuple(case["box"]))
+    for probe, expected in zip(_GRADIENT_RASTER["probes"], case["samples"]):
+        got = list(img.getpixel(tuple(probe)))
+        assert got == expected, f"{case['css']} at {probe}: {got} != {expected}"

@@ -140,9 +140,9 @@ export const SETTINGS_REGISTRY: SettingsRegistryEntry[] = [
   { label: 'Size', cardId: 'typography', keywords: ['font size', 'text size'] },
   { label: 'Tracking', cardId: 'typography', keywords: ['letter spacing', 'spacing', 'kerning'] },
   // Colors
-  { label: 'Text', cardId: 'colors', keywords: ['color', 'text color', 'fill'] },
+  { label: 'Text', cardId: 'colors', keywords: ['color', 'text color', 'fill', 'gradient'] },
   { label: 'Outline', cardId: 'colors', keywords: ['color', 'stroke', 'border'] },
-  { label: 'BG', cardId: 'colors', keywords: ['background', 'color', 'bg color'] },
+  { label: 'BG', cardId: 'colors', keywords: ['background', 'color', 'bg color', 'gradient'] },
   { label: 'Active', cardId: 'colors', keywords: ['color', 'highlight color', 'active word'] },
   { label: 'Outline W', cardId: 'colors', keywords: ['outline width', 'stroke width', 'border'] },
   {

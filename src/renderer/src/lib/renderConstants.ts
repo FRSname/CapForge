@@ -36,6 +36,15 @@ export const DEFAULT_LAST_GROUP_HOLD = 1.0
  * "tidy" these two values.
  */
 
+/**
+ * The two colours that accept a `linear-gradient(...)` as well as a hex, so both
+ * `STUDIO_DEFAULTS` and `settingsSanitize`'s repair path need them — and the
+ * sanitizer cannot import `StudioPanel` at runtime (a cycle through presets.ts).
+ * Twins of `caption_draw.DEFAULT_TEXT_COLOR` / `DEFAULT_BG_COLOR`.
+ */
+export const DEFAULT_TEXT_COLOR = '#FFFFFF'
+export const DEFAULT_BG_COLOR = '#D4952A'
+
 /** RSVP focus column, as a UI percentage of the caption band width (0–100). */
 export const RSVP_DEFAULT_PIVOT_X = 35
 

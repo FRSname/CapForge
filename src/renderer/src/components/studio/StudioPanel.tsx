@@ -26,8 +26,10 @@ import {
   type CardId,
 } from '../../lib/settingsSearch'
 import {
+  DEFAULT_BG_COLOR,
   DEFAULT_GAP_CLOSE_THRESHOLD,
   DEFAULT_LAST_GROUP_HOLD,
+  DEFAULT_TEXT_COLOR,
   RSVP_DEFAULT_CONTEXT_OPACITY,
   RSVP_DEFAULT_EDGE_FADE,
   RSVP_DEFAULT_FOCUS_COLOR,
@@ -174,9 +176,9 @@ const DEFAULTS: StudioSettings = {
   fontSize: 150,
   fontWeight: 100,
   tracking: 0,
-  textColor: '#FFFFFF',
+  textColor: DEFAULT_TEXT_COLOR,
   outlineColor: '#000000',
-  bgColor: '#D4952A',
+  bgColor: DEFAULT_BG_COLOR,
   activeColor: '#F5C842',
   outlineWidth: 0,
   posX: 50,

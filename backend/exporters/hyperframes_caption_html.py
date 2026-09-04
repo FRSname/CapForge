@@ -36,6 +36,9 @@ import html
 import json
 from typing import Optional
 
+from backend.exporters import gradient
+from backend.exporters.caption_draw import DEFAULT_BG_COLOR, DEFAULT_TEXT_COLOR
+from backend.exporters.hyperframes_gradient_runtime import GRADIENT_RUNTIME_JS
 from backend.exporters.hyperframes_rsvp_runtime import RSVP_BUILD_JS, RSVP_RUNTIME_JS
 from backend.models.schemas import VideoRenderConfig
 
@@ -44,6 +47,17 @@ def _crossfade_dur(config: VideoRenderConfig) -> float:
     """Crossfade ramp seconds, from the render config so the three renderers share
     one value (mirrors ``CROSSFADE_DUR`` / ``video_render._CROSSFADE_DUR``)."""
     return float(config.crossfade_duration or 0.06)
+
+
+def _gradient_css(value: str) -> str:
+    """The canonical CSS for ``value`` if it is a gradient, else ``""``.
+
+    Re-emitted from the *parsed* spec rather than passed through, so a value
+    that came from a ``.cfpreset``, a ``.cfproj`` or an MCP ``set_style`` cannot
+    carry trailing declarations into the render page's stylesheet.
+    """
+    spec = gradient.parse_gradient(value)
+    return "" if spec is None else gradient.to_css(spec)
 
 
 def caption_cfg(config: VideoRenderConfig) -> dict:
@@ -64,7 +78,14 @@ def caption_cfg(config: VideoRenderConfig) -> dict:
         "posY": config.position_y,     # fraction 0-1
         "padH": config.bg_padding_h,
         "padV": config.bg_padding_v,
-        "bgColor": config.bg_color,
+        # `bgColor`/`textColor` are the FLAT readings, so every consumer that
+        # cannot take a gradient (a per-word box inheriting the global colour,
+        # the highlight pill's text) keeps working and gets the gradient's
+        # first stop. The gradient itself rides the two extra keys below, as a
+        # CANONICAL string re-emitted from the parsed spec — the config value
+        # never reaches a stylesheet verbatim.
+        "bgColor": gradient.flat_color(config.bg_color, DEFAULT_BG_COLOR),
+        "bgGradient": _gradient_css(config.bg_color),
         "bgOpacity": config.bg_opacity,
         "bgRadius": config.bg_corner_radius,
         "bgWidthExtra": config.bg_width_extra,
@@ -73,7 +94,8 @@ def caption_cfg(config: VideoRenderConfig) -> dict:
         "textOffsetY": config.text_offset_y,
         "alignH": config.text_align_h,
         "alignV": config.text_align_v,
-        "textColor": config.text_color,
+        "textColor": gradient.flat_color(config.text_color, DEFAULT_TEXT_COLOR),
+        "textGradient": _gradient_css(config.text_color),
         "activeColor": config.active_word_color,
         "strokeWidth": config.stroke_width,
         "strokeColor": config.stroke_color,
@@ -470,6 +492,34 @@ function __capBuild(tl, CFG, GROUPS){
       bubble.insertBefore(bg, bubble.firstChild);
     }
 
+    // ── Gradient text ──────────────────────────────────────────────────
+    // The fill is anchored to the CAPTION BLOCK BOX — the same rect the
+    // background box occupies, and the same `caption_box` Pillow uses — so
+    // `background-size` + `background-position` re-express that box in the
+    // target element's own coordinates. `background-clip: text` then pours it
+    // through the glyphs, which is what Pillow does with a layer alpha mask.
+    var gradCss = CFG.textGradient || '';
+    var boxLeft = bgCenterX - bgW/2, boxTop = cy - bgH/2;
+    // A word whose painted colour is NOT the base text colour keeps it: a
+    // per-word `text_color`, and every word in `crossfade`, whose `color` GSAP
+    // animates (a background-clip fill would hide that animation, so all three
+    // renderers agree a colour-ANIMATING word stays flat).
+    // `m.mode` is not assigned until the overlay pass below, so the word's
+    // effective transition is re-derived here from the same expression.
+    function gradEligible(m){
+      return !!gradCss && !m.o.text_color && (m.o.word_transition || mode) !== 'crossfade';
+    }
+    // `el` is filled from the gradient as if it covered the caption box, with
+    // (elLeft, elTop) its own position in resolution coordinates.
+    function applyGradient(el, elLeft, elTop){
+      el.style.backgroundImage = gradCss;
+      el.style.backgroundRepeat = 'no-repeat';
+      el.style.backgroundSize = bgW + 'px ' + bgH + 'px';
+      el.style.backgroundPosition = (boxLeft - elLeft) + 'px ' + (boxTop - elTop) + 'px';
+      el.style.backgroundClip = 'text';
+      el.style.webkitBackgroundClip = 'text';
+      el.style.webkitTextFillColor = 'transparent';
+    }
     // Position each word span (visual centre on its row), then build per-word
     // overlays as the active mode needs.
     var mode = CFG.wordTransition || 'instant';
@@ -488,14 +538,20 @@ function __capBuild(tl, CFG, GROUPS){
         // scaled-word centering word_y = y - (w_text_h - text_h)/2.
         // pos_offset_x/y is additive per word; must NOT shift the cursor.
         var ox = m.o.pos_offset_x || 0, oy = m.o.pos_offset_y || 0;
-        m.el.style.left = (wx + ox) + 'px';
-        m.el.style.top = (rowY + (m.gap - gapBase) + (m.ascent - m.descent)/2 - m.spanBase + oy) + 'px';
+        var spanLeft = wx + ox;
+        var spanTop = rowY + (m.gap - gapBase) + (m.ascent - m.descent)/2 - m.spanBase + oy;
+        m.el.style.left = spanLeft + 'px';
+        m.el.style.top = spanTop + 'px';
         if(m.fstr !== fontStr){
           m.el.style.fontSize = m.size + 'px';
           m.el.style.fontFamily = '"' + m.fam + '", system-ui, sans-serif';
           m.el.style.fontWeight = m.weight;
         }
         if(m.o.text_color) m.el.style.color = m.o.text_color;
+        // Wrap-mode spans never move, so anchoring the gradient per span is
+        // exact. (RSVP cannot do this — its row SLIDES, so the gradient goes
+        // on the static band instead; see hyperframes_rsvp_runtime.py.)
+        if(gradEligible(m)) applyGradient(m.el, spanLeft, spanTop);
         m.cxc = wx + m.width/2; m.cyc = rowY; m.x = wx; m.ox = ox; m.oy = oy;
         // Row-local previous word: Pillow's highlight slide gates on
         // active_idx > 0 WITHIN the wrapped row (_draw_word_list runs per row),
@@ -620,7 +676,10 @@ function __capBuild(tl, CFG, GROUPS){
         // The wrap path's `rowY` with ri = 0 — one row, so totalTextH === textH.
         rowCenterY: cy + alignShiftY + tyOff - totalTextH/2 + textH/2,
         textH: textH, gapBase: gapBase, spaceW: spaceW, trk: trk,
-        resW: resW, resH: resH
+        resW: resW, resH: resH,
+        // RSVP applies the gradient to its STATIC band, not per span — its row
+        // slides, and Pillow's gradient is fixed in frame space.
+        gradCss: gradCss, applyGradient: applyGradient
       });
     }
 
@@ -764,7 +823,7 @@ function __capBuild(tl, CFG, GROUPS){
 # ``test_classic_captions_embed_the_rsvp_core`` and by ``test_rsvp_html_layout.py``,
 # which runs THIS constant in node (so a missing term is a hard NameError there).
 CAPTION_RUNTIME_JS = (
-    _CAPTION_RUNTIME_HELPERS_JS + RSVP_RUNTIME_JS + RSVP_BUILD_JS
+    GRADIENT_RUNTIME_JS + _CAPTION_RUNTIME_HELPERS_JS + RSVP_RUNTIME_JS + RSVP_BUILD_JS
     + _CAPTION_RUNTIME_BUILD_JS
 )
 
@@ -791,6 +850,7 @@ __all__ = [
     "caption_build_call",
     "caption_block",
     "CAPTION_RUNTIME_JS",
+    "GRADIENT_RUNTIME_JS",
     # Re-exported from ``hyperframes_rsvp_runtime`` so importers of the caption
     # layer see the whole emitted runtime from one place.
     "RSVP_RUNTIME_JS",

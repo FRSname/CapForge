@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { STUDIO_DEFAULTS, type StudioSettings } from '../components/studio/StudioPanel'
+import { DEFAULT_BG_COLOR, DEFAULT_TEXT_COLOR } from './renderConstants'
 import { buildRenderBody } from './render'
 import {
   NUMERIC_SETTING_SPECS,
@@ -149,8 +150,42 @@ describe('sanitizeNonNumericSettingValue', () => {
 
   it('returns undefined for keys it does not repair', () => {
     // The pre-existing colour/enum settings deliberately still pass through.
-    expect(sanitizeNonNumericSettingValue('textColor', 'nonsense')).toBeUndefined()
+    // `textColor`/`bgColor` are the exception, and only because gradients
+    // widened them into something the HTML layer puts in CSS — see below.
     expect(sanitizeNonNumericSettingValue('textAlignH', 'sideways')).toBeUndefined()
+    expect(sanitizeNonNumericSettingValue('activeColor', 'nonsense')).toBeUndefined()
+  })
+
+  it('repairs a corrupt textColor/bgColor to the schema default', () => {
+    // Repairing (not dropping) is right for STORED data: a preset or project
+    // holding junk here makes every later render fail schema validation.
+    expect(sanitizeNonNumericSettingValue('textColor', 'nonsense')).toBe(DEFAULT_TEXT_COLOR)
+    expect(sanitizeNonNumericSettingValue('bgColor', 'linear-gradient(bogus)')).toBe(
+      DEFAULT_BG_COLOR
+    )
+  })
+
+  it('keeps a valid gradient, canonicalised', () => {
+    // What is stored is what was validated — the backend and, through it, the
+    // HTML layer's stylesheet see the canonical form, never the caller's string.
+    expect(
+      sanitizeNonNumericSettingValue('textColor', '  LINEAR-GRADIENT(90deg,#abc 0%,#123456 100%)  ')
+    ).toBe('linear-gradient(90deg, #AABBCC 0%, #123456 100%)')
+    expect(sanitizeNonNumericSettingValue('bgColor', '#0af')).toBe('#0af')
+  })
+
+  it('rejects a gradient that could carry CSS past the grammar', () => {
+    // The trust boundary: a `.cfpreset`, a `.cfproj` and an MCP set_style all
+    // reach here, and the value ends up one hop from a stylesheet.
+    expect(
+      sanitizeNonNumericSettingValue(
+        'textColor',
+        'linear-gradient(90deg, #FF0000 0%, #00FF00 100%);background:url(evil)'
+      )
+    ).toBe(DEFAULT_TEXT_COLOR)
+    expect(
+      sanitizeNonNumericSettingValue('bgColor', 'linear-gradient(90deg, rgb(1,2,3) 0%, #00FF00 100%)')
+    ).toBe(DEFAULT_BG_COLOR)
   })
 })
 
@@ -172,16 +207,28 @@ describe('coerceNonNumericSettingValue', () => {
   })
 
   it('returns undefined for keys it does not know', () => {
-    expect(coerceNonNumericSettingValue('textColor', '#123456')).toBeUndefined()
+    expect(coerceNonNumericSettingValue('activeColor', '#123456')).toBeUndefined()
+  })
+
+  it('drops an unusable textColor rather than resetting it', () => {
+    // The live-patch reading, same as every other enrolled key: an agent typo
+    // leaves the user's current colour on screen.
+    expect(coerceNonNumericSettingValue('textColor', 'nonsense')).toBeUndefined()
+    expect(coerceNonNumericSettingValue('bgColor', 'linear-gradient(bogus)')).toBeUndefined()
+    expect(coerceNonNumericSettingValue('textColor', '#123456')).toBe('#123456')
   })
 })
 
 describe('isSanitizedNonNumericSetting', () => {
-  it('names exactly the RSVP non-numeric fields', () => {
+  it('names the RSVP non-numeric fields plus the two gradient colours', () => {
     expect(isSanitizedNonNumericSetting('readingMode')).toBe(true)
     expect(isSanitizedNonNumericSetting('rsvpFocusColor')).toBe(true)
     expect(isSanitizedNonNumericSetting('rsvpReticle')).toBe(true)
-    expect(isSanitizedNonNumericSetting('textColor')).toBe(false)
+    expect(isSanitizedNonNumericSetting('textColor')).toBe(true)
+    expect(isSanitizedNonNumericSetting('bgColor')).toBe(true)
+    // Still excluded: the colour settings gradients did NOT widen.
+    expect(isSanitizedNonNumericSetting('activeColor')).toBe(false)
+    expect(isSanitizedNonNumericSetting('outlineColor')).toBe(false)
     expect(isSanitizedNonNumericSetting('rsvpPivotX')).toBe(false)
     expect(isSanitizedNonNumericSetting('nonsense')).toBe(false)
   })

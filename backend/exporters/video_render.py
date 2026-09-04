@@ -24,11 +24,14 @@ from typing import Callable, Optional
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 from backend.engine.system_fonts import find_system_font_face
-from backend.exporters import rsvp_layout
+from backend.exporters import gradient, rsvp_layout
 from backend.exporters.caption_draw import (
     _draw_single_word,
     _hex_to_rgba,
     _measure_tracked,
+    DEFAULT_BG_COLOR,
+    DEFAULT_TEXT_COLOR,
+    paint_gradient,
 )
 from backend.exporters.rsvp import last_started_index
 from backend.exporters.rsvp_reels import merge_reels
@@ -512,9 +515,18 @@ def _draw_word_list(
     img: Image.Image,
     pill_draw: ImageDraw.ImageDraw | None = None,
     guide_draw: ImageDraw.ImageDraw | None = None,
+    grad_draw: ImageDraw.ImageDraw | None = None,
     static_cache: dict | None = None,
 ) -> None:
     """Draw all words at the given centre position with the chosen word animation.
+
+    ``grad_draw`` is the gradient layer: when ``config.text_color`` is a gradient
+    the caller allocates a second text surface, every word that would be painted
+    in the *base* text colour is drawn there instead, and the caller re-colours
+    that whole surface through the gradient before merging it back. Words with
+    another colour — the active word, a per-word ``text_color`` override, the
+    highlight pill's text, a mid-crossfade blend — stay on ``draw`` and keep
+    their flat colour (docs/caption-parity.md → "Gradient fills").
 
     ``pill_draw`` is the layer behind the text (highlight pill, per-word boxes) and
     in RSVP mode it is edge-fade **masked**. ``guide_draw`` is the unmasked layer
@@ -530,9 +542,24 @@ def _draw_word_list(
     total_w = sum(wm["width"] for wm in word_metrics)
     total_w += effective_space_w * max(0, len(word_metrics) - 1)
 
-    text_color_base   = _hex_to_rgba(config.text_color,        anim_alpha)
+    # `flat_hex` only guards the fields whose value space gradients widened: a
+    # malformed gradient string from a preset must not reach `_hex_to_rgba`'s
+    # `int(h[0:2], 16)` and abort the render.
+    text_color_base   = _hex_to_rgba(gradient.flat_color(config.text_color, DEFAULT_TEXT_COLOR), anim_alpha)
     active_color_base = _hex_to_rgba(config.active_word_color, anim_alpha)
     stroke_rgba = _hex_to_rgba(config.stroke_color, anim_alpha) if outline_sw > 0 else None
+
+    def _word_target(color: tuple) -> ImageDraw.ImageDraw:
+        """Route base-coloured words to the gradient layer, everything else to ``draw``.
+
+        Identity, not equality: ``text_color_base`` is one tuple object, reused
+        for every word that takes the config's colour unmodified. A per-word
+        ``text_color``, an ``active_word_color``, the highlight pill's text
+        colour and a mid-crossfade blend each build a *new* tuple, so they keep
+        their flat colour and never pick up the gradient — which is what lets
+        the active word stay visible against gradient-filled text.
+        """
+        return grad_draw if (grad_draw is not None and color is text_color_base) else draw
 
     CROSSFADE_DUR      = _CROSSFADE_DUR
     bounce_strength    = getattr(config, "bounce_strength",       0.18)
@@ -630,7 +657,9 @@ def _draw_word_list(
             # Everything else inherits its global ``bg_*`` counterpart through
             # ``.get(key, default)`` — never ``or``, so an explicit 0 survives
             # (``word_bg_color`` excepted: "" means unset, as on Canvas).
-            color   = ov.get("word_bg_color") or config.bg_color
+            color   = gradient.flat_color(
+                ov.get("word_bg_color") or config.bg_color, DEFAULT_BG_COLOR
+            )
             radius  = int(ov.get("word_bg_radius", config.bg_corner_radius))
             # Clamp + the doubled ``outline_sw`` below: same deliberate stroke
             # double-count as the group box (bg_w/bg_h in _render_frame).
@@ -704,6 +733,10 @@ def _draw_word_list(
             # target, never the (edge-fade-masked) pill layer the per-word boxes
             # share. See rsvp_layout → "The edge fade vs the pivot".
             reticle_draw=guide_draw,
+            # Context words take the config's text colour, so they are exactly
+            # the set a gradient re-colours; the focus glyph and the active
+            # word keep their own flat colours.
+            grad_draw=grad_draw,
             static_cache=static_cache,
         )
         return
@@ -826,6 +859,11 @@ def _draw_word_list(
         if w_word_trans == "crossfade":
             fade_in  = min(max((current_time - wm["start"]) / CROSSFADE_DUR, 0.0), 1.0)
             fade_out = min(max((wm["end"] - current_time)   / CROSSFADE_DUR, 0.0), 1.0)
+            # Always a NEW tuple, even at blend 0 — so `_word_target` never routes
+            # a crossfade word to the gradient layer. The HTML layer animates this
+            # word's `color`, which a `background-clip: text` fill would hide, so
+            # all three renderers agree that a colour-ANIMATING word stays flat.
+            # See docs/caption-parity.md → "Gradient fills".
             color = _lerp_color(w_text_color, w_active_color, fade_in * fade_out)
         elif w_word_trans in ("highlight", "underline", "karaoke", "bounce", "scale"):
             color = w_text_color
@@ -855,7 +893,10 @@ def _draw_word_list(
             color = w_active_color
 
         if w_word_trans == "highlight" and is_active:
-            hl_text_hex = getattr(config, "highlight_text_color", "") or config.bg_color
+            hl_text_hex = gradient.flat_color(
+                getattr(config, "highlight_text_color", "") or config.bg_color,
+                DEFAULT_BG_COLOR,
+            )
             color = _hex_to_rgba(hl_text_hex, anim_alpha)
 
         if w_word_trans == "scale" and is_active:
@@ -891,7 +932,7 @@ def _draw_word_list(
             # Already-spoken words stay in active color; future words in text color.
             is_past = current_time >= wm["end"]
             base_color = w_active_color if is_past else w_text_color
-            _draw_single_word(draw, wm["word"], word_x, word_y,
+            _draw_single_word(_word_target(base_color), wm["word"], word_x, word_y,
                               w_font, base_color, tracking, outline_sw, stroke_rgba)
             if is_active and word_prog > 0:
                 pad = outline_sw + 2
@@ -935,7 +976,7 @@ def _draw_word_list(
             )
             color = w_active_color
 
-        _draw_single_word(draw, wm["word"], word_x, word_y,
+        _draw_single_word(_word_target(color), wm["word"], word_x, word_y,
                           w_font, color, tracking, outline_sw, stroke_rgba)
 
         x += wm["width"]
@@ -1146,7 +1187,8 @@ def _render_frame(
 
     def _draw_all_rows(tgt_draw: "ImageDraw.ImageDraw", tgt_img: "Image.Image", cx: float, cy: float,
                        pill_draw: "ImageDraw.ImageDraw | None" = None,
-                       guide_draw: "ImageDraw.ImageDraw | None" = None) -> None:
+                       guide_draw: "ImageDraw.ImageDraw | None" = None,
+                       grad_draw: "ImageDraw.ImageDraw | None" = None) -> None:
         top_y = cy - total_text_h / 2 + text_h / 2 + align_shift_y + text_offset_y
         for ri, row in enumerate(rows):
             row_cx = cx + align_shift_x + text_offset_x
@@ -1156,7 +1198,66 @@ def _render_frame(
                             row_cx, row_cy,
                             outline_sw, word_transition, anim_alpha, tgt_img,
                             pill_draw=pill_draw, guide_draw=guide_draw,
-                            static_cache=precomp)
+                            grad_draw=grad_draw, static_cache=precomp)
+
+    # ------------------------------------------------------------------ #
+    # Gradient fills. `text_color` and `bg_color` accept either a plain hex
+    # (the untouched fast path — `spec is None` and nothing below runs) or a
+    # `linear-gradient(...)` string. Both gradients are anchored to the
+    # **caption block box**: the same rect the background box occupies, padding
+    # included, because that rect is the one all three renderers already compute
+    # identically. See docs/caption-parity.md → "Gradient fills".
+    # ------------------------------------------------------------------ #
+    text_gradient = gradient.parse_gradient(config.text_color)
+    bg_gradient = gradient.parse_gradient(config.bg_color)
+    caption_box = (bg_center_x - bg_w / 2, center_y - bg_h / 2, bg_w, bg_h)
+
+    def _paint_bg_box(tgt_img: "Image.Image", tgt_draw: "ImageDraw.ImageDraw",
+                      rect: tuple[float, float, float, float]) -> None:
+        """Draw the group background box, flat or gradient-filled."""
+        alpha = config.bg_opacity * anim_alpha
+        if bg_gradient is None:
+            _draw_rounded_rect(
+                tgt_draw, rect, config.bg_corner_radius,
+                _hex_to_rgba(gradient.flat_color(config.bg_color, DEFAULT_BG_COLOR), alpha),
+            )
+            return
+        # The rounded rect becomes its own layer's alpha — corner
+        # anti-aliasing and `bg_opacity` included — which the gradient is then
+        # poured through, so the box keeps exactly the shape it has today.
+        box_layer = Image.new("RGBA", tgt_img.size, (0, 0, 0, 0))
+        _draw_rounded_rect(
+            ImageDraw.Draw(box_layer), rect, config.bg_corner_radius,
+            (255, 255, 255, int(alpha * 255)),
+        )
+        tgt_img.alpha_composite(paint_gradient(box_layer, bg_gradient, caption_box))
+
+    # The gradient text layer. Only allocated when `text_color` IS a gradient —
+    # a flat colour costs nothing and takes exactly the path it always has. The
+    # pop branch and the normal branch are mutually exclusive, so one at a time.
+    grad_layer: "Image.Image | None" = None
+
+    def _grad_target(dest: "Image.Image") -> "ImageDraw.ImageDraw | None":
+        """Allocate the gradient text layer sized for ``dest``, or ``None``."""
+        nonlocal grad_layer
+        grad_layer = (
+            None if text_gradient is None
+            else Image.new("RGBA", dest.size, (0, 0, 0, 0))
+        )
+        return ImageDraw.Draw(grad_layer) if grad_layer is not None else None
+
+    def _merge_gradient_layer(dest: "Image.Image") -> None:
+        """Pour the gradient through the layer's alpha and merge it into ``dest``.
+
+        Merged *before* the drop shadow and the RSVP edge fade, both of which
+        read ``dest``'s alpha — so neither has to know gradients exist. The
+        gradient never changes alpha, only RGB.
+        """
+        nonlocal grad_layer
+        if grad_layer is None:
+            return
+        dest.alpha_composite(paint_gradient(grad_layer, text_gradient, caption_box))
+        grad_layer = None
 
     # RSVP edge fade — an alpha ramp over the leftmost/rightmost
     # `rsvp_edge_fade` of the caption band, applied to the caption layers only
@@ -1172,12 +1273,10 @@ def _render_frame(
         tmp = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
         tmp_draw = ImageDraw.Draw(tmp)
 
-        bg_rgba = _hex_to_rgba(config.bg_color, config.bg_opacity * anim_alpha)
         if bg_visible:
-            _draw_rounded_rect(tmp_draw,
-                               (bg_center_x - bg_w / 2, center_y - bg_h / 2,
-                                bg_center_x + bg_w / 2, center_y + bg_h / 2),
-                               config.bg_corner_radius, bg_rgba)
+            _paint_bg_box(tmp, tmp_draw,
+                          (bg_center_x - bg_w / 2, center_y - bg_h / 2,
+                           bg_center_x + bg_w / 2, center_y + bg_h / 2))
         if rsvp_fade > 0:
             # Pop has no separate pill/text layers, so the RSVP line goes to its
             # own scratch layer, gets masked, and is composited over the box —
@@ -1188,11 +1287,15 @@ def _render_frame(
             # stacking nuance of this branch.
             pop_text = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
             _draw_all_rows(ImageDraw.Draw(pop_text), pop_text, center_x, center_y,
-                           guide_draw=tmp_draw)
+                           guide_draw=tmp_draw,
+                           grad_draw=_grad_target(pop_text))
+            _merge_gradient_layer(pop_text)
             rsvp_layout.apply_edge_fade(pop_text, _rsvp_band(center_x), rsvp_fade)
             tmp.alpha_composite(pop_text)
         else:
-            _draw_all_rows(tmp_draw, tmp, center_x, center_y)
+            _draw_all_rows(tmp_draw, tmp, center_x, center_y,
+                           grad_draw=_grad_target(tmp))
+            _merge_gradient_layer(tmp)
 
         # Affine transform centred on (center_x, center_y), matching Canvas
         # ctx.translate(cx,cy) → ctx.scale(s,s) → ctx.translate(-cx,-cy).
@@ -1218,12 +1321,10 @@ def _render_frame(
     # ---------------------------------------------------------------------------
     # Normal draw (none / fade / slide, or pop exit phase)
     # ---------------------------------------------------------------------------
-    bg_rgba = _hex_to_rgba(config.bg_color, config.bg_opacity * anim_alpha)
     if bg_visible:
-        _draw_rounded_rect(draw,
-                           (bg_center_x - bg_w / 2, center_y - bg_h / 2,
-                            bg_center_x + bg_w / 2, center_y + bg_h / 2),
-                           config.bg_corner_radius, bg_rgba)
+        _paint_bg_box(img, draw,
+                      (bg_center_x - bg_w / 2, center_y - bg_h / 2,
+                       bg_center_x + bg_w / 2, center_y + bg_h / 2))
 
     # Render the highlight pill and the text into separate layers so the
     # composite order can be: bg → pill → guide → text-shadow → text. That way the
@@ -1241,7 +1342,11 @@ def _render_frame(
     text_layer = Image.new("RGBA", (config.resolution_w, config.resolution_h), (0, 0, 0, 0))
     text_draw  = ImageDraw.Draw(text_layer)
     _draw_all_rows(text_draw, text_layer, center_x, center_y,
-                   pill_draw=pill_draw, guide_draw=guide_draw)
+                   pill_draw=pill_draw, guide_draw=guide_draw,
+                   grad_draw=_grad_target(text_layer))
+    # Merge before the fade and the shadow, both of which read `text_layer`'s
+    # alpha — the gradient-filled words must already be part of it.
+    _merge_gradient_layer(text_layer)
 
     if rsvp_fade > 0:
         # Mask BOTH caption layers — the words and, on the pill layer, the

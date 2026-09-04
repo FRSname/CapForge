@@ -1,0 +1,833 @@
+{
+  "_comment": [
+    "Shared contract for the THREE gradient-core implementations:",
+    "  backend/exporters/gradient.py            (Pillow, source of truth)",
+    "  src/renderer/src/lib/gradient.ts         (Canvas preview)",
+    "  GRADIENT_RUNTIME_JS in backend/exporters/hyperframes_gradient_runtime.py",
+    "Read by test_gradient_core.py, lib/gradient.test.ts and lib/gradient.embedded.test.ts.",
+    "Never hand-write an expected value in one language — add a row here."
+  ],
+  "parse": [
+    {
+      "input": "linear-gradient(135deg, #FF0080 0%, #7928CA 100%)",
+      "expected": {
+        "angle": 135,
+        "stops": [
+          [
+            0,
+            "#FF0080"
+          ],
+          [
+            1,
+            "#7928CA"
+          ]
+        ]
+      },
+      "note": "the canonical two-stop form the UI emits"
+    },
+    {
+      "input": "linear-gradient(0deg, #FFFFFF 0%, #000000 100%)",
+      "expected": {
+        "angle": 0,
+        "stops": [
+          [
+            0,
+            "#FFFFFF"
+          ],
+          [
+            1,
+            "#000000"
+          ]
+        ]
+      },
+      "note": "0deg is legal and means 'to top'"
+    },
+    {
+      "input": "linear-gradient(90deg, #abc 0%, #def 50%, #123456 100%)",
+      "expected": {
+        "angle": 90,
+        "stops": [
+          [
+            0,
+            "#AABBCC"
+          ],
+          [
+            0.5,
+            "#DDEEFF"
+          ],
+          [
+            1,
+            "#123456"
+          ]
+        ]
+      },
+      "note": "3-digit hex is expanded and every colour is upper-cased"
+    },
+    {
+      "input": "linear-gradient(-45deg, #FF0000 0%, #00FF00 100%)",
+      "expected": {
+        "angle": 315,
+        "stops": [
+          [
+            0,
+            "#FF0000"
+          ],
+          [
+            1,
+            "#00FF00"
+          ]
+        ]
+      },
+      "note": "negative angle normalises INTO [0,360) — JS '%' keeps the sign, Python's does not"
+    },
+    {
+      "input": "linear-gradient(1080deg, #FF0000 0%, #00FF00 100%)",
+      "expected": {
+        "angle": 0,
+        "stops": [
+          [
+            0,
+            "#FF0000"
+          ],
+          [
+            1,
+            "#00FF00"
+          ]
+        ]
+      },
+      "note": "three full turns normalise to 0"
+    },
+    {
+      "input": "linear-gradient(22.5deg, #FF0000 12.5%, #00FF00 87.5%)",
+      "expected": {
+        "angle": 22.5,
+        "stops": [
+          [
+            0.125,
+            "#FF0000"
+          ],
+          [
+            0.875,
+            "#00FF00"
+          ]
+        ]
+      },
+      "note": "fractional angle and fractional stop percentages"
+    },
+    {
+      "input": "  LINEAR-GRADIENT(90deg,#FF0000 0%,#00FF00 100%)  ",
+      "expected": {
+        "angle": 90,
+        "stops": [
+          [
+            0,
+            "#FF0000"
+          ],
+          [
+            1,
+            "#00FF00"
+          ]
+        ]
+      },
+      "note": "surrounding whitespace trimmed, keyword case-insensitive, spaces after commas optional"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 40%, #00FF00 40%, #0000FF 100%)",
+      "expected": {
+        "angle": 90,
+        "stops": [
+          [
+            0.4,
+            "#FF0000"
+          ],
+          [
+            0.4,
+            "#00FF00"
+          ],
+          [
+            1,
+            "#0000FF"
+          ]
+        ]
+      },
+      "note": "equal consecutive offsets are a hard colour band, not an error"
+    },
+    {
+      "input": "linear-gradient(90deg, #111111 0%, #222222 20%, #333333 40%, #444444 60%, #555555 70%, #666666 80%, #777777 90%, #888888 100%)",
+      "expected": {
+        "angle": 90,
+        "stops": [
+          [
+            0,
+            "#111111"
+          ],
+          [
+            0.2,
+            "#222222"
+          ],
+          [
+            0.4,
+            "#333333"
+          ],
+          [
+            0.6,
+            "#444444"
+          ],
+          [
+            0.7,
+            "#555555"
+          ],
+          [
+            0.8,
+            "#666666"
+          ],
+          [
+            0.9,
+            "#777777"
+          ],
+          [
+            1,
+            "#888888"
+          ]
+        ]
+      },
+      "note": "MAX_STOPS = 8 exactly"
+    },
+    {
+      "input": "#FFFFFF",
+      "expected": null,
+      "note": "a plain hex is not a gradient — caller keeps its flat path"
+    },
+    {
+      "input": "#fff",
+      "expected": null,
+      "note": "short hex, same"
+    },
+    {
+      "input": "",
+      "expected": null,
+      "note": "empty string"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 0%, #00FF00 100%);background:url(evil)",
+      "expected": null,
+      "note": "TRUST BOUNDARY: trailing declarations must not ride along into CSS"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 0%, #00FF00 100%) , url(evil)",
+      "expected": null,
+      "note": "trailing text after the closing paren"
+    },
+    {
+      "input": "linear-gradient(90deg, rgb(255,0,0) 0%, #00FF00 100%)",
+      "expected": null,
+      "note": "nested parens rejected outright — Pillow only has a hex parser"
+    },
+    {
+      "input": "linear-gradient(90deg, red 0%, blue 100%)",
+      "expected": null,
+      "note": "named colours are not in the subset"
+    },
+    {
+      "input": "radial-gradient(circle, #FF0000 0%, #00FF00 100%)",
+      "expected": null,
+      "note": "only linear-gradient is accepted today"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 0%)",
+      "expected": null,
+      "note": "MIN_STOPS = 2"
+    },
+    {
+      "input": "linear-gradient(90deg)",
+      "expected": null,
+      "note": "no stops at all"
+    },
+    {
+      "input": "linear-gradient(#FF0000 0%, #00FF00 100%)",
+      "expected": null,
+      "note": "the angle is mandatory — no implicit 180deg default"
+    },
+    {
+      "input": "linear-gradient(90, #FF0000 0%, #00FF00 100%)",
+      "expected": null,
+      "note": "angle needs its 'deg' unit"
+    },
+    {
+      "input": "linear-gradient(90grad, #FF0000 0%, #00FF00 100%)",
+      "expected": null,
+      "note": "no other angle unit"
+    },
+    {
+      "input": "linear-gradient(to right, #FF0000 0%, #00FF00 100%)",
+      "expected": null,
+      "note": "keyword directions are not in the subset"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000, #00FF00 100%)",
+      "expected": null,
+      "note": "every stop needs an explicit percentage"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 0, #00FF00 100%)",
+      "expected": null,
+      "note": "the percentage needs its '%'"
+    },
+    {
+      "input": "linear-gradient(90deg, #GGGGGG 0%, #00FF00 100%)",
+      "expected": null,
+      "note": "non-hex digits"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF00 0%, #00FF00 100%)",
+      "expected": null,
+      "note": "4-digit hex (CSS alpha form) is not in the subset"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 -10%, #00FF00 100%)",
+      "expected": null,
+      "note": "offset below 0%"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 0%, #00FF00 120%)",
+      "expected": null,
+      "note": "offset above 100%"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 80%, #00FF00 20%)",
+      "expected": null,
+      "note": "stops must be non-decreasing"
+    },
+    {
+      "input": "linear-gradient(90deg, #111111 0%, #222222 10%, #333333 20%, #444444 30%, #555555 40%, #666666 50%, #777777 60%, #888888 70%, #999999 100%)",
+      "expected": null,
+      "note": "9 stops exceeds MAX_STOPS"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 0%, #00FF00 100%",
+      "expected": null,
+      "note": "unterminated"
+    },
+    {
+      "input": "javascript:alert(1)",
+      "expected": null,
+      "note": "not remotely a gradient"
+    }
+  ],
+  "parseLongInput": {
+    "note": "MAX_LENGTH = 512. Built in each language rather than inlined here so the row stays readable: 'linear-gradient(90deg, ' + '#FF0000 0%, ' repeated + '#00FF00 100%)' past 512 chars must be rejected on length alone, before stop-count.",
+    "maxLength": 512
+  },
+  "line": [
+    {
+      "angle": 0,
+      "box": [
+        0,
+        0,
+        100,
+        100
+      ],
+      "expected": [
+        50,
+        100,
+        50,
+        0
+      ],
+      "note": "0deg points to the TOP: 0% at the bottom edge"
+    },
+    {
+      "angle": 90,
+      "box": [
+        0,
+        0,
+        100,
+        100
+      ],
+      "expected": [
+        0,
+        50,
+        100,
+        50
+      ],
+      "note": "90deg to the right"
+    },
+    {
+      "angle": 180,
+      "box": [
+        0,
+        0,
+        100,
+        100
+      ],
+      "expected": [
+        50,
+        0,
+        50,
+        100
+      ],
+      "note": "180deg to the bottom"
+    },
+    {
+      "angle": 270,
+      "box": [
+        0,
+        0,
+        100,
+        100
+      ],
+      "expected": [
+        100,
+        50,
+        0,
+        50
+      ],
+      "note": "270deg to the left"
+    },
+    {
+      "angle": 45,
+      "box": [
+        0,
+        0,
+        100,
+        100
+      ],
+      "expected": [
+        0,
+        100,
+        100,
+        0
+      ],
+      "note": "MAGIC CORNER: on a square the 45deg line lands exactly on the corners"
+    },
+    {
+      "angle": 135,
+      "box": [
+        0,
+        0,
+        100,
+        100
+      ],
+      "expected": [
+        0,
+        0,
+        100,
+        100
+      ],
+      "note": "135deg to the bottom-right corner"
+    },
+    {
+      "angle": 315,
+      "box": [
+        0,
+        0,
+        100,
+        100
+      ],
+      "expected": [
+        100,
+        100,
+        0,
+        0
+      ],
+      "note": "315deg to the top-left corner"
+    },
+    {
+      "angle": 45,
+      "box": [
+        10,
+        20,
+        200,
+        100
+      ],
+      "expected": [
+        35,
+        145,
+        185,
+        -5
+      ],
+      "note": "non-square, offset box: endpoints leave the box, which is correct"
+    },
+    {
+      "angle": 0,
+      "box": [
+        10,
+        20,
+        200,
+        100
+      ],
+      "expected": [
+        110,
+        120,
+        110,
+        20
+      ],
+      "note": "an axis-aligned angle ignores the perpendicular dimension"
+    },
+    {
+      "angle": 30,
+      "box": [
+        0,
+        0,
+        200,
+        100
+      ],
+      "expected": [
+        53.349365,
+        130.80127,
+        146.650635,
+        -30.80127
+      ],
+      "note": "the case a naive 'corner to corner' formula gets wrong"
+    },
+    {
+      "angle": 120,
+      "box": [
+        -40,
+        10,
+        320,
+        180
+      ],
+      "expected": [
+        -38.971143,
+        8.217968,
+        278.971143,
+        191.782032
+      ],
+      "note": "negative origin, obtuse angle"
+    },
+    {
+      "angle": 17.5,
+      "box": [
+        5,
+        5,
+        90,
+        45
+      ],
+      "expected": [
+        39.478186,
+        60.87093,
+        60.521814,
+        -5.87093
+      ],
+      "note": "fractional angle"
+    },
+    {
+      "angle": 90,
+      "box": [
+        0,
+        0,
+        0,
+        50
+      ],
+      "expected": [
+        0,
+        25,
+        0,
+        25
+      ],
+      "note": "DEGENERATE: a zero-width box gives a zero-length line — renderers must not divide by it"
+    }
+  ],
+  "toCss": [
+    {
+      "input": "linear-gradient(135deg, #FF0080 0%, #7928CA 100%)",
+      "expected": "linear-gradient(135deg, #FF0080 0%, #7928CA 100%)",
+      "note": "already canonical — round-trips unchanged"
+    },
+    {
+      "input": "  LINEAR-GRADIENT(90deg,#abc 0%,#def 100%)  ",
+      "expected": "linear-gradient(90deg, #AABBCC 0%, #DDEEFF 100%)",
+      "note": "re-emitted canonically: lower-case keyword, expanded upper-case hex, one space after each comma"
+    },
+    {
+      "input": "linear-gradient(-45deg, #FF0000 0%, #00FF00 100%)",
+      "expected": "linear-gradient(315deg, #FF0000 0%, #00FF00 100%)",
+      "note": "the normalised angle is what is emitted"
+    },
+    {
+      "input": "linear-gradient(22.5deg, #FF0000 12.5%, #00FF00 87.5%)",
+      "expected": "linear-gradient(22.5deg, #FF0000 12.5%, #00FF00 87.5%)",
+      "note": "fractions keep their decimals, with no trailing zeros"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 33.3333%, #00FF00 100%)",
+      "expected": "linear-gradient(90deg, #FF0000 33.3333%, #00FF00 100%)",
+      "note": "4 decimal places is the cap in all three copies"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 0%, #00FF00 50%, #0000FF 100%)",
+      "expected": "linear-gradient(90deg, #FF0000 0%, #00FF00 50%, #0000FF 100%)",
+      "note": "three stops"
+    }
+  ],
+  "flatHex": [
+    {
+      "input": "#FFFFFF",
+      "expected": "#FFFFFF",
+      "note": "already canonical"
+    },
+    {
+      "input": "#abc",
+      "expected": "#AABBCC",
+      "note": "expanded and upper-cased"
+    },
+    {
+      "input": "  #d4952a  ",
+      "expected": "#D4952A",
+      "note": "trimmed"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0000 0%, #00FF00 100%)",
+      "expected": null,
+      "note": "a VALID gradient is not a flat colour — the caller took the gradient branch"
+    },
+    {
+      "input": "linear-gradient(bogus)",
+      "expected": null,
+      "note": "THE POINT OF THIS FUNCTION: a malformed gradient from a preset must not reach _hex_to_rgba's int(h[0:2], 16)"
+    },
+    {
+      "input": "#FF00",
+      "expected": null,
+      "note": "4-digit hex"
+    },
+    {
+      "input": "#GGGGGG",
+      "expected": null,
+      "note": "non-hex digits"
+    },
+    {
+      "input": "FFFFFF",
+      "expected": null,
+      "note": "missing '#'"
+    },
+    {
+      "input": "",
+      "expected": null,
+      "note": "empty"
+    },
+    {
+      "input": "red",
+      "expected": null,
+      "note": "named colour"
+    }
+  ],
+  "flatColor": [
+    {
+      "input": "#FFFFFF",
+      "expected": "#FFFFFF",
+      "note": "a plain hex reads as itself"
+    },
+    {
+      "input": "#abc",
+      "expected": "#AABBCC",
+      "note": "expanded and upper-cased, like flatHex"
+    },
+    {
+      "input": "linear-gradient(90deg, #FF0080 0%, #7928CA 100%)",
+      "expected": "#FF0080",
+      "note": "THE RULE: a gradient reads as its FIRST STOP for flat-only consumers"
+    },
+    {
+      "input": "linear-gradient(270deg, #FF0080 0%, #7928CA 100%)",
+      "expected": "#FF0080",
+      "note": "first stop by POSITION IN THE STRING, not by which end the angle points at"
+    },
+    {
+      "input": "linear-gradient(90deg, #abc 25%, #123456 100%)",
+      "expected": "#AABBCC",
+      "note": "the first stop need not sit at 0%"
+    },
+    {
+      "input": "linear-gradient(bogus)",
+      "expected": null,
+      "note": "a malformed gradient still falls back"
+    },
+    {
+      "input": "red",
+      "expected": null,
+      "note": "named colour falls back"
+    },
+    {
+      "input": "",
+      "expected": null,
+      "note": "empty falls back"
+    }
+  ],
+  "raster": {
+    "w": 320,
+    "h": 180,
+    "probes": [
+      [
+        5,
+        5
+      ],
+      [
+        80,
+        40
+      ],
+      [
+        160,
+        90
+      ],
+      [
+        240,
+        140
+      ],
+      [
+        315,
+        175
+      ],
+      [
+        0,
+        179
+      ],
+      [
+        319,
+        0
+      ]
+    ],
+    "cases": [
+      {
+        "css": "linear-gradient(45deg, #FF0080 0%, #21D4FD 100%)",
+        "box": [
+          40,
+          60,
+          240,
+          60
+        ],
+        "samples": [
+          [
+            197,
+            55,
+            161
+          ],
+          [
+            168,
+            83,
+            177
+          ],
+          [
+            145,
+            105,
+            190
+          ],
+          [
+            123,
+            126,
+            202
+          ],
+          [
+            94,
+            154,
+            219
+          ],
+          [
+            255,
+            0,
+            128
+          ],
+          [
+            33,
+            212,
+            253
+          ]
+        ]
+      },
+      {
+        "css": "linear-gradient(180deg, #7928CA 0%, #FF0080 100%)",
+        "box": [
+          10,
+          20,
+          300,
+          140
+        ],
+        "samples": [
+          [
+            121,
+            40,
+            202
+          ],
+          [
+            140,
+            34,
+            192
+          ],
+          [
+            188,
+            20,
+            165
+          ],
+          [
+            236,
+            6,
+            139
+          ],
+          [
+            255,
+            0,
+            128
+          ],
+          [
+            255,
+            0,
+            128
+          ],
+          [
+            121,
+            40,
+            202
+          ]
+        ]
+      },
+      {
+        "css": "linear-gradient(17.5deg, #FF0000 0%, #00FF00 50%, #0000FF 100%)",
+        "box": [
+          0,
+          0,
+          320,
+          180
+        ],
+        "samples": [
+          [
+            0,
+            192,
+            63
+          ],
+          [
+            0,
+            212,
+            43
+          ],
+          [
+            3,
+            252,
+            0
+          ],
+          [
+            47,
+            208,
+            0
+          ],
+          [
+            69,
+            186,
+            0
+          ],
+          [
+            255,
+            0,
+            0
+          ],
+          [
+            0,
+            4,
+            251
+          ]
+        ]
+      }
+    ],
+    "_comment": "Pillow's RASTERISATION of a gradient, sampled. Cross-checked in a real browser against the identical ctx.createLinearGradient fill built from lib/gradient.ts's gradientLine: worst channel delta 3/255 over all 21 probes, which is the quantisation of Pillow's 256-step LUT against the browser's continuous interpolation. Probes deliberately include points OUTSIDE the box, where both must clamp to an end stop. Asserted from Python only (node has no Canvas); a change to _GRADIENT_STEPS or to the stop-sampling rule fails here."
+  },
+  "closeDigits": 5
+}

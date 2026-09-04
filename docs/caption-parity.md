@@ -32,6 +32,114 @@ Deliberately **not** a rendering formula, so the three renderers need no edits. 
 - **Derived, never baked**: writing the closed groups back into group state flips `groupsEdited`, makes `reconcileGroups` Rule 5 carry the held end forward as a manual bound, and compounds the hold once per edit — hence `displayGroups` (a `useMemo` in `ResultsScreen`) while the editors keep the raw groups.
 - A group whose `end` the user placed by hand carries `endEdited` (frontend-only, stripped from the render payload by `render.ts`) and is exempt from both dials.
 
+## Gradient fills
+
+`text_color` and `bg_color` accept **either** a plain `#RRGGBB` hex — unchanged, and
+the fast path every renderer still takes byte-for-byte — **or** a restricted linear
+gradient:
+
+```
+linear-gradient(135deg, #FF0080 0%, #7928CA 100%)
+```
+
+Nothing else is accepted: no `rgb()`/`hsl()`/named colours, no keyword directions, no
+implicit stop positions, no nested parens, no trailing text. The grammar is closed
+because parsing it is a **trust boundary** — a `.cfpreset`, a restored `.cfproj` and an
+MCP `set_style` all reach it, and the HTML layer puts the result in the render page's
+CSS. The HTML payload therefore carries a string re-emitted from the *parsed* spec
+(`hyperframes_caption_html._gradient_css`), never the caller's own.
+
+**One shared scalar core, three implementations**, pinned against one another by the
+single fixture `backend/tests/fixtures/gradient_cases.json`:
+
+| Renderer | Core | Applied in |
+|---|---|---|
+| Pillow (source of truth) | `backend/exporters/gradient.py` | `caption_draw.paint_gradient` + `video_render._render_frame` |
+| Canvas preview | `src/renderer/src/lib/gradient.ts` | `hooks/useSubtitleOverlay.ts` (`makeFill`) |
+| HTML/GSAP | `GRADIENT_RUNTIME_JS` in `backend/exporters/hyperframes_gradient_runtime.py` | `hyperframes_caption_html.py` + `hyperframes_rsvp_runtime.py` |
+
+Read by `backend/tests/test_gradient_core.py`, `lib/gradient.test.ts` and
+`lib/gradient.embedded.test.ts`. **Never hand-write an expected value in one language —
+add a fixture row.**
+
+### The gradient line
+
+The CSS convention, and the one formula that must not drift: `0deg` points to the **top**
+and the angle increases **clockwise**; the line is centred on the box and long enough that
+the first and last stops land on opposite corners.
+
+```
+dir    = (sin a, −cos a)                 y grows downward, so cos is negated
+length = |W·sin a| + |H·cos a|           the "magic corner" rule
+p0     = centre − dir·length/2           where the 0% stop sits
+p1     = centre + dir·length/2           where the 100% stop sits
+```
+
+This is invisible at 0/90/180/270° and wrong at every other angle, which is why it lives
+in the shared core rather than being re-derived per renderer. A degenerate box (zero
+extent along the gradient direction) collapses to the first stop in all three.
+
+### The anchor box
+
+Both gradients are anchored to the **caption block box** — `(bgCenterX − bgW/2, cy − bgH/2,
+bgW, bgH)`, the same rect the background box occupies, padding and stroke pad included.
+Deliberately not a new geometry concept: that rect is already computed identically by all
+three renderers and pinned by the existing bbox parity checks, so the gradient inherits
+its agreement for free.
+
+### Which words get the gradient
+
+Only words painted in the **base text colour**. A word keeps its own flat colour when it
+carries a per-word `text_color`, when it is the active word (`active_word_color`), when it
+is the highlight pill's text, when it is RSVP's focus glyph or anchor word, or when its
+transition **animates** its colour (`crossfade`). The last one is a three-way constraint,
+not a preference: the HTML layer animates `color`, which a `background-clip: text` fill
+would hide, so all three agree that a colour-animating word stays flat.
+
+Pillow expresses this with `_word_target` in `_draw_word_list` — base-coloured words go to
+a second full-frame layer, which is poured through the gradient and merged into
+`text_layer` *before* the drop shadow and the RSVP edge fade, both of which read that
+layer's alpha. A gradient only ever rewrites RGB, never alpha, so neither needs to know
+gradients exist.
+
+Consumers that inherit one of these colours but cannot hold a gradient — the highlight
+pill's text falling back to `bg_color`, a per-word background box inheriting it — read the
+gradient's **first stop** (`gradient.flat_color`), not an unrelated default.
+
+### How each renderer paints it
+
+- **Pillow**: no `ImageDraw` API takes a gradient, so glyphs are drawn normally into an
+  RGBA layer and that layer's alpha is re-used as a mask. The parameter map is an
+  `Image.AFFINE` transform of `Image.linear_gradient("L")` plus a per-channel LUT, so it
+  is a handful of C-level ops per frame rather than per-pixel Python.
+- **Canvas**: `ctx.createLinearGradient` over the same box, assigned to `fillStyle`. Note
+  a gradient is interpreted in the transform current **at fill time** — which is correct
+  for the group pop animation (Pillow scales its whole layer too) and never applies to the
+  per-word `scale` transition, whose active word is not gradient-eligible anyway.
+- **HTML/GSAP**, two mechanisms because one does not cover both layout modes:
+  - *wrap* — per span, `background-image` + `background-size`/`background-position`
+    re-expressing the caption box in the span's own coordinates. Wrap spans never move, so
+    this is exact.
+  - *RSVP* — on `.crsvp-band`, the **static, text-only** wrapper. Per-span would slide the
+    fill along with the word, while Pillow's gradient is fixed in frame space. Because
+    `-webkit-text-fill-color` inherits, every span that keeps its own colour (a per-word
+    override, the active word's three pieces) sets it explicitly.
+  - the background box needs neither: a gradient string is a valid `background` on the
+    div, whose own box *is* the caption box.
+
+### Gradient accepted deltas (documented — do not "fix")
+
+- **Gradient text + text outline.** Pillow draws the stroke and then the fill on top, so
+  only the outer half of a centred stroke survives. In CSS the gradient is the element's
+  *background*, which is painted before the text content, so `paint-order: stroke fill`
+  leaves the stroke's inner half visible. There is no CSS way to paint a
+  background-clipped fill above the stroke. The divergence is a band ≈ `stroke_width / 2`
+  wide around each glyph edge, so it scales with the stroke and stays invisible in the
+  mean — `test_gradient_text_with_stroke_parity` budgets it **per stroke width** (2px at
+  the standard budget, 4px → 6%, 8px → 11%) rather than loosening one global tolerance, so
+  a regression that widens the band still fails.
+- **Mid-crossfade words are flat**, by the three-way constraint above.
+
 ## RSVP reading mode
 
 **A layout axis, not a `word_transition`.** `reading_mode` (`'wrap' | 'rsvp'`, default `'wrap'`) is orthogonal to `word_transition`. All nine `word_transition` modes decorate words *after* layout is fixed; RSVP replaces layout itself, so it is deliberately **not** a `word_transition` value, is **not** per-word overridable, and must never appear in `types/app.ts`'s `WordTransition` union or in `WordStylePopup.tsx`. "Make *this one word* use RSVP" is meaningless — RSVP is a property of the whole line.
@@ -199,9 +307,10 @@ CAPFORGE_PARITY=1 .venv-dev/bin/python -m pytest backend/tests/test_caption_pari
 
 ## Tests
 
-- **Golden frames**: `backend/tests/test_render_golden.py` pins `_render_frame()` pixel output against PNGs in `backend/tests/golden/` (tolerance-based diff), including `rsvp_mid_word` (a frame during a hold, where the focus glyph's centre must sit on the pivot column) and `rsvp_mid_slide` (a frame during the slide — the two differ only in `t`). Regenerate after an intentional formula change with `.venv-dev/bin/python -m backend.tests.gen_golden`, then review the PNGs visually before committing — they define what "correct" looks like. Generation is deterministic: two runs into different directories are byte-identical.
+- **Golden frames**: `backend/tests/test_render_golden.py` pins `_render_frame()` pixel output against PNGs in `backend/tests/golden/` (tolerance-based diff), including `rsvp_mid_word` (a frame during a hold, where the focus glyph's centre must sit on the pivot column) and `rsvp_mid_slide` (a frame during the slide — the two differ only in `t`). plus `gradient_text` (a 45° text fill, with one word pinned to a flat per-word colour) and `gradient_bg_box` (a vertical fill through the rounded, semi-transparent box). Regenerate after an intentional formula change with `.venv-dev/bin/python -m backend.tests.gen_golden`, then review the PNGs visually before committing — they define what "correct" looks like. Generation is deterministic: two runs into different directories are byte-identical.
+- **Gradient core fixture**: `backend/tests/fixtures/gradient_cases.json` pins the grammar, the gradient-line formula, the canonical re-emission and the flat fallbacks across all three languages — read by `backend/tests/test_gradient_core.py`, `lib/gradient.test.ts` and `lib/gradient.embedded.test.ts`. The last of those extracts `GRADIENT_RUNTIME_JS` from Python source and evaluates it in bare node; that the constant is actually spliced into the emitted runtime is pinned separately by `test_hyperframes_project.py::test_classic_captions_embed_the_gradient_core`.
 - **Canvas ↔ Pillow numeric fixture**: `src/renderer/src/lib/__fixtures__/rsvp_canvas_parity.json` is *generated* by running the Pillow reference (`gen_rsvp_canvas_parity.py`, over a synthetic per-character width table so the numbers are reproducible in JS) and *asserted from both sides* — `lib/overlayGeometry.rsvp.test.ts` checks the Canvas renderer against it, `backend/tests/test_rsvp_canvas_fixture.py` re-derives it from the live reference so a Pillow drift fails the backend suite instead of quietly leaving the frontend pinned to stale numbers.
-- **Caption parity**: `backend/tests/test_caption_parity.py` diffs the Pillow render against the live HyperFrames snapshot for every word mode + stroke/shadow/multi-line, plus per-word overrides, highlight slide, mid-entry group ease, 1080p/portrait resolutions, and five RSVP cases (mid-hold boxed, mid-slide box-off, **a frame past a group boundary inside a reel**, per-word overrides, scaled anchor). Each comparison also asserts the caption **bounding-box extents** agree within 3px per edge (catches few-px drift the loose mean/notable tolerances hide). Opt-in (needs Node 22 + ffmpeg):
+- **Caption parity**: `backend/tests/test_caption_parity.py` diffs the Pillow render against the live HyperFrames snapshot for every word mode + stroke/shadow/multi-line, plus per-word overrides, highlight slide, mid-entry group ease, 1080p/portrait resolutions, five RSVP cases (mid-hold boxed, mid-slide box-off, **a frame past a group boundary inside a reel**, per-word overrides, scaled anchor), and eight gradient cases (text, background box, both together, gradient under the highlight transition, gradient + shadow, and gradient + a 2/4/8px outline — see "Gradient accepted deltas"). Each comparison also asserts the caption **bounding-box extents** agree within 3px per edge (catches few-px drift the loose mean/notable tolerances hide). Opt-in (needs Node 22 + ffmpeg):
 
   ```bash
   CAPFORGE_PARITY=1 .venv-dev/bin/python -m pytest backend/tests/test_caption_parity.py

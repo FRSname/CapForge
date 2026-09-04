@@ -197,6 +197,97 @@ def test_feature_parity(name, result_six, over, source_video):
     assert notable < NOTABLE_FRAC_MAX, f"{name}: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
 
 
+GRADIENT_TEXT = "linear-gradient(45deg, #FF0080 0%, #21D4FD 100%)"
+GRADIENT_BG = "linear-gradient(180deg, #7928CA 0%, #FF0080 100%)"
+
+
+@_run
+@pytest.mark.parametrize("name,over", [
+    # Pillow pours the gradient through the text layer's alpha; the HTML layer
+    # uses `background-clip: text` anchored to the same caption block box. 45deg
+    # is the case a naive corner-to-corner gradient line gets wrong.
+    ("text", dict(word_transition="none", bg_opacity=0.0, text_color=GRADIENT_TEXT)),
+    # The background box: Pillow masks the gradient through the rounded rect,
+    # the HTML layer sets it as the div's own `background`.
+    ("bg_box", dict(word_transition="none", bg_opacity=0.85, bg_corner_radius=18,
+                    bg_color=GRADIENT_BG)),
+    # Both at once, plus a stroke — `-webkit-text-stroke` composing with a
+    # transparent text-fill is the assumption most likely to be wrong.
+    ("text_and_bg", dict(word_transition="none", bg_opacity=0.85,
+                         bg_corner_radius=18, text_color=GRADIENT_TEXT,
+                         bg_color=GRADIENT_BG)),
+    # Gradient text UNDER the highlight transition: the active word keeps its
+    # flat pill-text colour while its neighbours are gradient-filled.
+    ("text_with_highlight", dict(word_transition="highlight", bg_opacity=0.0,
+                                 text_color=GRADIENT_TEXT)),
+])
+def test_gradient_parity(name, over, source_video):
+    pillow_png, hf_png = _render_both(_result(), _config(**over), source_video)
+    mean, notable = _diff(pillow_png, hf_png)
+    assert mean < MEAN_MAX, f"gradient {name}: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, (
+        f"gradient {name}: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+
+@_run
+@pytest.mark.parametrize("stroke_width,notable_budget", [
+    (2, NOTABLE_FRAC_MAX),
+    # ACCEPTED DELTA, and it grows with the stroke — see the docstring.
+    (4, 6.0),
+    (8, 11.0),
+])
+def test_gradient_text_with_stroke_parity(stroke_width, notable_budget, source_video):
+    """Gradient text + a text outline — the one composition CSS orders differently.
+
+    Pillow draws the stroke and then the fill ON TOP of it, so only the outer
+    half of a centred stroke survives. In CSS the gradient is the element's
+    *background* clipped to the glyph shape, and a background is painted before
+    the text content — so `paint-order: stroke fill` puts the stroke over the
+    gradient and the inner half stays visible. There is no CSS way to paint a
+    background-clipped fill above the stroke.
+
+    The divergence is a band roughly `stroke_width / 2` wide around every glyph
+    edge, so it scales with the stroke and is invisible in the mean. Budgets are
+    per stroke width rather than one loosened global tolerance, so a regression
+    that widens the band still fails. Recorded in docs/caption-parity.md.
+    """
+    pillow_png, hf_png = _render_both(
+        _result(),
+        _config(word_transition="none", bg_opacity=0.0, text_color=GRADIENT_TEXT,
+                stroke_width=stroke_width, stroke_color="#000000"),
+        source_video,
+    )
+    mean, notable = _diff(pillow_png, hf_png)
+    assert mean < MEAN_MAX, f"gradient+stroke {stroke_width}: mean {mean:.2f} >= {MEAN_MAX}"
+    assert notable < notable_budget, (
+        f"gradient+stroke {stroke_width}: {notable:.2f}% pixels differ > {notable_budget}%"
+    )
+
+
+@_run
+def test_gradient_text_with_shadow_parity(source_video):
+    """Gradient text + drop shadow — the one composition CSS orders differently.
+
+    Pillow composites shadow BELOW the glyph. In CSS a `background-clip: text`
+    fill is painted as the element's background and `text-shadow` is painted
+    after it, so where they overlap the shadow lands on top. Kept as its own
+    test so the size of that delta is a recorded number rather than a guess.
+    """
+    pillow_png, hf_png = _render_both(
+        _result(),
+        _config(word_transition="none", bg_opacity=0.0, text_color=GRADIENT_TEXT,
+                shadow_enabled=True, shadow_color="#000000", shadow_opacity=0.9,
+                shadow_blur=10, shadow_offset_x=4, shadow_offset_y=4),
+        source_video,
+    )
+    mean, notable = _diff(pillow_png, hf_png)
+    assert mean < MEAN_MAX, f"gradient+shadow: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, (
+        f"gradient+shadow: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+
 def _override_groups() -> list[dict]:
     """One 4-word group with per-word overrides riding on the word dicts under
     ``overrides`` — exactly the shape Pillow consumes (video_render.py:476)."""

@@ -145,9 +145,26 @@ class VideoRenderConfig(BaseModel):
     word_spacing: int = Field(0, description="Extra word spacing in px")
     stroke_width: int = Field(0, ge=0, description="Text outline stroke width in px")
     stroke_color: str = Field("#000000", description="Text outline stroke color (hex)")
-    text_color: str = Field("#FFFFFF", description="Normal word color (hex)")
+    text_color: str = Field(
+        "#FFFFFF",
+        description=(
+            "Normal word color: a hex (#RRGGBB) or a linear gradient, "
+            "'linear-gradient(<angle>deg, #RRGGBB <pct>%, #RRGGBB <pct>%)' "
+            "(2-8 stops, angles CSS-style with 0deg pointing up). A gradient is "
+            "anchored to the caption block box and skipped for words that carry "
+            "their own color (the active word, per-word overrides, crossfade)."
+        ),
+    )
     active_word_color: str = Field("#FFD700", description="Highlighted spoken word color (hex)")
-    bg_color: str = Field("#D4952A", description="Background shape color (hex)")
+    bg_color: str = Field(
+        "#D4952A",
+        description=(
+            "Background shape color: a hex (#RRGGBB) or a linear gradient, same "
+            "syntax as text_color. Consumers that inherit this but cannot hold a "
+            "gradient (the highlight pill's text, a per-word background box) read "
+            "the gradient's first stop."
+        ),
+    )
     bg_opacity: float = Field(0.9, ge=0.0, le=1.0)
     bg_padding_h: int = Field(40, ge=0, description="Horizontal padding")
     bg_padding_v: int = Field(16, ge=0, description="Vertical padding")

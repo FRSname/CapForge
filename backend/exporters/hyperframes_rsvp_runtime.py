@@ -288,6 +288,15 @@ function __capRsvpBuild(ctx){
   var textBand = mkLayer('crsvp-band'), textRow = mkLayer('crsvp-row');
   boxBand.appendChild(boxRow);
   textBand.appendChild(textRow);
+  // Gradient text. Unlike the wrap path, RSVP cannot anchor per span: the row
+  // SLIDES, so a per-span fill would travel with the word while Pillow's
+  // gradient stays fixed in frame space. `textBand` is the static, TEXT-ONLY
+  // wrapper, so `background-clip: text` on it pours one fixed gradient through
+  // whichever glyphs are currently over it — which is exactly what Pillow does.
+  // Every span that must keep its own colour therefore has to say so
+  // explicitly, because `-webkit-text-fill-color` inherits (see below).
+  var gradOn = !!ctx.gradCss;
+  if(gradOn) ctx.applyGradient(textBand, 0, 0);
   // Stacking (Pillow: bg -> word boxes -> guide -> text): the group background box
   // is already the bubble's first child, unmasked, framing the band.
   ctx.bubble.appendChild(boxBand);
@@ -314,6 +323,9 @@ function __capRsvpBuild(ctx){
     m.el.style.top = top + 'px';
     face(m.el);
     m.el.style.color = o.text_color || CFG.textColor;
+    // A per-word `text_color` stays FLAT under a gradient — the same rule as
+    // Pillow's `_word_target` and the Canvas preview's `wTextFill`.
+    if(gradOn && o.text_color) m.el.style.webkitTextFillColor = o.text_color;
     // Default state is CONTEXT. Element opacity dims fill, stroke AND shadow
     // together, which is what Pillow's dimmed fill + _dim_alpha'd stroke add up to
     // (dimming only the fill drew an opaque outline around a ghost).
@@ -338,6 +350,9 @@ function __capRsvpBuild(ctx){
         sp.style.top = top + 'px';
         face(sp);
         sp.style.color = pair[1];
+        // The active word and its focus glyph carry their OWN colours, so they
+        // opt out of the band's inherited transparent fill.
+        if(gradOn) sp.style.webkitTextFillColor = pair[1];
         sp.style.opacity = '0';
         textRow.appendChild(sp);
         m.rsvpPieces.push(sp);
