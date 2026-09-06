@@ -28,6 +28,114 @@ interface ColorSwatchProps {
   allowGradient?: boolean
 }
 
+interface SliderRowProps {
+  /** Omitted for the per-stop rows, whose colour input is the label. */
+  label?: string
+  value: number
+  min: number
+  max: number
+  unit: string
+  onChange: (value: number) => void
+}
+
+/**
+ * Slider + editable numeric readout, the same shape (and the same
+ * `accent-[var(--color-accent)]` 3px range) as `StudioRow` — the pattern every
+ * other numeric setting in the studio uses. Not `StudioRow` itself: that one
+ * owns a fixed 72px label column and a dirty/reset affordance against a
+ * `DEFAULTS` entry, neither of which a gradient stop has.
+ */
+function SliderRow({ label, value, min, max, unit, onChange }: SliderRowProps) {
+  function commit(raw: string) {
+    const n = Number(raw)
+    if (!Number.isFinite(n)) return
+    onChange(Math.min(max, Math.max(min, Math.round(n))))
+  }
+
+  return (
+    <div className="flex items-center gap-1.5 min-w-0">
+      {label && (
+        <span className="w-9 shrink-0 text-[11px]" style={{ color: 'var(--color-text-2)' }}>
+          {label}
+        </span>
+      )}
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="flex-1 min-w-0 h-[3px] accent-[var(--color-accent)]"
+        aria-label={label ?? `Stop position (${unit})`}
+      />
+      {/* Kept alongside the slider so an exact value (45°, 50%) is still
+          typeable — dragging cannot reliably hit one. */}
+      <input
+        type="number"
+        min={min}
+        max={max}
+        step={1}
+        value={value}
+        onChange={(e) => commit(e.target.value)}
+        className="w-9 shrink-0 text-right text-[11px] tabular-nums bg-transparent border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] outline-none px-0.5"
+        style={{ color: 'var(--color-text-3)' }}
+      />
+      <span className="shrink-0 text-[10px]" style={{ color: 'var(--color-text-3)' }}>
+        {unit}
+      </span>
+    </div>
+  )
+}
+
+/**
+ * The offset (0–1) a stop should take when dragged to `percent`, clamped to its
+ * neighbours.
+ *
+ * Exported and pure for the same reason as `StudioRow`'s `clampCommittedValue`:
+ * the frontend test environment is `node`, so there is no drag to simulate and
+ * this is where the contract is actually pinned.
+ *
+ * Load-bearing rather than cosmetic. The grammar requires non-decreasing
+ * offsets, so an out-of-order list fails `parseGradient` — and because
+ * `ColorSwatch` reads its own mode back off the committed value, that would flip
+ * the editor to Solid mid-drag and lose the gradient. A number field made that
+ * hard to reach; a slider makes it the first thing anyone does.
+ */
+export function clampStopOffset(
+  stops: readonly GradientStop[],
+  index: number,
+  percent: number
+): number {
+  const lower = index > 0 ? stops[index - 1].offset : 0
+  const upper = index < stops.length - 1 ? stops[index + 1].offset : 1
+  const wanted = Number.isFinite(percent) ? percent / 100 : lower
+  return Math.min(upper, Math.max(lower, wanted))
+}
+
+/**
+ * Index of the segment a new stop should split — the WIDEST one.
+ *
+ * Not the last: with sliders it is easy to drag the final two stops onto the
+ * same offset, and splitting a zero-width segment yields a stop whose
+ * neighbours are identical, which {@link clampStopOffset} can then never move.
+ * The widest gap has room whenever any gap does.
+ *
+ * Pure and exported for the same reason as {@link clampStopOffset}.
+ */
+export function widestSegmentIndex(stops: readonly GradientStop[]): number {
+  let at = 1
+  let widest = -1
+  for (let i = 1; i < stops.length; i++) {
+    const gap = stops[i].offset - stops[i - 1].offset
+    if (gap > widest) {
+      widest = gap
+      at = i
+    }
+  }
+  return at
+}
+
 /** The gradient a solid colour becomes when the user first switches modes. */
 function seedGradient(hex: string): GradientSpec {
   return {
@@ -57,7 +165,7 @@ export function ColorSwatch({
   const popRef = useRef<HTMLDivElement>(null)
   const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({})
 
-  const popWidth = isGradient ? 240 : 176
+  const popWidth = isGradient ? 272 : 176
 
   // Sync external value
   useEffect(() => {
@@ -149,14 +257,18 @@ export function ColorSwatch({
     })
   }
 
+  function moveStop(index: number, percent: number) {
+    if (!spec) return
+    patchStop(index, { offset: clampStopOffset(spec.stops, index, percent) })
+  }
+
   function addStop() {
     if (!spec || spec.stops.length >= MAX_STOPS) return
-    const last = spec.stops[spec.stops.length - 1]
-    const prev = spec.stops[spec.stops.length - 2] ?? { offset: 0 }
-    // Halfway into the final segment, so the new stop is always in order.
-    const offset = (prev.offset + last.offset) / 2
+    const at = widestSegmentIndex(spec.stops)
+    const before = spec.stops[at - 1]
+    const after = spec.stops[at]
     const stops = [...spec.stops]
-    stops.splice(stops.length - 1, 0, { offset, color: last.color })
+    stops.splice(at, 0, { offset: (before.offset + after.offset) / 2, color: after.color })
     commitSpec({ ...spec, stops })
   }
 
@@ -234,26 +346,14 @@ export function ColorSwatch({
                     style={{ background: gradientToCss(spec) }}
                   />
 
-                  <label
-                    className="flex items-center gap-2 text-[11px]"
-                    style={{ color: 'var(--color-text-2)' }}
-                  >
-                    <span className="w-10 shrink-0">Angle</span>
-                    <input
-                      type="number"
-                      min={0}
-                      max={359}
-                      step={1}
-                      value={Math.round(spec.angle)}
-                      onChange={(e) => {
-                        const n = Number(e.target.value)
-                        if (Number.isFinite(n))
-                          commitSpec({ ...spec, angle: ((n % 360) + 360) % 360 })
-                      }}
-                      className="field-input font-mono text-xs w-full"
-                    />
-                    <span className="shrink-0">°</span>
-                  </label>
+                  <SliderRow
+                    label="Angle"
+                    value={Math.round(spec.angle)}
+                    min={0}
+                    max={359}
+                    unit="°"
+                    onChange={(n) => commitSpec({ ...spec, angle: ((n % 360) + 360) % 360 })}
+                  />
 
                   <div className="flex flex-col gap-1.5">
                     {spec.stops.map((stop, i) => (
@@ -263,27 +363,15 @@ export function ColorSwatch({
                           value={stop.color}
                           onChange={(e) => patchStop(i, { color: e.target.value.toUpperCase() })}
                           className="w-7 h-6 rounded cursor-pointer border-0 bg-transparent p-0 shrink-0"
+                          title={`Stop ${i + 1} colour`}
                         />
-                        <input
-                          type="number"
+                        <SliderRow
+                          value={Math.round(stop.offset * 100)}
                           min={0}
                           max={100}
-                          step={1}
-                          value={Math.round(stop.offset * 100)}
-                          onChange={(e) => {
-                            const n = Number(e.target.value)
-                            if (Number.isFinite(n)) {
-                              patchStop(i, { offset: Math.min(100, Math.max(0, n)) / 100 })
-                            }
-                          }}
-                          className="field-input font-mono text-xs w-full"
+                          unit="%"
+                          onChange={(n) => moveStop(i, n)}
                         />
-                        <span
-                          className="text-[11px] shrink-0"
-                          style={{ color: 'var(--color-text-3)' }}
-                        >
-                          %
-                        </span>
                         <button
                           type="button"
                           disabled={spec.stops.length <= MIN_STOPS}
@@ -308,10 +396,11 @@ export function ColorSwatch({
                     + Add stop
                   </button>
 
-                  {/* Stops must be non-decreasing — the renderers reject a
-                    descending list rather than silently reordering it. */}
+                  {/* Offsets must be non-decreasing — `moveStop` clamps each
+                    slider to its neighbours rather than letting the grammar
+                    reject the result. */}
                   <p className="text-[10px] leading-snug" style={{ color: 'var(--color-text-3)' }}>
-                    Stops run in order, 0% to 100%.
+                    Each stop slides between its neighbours.
                   </p>
                 </>
               ) : (
