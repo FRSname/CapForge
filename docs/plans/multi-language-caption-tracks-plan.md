@@ -1,10 +1,25 @@
 # Plan: multi-language caption tracks (language tabs)
 
-**Status:** PLANNED — not started. Executable plan derived from the brainstorm in
+**Status:** SHIPPED on `feat/caption-tracks` (Phases 1–6). Sections marked
+"**As shipped**" record where the implementation deliberately diverged from the plan; the
+plan text around them is left intact as the record of what was intended. The reference
+documentation for the shipped feature is [docs/caption-tracks.md](../caption-tracks.md) —
+read that first if you are changing the feature rather than auditing this plan.
+
+| Phase | Commit | Scope |
+|---|---|---|
+| 1 | `6c8cb3a` | pure caption-track core, staleness/timing rules, project file v2 |
+| 2 | `8bd9d2f` | App owns a track store; ResultsScreen edits one track per mount |
+| 3 | `2c799ca` | language tabs, picker, per-group markers, reflow banner |
+| 4 | `38f5cd5` | backend `track_id` mirror selection, layout scan, name suffixes, track command ops |
+| 5 | `c7d8943` | MCP track tools — `create_track`, `set_track_text`, `get_track`, `reflow_track` |
+| 6 | (this doc + `docs/caption-tracks.md`, `CLAUDE.md`, `mcp_server/README.md`) | verification gates, docs, manual-QA list |
+
+Executable plan derived from the brainstorm in
 [multi-language-caption-tracks.md](multi-language-caption-tracks.md), whose decisions
 D1–D7 stand except where a **Correction** below says otherwise. The brainstorm stays as
 the record of *why*; this document is the record of *what, where, and in which order*.
-**Branch:** `feat/caption-tracks` (create from `main` via `git-ops` before Phase 1).
+**Branch:** `feat/caption-tracks` (created from `main` via `git-ops` before Phase 1).
 **Orchestration:** each phase is dispatched to the `implementer` agent (never pass a model
 override — agent pins handle routing). Use `scout` only if a phase hits a fact gap. All git
 writes go through `git-ops`. Phases are self-contained; run them consecutively in fresh
@@ -596,6 +611,68 @@ Everything here reads the mirror (§E) or validates a request. Nothing owns trac
    - Kill the backend mid-session → resync restores both mirror halves (agent `get_ui_state` shows both tracks after reconnect).
    - Open the saved v2 project in the **previous release build**: opens the source track, ignores `tracks`.
    - Windows: a suffix like `.pl` survives the NSIS path handling in the output folder.
+
+### As shipped (2026-09-09)
+
+**What CI proved.** Every gate in items 1–3 was run on `feat/caption-tracks` and is green:
+
+| Gate | Result |
+|---|---|
+| `npm run typecheck` | clean |
+| `npm test` | 1322 passed, 51 files |
+| `npm run lint` | 0 errors (33 pre-existing `react-hooks` warnings, unchanged in kind from `main`) |
+| `pytest backend/tests -q` | 1099 passed, 35 skipped |
+| `pytest mcp_server/tests -q` | 67 passed |
+| `CAPFORGE_PARITY=1 pytest backend/tests/test_caption_parity.py -q` | 35 passed |
+| `git diff main` over the three renderers, `rsvp*`, `backend/tests/golden`, `docs/caption-parity.md` | **empty** — the top-of-document constraint held |
+| `git diff main -- backend/exporters/video_render.py` | only `measure_group_words` + `wrap_rows` (bodies byte-identical modulo indentation), the `groups_for_render` `is not None` guard + docstring, and `name_suffix` |
+| `git diff main -U0 -- backend/models/schemas.py \| grep '^@@'` | hunks at `+132`, `+158`, `+272`, `+282`, `+294`; `class VideoRenderConfig` spans 163–261, so **every hunk is outside it**. `test_caption_cfg_contract.py` unmodified and green |
+| `grep -rln "function classifyTrack\|bakeTranslation\|reflowTrack\|propagateSourceTiming"` | exactly one file each, all under `src/renderer/src/lib/` |
+| `grep -rn "delete_track" mcp_server/` | 0 (D7) |
+
+Two gates as literally written are over-broad and were re-derived by hand rather than
+loosened:
+
+- `grep -rn "track" useSubtitleOverlay.ts useTimeline.ts` → **0** was never achievable:
+  both files pre-date this feature and contain `tracking`, `trackBg`, "tracks the theme".
+  The real assertion is stronger and holds — `git diff main` on **both** files is empty,
+  so no hit is new.
+- `grep -rn "def classify\|def bake\|def reflow" backend mcp_server` → **0** matches
+  `mcp_server/tracks.py`'s `def reflow_track`. That is the MCP *tool* (send command →
+  confirm by poll → read the mirror), not a Python implementation of the reflow rule; the
+  rule still lives only in `lib/tracks.ts`. The tool name is the agent-facing surface this
+  plan specified, so it stays.
+
+**One robustness fix beyond the phase list.** `mcp_server/tracks.py` `create_track` pairs
+the new track's group ids with the source groups by index. It was already index-guarded
+(no `IndexError`), but padded any excess with empty source text — which reads to an agent
+as "nothing to translate here". It now pairs over the shorter list and returns a
+`warning` naming both counts and pointing at `get_track`. Three tests in
+`mcp_server/tests/test_tracks_tools.py` (`MismatchedClient`) cover more groups, fewer
+groups, and the silent equal-counts case.
+
+**Docs written in this phase:** `docs/caption-tracks.md` (new reference doc — data model,
+timing, staleness with the worked-example table, the mirror contract, project v2, the
+agent loop, the UI, and a "what is deliberately not there" list); a "Caption tracks"
+entry in `CLAUDE.md` → Key Conventions plus the Communication/Renderer-Structure/MCP
+lines; `mcp_server/README.md`'s tool table (now 38 rows, cross-checked against
+`mcp.list_tools()`); `docs/plans/changelog-caption-tracks.md` holds the release-notes
+entry for the user to paste (`CHANGELOG.md` itself was left alone — it carries the user's
+own uncommitted edits).
+
+#### Still outstanding — manual QA only (none of the below has been run)
+
+- [ ] End-to-end over MCP on a real 3–5 minute clip: `create_track("pl")` → translate → `set_track_text` → `check_layout(track_id, scan=True)` → fix → `render(track_id)` → file is `<name>.pl.mp4`; `export(["srt_standard"], track_id)` → `<name>.pl.srt`.
+- [ ] RSVP visual check on the Polish track (brainstorm risk): proportional timing reads acceptably; note anything that looks wrong rather than "fixing" a renderer.
+- [ ] Agent `update_words` on the English while the Polish tab is active: the English edit lands, the Polish tab shows 1 stale, no tab switch, no lost Polish text.
+- [ ] Kill the backend mid-session → resync restores both mirror halves (agent `get_ui_state` shows both tracks after reconnect).
+- [ ] Open the saved v2 project in the **previous release build**: opens the source track, ignores `tracks`.
+- [ ] Windows: a suffix like `.pl` survives the NSIS path handling in the output folder.
+
+Also unrun by CI, because the node vitest environment renders components to static markup
+and cannot mount a hook: the Phase 2 and Phase 3 manual smoke lists (single-track parity
+with `main`, opening a v1 project, the tab/picker/banner interactions, and the timeline
+pin behaviour in `useTimelineEditing`).
 
 ---
 

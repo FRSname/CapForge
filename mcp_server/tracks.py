@@ -297,20 +297,26 @@ def create_track(
         return entry
     source = source_entry(state) or {}
     source_groups = [g for g in (source.get("groups") or []) if isinstance(g, dict)]
+    new_groups = [g for g in (entry.get("groups") or []) if isinstance(g, dict)]
 
     # The new track is one blank group per source group, in order, so pairing by
     # index is what hands the agent "this id gets a translation of that line".
-    groups = []
-    for i, group in enumerate(entry.get("groups") or []):
-        source_text = source_groups[i].get("text", "") if i < len(source_groups) else ""
-        groups.append({
+    # The mirror is a snapshot, though, and the user keeps editing while we poll:
+    # if the two counts ever disagree, every pair past the shorter list is a
+    # guess. Stop at the shorter length and say so, rather than handing back ids
+    # with empty source text that read as "nothing to translate here".
+    paired = min(len(new_groups), len(source_groups))
+    groups = [
+        {
             "id": group.get("id"),
             "start": group.get("start"),
             "end": group.get("end"),
-            "text": source_text,
-        })
+            "text": source_groups[i].get("text", ""),
+        }
+        for i, group in enumerate(new_groups[:paired])
+    ]
 
-    return {
+    result = {
         "status": "ok",
         "track_id": track_id,
         "label": entry.get("label"),
@@ -318,6 +324,14 @@ def create_track(
         "groups": groups,
         "next": "translate each group's text, then set_track_text(track_id, entries)",
     }
+    if len(new_groups) != len(source_groups):
+        result["warning"] = (
+            f"The new track has {len(new_groups)} groups but the source has "
+            f"{len(source_groups)}; only the first {paired} could be paired with "
+            "source text. Call get_track(track_id) for the track's full group "
+            "list before translating."
+        )
+    return result
 
 
 def set_track_text(track_id: str, entries: list[TrackTextEntry]) -> dict:

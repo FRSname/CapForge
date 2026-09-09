@@ -281,6 +281,62 @@ def test_create_track_passes_label_and_copy_style_from(stub: StubClient) -> None
     assert payload["copy_style_from"] == "tpl"
 
 
+def test_create_track_is_silent_about_pairing_when_the_counts_agree(stub: StubClient) -> None:
+    assert "warning" not in tracks.create_track("pl")
+
+
+class MismatchedClient(StubClient):
+    """A mirror read back *after* the source's grouping moved under us.
+
+    The renderer creates one group per source group, so the counts normally
+    agree; a user regrouping the source while the confirm poll runs is what
+    makes them disagree.
+    """
+
+    def __init__(self, *, extra_groups: int) -> None:
+        super().__init__()
+        self.extra_groups = extra_groups
+
+    def _apply(self, op: str, payload: dict) -> None:
+        super()._apply(op, payload)
+        if op != "create_track":
+            return
+        if self.extra_groups >= 0:
+            new = self.state["tracks"][-1]
+            for i in range(self.extra_groups):
+                new["groups"].append({
+                    "id": f"{payload['track_id']}:x{i}", "start": 4.5, "end": 5.0,
+                    "text": "", "state": "untranslated", "sourceText": "",
+                    "previousText": None,
+                })
+        else:
+            source = next(t for t in self.state["tracks"] if t["isSource"])
+            del source["groups"][self.extra_groups:]
+
+
+def test_create_track_pairs_over_the_shorter_list_and_warns(monkeypatch) -> None:
+    _use(monkeypatch, MismatchedClient(extra_groups=2))
+
+    out = tracks.create_track("pl")
+
+    # No IndexError, and no group handed back with invented empty source text.
+    assert out["status"] == "ok"
+    assert [g["text"] for g in out["groups"]] == [g["text"] for g in SOURCE_GROUPS]
+    assert "5 groups but the source has 3" in out["warning"]
+    assert "first 3" in out["warning"]
+    assert "get_track" in out["warning"]
+
+
+def test_create_track_warns_when_the_source_shrank(monkeypatch) -> None:
+    _use(monkeypatch, MismatchedClient(extra_groups=-1))
+
+    out = tracks.create_track("pl")
+
+    assert len(out["groups"]) == 2
+    assert [g["text"] for g in out["groups"]] == [g["text"] for g in SOURCE_GROUPS[:2]]
+    assert "3 groups but the source has 2" in out["warning"]
+
+
 # --- confirm by poll ------------------------------------------------------
 
 def test_send_and_confirm_reports_the_renderers_refusal(monkeypatch) -> None:
