@@ -556,6 +556,16 @@ Everything here reads the mirror (§E) or validates a request. Nothing owns trac
 - [ ] `grep -n "delete_track" mcp_server/server.py` → 0 (D7).
 - [ ] Tool count: 31 → 35 (`create_track`, `set_track_text`, `get_track`, `reflow_track`); no other new tool.
 
+### As shipped (2026-09-09)
+
+- The four track tools and the confirm-by-poll machinery live in **`mcp_server/tracks.py`**, registered on the shared `mcp` instance by `tracks.register(mcp, lambda: _client)`; `server.py` was already 821 lines on `main` and is 921 after the eight extended docstrings — moving the co-author/workspace cluster out is a separate cleanup.
+- `main` had 34 tools, not 31; the roster is now **38** (`mcp.list_tools()`), and `grep -c "@mcp.tool()" server.py` reads 34 because the new four are decorated in `tracks.py`.
+- `resolve_track` returns an error dict (dicts cannot be raised) built from the mirror's `tracks` inventory; `render_frame`/`check_layout` pass `track_id` straight to the backend, whose 404 carries the same inventory.
+- `export` refuses a translated track with no captions yet (`custom_groups: []`) with an error + hint rather than writing an empty file.
+- Small additive keys: `set_style`/`apply_preset` echo `track_id`; `create_track` adds `next`; `reflow_track` blanks include `sourceText` beside `previousText`.
+- Tests fake both `time.sleep` and `time.monotonic` so the unconfirmed path never spins against the real 5 s deadline.
+- `mcp_server/README.md`'s tool table is updated in Phase 6.
+
 ### Anti-pattern guards
 
 - No tool mutates backend state directly; every write is command + confirm.
