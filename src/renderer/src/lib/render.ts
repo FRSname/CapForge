@@ -48,7 +48,17 @@ export interface RenderOverrides {
 export interface RenderBody {
   config: Record<string, unknown>
   output_dir?: string
+  /** Filename suffix for the rendered/exported file — `".pl"` gives
+   *  `video.pl.mp4`. Lives on the *request* body, never on `VideoRenderConfig`:
+   *  which caption track this is is not a style, and adding it to the config
+   *  would drag in the seven-file settings pipeline and
+   *  `test_caption_cfg_contract.py`. Omitted entirely when empty, so a
+   *  single-track project sends exactly the body it always did. */
+  output_name_suffix?: string
   custom_groups?: Array<{
+    /** Renderer-side group id, so an agent can address a group it read from the
+     *  mirror. The backend's `CustomGroup` ignores unknown keys. */
+    id: string
     text: string
     start: number
     end: number
@@ -62,17 +72,27 @@ export interface RenderBody {
 
 /**
  * @param settings      Current studio settings (typography, colors, layout, animation).
- * @param groups        Current display groups — sent as `custom_groups` when `groupsEdited` is true or any group has a `positionOverride`.
- * @param groupsEdited  True once the user has manually merged/split/reordered groups.
+ * @param groups        Current display groups — sent as `custom_groups` when `groupsEdited` is
+ *                      true or any drawable group has a `positionOverride`. Word-less groups (a
+ *                      caption track's untranslated placeholders) are dropped from the payload;
+ *                      if that empties the list the key is still sent, as `[]`, so the backend
+ *                      never falls back to re-chunking the source transcript. Only a caller that
+ *                      passes no groups at all gets no key.
+ * @param groupsEdited  True once the user has manually merged/split/reordered groups. Always true
+ *                      on a translated caption track.
  * @param overrides     Quick-render toggles (renderMode/format/resolution).
  * @param outputDir     Directory the backend should write the rendered file to.
+ * @param nameSuffix    Filename suffix for a non-source caption track (`".pl"`).
+ *                      Empty (the default, and always so on the source track)
+ *                      emits no key at all.
  */
 export function buildRenderBody(
   settings: StudioSettings,
   groups: Segment[],
   groupsEdited: boolean,
   overrides: RenderOverrides = {},
-  outputDir?: string
+  outputDir?: string,
+  nameSuffix = ''
 ): RenderBody {
   const renderMode = overrides.renderMode ?? settings.renderMode
   // Destructure defensively: an older project may have no `resolution` at all,
@@ -182,14 +202,32 @@ export function buildRenderBody(
 
   const body: RenderBody = { config }
   if (outputDir) body.output_dir = outputDir
+  if (nameSuffix) body.output_name_suffix = nameSuffix
+
+  // A word-less group is a translated track's untranslated placeholder: it holds
+  // a span and the source words behind it, but there is nothing to draw. No
+  // renderer may see one (they all read `words`), so drop them here — the one
+  // place every render path funnels through.
+  const drawable = groups.filter((g) => g.words.length > 0)
 
   // Only send custom_groups if the user edited them manually OR any group
   // carries a position override (which lives on the group, so the backend
   // must receive the groups verbatim). Otherwise the backend re-chunks from
   // the stored transcription, which is cheaper and guarantees timing integrity.
-  const hasGroupOverrides = groups.some((g) => g.positionOverride)
+  //
+  // The gate is `groups`, NOT `drawable`: when the caller has groups but every
+  // one of them was just filtered out as word-less (a translated track that is
+  // still all placeholders), an absent `custom_groups` would send the backend
+  // down that same re-chunking path and render the **source** captions. An
+  // explicit `[]` says "draw nothing" instead. A caller with no groups at all
+  // keeps the historical fallback.
+  const hasGroupOverrides = drawable.some((g) => g.positionOverride)
   if ((groupsEdited || hasGroupOverrides) && groups.length > 0) {
-    body.custom_groups = groups.map((g) => ({
+    body.custom_groups = drawable.map((g) => ({
+      // Renderer-side identity, so an agent's `set_track_text` and a rendered
+      // group refer to the same thing. Unlike `wid` this is not per-word
+      // bookkeeping — it is the address the mirror publishes.
+      id: g.id,
       text: g.text,
       start: g.start,
       end: g.end,

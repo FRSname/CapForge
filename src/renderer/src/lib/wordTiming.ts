@@ -87,8 +87,14 @@ function lcsPairs(a: readonly string[], b: readonly string[]): Array<[number, nu
  * span is too short for that (many tokens carved out of one brief word) the
  * span is split evenly instead. Overflowing into a neighbour is never an
  * option — locality outranks the minimum duration.
+ *
+ * Exported for `lib/trackTiming.ts`, which re-lays a translated group's derived
+ * words between their pinned neighbours when the source span moves. That is the
+ * same proportional-by-character rule, so it must be the same code — a second
+ * copy would drift from the one `retimeWords` uses and the two would disagree
+ * about where a word starts.
  */
-function distribute(
+export function distribute(
   tokens: readonly string[],
   start: number,
   end: number

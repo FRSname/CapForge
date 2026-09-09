@@ -36,6 +36,17 @@ const makeSegment = (id: string, base = 0, speaker?: string): Segment => {
   }
 }
 
+/**
+ * A translated-track group: an existing group plus the source-word record the
+ * translation was written from (`types/app.ts`). `text` doubles as the wid so a
+ * failing assertion reads back as the source order.
+ */
+const withSource = (g: Segment, wids: string[], patch: Partial<Segment> = {}): Segment => ({
+  ...g,
+  sourceWords: wids.map((wid) => ({ wid, text: wid })),
+  ...patch,
+})
+
 // ── buildStudioGroups ────────────────────────────────────────────
 
 describe('buildStudioGroups', () => {
@@ -232,6 +243,44 @@ describe('mergeGroups', () => {
     // Assert
     expect(merged[0].endEdited).toBeUndefined()
   })
+
+  test('concatenates sourceWords in group order and keeps a linked merge linked', () => {
+    // Arrange — two translated groups, the second one explicitly linked.
+    const [a, b] = buildStudioGroups([makeSegment('s1')], 3)
+    const groups = [
+      withSource(a, ['s0', 's1', 's2'], { previousText: 'stare' }),
+      withSource(b, ['s3', 's4', 's5'], { timingLinked: true }),
+    ]
+
+    // Act
+    const merged = mergeGroups(groups, 0)
+
+    // Assert — the record is the union, in group order.
+    expect(merged[0].sourceWords?.map((w) => w.wid)).toEqual(['s0', 's1', 's2', 's3', 's4', 's5'])
+    // Absent counts as linked, so the merged group still follows its source span.
+    expect(merged[0].timingLinked ?? true).toBe(true)
+    // The old translation described a span that no longer exists.
+    expect(merged[0].previousText).toBeUndefined()
+  })
+
+  test('a merge with an unlinked side is unlinked', () => {
+    const [a, b] = buildStudioGroups([makeSegment('s1')], 3)
+    const linkedFirst = [withSource(a, ['s0']), withSource(b, ['s1'], { timingLinked: false })]
+    const linkedSecond = [withSource(a, ['s0'], { timingLinked: false }), withSource(b, ['s1'])]
+
+    expect(mergeGroups(linkedFirst, 0)[0].timingLinked).toBe(false)
+    expect(mergeGroups(linkedSecond, 0)[0].timingLinked).toBe(false)
+  })
+
+  test('carries none of the three track fields on source-track groups', () => {
+    // A source group has no `sourceWords`, so the merge must be byte-identical
+    // to what it has always produced — no empty record, no timingLinked.
+    const merged = mergeGroups(buildStudioGroups([makeSegment('s1')], 3), 0)
+
+    expect('sourceWords' in merged[0]).toBe(false)
+    expect('timingLinked' in merged[0]).toBe(false)
+    expect('previousText' in merged[0]).toBe(false)
+  })
 })
 
 // ── splitGroup ───────────────────────────────────────────────────
@@ -277,6 +326,39 @@ describe('splitGroup', () => {
     // Assert
     expect(split[0].endEdited).toBeUndefined()
     expect(split[1].endEdited).toBeUndefined()
+  })
+
+  test('gives both halves the full source record and unlinks them', () => {
+    // Arrange — one translated group written from three source words.
+    const groups = [
+      withSource(buildStudioGroups([makeSegment('s1')], 6)[0], ['s0', 's1', 's2'], {
+        previousText: 'stare',
+      }),
+    ]
+
+    // Act
+    const split = splitGroup(groups, 0, 3)
+
+    // Assert — neither half can claim a sub-range of the source, so both keep
+    // the whole record...
+    expect(split[0].sourceWords?.map((w) => w.wid)).toEqual(['s0', 's1', 's2'])
+    expect(split[1].sourceWords?.map((w) => w.wid)).toEqual(['s0', 's1', 's2'])
+    // ...and both are pinned: a linked half would be snapped back to the full
+    // source span by propagateSourceTiming and swallow its sibling.
+    expect(split[0].timingLinked).toBe(false)
+    expect(split[1].timingLinked).toBe(false)
+    expect(split[0].previousText).toBeUndefined()
+    expect(split[1].previousText).toBeUndefined()
+  })
+
+  test('carries none of the three track fields on source-track groups', () => {
+    const split = splitGroup(buildStudioGroups([makeSegment('s1')], 6), 0, 3)
+
+    for (const half of split) {
+      expect('sourceWords' in half).toBe(false)
+      expect('timingLinked' in half).toBe(false)
+      expect('previousText' in half).toBe(false)
+    }
   })
 })
 
@@ -710,5 +792,106 @@ describe('reconcileGroups', () => {
     const after = reconcileGroups(baked, [editText(seg, 3, 'Fox')], 2)
     expect(membership(after)).toEqual([['quick'], ['brown', 'Fox'], ['the', 'jumps', 'over']])
     expect(after.map((g) => g.end)).toEqual(bakedEnds)
+  })
+})
+
+// ── reconcileGroups: the translated-track placeholder (Rule 4 exception) ──
+
+describe('reconcileGroups — untranslated placeholders', () => {
+  /** A translated group: text, its own span, and a record of its source words. */
+  const translated = (id: string, text: string, start: number, end: number): Segment => {
+    const words = text
+      ? text.split(' ').map((w, i) => ({ word: w, start: start + i * 0.1, end: start + i * 0.1 + 0.1, wid: `${id}w${i}` }))
+      : []
+    return {
+      id,
+      start,
+      end,
+      text,
+      words,
+      sourceWords: [{ wid: `s${id}`, text: 'source' }],
+    }
+  }
+
+  test('a word-less group with a source record survives an edit to its neighbour', () => {
+    const previous = [translated('a', 'jeden dwa', 0, 1), translated('b', '', 1, 2)]
+    const segments = [
+      {
+        id: 'seg-a',
+        start: 0,
+        end: 1,
+        text: 'jeden trzy',
+        words: [
+          { word: 'jeden', start: 0, end: 0.1, wid: 'aw0' },
+          { word: 'trzy', start: 0.1, end: 0.2, wid: 'aw1' },
+        ],
+      },
+    ]
+    const next = reconcileGroups(previous, segments, 3)
+    expect(next).toHaveLength(2)
+    expect(next[1].id).toBe('b')
+    expect(next[1].words).toEqual([])
+    // Its span and its source record are exactly what they were.
+    expect(next[1].start).toBe(1)
+    expect(next[1].end).toBe(2)
+    expect(next[1].sourceWords).toEqual([{ wid: 'sb', text: 'source' }])
+  })
+
+  test('a word-less group with NO source record is still dropped (Rule 4)', () => {
+    const empty: Segment = { id: 'b', start: 1, end: 2, text: '', words: [] }
+    const previous = [translated('a', 'jeden', 0, 1), empty]
+    const segments = [
+      {
+        id: 'seg-a',
+        start: 0,
+        end: 1,
+        text: 'jeden',
+        words: [{ word: 'jeden', start: 0, end: 0.1, wid: 'aw0' }],
+      },
+    ]
+    expect(reconcileGroups(previous, segments, 3)).toHaveLength(1)
+  })
+
+  test('carries sourceWords, timingLinked and previousText across a reconcile', () => {
+    const previous: Segment[] = [
+      {
+        ...translated('a', 'jeden', 0, 1),
+        timingLinked: false,
+        previousText: 'stare',
+      },
+    ]
+    const segments = [
+      {
+        id: 'seg-a',
+        start: 0,
+        end: 1,
+        text: 'dwa',
+        words: [{ word: 'dwa', start: 0, end: 0.1, wid: 'aw0' }],
+      },
+    ]
+    const next = reconcileGroups(previous, segments, 3)
+    expect(next[0].text).toBe('dwa')
+    expect(next[0].sourceWords).toEqual([{ wid: 'sa', text: 'source' }])
+    expect(next[0].timingLinked).toBe(false)
+    expect(next[0].previousText).toBe('stare')
+  })
+
+  test('a track of nothing but placeholders is left exactly as it is', () => {
+    // No group word to anchor anything to — but a document-order rebuild would
+    // replace the authored skeleton with N-word chunks of the segments.
+    const previous = [translated('a', '', 0, 1), translated('b', '', 1, 2)]
+    const segments = [
+      {
+        id: 'seg-a',
+        start: 0,
+        end: 1,
+        text: 'jeden dwa',
+        words: [
+          { word: 'jeden', start: 0, end: 0.1, wid: 'x0' },
+          { word: 'dwa', start: 0.1, end: 0.2, wid: 'x1' },
+        ],
+      },
+    ]
+    expect(reconcileGroups(previous, segments, 3)).toBe(previous)
   })
 })

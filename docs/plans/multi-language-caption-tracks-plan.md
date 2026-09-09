@@ -204,14 +204,14 @@ Worked examples (must be the Phase 1 test table):
       "appliedPreset": null,
       "groups": [ { "id": "3f9c:0", "start": 0.0, "end": 1.4, "text": "czerwony samochód",
                     "state": "stale", "sourceText": "the red cart", "previousText": null } ],
-      "render": { "config": { "...": "…", "output_name_suffix": ".pl" }, "custom_groups": [ "…" ] }
+      "render": { "config": { "...": "…" }, "custom_groups": [ "…" ], "output_name_suffix": ".pl" }
     }
   ],
   "agent": { "lastCommandId": "c-01H…", "lastCommandStatus": "ok", "lastCommandError": null }
 }
 ```
 
-- `tracks[].render` is `buildRenderBody(track.settings, displayGroupsFor(track), track.groupsEdited)` — the same body the UI's own render/export uses. `output_name_suffix` is `""` on the source and `.${lang}` on translated tracks.
+- `tracks[].render` is `buildRenderBody(track.settings, displayGroupsFor(track), track.groupsEdited)` — the same body the UI's own render/export uses. `output_name_suffix` is a **body** key (a sibling of `config`, never inside it): omitted on the source, `.${lang}` on translated tracks. A translated track always carries `custom_groups` — `[]` when every group is still a word-less placeholder — so the backend can never fall back to re-chunking the source transcript.
 - `tracks[].groups` is compact (no words). `state`/`sourceText`/`previousText` appear on translated tracks only.
 - The MCP `get_ui_state` tool returns `tracks` with `groups` and `render` **stripped** (inventory only). `get_track` reads `tracks[i].groups`. The backend serves the mirror verbatim.
 
@@ -355,6 +355,18 @@ every later phase calls into it. TDD: write the worked-example tables as tests f
 - [ ] `buildRenderBody` drops a word-less group and emits `output_name_suffix`; `grep -n "wid" src/renderer/src/lib/render.ts` still shows only the strip.
 - [ ] `npm run typecheck && npm run lint` clean.
 
+### As shipped (2026-09-09)
+
+- `tracks.ts` split three ways: `tracks.ts` (model, create/reflow/mirror), `trackStaleness.ts` (§D), `trackTiming.ts` (§C). `trackFixtures.testutil.ts` holds the shared test builders.
+- `adoptEndEdited` runs on the **source** track only in `tracksFromProjectFile`: the retrofit infers "hand-placed" from `end ≠ last word's end`, which is the *normal* state of a source-linked translated group, so applying it there would exempt every translated group from gap closing. Translated groups always carry `endEdited` explicitly.
+- `reconcileGroups` gained a second guard beyond the Rule 4 exception: when every group word has vanished and any group carries `sourceWords`, it returns `previous` unchanged rather than a document-order rebuild — otherwise a freshly created all-placeholder track would be re-chunked by its own segments on the first sync. Source tracks never carry `sourceWords` and take the old paths verbatim (traced in review).
+- `mergeGroups`/`splitGroup` carry the track fields: merge concatenates `sourceWords` and keeps `timingLinked` only if both sides were linked; split gives both halves the full record with `timingLinked: false` (a linked half would be snapped back to the full source span). `previousText` is dropped by both.
+- `bakeTranslation` takes an optional 4th arg `{ allRecorded, isFirstGroup }` (the track-level recorded-wid set) so insertion attribution can tell "new word" from "my neighbour's word"; `classifyTrack`/`trackToMirrorEntry` pass it, and Phases 2/5 **must** pass it too.
+- `buildRenderBody` drops word-less groups from `custom_groups` but keeps emitting the key (as `[]`) whenever `groupsEdited` and the caller passed any groups at all — HEAD's `groups.length > 0` gate, not the drawable count — so an all-placeholder translated track can never fall back to backend re-chunking (see the Phase 4 `is not None` guard). `buildRenderBody(settings, [], true)` still emits no key (pinned by a pre-existing test).
+- `createTrackFromSource` inherits `appliedPreset` from the source when the style is inherited, `null` when explicit `settings` are passed.
+- `reflowTrack` derives its reflow counter from the existing `:r<N>:` group ids (group ids are structured; word ids are the ones nothing may parse).
+- Validation at the `.capforge` trust boundary is hand-rolled (typed `ProjectFileError` / `ProjectVersionError`), matching `electron/preset-io.js` — Zod is not a dependency.
+
 ### Anti-pattern guards
 
 - No React imports, no `window`, no I/O in any of these modules.
@@ -452,6 +464,7 @@ Everything here reads the mirror (§E) or validates a request. Nothing owns trac
 ### What to implement
 
 1. **`main.py` mirror selection** — `_agent_frame_inputs(track_id: Optional[str] = None)`: `None` → today's path; otherwise find `current_ui_state["tracks"][…]["render"]` by id, 404 `{"detail": "Unknown track", "tracks": [inventory]}` when absent; the existing 409 hint on validation failure stays. `/api/render-frame` and `/api/agent/check-layout` read `req.get("track_id")`. `/api/export-hyperframes` with `use_ui_config` honours `track_id` the same way (copy how it reads the mirror at `main.py:965+`).
+   **`groups_for_render` (`video_render.py:428-472`) must test `custom_groups is not None`, not truthiness**: a translated track whose groups are all still placeholders mirrors `custom_groups: []` (Phase 1 as shipped), and the truthy test would silently draw the *source* transcript for it. Pin with a test: `custom_groups=[]` → no groups; `custom_groups=None` → built from the transcript.
 2. **`AGENT_COMMAND_OPS`** += `create_track`, `set_track_text`, `reflow_track`. Validate like `load_video` (`main.py:706-717`): `command_id` non-empty string; `create_track` requires `lang` (`^[a-z]{2,3}(-[A-Za-z]{2,4})?$`) and `track_id`; `set_track_text` requires a non-empty `entries` list of `{group_id: str, text: str}`; all three 409 when `not ws_clients`.
 3. **Filename suffixes** — `VideoRenderRequest.output_name_suffix: str = Field("", pattern=r"^(\.[A-Za-z0-9_-]{1,32})?$")` and the same on `HyperframesRenderRequest` (`schemas.py:250-266`). `render_subtitle_video(..., name_suffix: str = "")` → `stem = Path(result.audio_path).stem + name_suffix` (`video_render.py:1724`); `/api/render-video` passes it (`main.py:905-913`); the HyperFrames route applies it to its `stem` (`main.py:1029`). `CustomGroup.id: Optional[str] = None` (`schemas.py:238-247`).
 4. **Export for a track** — `ExportRequest.track: Optional[ExportTrack] = None` where `ExportTrack {id: str, lang: str, segments: list[Segment]}`; `export_result` builds `TranscriptionResult(segments=track.segments, language=track.lang, audio_path=current_result.audio_path, duration=current_result.duration)` and calls `_do_export(..., name_suffix=f".{track.lang}")` — add `name_suffix` to `_do_export` (`main.py:1636-1668`, `f"{stem}{name_suffix}{ext}"`). Validate `lang` with the same pattern as above (it becomes part of a filename).
