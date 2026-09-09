@@ -2,7 +2,7 @@
 
 > Reference for the caption-track feature (language tabs). Read this before changing
 > anything under `lib/tracks.ts`, `lib/trackStaleness.ts`, `lib/trackTiming.ts`,
-> `hooks/useTrackStore.ts` or `mcp_server/tracks.py`. The *why* lives in
+> `lib/trackChunking.ts`, `hooks/useTrackStore.ts` or `mcp_server/tracks.py`. The *why* lives in
 > [plans/multi-language-caption-tracks.md](plans/multi-language-caption-tracks.md); the
 > *what, where, in which order* in
 > [plans/multi-language-caption-tracks-plan.md](plans/multi-language-caption-tracks-plan.md).
@@ -86,12 +86,46 @@ derives it, `ResultsScreen` keeps the raw groups. Two calls double-hold the last
   all-placeholder track would be re-chunked by its own (empty) segments on the first
   sync. Source tracks never carry `sourceWords` and take the old paths verbatim.
 - `mergeGroups` concatenates `sourceWords` and keeps `timingLinked` only when both sides
-  were linked. `splitGroup` gives both halves the full record with `timingLinked: false`
-  — a linked half would be snapped straight back to the full source span. Both drop
-  `previousText`.
+  were linked. `splitGroup` gives both halves the full record and leaves the link alone —
+  identical records make the halves a [sibling run](#sibling-runs-one-caption-many-rows),
+  which the link moves as one caption; a pinned group hands its pin to both halves. Both
+  drop `previousText`.
 - `buildRenderBody` **drops word-less groups** from `custom_groups` but still emits the
   key (as `[]`) whenever `groupsEdited` and the caller passed any groups at all. See
   [`custom_groups: []` vs `None`](#custom_groups--vs-none).
+
+### Sibling runs: one caption, many rows
+
+A translated caption is not always one group. `wordsPerGroup` on a translated tab re-chunks
+each **inherited caption** into rows of at most N words, and a manual `splitGroup` does the
+same by hand. Every chunk keeps the **whole** `sourceWords` record — a translation is not
+word-aligned to its source, so no chunk can claim a sub-range — which makes the definition
+mechanical:
+
+> A **sibling run** is a maximal run of *consecutive* groups whose `sourceWords` wid lists
+> are identical. That run is one inherited caption.
+
+`lib/trackChunking.ts` owns it: `siblingRuns` finds the runs, `coalesceSiblingRuns` folds
+each back into the caption it was cut from, and `chunkTranslatedGroups(groups, N)` is
+"coalesce, then slice each caption by N". Both passes are reference-stable, and chunking is
+a function of N alone — 3 → 2 → 6 lands back on the original caption *with its original id*,
+because a chunk id is `` `${caption.id}:${i}` `` and coalescing peels that suffix off again.
+The one rule that never bends: **a boundary the source set is never crossed.** Two captions
+are never merged, however small they are. Groups with no `sourceWords` (every source-track
+group) pass through untouched.
+
+Three other rules read runs rather than groups:
+
+| Rule | Why |
+|---|---|
+| `propagateSourceTiming` (link) | every chunk records the same source words, so asking each one separately would give them all the *same* span and stack them. The run takes the caption's linked span once and its chunks are rescaled proportionally inside it; the run's `endEdited` claim is the **last** chunk's. A run holding a chunk with `timingLinked === false` is no longer a unit and falls back to per-group linking. |
+| `reflowTrack` (carry-over) | the exact-wid-list match runs against coalesced captions, so a chunked caption is carried across **once**, whole, instead of N times or truncated to its first chunk. |
+| `syncSegmentsIntoTrack` (`wpgChanged`) | the translated branch re-chunks `track.groups`, never `segments`, and never reaches `buildStudioGroups`. |
+
+Staleness deliberately does **not**: `classifyTrack` classifies each chunk on its own, so a
+source edit puts a "source changed" chip on every row it is behind, which is what the user
+needs to see. Chunking is an edit on the translated tab and never touches the source's
+grouping, so it can never set `reflowNeeded`.
 
 ## Timing
 
@@ -339,9 +373,12 @@ than writing an empty file.
   button, under the Text/Groups tab bar so it is visible in both views.
 - **`GroupEditor`** rows show a chip beside the `↺` end marker for `stale`
   ("source changed") and `untranslated` ("no text"); nothing for `clean`.
-- **`StudioPanel`** hides the *Words per group* row on a translated track. Grouping is
-  inherited; `autoGroup=false` guards the rebuild path independently, so a translated
-  track can never hit `buildStudioGroups`.
+- **`StudioPanel`** keeps the *Words per group* row on a translated track, where it means
+  something different: it re-chunks each inherited caption
+  ([sibling runs](#sibling-runs-one-caption-many-rows)) rather than the transcript, and the
+  row's help text says so (`activeTrackIsSource` picks the sentence — it gates nothing
+  else). `autoGroup=false` still guards the rebuild path, so a translated track can never
+  hit `buildStudioGroups`.
 - Undo is per track: settings undo via `createKeyedUndoStacks` (`lib/undoStack.ts`) keyed
   by track id; editor undo resets on the remount a tab switch causes.
 - `hooks/useTrackActions.ts` routes UI create/reflow through the same

@@ -490,7 +490,7 @@ behaves exactly as `main` does.
 
 ### Anti-pattern guards
 
-- No `wordsPerGroup` rebuild on a translated track (the row is hidden *and* `autoGroup=false` guards it).
+- No `wordsPerGroup` rebuild on a translated track (the row is hidden *and* `autoGroup=false` guards it). **Superseded** by the 2026-09-09 addendum below: the row is back and re-chunks inherited captions. The `buildStudioGroups` half of the guard still stands.
 - The tab strip lives in `App.tsx`, never inside `ResultsScreen`.
 - No in-app translation, no font mapping table, no bilingual/stacked rendering.
 
@@ -675,6 +675,109 @@ with `main`, opening a v1 project, the tab/picker/banner interactions, and the t
 pin behaviour in `useTimelineEditing`).
 
 ---
+
+---
+
+## Addendum 2026-09-09 (post-QA): words-per-group on translated tracks
+
+Phase 3 item 6 hid the *Words/Grp* row on a translated track (§G row 6), on the reasoning
+that grouping is inherited and the control would be inert. Live testing said otherwise: a
+Polish caption that runs 10–15 % longer than the English is exactly the caption a user wants
+to break into two rows, and the only control for that had been taken away. The row is back,
+with a **different meaning** on a translated track — and that meaning is the whole design.
+
+### 1. The unit is the inherited caption, not the transcript
+
+There is no transcript to slice on a translated track. What there is, is the caption the
+translation was written against, and every chunk of one keeps the **whole** `sourceWords`
+record (a translation is not word-aligned to its source, so no chunk can claim a sub-range).
+That makes the unit recoverable from the group list alone:
+
+> A **sibling run** is a maximal run of *consecutive* groups whose `sourceWords` wid lists
+> are identical. That run is one inherited caption.
+
+New pure module **`src/renderer/src/lib/trackChunking.ts`** (`siblingRuns`,
+`coalesceSiblingRuns`, `chunkTranslatedGroups`, `sourceWidKey`). `chunkTranslatedGroups` is
+"coalesce every run back into its caption, then slice each caption by N with
+`buildStudioGroups`'s own rule". Consequences that were designed for, not stumbled into:
+
+- **A boundary the source set is never crossed.** Two captions are never merged, however
+  short. `N <= 0` is the identity, not `buildStudioGroups`'s fallback of 3.
+- **Chunking is a function of N alone.** 3 → 2 → 6 lands back on the original caption with
+  its original id, because a chunk id is `` `${caption.id}:${i}` `` and coalescing peels
+  that suffix back off. Ids cannot grow a level per re-chunk.
+- **Reference-stable**, both passes, so it can sit in the sync effect.
+- Chunks take their span from their own words; `positionOverride` / `timingLinked` /
+  `speaker` ride along, and `endEdited` goes to the **last** chunk only — it is the one
+  that owns the caption's end. Coalescing takes position/link from the first sibling and
+  `endEdited` from any.
+- A group with no `sourceWords` passes through untouched (it should not exist on a
+  translated track, but nothing here may re-chunk a source group by accident).
+
+### 2. The trigger
+
+`syncSegmentsIntoTrack`'s translated path splits in two: without `wpgChanged` it reconciles
+exactly as before; with `wpgChanged` it calls `chunkTranslatedGroups(track.groups, N)` — on
+the **groups**, never the segments — and keeps `groupsEdited: true` (authored grouping, so
+`custom_groups` must keep being sent). It still never calls `buildStudioGroups`.
+
+`ResultsScreen`'s effect needed no new gate: it already fires on `settings.wordsPerGroup`
+for both kinds of track and hands `isSource: autoGroup` to the shim, so the new branch was
+reached the moment it existed. The one line that did change is the flag write, from
+`if (wpgChanged && autoGroup) setGroupsEdited(false)` to
+`if (wpgChanged) setGroupsEdited(!autoGroup)`, so the mounted editor agrees with the pure
+function on both branches. `prevWpg` is untouched.
+
+### 3. The timing link had to learn about runs
+
+A run's chunks all record the same source words, so asking `linkedSpan` per group would
+hand every chunk the *same* span and stack them on top of each other.
+`propagateSourceTiming` now walks `siblingRuns`: it takes the caption's span once (from the
+run's **last** chunk, so a hand-placed source end resolves against the chunk that owns the
+caption's end) and rescales each chunk proportionally inside it, re-laying its words by
+today's derived/pinned rules. The two outer bounds are taken verbatim so no floating-point
+drift creeps into the caption's start/end. A single-group run is delegated to the old
+`relinkGroup` and is therefore *byte-identical* to today's behaviour. A run holding a chunk
+the user pinned (`timingLinked === false`) is no longer a unit and falls back to per-group
+linking.
+
+**Rule change:** because propagation handles runs, `splitGroup` **no longer sets
+`timingLinked: false`** on the halves. Phase 1's "As shipped" note recorded the opposite,
+and the reason it gave — "a linked half would be snapped back to the whole source span" —
+is exactly what run-aware propagation fixes. A split now produces a sibling run that moves
+as one caption and keeps the user's split point proportionally; a group the user had
+already pinned still hands that pin to both halves. This is the one place an existing
+assertion changed (`groups.test.ts` → "gives both halves the full source record and leaves
+the link alone", plus a new test for the pinned case).
+
+### 4. Reflow carries a whole caption
+
+`reflowTrack`'s exact-wid-list match now runs against `coalesceSiblingRuns(track.groups)`,
+so a chunked caption is carried across **once**, whole, rather than matching on its first
+chunk and dropping the rest (first-record-wins would have truncated the translation).
+`previousText` is collected from the coalesced captions for the same reason.
+
+### 5. What deliberately did not change
+
+Staleness, the mirror and the agent tools need no rule change and got none: chunks each
+carry the full record, so `classifyTrack` classifies them individually and every affected
+row gets its own chip (pinned by a new test asserting 2 stale on a 2-chunk caption with
+`reflowNeeded=false`); `get_track` / `set_track_text` address chunk ids; `bakeTranslation`
+retimes inside the chunk's own span. Chunking is an edit on the *translated* tab, so it can
+never set `reflowNeeded`. And no renderer moved: `git diff main` over
+`useSubtitleOverlay.ts` and `overlayGeometry.ts` is still empty.
+
+### 6. UI
+
+`LayoutCard` renders the *Words/Grp* row unconditionally again. `activeTrackIsSource` is
+kept — it no longer gates the row, it picks the row's help text:
+
+- source: "Split the transcript into captions of this many words"
+- translated: "Re-chunks each inherited caption into groups of at most N words — never
+  merges across a boundary the original set"
+
+Pinned by a new static-markup suite, `components/studio/sections/LayoutCard.test.tsx`.
+
 
 ## Effort
 

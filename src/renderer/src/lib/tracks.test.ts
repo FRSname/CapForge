@@ -12,6 +12,7 @@ import {
 import { classifyTrack, buildSourceIndex } from './trackStaleness'
 import { bakeTranslation } from './trackTiming'
 import { buildStudioGroups } from './groups'
+import { chunkTranslatedGroups } from './trackChunking'
 import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
 import { makeSourceTrack, sourceSegment, sourceWords, word } from './trackFixtures.testutil'
 import type { Segment } from '../types/app'
@@ -219,12 +220,45 @@ describe('syncSegmentsIntoTrack', () => {
 
   test('a translated track NEVER takes the rebuild branch — its grouping is inherited', () => {
     const polish = makePolish()
-    // groupsEdited false + wpgChanged true is the rebuild branch for a source
+    // groupsEdited false + wpgChanged false is the rebuild branch for a source
     // track; on a translated track it must still reconcile by identity.
-    const next = syncSegmentsIntoTrack({ ...polish, groupsEdited: false }, polish.segments, 2, true)
+    const next = syncSegmentsIntoTrack(
+      { ...polish, groupsEdited: false },
+      polish.segments,
+      2,
+      false
+    )
     expect(next.groups).toHaveLength(polish.groups.length)
     expect(next.groups.map((g) => g.text)).toEqual(polish.groups.map((g) => g.text))
-    expect(next.groupsEdited).toBe(false)
+  })
+
+  test('a words-per-group change re-chunks a translated track’s inherited captions', () => {
+    const polish = makePolish() // two captions of three words each
+
+    const next = syncSegmentsIntoTrack(polish, polish.segments, 2, true)
+
+    // Each caption is cut into 2 + 1 — never merged across the source boundary.
+    expect(next.groups.map((g) => g.text)).toEqual([
+      'jeden dwa',
+      'trzy',
+      'cztery piec',
+      'szesc',
+    ])
+    // Every chunk still knows the whole source caption behind it.
+    expect(next.groups[0].sourceWords).toEqual(polish.groups[0].sourceWords)
+    expect(next.groups[1].sourceWords).toEqual(polish.groups[0].sourceWords)
+    // Authored grouping — `custom_groups` must keep being sent.
+    expect(next.groupsEdited).toBe(true)
+  })
+
+  test('a widened words-per-group folds the chunks back into one caption', () => {
+    const polish = makePolish()
+    const chunked = syncSegmentsIntoTrack(polish, polish.segments, 2, true)
+
+    const back = syncSegmentsIntoTrack(chunked, chunked.segments, 3, true)
+
+    expect(back.groups.map((g) => g.text)).toEqual(['jeden dwa trzy', 'cztery piec szesc'])
+    expect(back.groups.map((g) => g.id)).toEqual(polish.groups.map((g) => g.id))
   })
 
   test('an untranslated placeholder survives a text-view edit on a neighbour', () => {
@@ -314,6 +348,24 @@ describe('reflowTrack', () => {
     // The genuinely new span is blank, with nothing to carry over.
     expect(next.groups[2].text).toBe('')
     expect(next.groups[2].previousText).toBeUndefined()
+  })
+
+  test('a caption chunked by words-per-group is carried over once, whole', () => {
+    // Arrange — the first Polish caption cut into 2 + 1 words by a wpg change.
+    const polish = makePolish()
+    const chunked: CaptionTrack = {
+      ...polish,
+      groups: chunkTranslatedGroups(polish.groups, 2),
+    }
+    expect(chunked.groups).toHaveLength(4)
+
+    // Act — the source has not moved, so every caption should carry verbatim.
+    const next = reflowTrack(chunked, source)
+
+    // Assert — one carried group per source group, with the full translation.
+    expect(next.groups).toHaveLength(2)
+    expect(next.groups.map((g) => g.text)).toEqual(['jeden dwa trzy', 'cztery piec szesc'])
+    for (const g of next.groups) expect(g.previousText).toBeUndefined()
   })
 
   test('carries timingLinked and endEdited on a carried group', () => {

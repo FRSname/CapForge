@@ -12,9 +12,17 @@ const SAFE_ZONE_OPTIONS: Array<{ value: StudioSettings['safeZone']; label: strin
 ]
 
 interface LayoutCardProps extends StudioSectionProps {
-  /** False on a translated track, where grouping is inherited from the source. */
+  /** False on a translated track, where `wordsPerGroup` re-chunks the inherited
+   *  captions instead of the transcript — same row, different sentence. */
   activeTrackIsSource?: boolean
 }
+
+/** What "Words/Grp" chunks, which is not the same thing on both kinds of track. */
+const WORDS_PER_GROUP_TITLE = {
+  source: 'Split the transcript into captions of this many words',
+  translated:
+    'Re-chunks each inherited caption into groups of at most N words — never merges across a boundary the original set',
+} as const
 
 /** "Layout" settings card — words/group, lines, position, max width, safe zones. */
 export function LayoutCard({
@@ -27,23 +35,24 @@ export function LayoutCard({
 }: LayoutCardProps) {
   return (
     <StudioCard title="Layout" {...cardProps('layout')}>
-      {/* Words/Grp chunks the transcript, so it only means anything on the
-          source track. A translated track's groups are inherited (and
-          ResultsScreen's `autoGroup=false` refuses the rebuild regardless) —
-          the row is hidden rather than disabled so it can't read as broken. */}
-      {activeTrackIsSource && (
-        <Row label="Words/Grp" filter={filter}>
-          <StudioRow
-            label="Words/Grp"
-            value={s.wordsPerGroup}
-            min={1}
-            max={8}
-            unit=""
-            def={defaults.wordsPerGroup}
-            onChange={(v) => set('wordsPerGroup', v)}
-          />
-        </Row>
-      )}
+      {/* Words/Grp chunks the transcript on the source track. On a translated
+          track there is no transcript to chunk, so it re-chunks each inherited
+          caption instead and never merges across a boundary the source set
+          (`lib/trackChunking.ts`) — same control, different sentence. */}
+      <Row label="Words/Grp" filter={filter}>
+        <StudioRow
+          label="Words/Grp"
+          title={
+            activeTrackIsSource ? WORDS_PER_GROUP_TITLE.source : WORDS_PER_GROUP_TITLE.translated
+          }
+          value={s.wordsPerGroup}
+          min={1}
+          max={8}
+          unit=""
+          def={defaults.wordsPerGroup}
+          onChange={(v) => set('wordsPerGroup', v)}
+        />
+      </Row>
       {/* Caption timing — plain seconds, never scaled on the way to the backend. */}
       <Row label="Gap close" filter={filter}>
         <StudioRow

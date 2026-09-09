@@ -43,9 +43,10 @@ interface ResultsScreenProps {
   /**
    * True on the source track: groups may be rebuilt from document order when
    * the transcript or `wordsPerGroup` changes. False on a translated track,
-   * whose grouping is inherited from the source (`reflowTrack` is the only way
-   * it changes) — a rebuild there would re-chunk the translation into arbitrary
-   * N-word blocks and throw the source links away.
+   * whose grouping is inherited — a rebuild there would re-chunk the translation
+   * into arbitrary N-word blocks and throw the source links away. A translated
+   * `wordsPerGroup` change is *not* that rebuild: `syncSegmentsIntoTrack`
+   * re-chunks each inherited caption in place (`lib/trackChunking.ts`).
    */
   autoGroup: boolean
   /**
@@ -208,6 +209,10 @@ export function ResultsScreen({
     // that silently restores document order, which is the bug this replaced
     // (docs/plans/fill-gaps-resets-custom-groups.md).
     //
+    // On a translated track a wpg change takes neither path — it re-chunks each
+    // inherited caption (`lib/trackChunking.ts`). This effect fires for both
+    // kinds of track; `isSource: autoGroup` below is the only switch.
+    //
     // Otherwise the groups are rebuilt from scratch. Position overrides don't
     // set groupsEdited (they don't change boundaries), so they are carried
     // forward by group ID; a wpg change shifts the ${seg.id}:${offset} IDs,
@@ -229,9 +234,10 @@ export function ResultsScreen({
       }
       return syncSegmentsIntoTrack(shim, segments, settings.wordsPerGroup, wpgChanged).groups
     })
-    // A wpg change hands the groups back to the automatic pass — the same flag
-    // `syncSegmentsIntoTrack` returns on the rebuild branch.
-    if (wpgChanged && autoGroup) setGroupsEdited(false)
+    // A wpg change hands the source's groups back to the automatic pass; a
+    // translated re-chunk is still authored grouping. Either way, the flag
+    // `syncSegmentsIntoTrack` returns.
+    if (wpgChanged) setGroupsEdited(!autoGroup)
   }, [segments, settings.wordsPerGroup]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /**

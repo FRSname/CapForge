@@ -3,6 +3,7 @@ import { bakeTranslation, propagateSourceTiming } from './trackTiming'
 import { buildSourceIndex } from './trackStaleness'
 import { createTrackFromSource } from './tracks'
 import { MIN_WORD_DUR } from './wordTiming'
+import { chunkTranslatedGroups } from './trackChunking'
 import { makeSourceTrack, sourceWords } from './trackFixtures.testutil'
 import type { CaptionTrack } from './tracks'
 import type { Segment } from '../types/app'
@@ -222,5 +223,79 @@ describe('propagateSourceTiming', () => {
     }
     propagateSourceTiming(polish, dragged)
     expect(JSON.stringify(polish)).toBe(before)
+  })
+})
+
+// ── propagateSourceTiming over a chunked caption (sibling runs) ───
+//
+// A caption chunked by `wordsPerGroup` on the translated tab is several groups
+// carrying one identical source record. The link is with the *caption*, so the
+// run moves as a unit and its chunks are rescaled inside the new span — never
+// each snapped to the whole span, which would stack them on top of each other.
+
+describe('propagateSourceTiming — sibling runs', () => {
+  /** Polish with its first caption chunked into 2 + 1 words. */
+  function makeChunked(): CaptionTrack {
+    const polish = makePolish()
+    return { ...polish, groups: chunkTranslatedGroups(polish.groups, 2) }
+  }
+
+  const dragTo = (end: number, patch: Partial<Segment> = {}): CaptionTrack => ({
+    ...source,
+    groups: [{ ...source.groups[0], end, ...patch }, source.groups[1]],
+  })
+
+  test('returns the same reference when nothing moved', () => {
+    const chunked = makeChunked()
+    expect(propagateSourceTiming(chunked, source)).toBe(chunked)
+  })
+
+  test('the run spans the linked span and its chunks are rescaled proportionally', () => {
+    const chunked = makeChunked()
+    const [a, b] = chunked.groups
+    const wasSplitAt = (a.end - a.start) / (b.end - a.start)
+
+    // Source group 0 grows from [0, 1.5] to [0, 3.0].
+    const next = propagateSourceTiming(chunked, dragTo(3))
+
+    expect(next.groups[0].start).toBe(0)
+    expect(next.groups[1].end).toBe(3)
+    // The chunk boundary keeps its place inside the caption.
+    expect((next.groups[0].end - 0) / 3).toBeCloseTo(wasSplitAt, 9)
+    expect(next.groups[1].start).toBeCloseTo(next.groups[0].end, 9)
+    // Words follow their own chunk, not the whole caption.
+    expect(next.groups[0].words[0].start).toBe(0)
+    expect(next.groups[1].words[next.groups[1].words.length - 1].end).toBe(3)
+  })
+
+  test('the neighbouring caption is untouched, object identity and all', () => {
+    const chunked = makeChunked()
+    const next = propagateSourceTiming(chunked, dragTo(3))
+    for (let i = 2; i < chunked.groups.length; i++) {
+      expect(next.groups[i]).toBe(chunked.groups[i])
+    }
+  })
+
+  test('a hand-placed source end lands on the run’s last chunk only', () => {
+    const chunked = makeChunked()
+    const next = propagateSourceTiming(chunked, dragTo(3, { endEdited: true }))
+    expect(next.groups[0].endEdited).toBeUndefined()
+    expect(next.groups[1].endEdited).toBe(true)
+  })
+
+  test('a pinned chunk drops the run back to per-group linking', () => {
+    const chunked = makeChunked()
+    const pinned: CaptionTrack = {
+      ...chunked,
+      groups: [{ ...chunked.groups[0], timingLinked: false }, ...chunked.groups.slice(1)],
+    }
+
+    const next = propagateSourceTiming(pinned, dragTo(3))
+
+    // The pinned chunk is never moved…
+    expect(next.groups[0]).toBe(pinned.groups[0])
+    // …and its sibling falls back to today's whole-span rule.
+    expect(next.groups[1].start).toBe(0)
+    expect(next.groups[1].end).toBe(3)
   })
 })

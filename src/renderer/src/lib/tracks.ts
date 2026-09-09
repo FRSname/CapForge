@@ -28,6 +28,7 @@ import type { Segment } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import { buildStudioGroups, closeGroupGaps, reconcileGroups } from './groups'
 import { ensureWordIds } from './wordIds'
+import { chunkTranslatedGroups, coalesceSiblingRuns } from './trackChunking'
 import { languageLabel } from './languages'
 import { sanitizeSettings } from './settingsSanitize'
 import { buildRenderBody, type RenderBody } from './render'
@@ -219,9 +220,14 @@ export function reflowTrack(track: CaptionTrack, source: CaptionTrack): CaptionT
 
   const n = nextReflowCounter(track.groups)
 
+  // Match against whole captions, not chunks: a caption cut up by
+  // `wordsPerGroup` is several groups sharing one record, and matching them
+  // individually would carry the first chunk's text and drop the rest.
+  const previous = coalesceSiblingRuns(track.groups)
+
   // First recorded list wins, so a duplicated record can never claim two groups.
   const oldByWids = new Map<string, Segment>()
-  for (const g of track.groups) {
+  for (const g of previous) {
     const key = (g.sourceWords ?? []).map((s) => s.wid).join(WID_KEY_SEP)
     if (!oldByWids.has(key)) oldByWids.set(key, g)
   }
@@ -243,7 +249,7 @@ export function reflowTrack(track: CaptionTrack, source: CaptionTrack): CaptionT
     }
 
     const overlap = new Set(wids)
-    const previousText = track.groups
+    const previousText = previous
       .filter((g) => g.text.trim() !== '')
       .filter((g) => (g.sourceWords ?? []).some((s) => overlap.has(s.wid)))
       .map((g) => g.text)
@@ -280,9 +286,13 @@ export function displayGroupsFor(track: CaptionTrack): Segment[] {
  * hands the groups back to the automatic pass.
  *
  * A **translated** track never takes the rebuild branch: its grouping is
- * inherited from the source (that is what `reflowTrack` is for) and
- * `wordsPerGroup` is inert there, so a rebuild would re-chunk the translation
- * into arbitrary N-word blocks and throw the source links away.
+ * inherited from the source (that is what `reflowTrack` is for), so a rebuild
+ * from document order would re-chunk the translation into arbitrary N-word
+ * blocks and throw the source links away. `wordsPerGroup` still means something
+ * there, but something else: it re-chunks each *inherited caption*
+ * (`chunkTranslatedGroups`, `lib/trackChunking.ts`) and never merges across a
+ * boundary the source set. The track stays `groupsEdited` — its grouping is
+ * authored either way, so `custom_groups` must keep being sent.
  */
 export function syncSegmentsIntoTrack(
   track: CaptionTrack,
@@ -292,7 +302,21 @@ export function syncSegmentsIntoTrack(
 ): CaptionTrack {
   const next = ensureWordIds(segments)
 
-  if (!track.isSource || (track.groupsEdited && !wpgChanged)) {
+  if (!track.isSource) {
+    // On the *current groups*, not the segments: the captions are the unit, and
+    // the segments are only the text view's copy of them.
+    if (wpgChanged) {
+      return {
+        ...track,
+        segments: next,
+        groups: chunkTranslatedGroups(track.groups, wordsPerGroup),
+        groupsEdited: true,
+      }
+    }
+    return { ...track, segments: next, groups: reconcileGroups(track.groups, next, wordsPerGroup) }
+  }
+
+  if (track.groupsEdited && !wpgChanged) {
     return { ...track, segments: next, groups: reconcileGroups(track.groups, next, wordsPerGroup) }
   }
 

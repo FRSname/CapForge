@@ -264,10 +264,12 @@ interface StudioPanelProps {
   /** Report a manual preset pick so the agent-facing mirror stays truthful. */
   onPresetApplied?: (name: string) => void
   /**
-   * False while a translated caption track is active. Grouping is inherited
-   * from the source there (`reflowTrack` is the only thing that changes it), so
-   * the Layout card hides its *Words per group* row — the control would be
-   * inert, and worse, would read as if it did something.
+   * False while a translated caption track is active. The *Words per group* row
+   * exists on both, but it does two different things: on the source it chunks
+   * the transcript, and on a translated track it re-chunks each **inherited
+   * caption** without ever merging across a boundary the source set
+   * (`lib/trackChunking.ts`). This picks the row's help text; nothing else in
+   * the sidebar is track-dependent.
    */
   activeTrackIsSource?: boolean
 }

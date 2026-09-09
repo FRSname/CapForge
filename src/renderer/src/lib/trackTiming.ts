@@ -26,6 +26,7 @@
 import type { Segment, Word } from '../types/app'
 import type { CaptionTrack } from './tracks'
 import { withWordIds } from './wordIds'
+import { siblingRuns } from './trackChunking'
 import { MIN_WORD_DUR, distribute, joinWords, retimeWords, tokenize } from './wordTiming'
 import {
   attributedWids,
@@ -181,28 +182,84 @@ function linkedSpan(
   }
 }
 
-/** Move one group onto its linked span, or return it untouched. */
-function relinkGroup(group: Segment, index: SourceIndex): Segment {
-  if (group.timingLinked === false) return group
+/**
+ * Where chunk `i` of a run lands inside the caption's new span.
+ *
+ * The run's chunks divide one caption, so they are rescaled *proportionally*
+ * rather than each snapped to the whole span (which would stack them on top of
+ * one another). The two outer bounds are taken verbatim so the caption starts
+ * and ends exactly where the source says, floating-point drift and all; a
+ * degenerate caption (zero-length, so nothing to scale) is divided evenly.
+ */
+function chunkSpan(
+  run: readonly Segment[],
+  i: number,
+  span: { start: number; end: number }
+): { start: number; end: number } {
+  const from = run[0].start
+  const length = run[run.length - 1].end - from
+  const target = span.end - span.start
+  const scale = (t: number): number =>
+    length > 0 ? span.start + ((t - from) / length) * target : span.start
+  const even = (k: number): number => span.start + (k / run.length) * target
+  return {
+    start: i === 0 ? span.start : length > 0 ? scale(run[i].start) : even(i),
+    end: i === run.length - 1 ? span.end : length > 0 ? scale(run[i].end) : even(i + 1),
+  }
+}
 
-  const span = linkedSpan(group, index)
-  if (!span) return group
+/** Move one group onto a span already decided for it, or return it untouched. */
+function moveGroup(
+  group: Segment,
+  span: { start: number; end: number },
+  endEdited: boolean
+): Segment {
   if (
     span.start === group.start &&
     span.end === group.end &&
-    span.endEdited === Boolean(group.endEdited)
+    endEdited === Boolean(group.endEdited)
   ) {
     return group
   }
-
   const { endEdited: _previousClaim, ...rest } = group
   return {
     ...rest,
     start: span.start,
     end: span.end,
     words: relayWords(group.words, span.start, span.end),
-    ...(span.endEdited ? { endEdited: true } : {}),
+    ...(endEdited ? { endEdited: true } : {}),
   }
+}
+
+/**
+ * Move a whole sibling run — the chunks of one inherited caption
+ * (`lib/trackChunking.ts`) — onto the caption's linked span.
+ *
+ * The link is with the *caption*, not with a chunk: every chunk carries the
+ * same `sourceWords` record, so asking each one separately would give them all
+ * the same span. The run's own end claim is the **last** chunk's, and that is
+ * where a hand-placed source end lands. A run holding a chunk the user pinned
+ * is not a unit any more, so it falls back to per-group linking.
+ */
+function relinkRun(run: readonly Segment[], index: SourceIndex): Segment[] {
+  if (run.length === 1) return [relinkGroup(run[0], index)]
+  if (run.some((g) => g.timingLinked === false)) return run.map((g) => relinkGroup(g, index))
+
+  const span = linkedSpan(run[run.length - 1], index)
+  if (!span) return run as Segment[]
+
+  return run.map((g, i) =>
+    moveGroup(g, chunkSpan(run, i, span), i === run.length - 1 ? span.endEdited : false)
+  )
+}
+
+/** Move one group onto its linked span, or return it untouched. */
+function relinkGroup(group: Segment, index: SourceIndex): Segment {
+  if (group.timingLinked === false) return group
+
+  const span = linkedSpan(group, index)
+  if (!span) return group
+  return moveGroup(group, span, span.endEdited)
 }
 
 /**
@@ -227,11 +284,14 @@ export function propagateSourceTiming(track: CaptionTrack, source: CaptionTrack)
   if (!index.complete) return track
 
   let changed = false
-  const groups = track.groups.map((g) => {
-    const next = relinkGroup(g, index)
-    if (next !== g) changed = true
-    return next
-  })
+  const groups: Segment[] = []
+  for (const run of siblingRuns(track.groups)) {
+    const slice = track.groups.slice(run.start, run.start + run.length)
+    relinkRun(slice, index).forEach((g, i) => {
+      if (g !== slice[i]) changed = true
+      groups.push(g)
+    })
+  }
 
   return changed ? { ...track, groups } : track
 }

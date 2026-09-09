@@ -243,10 +243,12 @@ export function mergeGroups(groups: Segment[], index: number): Segment[] {
  * `endEdited` and `previousText` are dropped from both halves. On a translated
  * group both halves keep the **full** `sourceWords` record — a translation is
  * not word-aligned to its source, so neither half can claim a sub-range — and
- * both get `timingLinked: false`: a linked half would be snapped back to the
- * whole source span by `propagateSourceTiming` (`lib/trackTiming.ts`) and
- * overlap its sibling. Source-track groups (no record) split exactly as before,
- * with none of the three keys present.
+ * the link is left exactly as it was: two halves with identical records are a
+ * *sibling run*, which `propagateSourceTiming` (`lib/trackTiming.ts`) moves as
+ * one caption and rescales inside its span, so neither half is snapped back to
+ * the whole source span. A group the user had already pinned hands that pin to
+ * both halves. Source-track groups (no record) split exactly as before, with
+ * none of the three keys present.
  */
 export function splitGroup(groups: Segment[], index: number, n: number): Segment[] {
   const g = groups[index]
@@ -256,7 +258,12 @@ export function splitGroup(groups: Segment[], index: number, n: number): Segment
   const right: Word[] = g.words.slice(n)
   /** Called per half so the two records are separate arrays, never one shared. */
   const trackFields = (): Partial<Segment> =>
-    g.sourceWords ? { sourceWords: [...g.sourceWords], timingLinked: false } : {}
+    g.sourceWords
+      ? {
+          sourceWords: [...g.sourceWords],
+          ...(g.timingLinked === false ? { timingLinked: false } : {}),
+        }
+      : {}
   const a: Segment = {
     id: `${g.id}#L`,
     start: left[0].start,

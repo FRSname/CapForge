@@ -328,7 +328,7 @@ describe('splitGroup', () => {
     expect(split[1].endEdited).toBeUndefined()
   })
 
-  test('gives both halves the full source record and unlinks them', () => {
+  test('gives both halves the full source record and leaves the link alone', () => {
     // Arrange — one translated group written from three source words.
     const groups = [
       withSource(buildStudioGroups([makeSegment('s1')], 6)[0], ['s0', 's1', 's2'], {
@@ -343,12 +343,25 @@ describe('splitGroup', () => {
     // the whole record...
     expect(split[0].sourceWords?.map((w) => w.wid)).toEqual(['s0', 's1', 's2'])
     expect(split[1].sourceWords?.map((w) => w.wid)).toEqual(['s0', 's1', 's2'])
-    // ...and both are pinned: a linked half would be snapped back to the full
-    // source span by propagateSourceTiming and swallow its sibling.
-    expect(split[0].timingLinked).toBe(false)
-    expect(split[1].timingLinked).toBe(false)
+    // ...and both stay linked: identical records make them a sibling run, which
+    // propagateSourceTiming moves as one caption (lib/trackChunking.ts).
+    expect('timingLinked' in split[0]).toBe(false)
+    expect('timingLinked' in split[1]).toBe(false)
     expect(split[0].previousText).toBeUndefined()
     expect(split[1].previousText).toBeUndefined()
+  })
+
+  test('a pinned group hands its pin to both halves', () => {
+    const groups = [
+      withSource(buildStudioGroups([makeSegment('s1')], 6)[0], ['s0', 's1'], {
+        timingLinked: false,
+      }),
+    ]
+
+    const split = splitGroup(groups, 0, 3)
+
+    expect(split[0].timingLinked).toBe(false)
+    expect(split[1].timingLinked).toBe(false)
   })
 
   test('carries none of the three track fields on source-track groups', () => {

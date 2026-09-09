@@ -3,6 +3,7 @@ import { buildSourceIndex, classifyTrack, sourceTextFor } from './trackStaleness
 import { bakeTranslation } from './trackTiming'
 import { createTrackFromSource } from './tracks'
 import { buildStudioGroups } from './groups'
+import { chunkTranslatedGroups } from './trackChunking'
 import { makeSourceTrack, sourceSegment, sourceWords, word } from './trackFixtures.testutil'
 import type { CaptionTrack } from './tracks'
 import type { Segment, Word } from '../types/app'
@@ -47,6 +48,29 @@ describe('classifyTrack — the §D worked-example table', () => {
     expect(c.reflowNeeded).toBe(false)
     expect(c.byGroup.get(polish.groups[0].id)).toBe('stale')
     expect(c.byGroup.get(polish.groups[1].id)).toBe('clean')
+  })
+
+  test('both chunks of one caption are reported stale — the chip is per row', () => {
+    // Arrange — the first caption cut into 2 + 1 words by a translated-track
+    // `wordsPerGroup` change. Both chunks carry the same source record.
+    const chunked: CaptionTrack = {
+      ...polish,
+      groups: chunkTranslatedGroups(polish.groups, 2),
+    }
+    expect(chunked.groups).toHaveLength(4)
+
+    // Act — a typo fix inside the first caption's source words.
+    const fixed = sourceWords().map((w) => (w.word === 'brown' ? { ...w, word: 'braun' } : w))
+    const c = classifyTrack(chunked, resource(fixed))
+
+    // Assert — chunks are classified individually, so the user sees a chip on
+    // every row the changed source words are behind. Chunking is a translated
+    // -track edit and never touches the *source's* grouping.
+    expect(c.staleCount).toBe(2)
+    expect(c.byGroup.get(chunked.groups[0].id)).toBe('stale')
+    expect(c.byGroup.get(chunked.groups[1].id)).toBe('stale')
+    expect(c.byGroup.get(chunked.groups[2].id)).toBe('clean')
+    expect(c.reflowNeeded).toBe(false)
   })
 
   test('a punctuation/casing-only source change is NOT stale (normalizeToken)', () => {
