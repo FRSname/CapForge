@@ -4,7 +4,15 @@ import { bakeTranslation } from './trackTiming'
 import { createTrackFromSource } from './tracks'
 import { buildStudioGroups } from './groups'
 import { chunkTranslatedGroups } from './trackChunking'
-import { makeSourceTrack, sourceSegment, sourceWords, word } from './trackFixtures.testutil'
+import {
+  makeSourceTrack,
+  makeTranslatedTrack,
+  makeTwoSentenceSource,
+  sentenceMapOf,
+  sourceSegment,
+  sourceWords,
+  word,
+} from './trackFixtures.testutil'
 import type { CaptionTrack } from './tracks'
 import type { Segment, Word } from '../types/app'
 
@@ -12,11 +20,7 @@ import type { Segment, Word } from '../types/app'
 
 /** A Polish track over the standard six-word source, both groups translated. */
 function makePolish(source: CaptionTrack): CaptionTrack {
-  const track = createTrackFromSource(source, { id: 't1', lang: 'pl' })
-  const index = buildSourceIndex(source)
-  const texts = ['jeden dwa trzy', 'cztery piec szesc']
-  const groups = track.groups.map((g, i) => bakeTranslation(g, texts[i], index))
-  return { ...track, groups, segments: groups.map((g) => ({ ...g })) }
+  return makeTranslatedTrack(source, ['jeden dwa trzy', 'cztery piec szesc'])
 }
 
 /** Rebuild a source track around new segment words, keeping `wordsPerGroup`. */
@@ -51,11 +55,18 @@ describe('classifyTrack — the §D worked-example table', () => {
   })
 
   test('both chunks of one caption are reported stale — the chip is per row', () => {
-    // Arrange — the first caption cut into 2 + 1 words by a translated-track
-    // `wordsPerGroup` change. Both chunks carry the same source record.
+    // Arrange — two source sentences, one caption each, the first cut into
+    // 2 + 1 words by a translated-track `wordsPerGroup` change. Both chunks
+    // carry the same source record.
+    const twoSentences = makeTwoSentenceSource()
+    const twoSentencePolish = makePolish(twoSentences)
     const chunked: CaptionTrack = {
-      ...polish,
-      groups: chunkTranslatedGroups(polish.groups, 2),
+      ...twoSentencePolish,
+      groups: chunkTranslatedGroups(
+        twoSentencePolish.groups,
+        2,
+        sentenceMapOf(twoSentences)
+      ),
     }
     expect(chunked.groups).toHaveLength(4)
 

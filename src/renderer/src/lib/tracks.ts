@@ -29,6 +29,12 @@ import type { StudioSettings } from '../components/studio/StudioPanel'
 import { buildStudioGroups, closeGroupGaps, reconcileGroups } from './groups'
 import { ensureWordIds } from './wordIds'
 import { chunkTranslatedGroups, coalesceSiblingRuns } from './trackChunking'
+import {
+  buildWidToSegment,
+  sameSentenceSegments,
+  sentenceIndexOf,
+  sentenceSegmentsFor,
+} from './trackSentences'
 import { languageLabel } from './languages'
 import { sanitizeSettings } from './settingsSanitize'
 import { buildRenderBody, type RenderBody } from './render'
@@ -116,19 +122,60 @@ function recordFor(group: Segment): Array<{ wid: string; text: string }> {
   return group.words.map((w) => ({ wid: w.wid as string, text: w.word }))
 }
 
-/** Copy the group-level fields a translated skeleton inherits from its source. */
-function skeletonOf(sourceGroup: Segment, id: string): Segment {
+/**
+ * Copy the group-level fields a translated skeleton inherits from a *run* of
+ * consecutive source groups (one group, in the ordinary case).
+ *
+ * A run longer than one appears only in `reflowTrack`, where a translation that
+ * was written against several source groups is carried across as the single
+ * caption it is.
+ */
+function skeletonOf(run: readonly Segment[], id: string): Segment {
+  const first = run[0]
+  const last = run[run.length - 1]
   return {
     id,
-    start: sourceGroup.start,
-    end: sourceGroup.end,
+    start: first.start,
+    end: last.end,
     text: '',
     words: [],
-    ...(sourceGroup.speaker !== undefined ? { speaker: sourceGroup.speaker } : {}),
-    ...(sourceGroup.positionOverride ? { positionOverride: sourceGroup.positionOverride } : {}),
-    ...(sourceGroup.endEdited ? { endEdited: true } : {}),
-    sourceWords: recordFor(sourceGroup),
+    ...(first.speaker !== undefined ? { speaker: first.speaker } : {}),
+    ...(first.positionOverride ? { positionOverride: first.positionOverride } : {}),
+    ...(last.endEdited ? { endEdited: true } : {}),
+    sourceWords: run.flatMap(recordFor),
   }
+}
+
+/**
+ * **The one place a translated track's `segments` are written.**
+ *
+ * A translated track's text units are not authored, they are *derived*: they
+ * are always `sentenceSegmentsFor(track.groups)` — one row per source sentence,
+ * however many captions that sentence is currently chunked into
+ * (`lib/trackSentences.ts`). Every seam that writes a translated track's groups
+ * runs its result through here, so the Text view can never drift into being a
+ * list of caption fragments again:
+ *
+ * - `createTrackFromSource` and `reflowTrack`, below (so the agent commands
+ *   `create_track` / `reflow_track` inherit it);
+ * - `setTrackText` (`lib/trackCommands.ts`), after baking;
+ * - `syncSegmentsIntoTrack`'s translated branch, below;
+ * - `useTrackStore.commitEditorState`, for what the mounted editor publishes;
+ * - App's source-timing propagation effect, which moves group spans and words;
+ * - `tracksFromProjectFile` (`lib/project.ts`), for a file written before this.
+ *
+ * Reference-stable, and a **no-op on the source track** (its segments are the
+ * transcript) and when `widToSegment` is empty — with nothing to resolve, every
+ * group would look like a sentence of its own and a good text view would be
+ * replaced by a fragment list.
+ */
+export function withSentenceSegments(
+  track: CaptionTrack,
+  widToSegment: ReadonlyMap<string, number>
+): CaptionTrack {
+  if (track.isSource || widToSegment.size === 0) return track
+  const segments = sentenceSegmentsFor(track.groups, widToSegment, track.id)
+  return sameSentenceSegments(track.segments, segments) ? track : { ...track, segments }
 }
 
 /** The grouping fingerprint `classifyTrack` compares against for `reflowNeeded`. */
@@ -156,14 +203,15 @@ export function createTrackFromSource(
     )
   }
 
-  const groups = source.groups.map((g, i) => skeletonOf(g, `${opts.id}:${i}`))
+  const groups = source.groups.map((g, i) => skeletonOf([g], `${opts.id}:${i}`))
 
-  return {
+  const track: CaptionTrack = {
     id: opts.id,
     label: opts.label ?? languageLabel(opts.lang),
     lang: opts.lang,
     isSource: false,
-    // The text view edits these; they start 1:1 with the groups.
+    // Replaced below by the sentence rows; this is only the fallback for a
+    // source whose segments cannot be resolved (see `withSentenceSegments`).
     segments: groups.map((g) => ({ ...g })),
     groups,
     // Authored grouping — `custom_groups` must always be sent.
@@ -175,6 +223,10 @@ export function createTrackFromSource(
     appliedPreset: opts.settings ? null : source.appliedPreset,
     sourceSnapshot: snapshotOf(source),
   }
+
+  // The text view is a list of the source's *sentences*, never of the caption
+  // fragments the skeleton is made of.
+  return withSentenceSegments(track, buildWidToSegment(source.segments))
 }
 
 /** Separator for the "same wid list" key — `\0` cannot occur in a wid. */
@@ -202,6 +254,15 @@ function nextReflowCounter(groups: readonly Segment[]): number {
  * verbatim. Every other new group comes back blank, with `previousText` holding
  * the translations whose recorded words it now overlaps (joined by `' / '`) so
  * whoever rewrites it can see what was there.
+ *
+ * "The same span under a new name" is deliberately **not** "the same source
+ * group": a translation written against a whole *sentence* (the ordinary shape
+ * once `wordsPerGroup` has re-chunked one) records the wids of several source
+ * groups at once, so an old caption is carried whole whenever its record equals
+ * the wid lists of a **consecutive run** of current source groups, concatenated.
+ * That run's skeleton entries are replaced by the one carried caption — the
+ * longest matching run wins, so a sentence is never carried as its first
+ * fragment with the rest dropped.
  *
  * It is a wid-set carry-over, never a re-slice by index or word count — that is
  * the bug `lib/wordIds.ts` exists to prevent. New group ids embed a reflow
@@ -232,38 +293,61 @@ export function reflowTrack(track: CaptionTrack, source: CaptionTrack): CaptionT
     if (!oldByWids.has(key)) oldByWids.set(key, g)
   }
 
-  const groups = source.groups.map((sourceGroup, i) => {
-    const wids = sourceGroup.words.map((w) => w.wid as string)
-    const base = skeletonOf(sourceGroup, `${track.id}:r${n}:${i}`)
-    const carried = wids.length > 0 ? oldByWids.get(wids.join(WID_KEY_SEP)) : undefined
+  const sourceWids = source.groups.map((g) => g.words.map((w) => w.wid as string))
+  const longestRecord = Math.max(0, ...previous.map((g) => (g.sourceWords ?? []).length))
+
+  /** The longest run starting at `i` whose wids are exactly an old record. */
+  const carryAt = (i: number): { carried?: Segment; length: number } => {
+    let best: { carried?: Segment; length: number } = { length: 1 }
+    const wids: string[] = []
+    for (let length = 1; i + length <= sourceWids.length; length += 1) {
+      wids.push(...sourceWids[i + length - 1])
+      if (wids.length > longestRecord) break
+      if (wids.length === 0) continue
+      const hit = oldByWids.get(wids.join(WID_KEY_SEP))
+      if (hit) best = { carried: hit, length }
+    }
+    return best
+  }
+
+  const groups: Segment[] = []
+  for (let i = 0; i < source.groups.length; ) {
+    const { carried, length } = carryAt(i)
+    const run = source.groups.slice(i, i + length)
+    const base = skeletonOf(run, `${track.id}:r${n}:${i}`)
+    i += length
 
     if (carried) {
       const { endEdited: _fromSource, ...rest } = base
-      return {
+      groups.push({
         ...rest,
         text: carried.text,
         words: carried.words,
         ...(carried.timingLinked !== undefined ? { timingLinked: carried.timingLinked } : {}),
         ...(carried.endEdited ? { endEdited: true } : {}),
-      }
+      })
+      continue
     }
 
-    const overlap = new Set(wids)
+    const overlap = new Set(run.flatMap((g) => g.words.map((w) => w.wid as string)))
     const previousText = previous
       .filter((g) => g.text.trim() !== '')
       .filter((g) => (g.sourceWords ?? []).some((s) => overlap.has(s.wid)))
       .map((g) => g.text)
       .join(' / ')
 
-    return previousText ? { ...base, previousText } : base
-  })
-
-  return {
-    ...track,
-    groups,
-    segments: groups.map((g) => ({ ...g })),
-    sourceSnapshot: snapshotOf(source),
+    groups.push(previousText ? { ...base, previousText } : base)
   }
+
+  return withSentenceSegments(
+    {
+      ...track,
+      groups,
+      segments: groups.map((g) => ({ ...g })),
+      sourceSnapshot: snapshotOf(source),
+    },
+    buildWidToSegment(source.segments)
+  )
 }
 
 /**
@@ -289,31 +373,35 @@ export function displayGroupsFor(track: CaptionTrack): Segment[] {
  * inherited from the source (that is what `reflowTrack` is for), so a rebuild
  * from document order would re-chunk the translation into arbitrary N-word
  * blocks and throw the source links away. `wordsPerGroup` still means something
- * there, but something else: it re-chunks each *inherited caption*
+ * there, but something else: it re-chunks each *sentence*
  * (`chunkTranslatedGroups`, `lib/trackChunking.ts`) and never merges across a
- * boundary the source set. The track stays `groupsEdited` — its grouping is
+ * sentence boundary. The track stays `groupsEdited` — its grouping is
  * authored either way, so `custom_groups` must keep being sent.
+ *
+ * `widToSegment` is the sentence map (`lib/trackSentences.ts`); it is what the
+ * translated branch chunks by, and what re-derives that branch's text units. A
+ * source track ignores it.
  */
 export function syncSegmentsIntoTrack(
   track: CaptionTrack,
   segments: Segment[],
   wordsPerGroup: number,
-  wpgChanged: boolean
+  wpgChanged: boolean,
+  widToSegment: ReadonlyMap<string, number> = new Map()
 ): CaptionTrack {
   const next = ensureWordIds(segments)
 
   if (!track.isSource) {
     // On the *current groups*, not the segments: the captions are the unit, and
-    // the segments are only the text view's copy of them.
-    if (wpgChanged) {
-      return {
-        ...track,
-        segments: next,
-        groups: chunkTranslatedGroups(track.groups, wordsPerGroup),
-        groupsEdited: true,
-      }
-    }
-    return { ...track, segments: next, groups: reconcileGroups(track.groups, next, wordsPerGroup) }
+    // the segments are only the text view's rendering of them — re-derived from
+    // the groups either branch produces, never carried in from the caller.
+    const groups = wpgChanged
+      ? chunkTranslatedGroups(track.groups, wordsPerGroup, widToSegment)
+      : reconcileGroups(track.groups, next, wordsPerGroup)
+    return withSentenceSegments(
+      { ...track, segments: next, groups, ...(wpgChanged ? { groupsEdited: true } : {}) },
+      widToSegment
+    )
   }
 
   if (track.groupsEdited && !wpgChanged) {
@@ -346,6 +434,11 @@ export interface TrackMirrorGroup {
   start: number
   end: number
   text: string
+  /** Translated tracks only: the index of the source *sentence* this caption
+   *  belongs to. Consecutive entries sharing one `sentence` are fragments of
+   *  the same sentence and must be translated together, not one by one; `null`
+   *  when the source words behind the caption can no longer be resolved. */
+  sentence?: number | null
   /** Translated tracks only. */
   state?: TrackGroupState
   /** Translated tracks only: the source text this group is written from, now. */
@@ -386,12 +479,16 @@ export function trackToMirrorEntry(
 ): TrackMirrorEntry {
   const index = buildSourceIndex(source)
   const allRecorded = recordedWids(track)
+  const widToSegment = buildWidToSegment(source.segments)
 
   const groups: TrackMirrorGroup[] = track.groups.map((g, i) => {
     const compact: TrackMirrorGroup = { id: g.id, start: g.start, end: g.end, text: g.text }
     if (track.isSource) return compact
     return {
       ...compact,
+      // The agent's unit of translation: fragments of one sentence carry the
+      // same index and are translated together (`mcp_server/tracks.py`).
+      sentence: sentenceIndexOf(g, widToSegment) ?? null,
       state: classification.byGroup.get(g.id) ?? 'clean',
       sourceText: sourceTextFor(g, index, { allRecorded, isFirstGroup: i === 0 }),
       previousText: g.previousText ?? null,

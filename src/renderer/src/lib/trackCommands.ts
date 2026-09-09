@@ -17,10 +17,11 @@
  */
 
 import type { AgentCommand } from './api'
-import { createTrackFromSource, newTrackId, reflowTrack } from './tracks'
+import { createTrackFromSource, newTrackId, reflowTrack, withSentenceSegments } from './tracks'
 import type { CaptionTrack } from './tracks'
 import { buildSourceIndex, recordedWids } from './trackStaleness'
 import { bakeTranslation } from './trackTiming'
+import { buildWidToSegment } from './trackSentences'
 import { isKnownLanguage, languageLabel } from './languages'
 
 /** The ops this module owns. */
@@ -141,12 +142,10 @@ function setTrackText(
     return bakeTranslation(group, text, index, { allRecorded, isFirstGroup: i === 0 })
   })
 
-  // The text view edits the same units by id — keep it in step, or a save (or a
-  // tab switch) would resurrect the pre-bake text.
-  const bakedById = new Map(groups.map((g) => [g.id, g]))
-  const segments = track.segments.map((s) => bakedById.get(s.id) ?? s)
-
-  const next: CaptionTrack = { ...track, groups, segments }
+  // The text view is derived from the groups (one row per source sentence), so
+  // re-deriving is what keeps it in step — without it a save, or a tab switch,
+  // would resurrect the pre-bake text.
+  const next = withSentenceSegments({ ...track, groups }, buildWidToSegment(source.segments))
   return {
     tracks: tracks.map((t) => (t.id === track.id ? next : t)),
     activeTrackId,

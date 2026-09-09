@@ -18,9 +18,11 @@ import { ensureWordIds } from '../../lib/wordIds'
 import { DEFAULT_PAD_V } from '../../lib/renderConstants'
 import type { ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { syncSegmentsIntoTrack } from '../../lib/tracks'
+import { sameSentenceSegments, sentenceSegmentsFor } from '../../lib/trackSentences'
 import type { CaptionTrack, TrackEditorState, TrackGroupState } from '../../lib/tracks'
 import { useUndoRedo } from '../../hooks/useUndoRedo'
 import { useTimelineEditing } from '../../hooks/useTimelineEditing'
+import { useEditorShortcuts } from '../../hooks/useEditorShortcuts'
 import { useToast } from '../../hooks/useToast'
 import { api, type RealignSegmentPayload } from '../../lib/api'
 import { AudioPlayer, type AudioPlayerHandle } from '../player/AudioPlayer'
@@ -46,9 +48,16 @@ interface ResultsScreenProps {
    * whose grouping is inherited — a rebuild there would re-chunk the translation
    * into arbitrary N-word blocks and throw the source links away. A translated
    * `wordsPerGroup` change is *not* that rebuild: `syncSegmentsIntoTrack`
-   * re-chunks each inherited caption in place (`lib/trackChunking.ts`).
+   * re-chunks each *sentence* in place (`lib/trackChunking.ts`).
    */
   autoGroup: boolean
+  /**
+   * `wid → source segment index` (`lib/trackSentences.ts`), from App's store.
+   * On a translated track it is what says which *sentence* a caption belongs
+   * to, which is both what the Text view lists and what `wordsPerGroup`
+   * re-chunks. Unused on the source track, whose segments are the transcript.
+   */
+  widToSegment?: ReadonlyMap<string, number>
   /**
    * The track's stored raw groups, adopted verbatim. Read **only** by the
    * `useState` initializer: a prop change must never reset editor state, or a
@@ -94,11 +103,15 @@ interface ResultsScreenProps {
 
 type EditorView = 'text' | 'groups'
 
+/** A stable empty map, so the default prop cannot churn the derive effect. */
+const NO_SENTENCES: ReadonlyMap<string, number> = new Map()
+
 export function ResultsScreen({
   result,
   trackId,
   settings,
   autoGroup,
+  widToSegment = NO_SENTENCES,
   initialGroups,
   initialGroupsEdited,
   initialSegmentsEdited,
@@ -210,7 +223,7 @@ export function ResultsScreen({
     // (docs/plans/fill-gaps-resets-custom-groups.md).
     //
     // On a translated track a wpg change takes neither path — it re-chunks each
-    // inherited caption (`lib/trackChunking.ts`). This effect fires for both
+    // *sentence* (`lib/trackChunking.ts`). This effect fires for both
     // kinds of track; `isSource: autoGroup` below is the only switch.
     //
     // Otherwise the groups are rebuilt from scratch. Position overrides don't
@@ -232,13 +245,39 @@ export function ResultsScreen({
         settings,
         appliedPreset: null,
       }
-      return syncSegmentsIntoTrack(shim, segments, settings.wordsPerGroup, wpgChanged).groups
+      return syncSegmentsIntoTrack(shim, segments, settings.wordsPerGroup, wpgChanged, widToSegment)
+        .groups
     })
     // A wpg change hands the source's groups back to the automatic pass; a
     // translated re-chunk is still authored grouping. Either way, the flag
     // `syncSegmentsIntoTrack` returns.
     if (wpgChanged) setGroupsEdited(!autoGroup)
   }, [segments, settings.wordsPerGroup]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * A translated track's Text view is a list of the source's **sentences**, and
+   * that list is *derived* from the groups — one row per sentence, however many
+   * captions the sentence is chunked into (`lib/trackSentences.ts`). So it is
+   * re-derived after every group change, which closes the loop with the effect
+   * above: a Text-view edit retimes inside the sentence's span, reconciles by
+   * `wid` into the chunked groups, and comes back as the same sentence list.
+   *
+   * `sameSentenceSegments` is what makes the pair converge — the derivation
+   * builds fresh arrays, so without a content comparison the two effects would
+   * trigger each other forever. The source track keeps its transcript.
+   */
+  useEffect(() => {
+    if (autoGroup || widToSegment.size === 0) return
+    // Deriving state from state, deliberately and in exactly the same shape as
+    // the groups effect above: `segments` is *edited* here (the Text view), so
+    // it cannot become a `useMemo`, and the content guard stops the cascade at
+    // one render.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSegments((prev) => {
+      const derived = sentenceSegmentsFor(groups, widToSegment, trackId)
+      return sameSentenceSegments(prev, derived) ? prev : derived
+    })
+  }, [groups, widToSegment, autoGroup, trackId])
 
   /**
    * The groups as the *viewer* sees them: short inter-group gaps closed, and the
@@ -313,95 +352,9 @@ export function ResultsScreen({
     setGroups(next)
   }, [])
 
-  // ── Undo/redo keyboard shortcuts ────────────────────────────────
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const mod = e.metaKey || e.ctrlKey
-      if (!mod) return
-      if (e.key === 'z' && !e.shiftKey) {
-        e.preventDefault()
-        undo()
-      }
-      if ((e.key === 'z' && e.shiftKey) || e.key === 'y') {
-        e.preventDefault()
-        redo()
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [undo, redo])
-
-  // ── Playback keyboard shortcuts ──────────────────────────────────
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const tag = (e.target as HTMLElement).tagName
-      const editable =
-        tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
-      if (editable) return
-
-      // ⌘1 / ⌘2 — switch editor view (registered in lib/shortcuts.ts).
-      const mod = e.metaKey || e.ctrlKey
-      if (mod && (e.key === '1' || e.key === '2')) {
-        e.preventDefault()
-        setView(e.key === '1' ? 'text' : 'groups')
-        return
-      }
-
-      const p = playerRef.current
-      if (!p) return
-
-      switch (e.key) {
-        case ' ':
-        case 'Spacebar':
-          e.preventDefault()
-          p.playPause()
-          break
-        case 'j':
-        case 'J':
-          e.preventDefault()
-          p.seekRelative(-2)
-          break
-        case 'k':
-        case 'K':
-          e.preventDefault()
-          p.playPause()
-          break
-        case 'l':
-        case 'L':
-          e.preventDefault()
-          p.seekRelative(2)
-          break
-        case 'ArrowLeft':
-          e.preventDefault()
-          p.seekRelative(-1 / 30)
-          break
-        case 'ArrowRight':
-          e.preventDefault()
-          p.seekRelative(1 / 30)
-          break
-        case ',': {
-          e.preventDefault()
-          let gi = -1
-          for (let i = groups.length - 1; i >= 0; i--) {
-            if (groups[i].start < currentTime - 0.01) {
-              gi = i
-              break
-            }
-          }
-          if (gi >= 0) p.seekToTime(groups[gi].start)
-          break
-        }
-        case '.': {
-          e.preventDefault()
-          const gi = groups.findIndex((g) => g.start > currentTime + 0.01)
-          if (gi >= 0) p.seekToTime(groups[gi].start)
-          break
-        }
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [groups, currentTime])
+  // Keyboard: undo/redo, playback transport, ⌘1/⌘2 view switch
+  // (`hooks/useEditorShortcuts.ts` — lifted out of this file verbatim).
+  useEditorShortcuts({ undo, redo, playerRef, groups, currentTime, setView })
 
   // ── Project I/O handle ─────────────────────────────────────────────
   // Save/restore are NOT here: App composes the project file from the track

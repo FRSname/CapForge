@@ -2,7 +2,8 @@
 
 > Reference for the caption-track feature (language tabs). Read this before changing
 > anything under `lib/tracks.ts`, `lib/trackStaleness.ts`, `lib/trackTiming.ts`,
-> `lib/trackChunking.ts`, `hooks/useTrackStore.ts` or `mcp_server/tracks.py`. The *why* lives in
+> `lib/trackChunking.ts`, `lib/trackSentences.ts`, `hooks/useTrackStore.ts` or
+> `mcp_server/tracks.py`. The *why* lives in
 > [plans/multi-language-caption-tracks.md](plans/multi-language-caption-tracks.md); the
 > *what, where, in which order* in
 > [plans/multi-language-caption-tracks-plan.md](plans/multi-language-caption-tracks-plan.md).
@@ -57,7 +58,8 @@ Four optional fields were added to the existing types in `src/renderer/src/types
 ```ts
 interface CaptionTrack {
   id: string; label: string; lang: string; isSource: boolean
-  segments: Segment[]      // source: the transcript; translated: the text-view units
+  segments: Segment[]      // source: the transcript; translated: DERIVED, one row per
+                           //   source sentence (`withSentenceSegments`)
   groups: Segment[]        // RAW groups (pre-gap-closing), exactly what ResultsScreen holds
   groupsEdited: boolean    // translated tracks: always true, so custom_groups is always sent
   segmentsEdited: boolean
@@ -74,6 +76,45 @@ track's id is the constant `SOURCE_TRACK_ID = 'src'`.
 `displayGroupsFor(track)` is the **single** renderer-side `closeGroupGaps` call; App
 derives it, `ResultsScreen` keeps the raw groups. Two calls double-hold the last caption
 (the tail hold is not idempotent).
+
+### Two levels: sentences, captions, chunks
+
+A source track has two levels — a `Segment` is a **sentence** (what WhisperX returned)
+and its groups are the **captions** chunked out of it. A translated track has exactly the
+same two, and the second one is derived, not authored:
+
+| Term | What it is |
+|---|---|
+| **sentence** | a source `Segment`. A translated group's sentence is the source segment holding the **first** wid of its `sourceWords` (`sentenceIndexOf`, `lib/trackSentences.ts`). The first wid only: a caption never spans two sentences, and a group whose first word the user deleted must not be quietly re-homed — it is *unresolvable*, forms a unit of its own, and is never coalesced. |
+| **fragment** | one caption of a sentence at create time. `createTrackFromSource` still makes one group per source *group*, so a sentence of 12 words chunked 3/3/3/3 starts as four fragments. |
+| **chunk** | what `wordsPerGroup` cuts a sentence into afterwards, ids `` `${trackPrefix}:s${sentence}:${i}` ``. |
+
+`widToSegment` (`wid → source segment index`) is derived once in `useTrackStore` from the
+source track's segments and passed to everything that needs it — `ResultsScreen`,
+`chunkTranslatedGroups`, `withSentenceSegments`.
+
+**A translated track's `segments` are never authored.** They are always
+`sentenceSegmentsFor(track.groups, widToSegment)` — one row per sentence, its groups'
+words concatenated, a word-less placeholder still producing an (empty) row. That is
+enforced in one function, `withSentenceSegments` (`lib/tracks.ts`), called from every seam
+that writes translated groups: `createTrackFromSource`, `reflowTrack`, `setTrackText`,
+`syncSegmentsIntoTrack`'s translated branch, `useTrackStore.commitEditorState`, App's
+timing-propagation effect and `tracksFromProjectFile`. It is reference-stable, a no-op on
+the source track, and a no-op when `widToSegment` is empty (nothing resolves, so a good
+text view must not be replaced by a fragment list).
+
+The Text view therefore edits **sentences**, and an edit flows back the ordinary way:
+`retimeWords` inside the sentence's own span (SubtitleEditor's existing path) →
+`reconcileGroups` by `wid` into whatever chunking the groups currently have. Correcting one
+word leaves the chunking and every other word byte-identical. `ResultsScreen` re-derives
+its local `segments` from `groups` after every group change, and `sameSentenceSegments` is
+what stops that effect and the reconcile effect from triggering each other.
+
+*Why it matters:* before this, a translated track was created 1:1 with the source
+**groups**, so its Text view listed 41 caption fragments where the source listed 12
+sentences. The agent then translated fragment by fragment ("And would you like" / "to give
+it a try?"), and `wordsPerGroup` could only ever cut *inside* a fragment — a real six-word
+caption was unreachable.
 
 ### Group lifecycle rules that had to bend
 
@@ -94,38 +135,52 @@ derives it, `ResultsScreen` keeps the raw groups. Two calls double-hold the last
   key (as `[]`) whenever `groupsEdited` and the caller passed any groups at all. See
   [`custom_groups: []` vs `None`](#custom_groups--vs-none).
 
+### Chunking: the unit is the sentence
+
+`wordsPerGroup` on a translated tab re-chunks each **sentence** into captions of at most N
+words (`chunkTranslatedGroups`, `lib/trackChunking.ts`): the sentence's consecutive groups
+are coalesced into one unit — words concatenated, `sourceWords` concatenated (de-duplicated,
+order kept), `endEdited` from the last member, position/link/speaker from the first — and
+the unit is then sliced. The one rule that never bends: **a sentence boundary is never
+crossed.** Two sentences are never merged, however short. Groups with no `sourceWords`
+(every source-track group) and groups whose sentence cannot be resolved pass through
+untouched, and an empty `widToSegment` degrades to cutting each caption on its own.
+
+Chunking is a function of N alone: 3 → 2 → 6 lands back on the sentence, with the
+sentence's id, because a chunk id is `` `${trackPrefix}:s${sentence}:${i}` `` and the next
+coalesce peels that suffix off again. A sentence that is already one group and needs no
+cutting is returned as the *same object*, so the pass is reference-stable and can sit in an
+effect.
+
 ### Sibling runs: one caption, many rows
 
-A translated caption is not always one group. `wordsPerGroup` on a translated tab re-chunks
-each **inherited caption** into rows of at most N words, and a manual `splitGroup` does the
-same by hand. Every chunk keeps the **whole** `sourceWords` record — a translation is not
-word-aligned to its source, so no chunk can claim a sub-range — which makes the definition
-mechanical:
+Every chunk keeps the **whole** `sourceWords` record of its sentence — a translation is not
+word-aligned to its source, so no chunk can claim a sub-range — which makes a second,
+finer definition mechanical:
 
 > A **sibling run** is a maximal run of *consecutive* groups whose `sourceWords` wid lists
-> are identical. That run is one inherited caption.
+> are identical. That run is one caption of the translation.
 
-`lib/trackChunking.ts` owns it: `siblingRuns` finds the runs, `coalesceSiblingRuns` folds
-each back into the caption it was cut from, and `chunkTranslatedGroups(groups, N)` is
-"coalesce, then slice each caption by N". Both passes are reference-stable, and chunking is
-a function of N alone — 3 → 2 → 6 lands back on the original caption *with its original id*,
-because a chunk id is `` `${caption.id}:${i}` `` and coalescing peels that suffix off again.
-The one rule that never bends: **a boundary the source set is never crossed.** Two captions
-are never merged, however small they are. Groups with no `sourceWords` (every source-track
-group) pass through untouched.
+`siblingRuns` / `coalesceSiblingRuns` (`lib/trackChunking.ts`) own it. It is **not** what
+re-chunking starts from (that is the sentence, which is coarser); it is what the two rules
+below read, and a manual `splitGroup` produces one too.
 
-Three other rules read runs rather than groups:
+Two other rules read runs rather than groups:
 
 | Rule | Why |
 |---|---|
-| `propagateSourceTiming` (link) | every chunk records the same source words, so asking each one separately would give them all the *same* span and stack them. The run takes the caption's linked span once and its chunks are rescaled proportionally inside it; the run's `endEdited` claim is the **last** chunk's. A run holding a chunk with `timingLinked === false` is no longer a unit and falls back to per-group linking. |
-| `reflowTrack` (carry-over) | the exact-wid-list match runs against coalesced captions, so a chunked caption is carried across **once**, whole, instead of N times or truncated to its first chunk. |
-| `syncSegmentsIntoTrack` (`wpgChanged`) | the translated branch re-chunks `track.groups`, never `segments`, and never reaches `buildStudioGroups`. |
+| `propagateSourceTiming` (link) | every chunk records the same source words, so asking each one separately would give them all the *same* span and stack them. The run takes the caption's linked span once — the sentence's span, once the sentence has been re-chunked — and its chunks are rescaled proportionally inside it; the run's `endEdited` claim is the **last** chunk's. A run holding a chunk with `timingLinked === false` is no longer a unit and falls back to per-group linking. |
+| `reflowTrack` (carry-over) | the wid-list match runs against coalesced captions, so a chunked caption is carried across **once**, whole, instead of N times or truncated to its first chunk. |
 
-Staleness deliberately does **not**: `classifyTrack` classifies each chunk on its own, so a
+`syncSegmentsIntoTrack`'s translated branch re-chunks `track.groups`, never `segments`, and
+never reaches `buildStudioGroups`.
+
+Staleness deliberately reads groups: `classifyTrack` classifies each chunk on its own, so a
 source edit puts a "source changed" chip on every row it is behind, which is what the user
-needs to see. Chunking is an edit on the translated tab and never touches the source's
-grouping, so it can never set `reflowNeeded`.
+needs to see. Because a chunk of a re-chunked sentence carries the whole sentence's record,
+a typo anywhere in that sentence marks **every** chunk of it — intended. Chunking is an
+edit on the translated tab and never touches the source's grouping, so it can never set
+`reflowNeeded`.
 
 ## Timing
 
@@ -216,11 +271,15 @@ These are the test table in `lib/trackStaleness.test.ts`.
 ### Reflow
 
 `reflowTrack(track, source)` (`lib/tracks.ts`) is the repair for `reflowNeeded`: a new
-skeleton from the current source groups. A new group whose wid list **exactly** equals
-an old group's recorded list carries that group's `text`, `words`, `timingLinked` and
-`endEdited`; every other new group comes back blank with `previousText` set to the old
-texts whose recorded wids overlap it, joined by `' / '`. It is a wid-set carry-over, not
-a re-slice by index or word count. Group ids become `` `${track.id}:r${n}:${i}` `` where
+skeleton from the current source groups. An old caption is carried whole — its `text`,
+`words`, `timingLinked` and `endEdited` — when its recorded wid list **exactly** equals the
+wid lists of a **consecutive run** of current source groups, concatenated; the run's
+skeleton entries are replaced by that one caption, and the longest matching run wins. (The
+run generalisation is what a sentence-wide translation needs: once `wordsPerGroup` has
+re-chunked a sentence, one caption records the words of several source groups at once, and
+a group-for-group match would blank it.) Every other new group comes back blank with
+`previousText` set to the old texts whose recorded wids overlap it, joined by `' / '`. It
+is a wid-set carry-over, not a re-slice by index or word count. Group ids become `` `${track.id}:r${n}:${i}` `` where
 `n` is derived from the existing `:r<N>:` ids, so a stale id can never collide with a
 fresh one. (Group ids are structured and may be parsed; **word** ids are the opaque
 ones.) `sourceSnapshot` is re-recorded, clearing `reflowNeeded`.
@@ -255,6 +314,7 @@ change moving both halves still costs a single PUT.
       "groupCount": 190, "staleCount": 1, "untranslatedCount": 0, "reflowNeeded": false,
       "appliedPreset": null,
       "groups": [ { "id": "t-3f9c:0", "start": 0.0, "end": 1.4, "text": "czerwony samochód",
+                    "sentence": 3,
                     "state": "stale", "sourceText": "the red cart", "previousText": null } ],
       "render": { "config": { "...": "…" }, "custom_groups": [ "…" ], "output_name_suffix": ".pl" }
     }
@@ -271,8 +331,11 @@ change moving both halves still costs a single PUT.
   models (`VideoRenderRequest`, `HyperframesRenderRequest`) and never on
   `VideoRenderConfig` — putting it there would trigger the seven-file settings pipeline
   and `backend/tests/test_caption_cfg_contract.py`.
-- `tracks[].groups` is **compact — no words**. `state` / `sourceText` / `previousText`
-  appear on translated tracks only.
+- `tracks[].groups` is **compact — no words**. `sentence` / `state` / `sourceText` /
+  `previousText` appear on translated tracks only. `sentence` is the agent's unit of
+  translation: consecutive entries sharing one index are fragments of one sentence and must
+  be translated together (`null` when the source words behind the caption cannot be
+  resolved).
 - The MCP `get_ui_state` tool returns `tracks` with `groups` and `render` **stripped**
   (inventory only), to protect the token budget. `get_track` is how you read groups.
   The backend serves the mirror verbatim; it does not validate it.
@@ -325,7 +388,10 @@ mirror.
 
 1. **`create_track(lang, label?, copy_style_from?)`** — mints a `track_id`, sends the
    command, confirms, and returns the new track's group ids paired 1:1 by index with the
-   **source** text to translate. Side effect: the app switches to the new tab, so the
+   **source** text to translate, each carrying its `sentence` index. Entries are
+   caption-sized *fragments*: the tool's docstring tells the agent to translate a sentence
+   at a time and distribute it across that sentence's fragments in order, never a fragment
+   in isolation. Side effect: the app switches to the new tab, so the
    *active* track — what `get_ui_state`, `render_frame` and `render` describe with no
    `track_id` — is now this one. Refused when the transcript's words carry no ids yet.
    If the two group counts ever disagree it pairs over the shorter list and returns a
@@ -374,8 +440,8 @@ than writing an empty file.
 - **`GroupEditor`** rows show a chip beside the `↺` end marker for `stale`
   ("source changed") and `untranslated` ("no text"); nothing for `clean`.
 - **`StudioPanel`** keeps the *Words per group* row on a translated track, where it means
-  something different: it re-chunks each inherited caption
-  ([sibling runs](#sibling-runs-one-caption-many-rows)) rather than the transcript, and the
+  something different: it re-chunks each translated **sentence**
+  ([chunking](#chunking-the-unit-is-the-sentence)) rather than the transcript, and the
   row's help text says so (`activeTrackIsSource` picks the sentence — it gates nothing
   else). `autoGroup=false` still guards the rebuild path, so a translated track can never
   hit `buildStudioGroups`.

@@ -4,7 +4,13 @@ import { buildSourceIndex } from './trackStaleness'
 import { createTrackFromSource } from './tracks'
 import { MIN_WORD_DUR } from './wordTiming'
 import { chunkTranslatedGroups } from './trackChunking'
-import { makeSourceTrack, sourceWords } from './trackFixtures.testutil'
+import {
+  makeSourceTrack,
+  makeTranslatedTrack,
+  makeTwoSentenceSource,
+  sentenceMapOf,
+  sourceWords,
+} from './trackFixtures.testutil'
 import type { CaptionTrack } from './tracks'
 import type { Segment } from '../types/app'
 
@@ -13,11 +19,7 @@ const index = () => buildSourceIndex(source)
 
 /** A Polish track with both groups translated. */
 function makePolish(src: CaptionTrack = source): CaptionTrack {
-  const track = createTrackFromSource(src, { id: 't1', lang: 'pl' })
-  const idx = buildSourceIndex(src)
-  const texts = ['jeden dwa trzy', 'cztery piec szesc']
-  const groups = track.groups.map((g, i) => bakeTranslation(g, texts[i], idx))
-  return { ...track, groups, segments: groups.map((g) => ({ ...g })) }
+  return makeTranslatedTrack(src, ['jeden dwa trzy', 'cztery piec szesc'])
 }
 
 // ── bakeTranslation ──────────────────────────────────────────────
@@ -234,20 +236,26 @@ describe('propagateSourceTiming', () => {
 // each snapped to the whole span, which would stack them on top of each other.
 
 describe('propagateSourceTiming — sibling runs', () => {
-  /** Polish with its first caption chunked into 2 + 1 words. */
+  // Two source sentences, one caption each, so `wordsPerGroup` cuts *inside* a
+  // caption and the next caption is still a caption of its own: chunking is
+  // sentence-level (`lib/trackChunking.ts`) and would otherwise merge the two.
+  const twoSentences = makeTwoSentenceSource()
+  const sentences = sentenceMapOf(twoSentences)
+
+  /** Polish with each caption chunked into 2 + 1 words. */
   function makeChunked(): CaptionTrack {
-    const polish = makePolish()
-    return { ...polish, groups: chunkTranslatedGroups(polish.groups, 2) }
+    const polish = makePolish(twoSentences)
+    return { ...polish, groups: chunkTranslatedGroups(polish.groups, 2, sentences) }
   }
 
   const dragTo = (end: number, patch: Partial<Segment> = {}): CaptionTrack => ({
-    ...source,
-    groups: [{ ...source.groups[0], end, ...patch }, source.groups[1]],
+    ...twoSentences,
+    groups: [{ ...twoSentences.groups[0], end, ...patch }, twoSentences.groups[1]],
   })
 
   test('returns the same reference when nothing moved', () => {
     const chunked = makeChunked()
-    expect(propagateSourceTiming(chunked, source)).toBe(chunked)
+    expect(propagateSourceTiming(chunked, twoSentences)).toBe(chunked)
   })
 
   test('the run spans the linked span and its chunks are rescaled proportionally', () => {

@@ -2,7 +2,7 @@
  * Static-markup tests (node env, react-dom/server) for the Layout card's
  * Words/Grp row, which is the *only* control whose meaning depends on which
  * caption track is active: it chunks the transcript on the source track and
- * re-chunks each inherited caption on a translated one. It was hidden on
+ * re-chunks each translated sentence on a translated one. It was hidden on
  * translated tracks until QA asked for it back — the row must exist on both,
  * with the sentence that says which of the two it is doing.
  */
@@ -42,10 +42,10 @@ describe('LayoutCard — Words/Grp', () => {
     expect(render(false)).toContain('Words/Grp')
   })
 
-  test('a translated track explains that it re-chunks inherited captions', () => {
+  test('a translated track explains that it re-chunks whole sentences', () => {
     const markup = render(false)
-    expect(markup).toContain('Re-chunks each inherited caption')
-    expect(markup).toContain('never merges across a boundary the original set')
+    expect(markup).toContain('Re-chunks each translated sentence')
+    expect(markup).toContain('never merges across a sentence boundary')
   })
 
   test('the source track keeps the transcript-chunking wording', () => {

@@ -779,6 +779,90 @@ kept — it no longer gates the row, it picks the row's help text:
 Pinned by a new static-markup suite, `components/studio/sections/LayoutCard.test.tsx`.
 
 
+---
+
+## Addendum 2 2026-09-09 (post-QA): sentence units
+
+The first addendum gave a translated track a *Words/Grp* row that re-chunked the
+**inherited caption**. Live testing with a real translation showed the level below it was
+wrong: the source's Text view listed **12 sentences**, the Polish track's listed **41** —
+one row per source *group* — because `createTrackFromSource` made the translated segments
+1:1 with the source **groups**. The agent therefore translated caption-sized fragments in
+isolation ("And would you like" / "to give it a try?"), and Words/Grp, chunking *inside* a
+fragment, could never build a real six-word caption. The fix is one idea:
+
+> A translated track has the **same two levels the source has** — sentences as text units,
+> captions chunked within a sentence.
+
+### 1. The sentence, and where it comes from
+
+New pure module **`src/renderer/src/lib/trackSentences.ts`**: `buildWidToSegment`,
+`sentenceIndexOf`, `sentenceRuns`, `sentenceSegmentsFor`, `sameSentenceSegments`,
+`trackPrefixOf`, `sentenceUnitId`.
+
+`sentenceIndexOf(group, widToSegment)` is the source segment index of the group's **first**
+recorded `sourceWords` wid — the first only, because a caption never spans two sentences
+and a group whose first word was deleted must not be re-homed into its neighbour's
+sentence. Such a group is *unresolvable*: it forms a unit of its own and is never coalesced
+with anything. `widToSegment` is derived once in `useTrackStore` from the source track's
+segments and passed down (`ResultsScreen` takes it as a prop).
+
+### 2. `segments` are derived, in exactly one place
+
+`sentenceSegmentsFor(groups, widToSegment, trackId?)` folds consecutive groups of one
+sentence into one `Segment` — id `` `${prefix}:s${index}` ``, words concatenated, text
+re-joined, span from the words (a word-less placeholder still gets a row, so an untranslated
+sentence is visible). A translated track's `segments` **always** equal that function of its
+`groups`, enforced by **`withSentenceSegments(track, widToSegment)`** (`lib/tracks.ts`) —
+reference-stable, a no-op on the source track and on an empty map — called from
+`createTrackFromSource`, `reflowTrack`, `setTrackText`, `syncSegmentsIntoTrack`'s
+translated branch, `useTrackStore.commitEditorState`, App's timing-propagation effect and
+`tracksFromProjectFile`. `ResultsScreen` re-derives its own `segments` from `groups` after
+every group change; `sameSentenceSegments` (content comparison) is what stops that effect
+and the reconcile effect from triggering each other, since the derivation builds fresh
+arrays every call.
+
+A Text-view edit is unchanged in shape: `retimeWords` over the sentence's span
+(SubtitleEditor's existing path) → `commitSegments` → `reconcileGroups` by `wid` into the
+chunked groups. Pinned by a pure test: a sentence of six words in two chunks, one word
+corrected, comes back as the same two chunks with the other five words byte-identical.
+
+### 3. Chunking coalesces by sentence, not by record
+
+`chunkTranslatedGroups(groups, N, widToSegment)` now coalesces consecutive groups of one
+sentence (words concatenated, `sourceWords` concatenated and de-duplicated, `endEdited`
+from the last member, position/link/speaker from the first) and slices the unit by N.
+Chunk ids are `` `${prefix}:s${sentence}:${i}` ``, so the 3 → 2 → 6 round trip lands on the
+sentence with the sentence's id; a sentence that is one group and needs no cutting is
+returned by reference. The record-based `siblingRuns` / `coalesceSiblingRuns` stay
+**unchanged** and keep serving `propagateSourceTiming` and `reflowTrack` — every chunk of a
+sentence carries the same concatenated record, so they are one sibling run.
+
+### 4. Reflow carries a run of source groups
+
+`reflowTrack`'s carry-over matches an old caption's record against the concatenated wid
+lists of a **consecutive run** of current source groups (longest run wins), and replaces
+that run's skeleton entries with the one carried caption. Without it, a sentence-wide
+translation — the normal shape after a re-chunk — would be blanked by any source re-group,
+because no single source group's wid list equals a 12-word record.
+
+### 5. The agent is told about sentences
+
+`trackToMirrorEntry` adds `sentence` to each compact group entry of a translated track
+(`null` when unresolvable); `create_track` returns it on every skeleton entry and its
+docstring says: *"Entries are caption-sized fragments; consecutive entries with the same
+`sentence` form one sentence. Translate a sentence at a time, then distribute the
+translation across its fragments in order — never translate a fragment in isolation."*
+`get_track` passes it through.
+
+### 6. What deliberately did not change
+
+`classifyTrack` (a chunk carrying the sentence's record means a typo anywhere in that
+sentence marks every chunk of it — intended), `propagateSourceTiming`'s run walk, the
+reflow banner, and every caption renderer: `git diff main` over `useSubtitleOverlay.ts`
+and `overlayGeometry.ts` is still empty.
+
+
 ## Effort
 
 | Phase | Scope | Sessions |

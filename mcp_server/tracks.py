@@ -260,6 +260,15 @@ def create_track(
     the returned `groups` pair each new group id with the source text to
     translate, which is exactly the shape `set_track_text` wants back.
 
+    TRANSLATE BY SENTENCE, NOT BY ENTRY. Entries are caption-sized fragments;
+    consecutive entries with the same `sentence` form one sentence. Translate a
+    sentence at a time, then distribute the translation across its fragments in
+    order — never translate a fragment in isolation. ("And would you like" /
+    "to give it a try?" is one question, and a fragment translated alone reads
+    like a broken one.) Word order differs between languages, so the split you
+    choose is a judgement call: keep each fragment roughly the length of the
+    source fragment it replaces, and leave whole phrases intact.
+
     SIDE EFFECT: the app switches to the new tab, so the active track — what
     `get_ui_state`, `render_frame` and `render` describe when you pass no
     `track_id` — is now this one.
@@ -312,6 +321,9 @@ def create_track(
             "start": group.get("start"),
             "end": group.get("end"),
             "text": source_groups[i].get("text", ""),
+            # Which source sentence this fragment belongs to. Fragments sharing
+            # one index are one sentence and are translated together.
+            "sentence": group.get("sentence"),
         }
         for i, group in enumerate(new_groups[:paired])
     ]
@@ -391,6 +403,10 @@ def get_track(
         to re-write that group with `set_track_text`, which re-records the link.
     `sourceText` is the source's current wording for the group — translate from
     that. `previousText` is a translation a re-flow carried over as context.
+    `sentence` is the index of the source sentence the group belongs to:
+    consecutive groups sharing one `sentence` are fragments of the same
+    sentence, so translate the sentence as a whole and distribute it across
+    them in order — never a fragment on its own.
 
     Track-level `reflowNeeded` is a different problem: the source was
     **re-chunked** (groups merged/split, or words-per-group changed), so this
@@ -401,7 +417,9 @@ def get_track(
 
     `stale_only=True` returns only the groups needing work (stale +
     untranslated); `start`/`end` (seconds) keep the groups overlapping that
-    window. Words are never returned — the captions are the unit here.
+    window. Words are never returned — the captions are the unit here. Note
+    that a filter can hide a fragment of a sentence you are rewriting: read the
+    sentence's other fragments too (unfiltered) before writing it.
     """
     state = _capforge().get_ui_state() or {}
     entry = resolve_track(state, track_id)

@@ -5,7 +5,7 @@ import { migrateProjectFile, projectFileFromTracks, tracksFromProjectFile } from
 import { api, type AgentCommand, type VideoInfo } from './lib/api'
 import { builtinPresetNames } from './lib/agentCommands'
 import { ensureWordIds } from './lib/wordIds'
-import { SOURCE_TRACK_ID, syncSegmentsIntoTrack } from './lib/tracks'
+import { SOURCE_TRACK_ID, syncSegmentsIntoTrack, withSentenceSegments } from './lib/tracks'
 import type { TrackEditorState, TrackMirrorEntry } from './lib/tracks'
 import { applyTrackCommand } from './lib/trackCommands'
 import { propagateSourceTiming } from './lib/trackTiming'
@@ -69,6 +69,7 @@ export function App() {
     activeTrack,
     sourceTrack,
     classifications,
+    widToSegment,
     displayGroups,
     revisions,
     setActiveTrackId,
@@ -426,7 +427,11 @@ export function App() {
   useEffect(() => {
     const moved: string[] = []
     const next = tracks.map((track) => {
-      const relinked = propagateSourceTiming(track, sourceTrack)
+      // Relinking moves group spans and re-lays their words, so the derived
+      // text units move with them — `withSentenceSegments` is the one place
+      // that is decided (`lib/tracks.ts`), and it is reference-stable, so a
+      // track that did not move is still handed back untouched.
+      const relinked = withSentenceSegments(propagateSourceTiming(track, sourceTrack), widToSegment)
       if (relinked !== track) moved.push(track.id)
       return relinked
     })
@@ -714,6 +719,7 @@ export function App() {
                   trackId={activeTrackId}
                   settings={settings}
                   autoGroup={activeTrack.isSource}
+                  widToSegment={widToSegment}
                   initialGroups={activeTrack.groups.length > 0 ? activeTrack.groups : null}
                   initialGroupsEdited={activeTrack.groupsEdited}
                   initialSegmentsEdited={activeTrack.segmentsEdited}

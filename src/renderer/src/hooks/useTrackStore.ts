@@ -28,9 +28,11 @@ import {
   SOURCE_TRACK_ID,
   SOURCE_TRACK_LABEL,
   displayGroupsFor,
+  withSentenceSegments,
   type CaptionTrack,
   type TrackEditorState,
 } from '../lib/tracks'
+import { buildWidToSegment } from '../lib/trackSentences'
 import { classifyTrack, type TrackClassification } from '../lib/trackStaleness'
 import type { ProjectMeta } from '../lib/project'
 
@@ -87,6 +89,10 @@ export interface TrackStore {
   sourceTrack: CaptionTrack
   /** Positional against `tracks`; null for the source (it is the reference). */
   classifications: Array<TrackClassification | null>
+  /** `wid → source segment index` — the sentence map every translated-track
+   *  rule that is not about a single caption reads (`lib/trackSentences.ts`).
+   *  Derived here once so the editor, the chunker and the store agree. */
+  widToSegment: ReadonlyMap<string, number>
   /** `displayGroupsFor(activeTrack)` — the render/preview view of the tab. */
   displayGroups: Segment[]
   /** Per-track remount counter; part of `ResultsScreen`'s key. */
@@ -124,6 +130,11 @@ export function useTrackStore(): TrackStore {
   const classifications = useMemo(
     () => tracks.map((t) => (t.isSource ? null : classifyTrack(t, sourceTrack))),
     [tracks, sourceTrack]
+  )
+
+  const widToSegment = useMemo(
+    () => buildWidToSegment(sourceTrack.segments),
+    [sourceTrack.segments]
   )
 
   const displayGroups = useMemo(() => displayGroupsFor(activeTrack), [activeTrack])
@@ -169,16 +180,19 @@ export function useTrackStore(): TrackStore {
 
   const commitEditorState = useCallback(
     (trackId: string, state: TrackEditorState) => {
-      updateTrack(trackId, (track) =>
-        track.segments === state.segments &&
-        track.groups === state.groups &&
-        track.groupsEdited === state.groupsEdited &&
-        track.segmentsEdited === state.segmentsEdited
-          ? track
-          : { ...track, ...state }
-      )
+      updateTrack(trackId, (track) => {
+        const unchanged =
+          track.segments === state.segments &&
+          track.groups === state.groups &&
+          track.groupsEdited === state.groupsEdited &&
+          track.segmentsEdited === state.segmentsEdited
+        // A translated track's text units are derived from its groups, never
+        // authored, so what the editor publishes is re-derived here too — the
+        // one seam every editor write passes through (`withSentenceSegments`).
+        return withSentenceSegments(unchanged ? track : { ...track, ...state }, widToSegment)
+      })
     },
-    [updateTrack]
+    [updateTrack, widToSegment]
   )
 
   const bumpRevision = useCallback((id: string) => {
@@ -191,6 +205,7 @@ export function useTrackStore(): TrackStore {
     activeTrack,
     sourceTrack,
     classifications,
+    widToSegment,
     displayGroups,
     revisions,
     setActiveTrackId,

@@ -2,22 +2,29 @@
  * "How many words per caption?" — on a **translated** track.
  *
  * On the source track `wordsPerGroup` re-chunks the transcript: the words are
- * the unit and `buildStudioGroups` slices each segment into N-word groups. A
- * translated track has no transcript of its own to slice — its captions were
- * written against *source* groups, and that link (`Segment.sourceWords`) is
- * what every other track rule reads. So here the unit of re-chunking is the
- * **inherited caption**, and the one rule that may never bend is:
+ * the unit and `buildStudioGroups` slices each *segment* — a sentence — into
+ * N-word groups. A translated track has the same two levels
+ * (`lib/trackSentences.ts`), so it re-chunks the same way: the unit is the
+ * **sentence**, and the one rule that may never bend is:
  *
- * > A boundary the source set is never crossed.
+ * > A sentence boundary is never crossed.
  *
- * An inherited caption is a **sibling run**: consecutive groups whose
- * `sourceWords` wid lists are *identical*. That is exactly what chunking one
- * caption produces (every chunk keeps the whole record — a translation is not
- * word-aligned to its source, so no chunk can claim a sub-range), and it is
- * also what a manual `splitGroup` on the translated tab produces. Re-chunking
- * is therefore always "coalesce each run back into its caption, then slice it
- * again", which makes the operation idempotent in N and reversible: going 3 → 2
- * → 6 lands back on the original caption, with its original id.
+ * The sentence of a translated group is the source segment its first recorded
+ * source word lives in (`sentenceIndexOf`). Consecutive groups of one sentence
+ * are coalesced into a unit — words concatenated, records concatenated — and
+ * the unit is then sliced by N. That is what lets a translation the agent wrote
+ * fragment by fragment ("And would you like" / "to give it a try?") become one
+ * six-word caption; slicing per *fragment*, as this module first did, never
+ * could.
+ *
+ * Chunking is therefore a function of N alone: 3 → 2 → 6 lands back on the
+ * sentence, with the sentence's own id, because a chunk id is
+ * `` `${unit.id}:${i}` `` and coalescing peels that suffix off again.
+ *
+ * The **record**-based `siblingRuns` / `coalesceSiblingRuns` stay, unchanged:
+ * every chunk of a sentence carries the same (concatenated) `sourceWords`
+ * record, so they are one sibling run, which is the unit `propagateSourceTiming`
+ * and `reflowTrack` walk.
  *
  * Both exported passes are **reference-stable**: input that needs no change
  * comes back as the same array, so this can sit in an effect without churning
@@ -28,6 +35,7 @@
 
 import type { Segment } from '../types/app'
 import { joinWords } from './wordTiming'
+import { sentenceRuns, sentenceUnitId, trackPrefixOf } from './trackSentences'
 
 /** Separator for the "same wid list" key — `\0` cannot occur in a wid. */
 const WID_KEY_SEP = '\u0000'
@@ -99,11 +107,13 @@ function coalesceRun(run: readonly Segment[]): Segment {
 /**
  * Collapse every sibling run into the single caption it came from.
  *
- * The inverse of `chunkTranslatedGroups`: it is how a re-chunk starts, and how
- * `reflowTrack` matches a chunked caption against the source (one carry-over,
- * not N). Groups that are not part of a run — every source-track group, and
- * every unchunked translated caption — come back untouched, and a list with no
- * runs at all comes back as the same array.
+ * The **record**-based pass: it folds the chunks of one caption back together
+ * by their `sourceWords` record, which is what `propagateSourceTiming` moves as
+ * one unit and what `reflowTrack` matches against the source (one carry-over,
+ * not N). Re-chunking does *not* start here — it starts from the sentence
+ * (`sentenceRuns`), which is coarser. Groups that are not part of a run —
+ * every source-track group, and every unchunked translated caption — come back
+ * untouched, and a list with no runs at all comes back as the same array.
  */
 export function coalesceSiblingRuns(groups: readonly Segment[]): Segment[] {
   const runs = siblingRuns(groups)
@@ -115,8 +125,47 @@ export function coalesceSiblingRuns(groups: readonly Segment[]): Segment[] {
   )
 }
 
+/**
+ * Fold the groups of one sentence into the unit `wordsPerGroup` slices.
+ *
+ * Unlike `coalesceRun` this merges groups that record *different* source words
+ * — the fragments of one sentence — so the unit's record is their concatenation
+ * (de-duplicated, order kept: a manual merge can record the same word twice).
+ * `endEdited` comes from the last member, which is the one that owns the
+ * sentence's end; position, link and speaker from the first.
+ */
+function coalesceSentence(run: readonly Segment[], id: string): Segment {
+  const first = run[0]
+  const last = run[run.length - 1]
+  const words = run.flatMap((g) => g.words)
+
+  const seen = new Set<string>()
+  const sourceWords: Array<{ wid: string; text: string }> = []
+  for (const g of run) {
+    for (const s of g.sourceWords ?? []) {
+      if (seen.has(s.wid)) continue
+      seen.add(s.wid)
+      sourceWords.push(s)
+    }
+  }
+
+  return {
+    id,
+    start: words.length > 0 ? words[0].start : first.start,
+    end: words.length > 0 ? words[words.length - 1].end : last.end,
+    text: joinWords(words),
+    words,
+    ...(first.speaker !== undefined ? { speaker: first.speaker } : {}),
+    ...(first.positionOverride ? { positionOverride: first.positionOverride } : {}),
+    ...(last.endEdited ? { endEdited: true } : {}),
+    ...(first.timingLinked !== undefined ? { timingLinked: first.timingLinked } : {}),
+    ...(first.previousText !== undefined ? { previousText: first.previousText } : {}),
+    sourceWords,
+  }
+}
+
 /** Slice one caption into chunks of at most `n` words (`buildStudioGroups`'s rule). */
-function chunkCaption(unit: Segment, n: number): Segment[] {
+function chunkCaption(unit: Segment, n: number, baseId: string): Segment[] {
   // No record → not an inherited caption; nothing here may touch it.
   if (!unit.sourceWords) return [unit]
   const words = unit.words
@@ -127,7 +176,7 @@ function chunkCaption(unit: Segment, n: number): Segment[] {
     const slice = words.slice(i, i + n)
     const isLast = i + n >= words.length
     chunks.push({
-      id: `${unit.id}:${chunks.length}`,
+      id: `${baseId}:${chunks.length}`,
       start: slice[0].start,
       end: slice[slice.length - 1].end,
       text: joinWords(slice),
@@ -147,27 +196,44 @@ function chunkCaption(unit: Segment, n: number): Segment[] {
 }
 
 /**
- * Re-chunk a translated track's groups so every inherited caption becomes
- * groups of at most `wordsPerGroup` words.
+ * Re-chunk a translated track's groups so every **sentence** becomes captions
+ * of at most `wordsPerGroup` words.
  *
- * Captions are coalesced first, so this is a function of N alone: the result
- * does not depend on how the list happened to be chunked before. A caption
- * short enough to stay whole is returned as the *same object*, and a list where
- * nothing changed as the same array.
+ * Sentences are coalesced first, so this is a function of N alone: the result
+ * does not depend on how the list happened to be chunked before, and a
+ * sentence the agent translated in three fragments becomes one caption when N
+ * is wide enough. A sentence short enough to stay whole is returned as the
+ * *same object*, and a list where nothing changed as the same array.
  *
  * `wordsPerGroup <= 0` is the identity — "no limit" — rather than
  * `buildStudioGroups`'s fallback of 3, because the caller (`syncSegmentsIntoTrack`)
  * must never invent a chunking the user did not ask for on a translated track.
+ *
+ * With an empty `widToSegment` (a source whose words carry no ids yet) no group
+ * resolves to a sentence, every group is its own unit, and this is the identity.
  */
 export function chunkTranslatedGroups(
   groups: readonly Segment[],
-  wordsPerGroup: number
+  wordsPerGroup: number,
+  widToSegment: ReadonlyMap<string, number>
 ): Segment[] {
   if (!Number.isFinite(wordsPerGroup) || wordsPerGroup <= 0) return groups as Segment[]
+  if (groups.length === 0) return groups as Segment[]
   const n = Math.max(1, Math.floor(wordsPerGroup))
 
-  const units = coalesceSiblingRuns(groups)
-  const next = units.flatMap((unit) => chunkCaption(unit, n))
+  // One pass: fold each sentence's groups into the unit N slices, then slice
+  // it. A sentence that is already one group is handed back **as it is** — with
+  // its own id and by reference — so a slider move that changes nothing changes
+  // nothing; only a sentence that is actually cut (or spans several groups) is
+  // named after the sentence, which is what closes the 3 → 2 → 6 round trip.
+  const prefix = trackPrefixOf(groups[0].id)
+  const next = sentenceRuns(groups, widToSegment).flatMap((run) => {
+    const members = groups.slice(run.start, run.start + run.length)
+    const sentenceId = run.index === undefined ? null : sentenceUnitId(prefix, run.index)
+    const unit =
+      run.length === 1 ? members[0] : coalesceSentence(members, sentenceId ?? members[0].id)
+    return chunkCaption(unit, n, sentenceId ?? unit.id)
+  })
 
   // Reference-stable: nothing moved → hand back the caller's own array.
   const unchanged = next.length === groups.length && next.every((g, i) => g === groups[i])

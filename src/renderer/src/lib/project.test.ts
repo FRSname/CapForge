@@ -10,10 +10,14 @@ import {
   type ProjectFile,
 } from './project'
 import { SOURCE_TRACK_ID, createTrackFromSource, type CaptionTrack } from './tracks'
-import { bakeTranslation } from './trackTiming'
-import { buildSourceIndex } from './trackStaleness'
 import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
-import { makeSourceTrack, sourceSegment, sourceWords, word } from './trackFixtures.testutil'
+import {
+  makeSourceTrack,
+  makeTranslatedTrack,
+  sourceSegment,
+  sourceWords,
+  word,
+} from './trackFixtures.testutil'
 import type { TranscriptionResult } from '../types/app'
 
 const source = makeSourceTrack()
@@ -41,11 +45,7 @@ function v1File(patch: Partial<ProjectFile> = {}): ProjectFile {
 }
 
 function makePolish(src: CaptionTrack = source): CaptionTrack {
-  const track = createTrackFromSource(src, { id: 't1', lang: 'pl' })
-  const idx = buildSourceIndex(src)
-  const texts = ['jeden dwa trzy', 'cztery piec szesc']
-  const groups = track.groups.map((g, i) => bakeTranslation(g, texts[i], idx))
-  return { ...track, groups, segments: groups.map((g) => ({ ...g })) }
+  return makeTranslatedTrack(src, ['jeden dwa trzy', 'cztery piec szesc'])
 }
 
 // ── migrateProjectFile ───────────────────────────────────────────

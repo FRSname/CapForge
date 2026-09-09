@@ -13,7 +13,10 @@
 import type { Segment, Word } from '../types/app'
 import { buildStudioGroups } from './groups'
 import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
-import { SOURCE_TRACK_ID, type CaptionTrack } from './tracks'
+import { SOURCE_TRACK_ID, createTrackFromSource, withSentenceSegments, type CaptionTrack } from './tracks'
+import { buildWidToSegment } from './trackSentences'
+import { buildSourceIndex } from './trackStaleness'
+import { bakeTranslation } from './trackTiming'
 
 /** The six source words every track fixture is built from. */
 export const SOURCE_TOKENS = ['the', 'quick', 'brown', 'fox', 'jumps', 'over'] as const
@@ -65,4 +68,50 @@ export function makeSourceTrack(
     appliedPreset: null,
     ...patch,
   }
+}
+
+/**
+ * The same six words as **two** sentences of three, one caption per sentence.
+ *
+ * The default fixture is one sentence cut into two captions — the shape the
+ * QA bug lives in — so a test that needs a caption with a *neighbouring
+ * caption* (chunking, sibling runs, re-flow carry) has to say so: sentence-level
+ * chunking would otherwise merge the two into one.
+ */
+export function makeTwoSentenceSource(
+  words: Word[] = sourceWords(),
+  patch: Partial<CaptionTrack> = {}
+): CaptionTrack {
+  const half = Math.ceil(words.length / 2)
+  const segments = [sourceSegment(words.slice(0, half), 's1'), sourceSegment(words.slice(half), 's2')]
+  return {
+    ...makeSourceTrack(words, half),
+    segments,
+    groups: buildStudioGroups(segments, half),
+    ...patch,
+  }
+}
+
+/** The sentence map (`wid → source segment index`) of a fixture source track. */
+export function sentenceMapOf(source: CaptionTrack): Map<string, number> {
+  return buildWidToSegment(source.segments)
+}
+
+/**
+ * A translated track over `source` with `texts` baked into its groups, and its
+ * text units derived the way the app derives them (one row per sentence).
+ *
+ * The per-suite `makePolish` helpers delegate here so no suite can drift back
+ * into asserting against a 1:1 segments/groups track, which is exactly the
+ * shape this change removed.
+ */
+export function makeTranslatedTrack(
+  source: CaptionTrack,
+  texts: readonly string[],
+  id = 't1'
+): CaptionTrack {
+  const track = createTrackFromSource(source, { id, lang: 'pl' })
+  const index = buildSourceIndex(source)
+  const groups = track.groups.map((g, i) => bakeTranslation(g, texts[i] ?? '', index))
+  return withSentenceSegments({ ...track, groups }, sentenceMapOf(source))
 }

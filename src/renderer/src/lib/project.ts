@@ -24,7 +24,13 @@ import { buildStudioGroups } from './groups'
 import { adoptEndEdited } from './endEdited'
 import { adoptWordIds, ensureWordIds } from './wordIds'
 import { sanitizeSettings } from './settingsSanitize'
-import { SOURCE_TRACK_ID, SOURCE_TRACK_LABEL, type CaptionTrack } from './tracks'
+import {
+  SOURCE_TRACK_ID,
+  SOURCE_TRACK_LABEL,
+  withSentenceSegments,
+  type CaptionTrack,
+} from './tracks'
+import { buildWidToSegment } from './trackSentences'
 
 export const PROJECT_VERSION = 2
 
@@ -286,7 +292,14 @@ export function tracksFromProjectFile(file: ProjectFile): {
     appliedPreset: null,
   }
 
-  const tracks = [source, ...(file.tracks ?? []).map(restoreTranslatedTrack)]
+  // A translated track's text units are derived from its groups, never stored
+  // authoritatively — a file written before sentence units (or by hand) is
+  // repaired on open by the one seam that owns that rule.
+  const widToSegment = buildWidToSegment(segments)
+  const tracks = [
+    source,
+    ...(file.tracks ?? []).map((t) => withSentenceSegments(restoreTranslatedTrack(t), widToSegment)),
+  ]
   const active =
     file.activeTrackId && tracks.some((t) => t.id === file.activeTrackId)
       ? file.activeTrackId

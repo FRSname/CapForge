@@ -14,16 +14,24 @@ import { bakeTranslation } from './trackTiming'
 import { buildStudioGroups } from './groups'
 import { chunkTranslatedGroups } from './trackChunking'
 import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
-import { makeSourceTrack, sourceSegment, sourceWords, word } from './trackFixtures.testutil'
+import {
+  makeSourceTrack,
+  makeTranslatedTrack,
+  makeTwoSentenceSource,
+  sentenceMapOf,
+  sourceSegment,
+  sourceWords,
+  word,
+} from './trackFixtures.testutil'
 import type { Segment } from '../types/app'
 
 const source = makeSourceTrack()
 
+/** The default fixture is ONE source sentence cut into two captions. */
+const sentences = sentenceMapOf(source)
+
 function makePolish(src: CaptionTrack = source, texts = ['jeden dwa trzy', 'cztery piec szesc']) {
-  const track = createTrackFromSource(src, { id: 't1', lang: 'pl' })
-  const idx = buildSourceIndex(src)
-  const groups = track.groups.map((g, i) => bakeTranslation(g, texts[i] ?? '', idx))
-  return { ...track, groups, segments: groups.map((g) => ({ ...g })) }
+  return makeTranslatedTrack(src, texts)
 }
 
 // ── newTrackId ───────────────────────────────────────────────────
@@ -97,10 +105,21 @@ describe('createTrackFromSource', () => {
     )
   })
 
-  test('segments are a 1:1 copy of the groups (the text view edits those)', () => {
+  test('segments are the source’s SENTENCES, not one row per caption', () => {
+    // The fixture is one sentence of six words, chunked into two captions: the
+    // Text view must show the sentence, or the agent translates fragments.
     const track = createTrackFromSource(source, { id: 't1', lang: 'pl' })
-    expect(track.segments).toEqual(track.groups)
-    expect(track.segments[0]).not.toBe(track.groups[0])
+    expect(track.groups).toHaveLength(2)
+    expect(track.segments).toHaveLength(1)
+    expect(track.segments[0].id).toBe('t1:s0')
+    expect(track.segments[0].text).toBe('')
+    expect(track.segments[0].start).toBe(source.groups[0].start)
+    expect(track.segments[0].end).toBe(source.groups[1].end)
+  })
+
+  test('two source sentences make two text units', () => {
+    const track = createTrackFromSource(makeTwoSentenceSource(), { id: 't1', lang: 'pl' })
+    expect(track.segments.map((s) => s.id)).toEqual(['t1:s0', 't1:s1'])
   })
 
   test('copies the source style, sanitized', () => {
@@ -232,49 +251,80 @@ describe('syncSegmentsIntoTrack', () => {
     expect(next.groups.map((g) => g.text)).toEqual(polish.groups.map((g) => g.text))
   })
 
-  test('a words-per-group change re-chunks a translated track’s inherited captions', () => {
-    const polish = makePolish() // two captions of three words each
+  test('a words-per-group change re-chunks a translated track by SENTENCE', () => {
+    // Two captions of three words, both written from the same source sentence:
+    // the fragments are coalesced first, so N=2 cuts the sentence evenly rather
+    // than cutting each fragment into 2 + 1.
+    const polish = makePolish()
 
-    const next = syncSegmentsIntoTrack(polish, polish.segments, 2, true)
+    const next = syncSegmentsIntoTrack(polish, polish.segments, 2, true, sentences)
 
-    // Each caption is cut into 2 + 1 — never merged across the source boundary.
     expect(next.groups.map((g) => g.text)).toEqual([
       'jeden dwa',
-      'trzy',
-      'cztery piec',
-      'szesc',
+      'trzy cztery',
+      'piec szesc',
     ])
-    // Every chunk still knows the whole source caption behind it.
-    expect(next.groups[0].sourceWords).toEqual(polish.groups[0].sourceWords)
-    expect(next.groups[1].sourceWords).toEqual(polish.groups[0].sourceWords)
+    // Every chunk knows the whole sentence behind it.
+    const sentenceWids = [
+      ...(polish.groups[0].sourceWords ?? []),
+      ...(polish.groups[1].sourceWords ?? []),
+    ]
+    for (const g of next.groups) expect(g.sourceWords).toEqual(sentenceWids)
     // Authored grouping — `custom_groups` must keep being sent.
     expect(next.groupsEdited).toBe(true)
+    // …and the Text view still shows the one sentence.
+    expect(next.segments).toHaveLength(1)
+    expect(next.segments[0].text).toBe('jeden dwa trzy cztery piec szesc')
+  })
+
+  test('a words-per-group change never merges two sentences', () => {
+    const twoSentences = makeTwoSentenceSource()
+    const polish = makePolish(twoSentences)
+
+    const next = syncSegmentsIntoTrack(
+      polish,
+      polish.segments,
+      6,
+      true,
+      sentenceMapOf(twoSentences)
+    )
+
+    expect(next.groups.map((g) => g.text)).toEqual(['jeden dwa trzy', 'cztery piec szesc'])
   })
 
   test('a widened words-per-group folds the chunks back into one caption', () => {
     const polish = makePolish()
-    const chunked = syncSegmentsIntoTrack(polish, polish.segments, 2, true)
+    const chunked = syncSegmentsIntoTrack(polish, polish.segments, 2, true, sentences)
 
-    const back = syncSegmentsIntoTrack(chunked, chunked.segments, 3, true)
+    const back = syncSegmentsIntoTrack(chunked, chunked.segments, 6, true, sentences)
 
-    expect(back.groups.map((g) => g.text)).toEqual(['jeden dwa trzy', 'cztery piec szesc'])
-    expect(back.groups.map((g) => g.id)).toEqual(polish.groups.map((g) => g.id))
+    // One sentence, one caption — the id is the sentence's.
+    expect(back.groups.map((g) => g.text)).toEqual(['jeden dwa trzy cztery piec szesc'])
+    expect(back.groups.map((g) => g.id)).toEqual(['t1:s0'])
   })
 
-  test('an untranslated placeholder survives a text-view edit on a neighbour', () => {
+  test('an untranslated placeholder survives a text-view edit on its sentence', () => {
+    // One sentence, two captions, the second still blank. Editing the sentence
+    // must not drop the placeholder — it is a word-less group with a record
+    // (`reconcileGroups` Rule 4's exception).
     const polish = makePolish(source, ['jeden dwa trzy', ''])
-    const editedSegments = [
-      { ...polish.segments[0], text: 'jeden dwa cztery' },
-      polish.segments[1],
-    ]
-    const retimed = bakeTranslation(polish.segments[0], 'jeden dwa cztery', buildSourceIndex(source))
+    expect(polish.segments).toHaveLength(1)
+
+    const retimed = bakeTranslation(
+      polish.segments[0],
+      'jeden dwa cztery',
+      buildSourceIndex(source)
+    )
     const next = syncSegmentsIntoTrack(
       polish,
-      [retimed, editedSegments[1]],
+      [retimed],
       STUDIO_DEFAULTS.wordsPerGroup,
-      false
+      false,
+      sentences
     )
+
     expect(next.groups).toHaveLength(2)
+    expect(next.groups[0].text).toBe('jeden dwa cztery')
     expect(next.groups[1].words).toEqual([])
     expect(next.groups[1].sourceWords).toEqual(polish.groups[1].sourceWords)
   })
@@ -351,21 +401,68 @@ describe('reflowTrack', () => {
   })
 
   test('a caption chunked by words-per-group is carried over once, whole', () => {
-    // Arrange — the first Polish caption cut into 2 + 1 words by a wpg change.
-    const polish = makePolish()
+    // Arrange — two source sentences, each caption cut into 2 + 1 words.
+    const twoSentences = makeTwoSentenceSource()
+    const polish = makePolish(twoSentences)
     const chunked: CaptionTrack = {
       ...polish,
-      groups: chunkTranslatedGroups(polish.groups, 2),
+      groups: chunkTranslatedGroups(polish.groups, 2, sentenceMapOf(twoSentences)),
     }
     expect(chunked.groups).toHaveLength(4)
 
     // Act — the source has not moved, so every caption should carry verbatim.
-    const next = reflowTrack(chunked, source)
+    const next = reflowTrack(chunked, twoSentences)
 
     // Assert — one carried group per source group, with the full translation.
     expect(next.groups).toHaveLength(2)
     expect(next.groups.map((g) => g.text)).toEqual(['jeden dwa trzy', 'cztery piec szesc'])
     for (const g of next.groups) expect(g.previousText).toBeUndefined()
+  })
+
+  test('a sentence-wide translation is carried across a source RE-GROUP, whole', () => {
+    // Arrange — one 12-word sentence, source chunked 4/4/4, translated, then
+    // re-chunked by `wordsPerGroup` so the whole sentence is one record.
+    const wide = makeSourceTrack(sourceWords(TWELVE), 4)
+    const polish = makeTranslatedTrack(wide, ['jeden dwa', 'trzy cztery', 'piec szesc'])
+    const merged: CaptionTrack = {
+      ...polish,
+      groups: chunkTranslatedGroups(polish.groups, 3, sentenceMapOf(wide)),
+    }
+    expect(merged.groups).toHaveLength(2)
+    expect(merged.groups[0].sourceWords).toHaveLength(12)
+
+    // Act — the user regroups the source 4 → 6 words.
+    const regrouped = makeSourceTrack(sourceWords(TWELVE), 6)
+    const next = reflowTrack(merged, regrouped)
+
+    // Assert — the translation spans a *run* of two new source groups, so it is
+    // carried as the one caption it is, not blanked and not truncated.
+    expect(next.groups).toHaveLength(1)
+    expect(next.groups[0].text).toBe('jeden dwa trzy cztery piec szesc')
+    expect(next.groups[0].start).toBe(regrouped.groups[0].start)
+    expect(next.groups[0].end).toBe(regrouped.groups[1].end)
+    expect(next.groups[0].previousText).toBeUndefined()
+    expect(classifyTrack(next, regrouped).reflowNeeded).toBe(false)
+  })
+
+  test('a sentence whose source gained a word comes back blank, with context', () => {
+    const wide = makeSourceTrack(sourceWords(TWELVE), 4)
+    const polish = makeTranslatedTrack(wide, ['jeden dwa', 'trzy cztery', 'piec szesc'])
+    const merged: CaptionTrack = {
+      ...polish,
+      groups: chunkTranslatedGroups(polish.groups, 3, sentenceMapOf(wide)),
+    }
+
+    // A word inserted INSIDE the sentence, with an id of its own — the old
+    // record can no longer be any run of the new source groups.
+    const grownWords = [...sourceWords(TWELVE)]
+    grownWords.splice(6, 0, word('extra', 2.9, 3.0, 'sX'))
+    const grown = makeSourceTrack(grownWords, 4)
+
+    const next = reflowTrack(merged, grown)
+
+    expect(next.groups.every((g) => g.text === '')).toBe(true)
+    expect(next.groups[0].previousText).toContain('jeden dwa trzy')
   })
 
   test('carries timingLinked and endEdited on a carried group', () => {

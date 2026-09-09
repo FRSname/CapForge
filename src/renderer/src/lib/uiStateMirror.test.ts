@@ -131,7 +131,7 @@ describe('buildTrackEntries', () => {
     expect(entry.render.output_name_suffix).toBeUndefined()
   })
 
-  test('a translated entry carries state/sourceText/previousText per group', () => {
+  test('a translated entry carries sentence/state/sourceText/previousText per group', () => {
     const { source, polish } = fixture()
     const [, entry] = buildTrackEntries(
       [source, polish],
@@ -149,10 +149,14 @@ describe('buildTrackEntries', () => {
       start: 0,
       end: 1.5,
       text: '',
+      // The agent's unit of translation: both captions of the fixture's one
+      // source sentence carry index 0, so it translates them together.
+      sentence: 0,
       state: 'untranslated',
       sourceText: 'the quick brown',
       previousText: null,
     })
+    expect(entry.groups.map((g) => g.sentence)).toEqual([0, 0])
   })
 
   test('a translated track never lets the backend re-chunk the source', () => {

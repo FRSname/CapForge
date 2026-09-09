@@ -25,17 +25,26 @@ SOURCE_GROUPS = [
     {"id": "s1:2", "start": 3.0, "end": 4.5, "text": "the lazy dog"},
 ]
 
+#: Which source *sentence* each of those groups belongs to — the first two are
+#: fragments of one sentence, the third is a sentence of its own. The renderer
+#: mirrors this per translated group (`trackToMirrorEntry`), and it is what tells
+#: the agent which fragments must be translated together.
+SOURCE_SENTENCES = [0, 0, 1]
+
 POLISH_GROUPS = [
     {
         "id": "tpl:0", "start": 0.0, "end": 1.5, "text": "szybki brązowy",
+        "sentence": 0,
         "state": "clean", "sourceText": "the quick brown", "previousText": None,
     },
     {
         "id": "tpl:1", "start": 1.5, "end": 3.0, "text": "lis przeskakuje",
+        "sentence": 0,
         "state": "stale", "sourceText": "fox jumps over", "previousText": None,
     },
     {
         "id": "tpl:2", "start": 3.0, "end": 4.5, "text": "",
+        "sentence": 1,
         "state": "untranslated", "sourceText": "the lazy dog", "previousText": None,
     },
 ]
@@ -164,7 +173,8 @@ class StubClient:
             groups = [
                 {
                     "id": f"{track_id}:{i}", "start": g["start"], "end": g["end"],
-                    "text": "", "state": "untranslated", "sourceText": g["text"],
+                    "text": "", "sentence": SOURCE_SENTENCES[i],
+                    "state": "untranslated", "sourceText": g["text"],
                     "previousText": None,
                 }
                 for i, g in enumerate(SOURCE_GROUPS)
@@ -263,10 +273,25 @@ def test_create_track_returns_the_paired_skeleton(stub: StubClient) -> None:
     assert out["label"] == "Polish"
     # New track's group ids, paired by index with the SOURCE text to translate.
     assert out["groups"] == [
-        {"id": f"{out['track_id']}:0", "start": 0.0, "end": 1.5, "text": "the quick brown"},
-        {"id": f"{out['track_id']}:1", "start": 1.5, "end": 3.0, "text": "fox jumps over"},
-        {"id": f"{out['track_id']}:2", "start": 3.0, "end": 4.5, "text": "the lazy dog"},
+        {"id": f"{out['track_id']}:0", "start": 0.0, "end": 1.5,
+         "text": "the quick brown", "sentence": 0},
+        {"id": f"{out['track_id']}:1", "start": 1.5, "end": 3.0,
+         "text": "fox jumps over", "sentence": 0},
+        {"id": f"{out['track_id']}:2", "start": 3.0, "end": 4.5,
+         "text": "the lazy dog", "sentence": 1},
     ]
+
+
+def test_create_track_groups_fragments_of_one_sentence(stub: StubClient) -> None:
+    """The first two fragments are one sentence; the third stands alone."""
+    out = tracks.create_track("pl")
+    assert [g["sentence"] for g in out["groups"]] == [0, 0, 1]
+
+
+def test_create_track_tells_the_agent_to_translate_by_sentence() -> None:
+    doc = tracks.create_track.__doc__ or ""
+    assert "consecutive entries with the same `sentence` form one sentence" in doc
+    assert "never translate a fragment in isolation" in doc
 
 
 def test_create_track_never_returns_words(stub: StubClient) -> None:
@@ -308,7 +333,7 @@ class MismatchedClient(StubClient):
                     "id": f"{payload['track_id']}:x{i}", "start": 4.5, "end": 5.0,
                     "text": "", "state": "untranslated", "sourceText": "",
                     "previousText": None,
-                })
+                })  # no `sentence`: an older renderer, read back as None
         else:
             source = next(t for t in self.state["tracks"] if t["isSource"])
             del source["groups"][self.extra_groups:]
@@ -426,6 +451,11 @@ def test_get_track_returns_the_inventory_entry_without_bodies(stub: StubClient) 
     assert "groups" not in out["track"]
     assert "render" not in out["track"]
     assert out["track"]["staleCount"] == 1
+
+
+def test_get_track_passes_the_sentence_index_through(stub: StubClient) -> None:
+    out = tracks.get_track("tpl")
+    assert [g["sentence"] for g in out["groups"]] == [0, 0, 1]
 
 
 def test_get_track_stale_only_keeps_stale_and_untranslated(stub: StubClient) -> None:
