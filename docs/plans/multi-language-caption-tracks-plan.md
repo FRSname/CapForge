@@ -464,6 +464,15 @@ behaves exactly as `main` does.
 - [ ] `grep -rn "text-white\|bg-black\|#[0-9a-fA-F]\{6\}" src/renderer/src/components/tracks` → 0 hits.
 - [ ] **Manual**: add Polish → tab appears, style inherited, groups blank (preview shows nothing on the Polish tab), timeline shows the inherited group bars; type a translation into one group in the text view → words appear with proportional timing; drag one word → re-typing the group keeps that word's timing; switch to Original, drag a group end, switch back → the Polish end moved; change `wordsPerGroup` on Original → Polish tab shows the reflow dot and banner, Polish text untouched; click Re-flow → carried groups keep text, blanks show; close the Polish tab → confirm dialog → gone, Original active.
 
+### As shipped (2026-09-09)
+
+- Track actions live in `hooks/useTrackActions.ts` and go through `lib/trackCommands.ts` (`applyTrackCommand`), so the UI and the agent share one create/reflow implementation; App sits above `ToastProvider`, so the hook returns a `notice` that App hands to a second `<ToastRelay>`.
+- `LanguagePickerPanel` is exported separately from the stateful portal wrapper `LanguagePicker` (a `createPortal` cannot run under `renderToStaticMarkup`); the picker takes an `anchorRef` so the outside-click closer does not fire on the `+` mousedown.
+- Two more verbatim extractions to stay under 800 lines: `components/editor/GroupRowChrome.tsx` (`EndTimeButton` + the new `TrackStateChip`) and `components/screens/EditorViewTab.tsx` (`TabButton`).
+- `ReflowBanner` renders under the Text/Groups tab bar, visible in both views (not only above the group list). Its `pushUndo()` is symbolic: the reflow bumps the track revision and remounts the editor with a fresh undo stack.
+- `useTimelineEditing` takes `translated` (= `!autoGroup`): word drag deletes `timingDerived`, group drag sets `timingLinked: false`. No automated coverage — the node vitest env cannot mount a hook.
+- Active-tab underline uses `--color-accent` (matching the editor's view tabs); stale badge and reflow dot use `--color-brand`.
+
 ### Anti-pattern guards
 
 - No `wordsPerGroup` rebuild on a translated track (the row is hidden *and* `autoGroup=false` guards it).
@@ -501,6 +510,15 @@ Everything here reads the mirror (§E) or validates a request. Nothing owns trac
 - [ ] New `backend/tests/test_tracks_api.py`: `render-frame` with a known `track_id` uses that track's config (assert via a distinctive `font_size`); unknown id → 404 with inventory; `check-layout` `scan=True` on a 3-group fixture where one group's text is long → exactly one violation with `lines == 3`; scan in `rsvp` mode → `[]`; `render-video` with `output_name_suffix=".pl"` produces `<stem>.pl…` (monkeypatch the encoder); `output_name_suffix="../x"` → 422; `export` with `track` writes `<stem>.pl.srt`; `create_track` command with a bad `lang` → 400, with no UI → 409.
 - [ ] `grep -n "output_name_suffix" backend/models/schemas.py` → on the two *request* models only; `test_caption_cfg_contract.py` untouched and green.
 - [ ] `grep -c "def measure_group_words\|def wrap_rows" backend/exporters/video_render.py` → 2, and `_render_frame` calls both.
+
+### As shipped (2026-09-09)
+
+- `HyperframesRenderRequest.track_id: Optional[str]` added (the HF route takes a Pydantic body, so the field is the only way to express `track_id` under `use_ui_config`).
+- The unknown-track 404 body is `{"detail": {"title", "hint", "tracks": [{id,label,lang}…]}}` — `HTTPException` can only populate `detail`, and the sibling 409 uses the same nested shape. **Phase 5's `_resolve_track` reads `detail["tracks"]`.**
+- `max_lines` is validated (non-integer or `< 1` → 400) rather than a bare `int(...)`; `DEFAULT_MAX_LINES = 2` lives in `layout_scan.py`. `_get_font` is resolved once per scan, not per group.
+- `video_render.py` grew by 41 lines (two signatures + docstrings + the `name_suffix` parameter); the moved bodies are byte-identical to `main` modulo indentation. Net-neutral was unreachable with both functions required to live in that file.
+- `LANG_CODE_PATTERN` and `OUTPUT_NAME_SUFFIX_PATTERN` are named constants in `schemas.py`; `ExportTrack` has its own docstring. The Phase 6 schema grep gate below was widened accordingly.
+- `CustomGroup.id` does not reach any HyperFrames artifact (both HF projections re-key group dicts), so `SCAFFOLD_VERSION` was not bumped.
 
 ### Anti-pattern guards
 
@@ -553,7 +571,7 @@ Everything here reads the mirror (§E) or validates a request. Nothing owns trac
 2. **Render-boundary gates** (the constraint at the top, mechanically):
    - `git diff main -- src/renderer/src/hooks/useSubtitleOverlay.ts src/renderer/src/lib/overlayGeometry.ts src/renderer/src/lib/rsvp*.ts backend/exporters/hyperframes_caption_html.py backend/exporters/hyperframes_rsvp_runtime.py backend/exporters/rsvp*.py backend/tests/golden docs/caption-parity.md` → **empty**.
    - `git diff main -- backend/exporters/video_render.py` → only the two extractions (no line inside `measure_group_words`/`wrap_rows` differs from the original block except indentation and the parameter list).
-   - `git diff main -- backend/models/schemas.py | grep '^+' | grep -v 'output_name_suffix\|ExportTrack\|track:\|id: Optional\[str\]\|^+++'` → empty (nothing new on `VideoRenderConfig`).
+   - `git diff main -- backend/models/schemas.py` adds nothing inside `class VideoRenderConfig` — verify with `git diff main -U0 -- backend/models/schemas.py | grep '^@@'` (every hunk must sit outside the `VideoRenderConfig` line range) and `test_caption_cfg_contract.py` unmodified + green. Additions elsewhere (`LANG_CODE_PATTERN`, `OUTPUT_NAME_SUFFIX_PATTERN`, `ExportTrack`, `CustomGroup.id`, the two request-model fields, `HyperframesRenderRequest.track_id`) are the expected set.
    - `grep -rn "track" src/renderer/src/hooks/useSubtitleOverlay.ts src/renderer/src/hooks/useTimeline.ts` → 0 hits.
 3. **Rule-locality gates**: `grep -rln "function classifyTrack\|function bakeTranslation\|function reflowTrack\|function propagateSourceTiming" src backend mcp_server` → exactly one file each, all under `src/renderer/src/lib/`; `grep -rn "def classify\|def bake\|def reflow" backend mcp_server` → 0.
 4. **Docs**:
