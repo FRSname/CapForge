@@ -11,21 +11,39 @@ const SAFE_ZONE_OPTIONS: Array<{ value: StudioSettings['safeZone']; label: strin
   { value: 'shorts', label: 'Shorts' },
 ]
 
+interface LayoutCardProps extends StudioSectionProps {
+  /** False on a translated track, where grouping is inherited from the source. */
+  activeTrackIsSource?: boolean
+}
+
 /** "Layout" settings card — words/group, lines, position, max width, safe zones. */
-export function LayoutCard({ s, defaults, filter, set, cardProps }: StudioSectionProps) {
+export function LayoutCard({
+  s,
+  defaults,
+  filter,
+  set,
+  cardProps,
+  activeTrackIsSource = true,
+}: LayoutCardProps) {
   return (
     <StudioCard title="Layout" {...cardProps('layout')}>
-      <Row label="Words/Grp" filter={filter}>
-        <StudioRow
-          label="Words/Grp"
-          value={s.wordsPerGroup}
-          min={1}
-          max={8}
-          unit=""
-          def={defaults.wordsPerGroup}
-          onChange={(v) => set('wordsPerGroup', v)}
-        />
-      </Row>
+      {/* Words/Grp chunks the transcript, so it only means anything on the
+          source track. A translated track's groups are inherited (and
+          ResultsScreen's `autoGroup=false` refuses the rebuild regardless) —
+          the row is hidden rather than disabled so it can't read as broken. */}
+      {activeTrackIsSource && (
+        <Row label="Words/Grp" filter={filter}>
+          <StudioRow
+            label="Words/Grp"
+            value={s.wordsPerGroup}
+            min={1}
+            max={8}
+            unit=""
+            def={defaults.wordsPerGroup}
+            onChange={(v) => set('wordsPerGroup', v)}
+          />
+        </Row>
+      )}
       {/* Caption timing — plain seconds, never scaled on the way to the backend. */}
       <Row label="Gap close" filter={filter}>
         <StudioRow

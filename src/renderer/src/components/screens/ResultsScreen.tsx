@@ -18,7 +18,7 @@ import { ensureWordIds } from '../../lib/wordIds'
 import { DEFAULT_PAD_V } from '../../lib/renderConstants'
 import type { ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { syncSegmentsIntoTrack } from '../../lib/tracks'
-import type { CaptionTrack, TrackEditorState } from '../../lib/tracks'
+import type { CaptionTrack, TrackEditorState, TrackGroupState } from '../../lib/tracks'
 import { useUndoRedo } from '../../hooks/useUndoRedo'
 import { useTimelineEditing } from '../../hooks/useTimelineEditing'
 import { useToast } from '../../hooks/useToast'
@@ -30,6 +30,8 @@ import { GroupEditor } from '../editor/GroupEditor'
 import { WordStylePopup, type WordStyleDefaults } from '../editor/WordStylePopup'
 import { GroupPositionPopup } from '../editor/GroupPositionPopup'
 import type { StudioSettings } from '../studio/StudioPanel'
+import { TabButton } from './EditorViewTab'
+import { ReflowBanner } from '../tracks/ReflowBanner'
 
 interface ResultsScreenProps {
   /** The active track's transcript: project metadata + that track's segments. */
@@ -59,6 +61,20 @@ interface ResultsScreenProps {
    *  losing the flag on the switch back would drop `custom_groups` from the
    *  render and let the backend re-chunk the transcript. */
   initialSegmentsEdited: boolean
+  /**
+   * Translated tracks only: each group's state against the source words it was
+   * written from (`classifyTrack`), keyed by group id. Threaded straight to
+   * `GroupEditor`, which renders a chip per row.
+   */
+  groupStates?: ReadonlyMap<string, TrackGroupState>
+  /** The source's *chunking* moved since this track was created/re-flowed, so
+   *  its groups no longer line up with anything — `onReflow` is the repair. */
+  reflowNeeded?: boolean
+  /** How many of this track's captions are stale — the banner's second line. */
+  staleCount?: number
+  /** Run `reflowTrack` on this track. App owns the store, so it owns the write;
+   *  this component only pushes an undo entry first. Absent on the source. */
+  onReflow?: () => void
   /** Publish the editor's raw state back to the track store on every change. */
   onTrackStateChange: (state: TrackEditorState) => void
   /** Fires once the transcript is known to carry approximate word timings, so
@@ -85,6 +101,10 @@ export function ResultsScreen({
   initialGroups,
   initialGroupsEdited,
   initialSegmentsEdited,
+  groupStates,
+  reflowNeeded = false,
+  staleCount = 0,
+  onReflow,
   onTrackStateChange,
   onAlignmentDegraded,
   projectIORef,
@@ -264,6 +284,20 @@ export function ResultsScreen({
     pushUndo()
     handleGroupsChange(fillGroupGaps(groups))
   }, [groups, handleGroupsChange, pushUndo])
+
+  // "Re-flow from source" — the UI twin of the agent's `reflow_track`. App owns
+  // the store, so it does the rewrite and bumps this track's revision, which
+  // remounts this component with the new skeleton as `initialGroups`.
+  //
+  // The undo push is what the plan asks for and costs nothing, but be honest
+  // about its reach: the remount replaces this editor's undo stack, so it only
+  // protects an undo taken before the click lands, not the re-flow itself.
+  // Re-flowing back is `reflowTrack` again once the source is put back.
+  const handleReflow = useCallback(() => {
+    if (!onReflow) return
+    pushUndo()
+    onReflow()
+  }, [onReflow, pushUndo])
 
   // Position-only updates (per-group position override) — deliberately do NOT
   // flip groupsEdited: boundaries are untouched, so re-grouping must keep
@@ -464,6 +498,9 @@ export function ResultsScreen({
     setGroupsEdited,
     onPositionChange: handleGroupsPositionChange,
     pushUndo,
+    // `autoGroup` is exactly `track.isSource` (see the prop's doc), so its
+    // inverse is "this editor is mounted on a translated track".
+    translated: !autoGroup,
   })
 
   // Re-run WhisperX forced alignment on one segment. The backend re-fits word
@@ -652,6 +689,12 @@ export function ResultsScreen({
           </span>
         </div>
 
+        {/* Translated track whose source was re-chunked (§G-6). Shown in both
+            views: the mismatch is a property of the track, not of the view. */}
+        {!autoGroup && reflowNeeded && onReflow && (
+          <ReflowBanner staleCount={staleCount} onReflow={handleReflow} />
+        )}
+
         {view === 'text' ? (
           <SubtitleEditor
             segments={segments}
@@ -679,6 +722,7 @@ export function ResultsScreen({
             defaults={wordStyleDefaults}
             positionDefaults={{ posX: settings.posX, posY: settings.posY }}
             mediaDuration={result.duration}
+            groupStates={groupStates}
           />
         )}
       </div>
@@ -741,50 +785,5 @@ export function ResultsScreen({
         />
       )}
     </div>
-  )
-}
-
-// ── TabButton ─────────────────────────────────────────────────────
-
-interface TabButtonProps {
-  id: string
-  active: boolean
-  onClick: () => void
-  /** ArrowLeft/ArrowRight pressed while the tab has focus. */
-  onArrow: () => void
-  children: React.ReactNode
-}
-
-function TabButton({ id, active, onClick, onArrow, children }: TabButtonProps) {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <button
-      type="button"
-      id={id}
-      role="tab"
-      aria-selected={active}
-      tabIndex={active ? 0 : -1}
-      className={[
-        'text-xs px-3 py-1.5 rounded-t transition-colors border-b-2',
-        active ? 'border-[var(--color-accent)] bg-[var(--color-surface-2)]' : 'border-transparent',
-      ].join(' ')}
-      style={{
-        color: active ? 'var(--color-text)' : hovered ? 'var(--color-text)' : 'var(--color-text-3)',
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-          e.preventDefault()
-          // Stop the event reaching the window-level playback handler,
-          // which maps ←/→ to frame stepping.
-          e.stopPropagation()
-          onArrow()
-        }
-      }}
-    >
-      {children}
-    </button>
   )
 }

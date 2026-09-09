@@ -263,6 +263,13 @@ interface StudioPanelProps {
   onPresetsChanged?: () => Promise<void>
   /** Report a manual preset pick so the agent-facing mirror stays truthful. */
   onPresetApplied?: (name: string) => void
+  /**
+   * False while a translated caption track is active. Grouping is inherited
+   * from the source there (`reflowTrack` is the only thing that changes it), so
+   * the Layout card hides its *Words per group* row — the control would be
+   * inert, and worse, would read as if it did something.
+   */
+  activeTrackIsSource?: boolean
 }
 
 export { DEFAULTS as STUDIO_DEFAULTS }
@@ -296,6 +303,7 @@ export function StudioPanel({
   userPresets = [],
   onPresetsChanged,
   onPresetApplied,
+  activeTrackIsSource = true,
 }: StudioPanelProps) {
   const [internalS, setInternalS] = useState<StudioSettings>({ ...DEFAULTS })
   const [outputDir, setOutputDir] = useState<string>('')
@@ -414,7 +422,7 @@ export function StudioPanel({
         <ColorsCard {...sectionProps} />
 
         {/* ── Layout ──────────────────────────────────────────── */}
-        <LayoutCard {...sectionProps} />
+        <LayoutCard {...sectionProps} activeTrackIsSource={activeTrackIsSource} />
 
         {/* ── Background ──────────────────────────────────────── */}
         <BackgroundCard {...sectionProps} />

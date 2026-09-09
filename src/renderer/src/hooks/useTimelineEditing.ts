@@ -26,6 +26,17 @@ interface UseTimelineEditingArgs {
   onPositionChange: (next: Segment[]) => void
   /** Snapshot the editor state before a change (one per gesture). */
   pushUndo: () => void
+  /**
+   * True on a translated caption track. Both timeline drags then also *pin* what
+   * they touch, because on a translated track timing is derived rather than
+   * authored: a group's span follows the source words it was written from
+   * (`timingLinked`), and a word's span is distributed across that span by
+   * character count (`Word.timingDerived`). A drag is the user saying "no, this
+   * one goes here", so the derived claim has to be dropped — otherwise the next
+   * source edit, or the next re-bake of the text, would quietly undo it.
+   * Inert on the source track, whose timings are authoritative already.
+   */
+  translated?: boolean
 }
 
 export function useTimelineEditing({
@@ -34,6 +45,7 @@ export function useTimelineEditing({
   setGroupsEdited,
   onPositionChange: handleGroupsPositionChange,
   pushUndo,
+  translated = false,
 }: UseTimelineEditingArgs) {
   // Timeline right-click on a word in the word lane → style/text popup.
   // Word identity is positional (groupIdx + wordIdx), not id-based — see the
@@ -62,26 +74,31 @@ export function useTimelineEditing({
   // cleared again whenever the group's bounds are recomputed from its words
   // (`finalizeBounds`), and GroupEditor offers a reset affordance for an
   // accidental two-pixel drag.
+  //
+  // On a translated track the same gesture also unlinks the group from its
+  // source span (`timingLinked: false`), so `propagateSourceTiming` stops
+  // moving it when the source does — the drag IS the user placing this caption.
   const handleSegmentEdge = useCallback(
     (
       segId: string,
       edge: 'start' | 'end' | 'body',
       newVal: number | { start: number; end: number }
     ) => {
+      const unlink = translated ? { timingLinked: false } : {}
       setGroups((prev) =>
         prev.map((g) => {
           if (g.id !== segId) return g
           if (edge === 'body' && typeof newVal === 'object') {
-            return { ...g, start: newVal.start, end: newVal.end, endEdited: true }
+            return { ...g, ...unlink, start: newVal.start, end: newVal.end, endEdited: true }
           }
           if (typeof newVal !== 'number') return g
-          if (edge === 'end') return { ...g, end: newVal, endEdited: true }
-          return { ...g, [edge]: newVal }
+          if (edge === 'end') return { ...g, ...unlink, end: newVal, endEdited: true }
+          return { ...g, ...unlink, [edge]: newVal }
         })
       )
       setGroupsEdited(true)
     },
-    [setGroups, setGroupsEdited]
+    [setGroups, setGroupsEdited, translated]
   )
 
   // Called once at the start of each drag — snapshot state before any movement.
@@ -105,14 +122,23 @@ export function useTimelineEditing({
   // widened here (`Math.max`), so a hand-placed end is never contradicted, and
   // revoking the claim would let a word nudge silently re-close a gap the user
   // carved out on purpose. `resetEndEdit` in GroupEditor is the one way out.
+  //
+  // On a translated track it does one extra thing: the dragged word loses its
+  // `timingDerived` flag, i.e. it becomes pinned. Re-baking the group's text
+  // and re-linking its span both re-distribute only the *derived* words between
+  // their pinned neighbours, so this is what makes a hand-placed word stay put.
   const handleWordEdge = useCallback(
     (segId: string, wordIdx: number, patch: { start: number; end: number }) => {
       setGroups((prev) =>
         prev.map((g) => {
           if (g.id !== segId) return g
-          const words = g.words.map((w, i) =>
-            i === wordIdx ? { ...w, start: patch.start, end: patch.end } : w
-          )
+          const words = g.words.map((w, i) => {
+            if (i !== wordIdx) return w
+            const next = { ...w, start: patch.start, end: patch.end }
+            // A fresh copy — `w` itself is never mutated.
+            if (translated) delete next.timingDerived
+            return next
+          })
           return {
             ...g,
             words,
@@ -123,7 +149,7 @@ export function useTimelineEditing({
       )
       setGroupsEdited(true)
     },
-    [setGroups, setGroupsEdited]
+    [setGroups, setGroupsEdited, translated]
   )
 
   const handleWordEdgeDragStart = useCallback(() => {

@@ -20,6 +20,7 @@ import {
 } from './lib/uiStateMirror'
 import type { AgentCommandEcho, UiStateCore } from './lib/uiStateMirror'
 import { TitleBar } from './components/TitleBar/TitleBar'
+import { TrackTabs } from './components/tracks/TrackTabs'
 import { DropZoneScreen } from './components/screens/DropZoneScreen'
 import { ProgressScreen } from './components/screens/ProgressScreen'
 import { ResultsScreen } from './components/screens/ResultsScreen'
@@ -40,6 +41,7 @@ import {
   sourceTrackFromResult,
   useTrackStore,
 } from './hooks/useTrackStore'
+import { useTrackActions } from './hooks/useTrackActions'
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('file')
@@ -69,6 +71,7 @@ export function App() {
     classifications,
     displayGroups,
     revisions,
+    setActiveTrackId,
     replaceTracks,
     commitTracks,
     updateTrack,
@@ -78,6 +81,19 @@ export function App() {
   } = useTrackStore()
 
   const settings = activeTrack.settings
+
+  // The tab strip's four actions (add / close / re-flow / describe). Writes go
+  // through `lib/trackCommands.ts`, the same pure transition the agent's
+  // commands take, so the UI and the agent share one implementation.
+  const trackActions = useTrackActions({
+    tracks,
+    activeTrackId,
+    activeTrack,
+    sourceTrack,
+    classifications,
+    commitTracks,
+    bumpRevision,
+  })
 
   // Crash recovery — an autosave snapshot left on disk by a session that didn't
   // end via an explicit Save or New (i.e. a crash or accidental close).
@@ -605,6 +621,13 @@ export function App() {
   return (
     <ToastProvider>
       <ToastRelay message={restoreWarning} onShown={handleRestoreWarningShown} />
+      {/* App renders ToastProvider, so it sits above the context and cannot
+          call useToast itself — the track actions report through a relay. */}
+      <ToastRelay
+        message={trackActions.notice?.message ?? null}
+        type={trackActions.notice?.type ?? 'info'}
+        onShown={trackActions.clearNotice}
+      />
       <div className="flex flex-col h-full" style={{ background: 'var(--color-bg)' }}>
         <TitleBar
           screen={screen}
@@ -669,25 +692,41 @@ export function App() {
             </div>
           )}
           {screen === 'results' && activeResult && (
-            <div className="screen-in flex-1 flex min-h-0 min-w-0 overflow-hidden">
-              {/* Keyed by session + track + that track's revision: switching tab
-                  (or a write that landed underneath the editor) remounts it with
-                  fresh state from the store. Nothing has to be checkpointed
-                  first, because raw editor state is published continuously. */}
-              <ResultsScreen
-                key={`${resultsSessionId}:${activeTrackId}:${revisions[activeTrackId] ?? 0}`}
-                result={activeResult}
-                trackId={activeTrackId}
-                settings={settings}
-                autoGroup={activeTrack.isSource}
-                initialGroups={activeTrack.groups.length > 0 ? activeTrack.groups : null}
-                initialGroupsEdited={activeTrack.groupsEdited}
-                initialSegmentsEdited={activeTrack.segmentsEdited}
-                onTrackStateChange={handleTrackStateChange}
-                onAlignmentDegraded={markAlignmentDegraded}
-                projectIORef={projectIORef}
-                onUndoRedoChange={setSubtitleUndo}
+            <div className="screen-in flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
+              {/* The tab strip lives HERE, above the editor and outside it:
+                  ResultsScreen is remounted on every tab switch, so a strip
+                  inside it would unmount itself mid-click. */}
+              <TrackTabs
+                tracks={trackActions.tabs}
+                activeTrackId={activeTrackId}
+                onSelect={setActiveTrackId}
+                onAdd={trackActions.addTrack}
+                onClose={trackActions.closeTrack}
               />
+              <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden">
+                {/* Keyed by session + track + that track's revision: switching tab
+                    (or a write that landed underneath the editor) remounts it with
+                    fresh state from the store. Nothing has to be checkpointed
+                    first, because raw editor state is published continuously. */}
+                <ResultsScreen
+                  key={`${resultsSessionId}:${activeTrackId}:${revisions[activeTrackId] ?? 0}`}
+                  result={activeResult}
+                  trackId={activeTrackId}
+                  settings={settings}
+                  autoGroup={activeTrack.isSource}
+                  initialGroups={activeTrack.groups.length > 0 ? activeTrack.groups : null}
+                  initialGroupsEdited={activeTrack.groupsEdited}
+                  initialSegmentsEdited={activeTrack.segmentsEdited}
+                  groupStates={trackActions.activeClassification?.byGroup}
+                  reflowNeeded={trackActions.activeClassification?.reflowNeeded ?? false}
+                  staleCount={trackActions.activeClassification?.staleCount ?? 0}
+                  onReflow={activeTrack.isSource ? undefined : trackActions.reflowActiveTrack}
+                  onTrackStateChange={handleTrackStateChange}
+                  onAlignmentDegraded={markAlignmentDegraded}
+                  projectIORef={projectIORef}
+                  onUndoRedoChange={setSubtitleUndo}
+                />
+              </div>
             </div>
           )}
 
@@ -708,6 +747,7 @@ export function App() {
             userPresets={userPresets}
             onPresetsChanged={refreshUserPresets}
             onPresetApplied={handlePresetApplied}
+            activeTrackIsSource={activeTrack.isSource}
           />
         </main>
 
