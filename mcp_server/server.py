@@ -10,24 +10,26 @@ The agent operates the *running* CapForge app: edits go through the token-guarde
 
 from __future__ import annotations
 
-import time
 from typing import Literal, Optional
 
 from mcp.server.fastmcp import FastMCP, Image
 from pydantic import BaseModel, Field
 
+from . import tracks
 from .cleanup import apply_word_edits, remove_fillers
 from .client import CapForgeClient
 from .knowledge import TopicNotFound, read_index, read_topic
 
+# Every confirmed write — `apply_preset` here, the caption-track commands in
+# tracks.py — reads the UI-state mirror back, and the renderer pushes it on a
+# 300ms debounce. Poll a little faster than that, and give up well before an
+# agent would consider the call hung. Defined next to the shared confirm-by-poll
+# machinery, aliased here under the names this module has always used.
+from .tracks import CONFIRM_POLL as _CONFIRM_POLL
+from .tracks import CONFIRM_TIMEOUT as _CONFIRM_TIMEOUT
+
 mcp = FastMCP("capforge")
 _client = CapForgeClient()
-
-# `apply_preset` confirms via the UI-state mirror, which the renderer pushes on a
-# 300ms debounce. Poll a little faster than that, and give up well before an
-# agent would consider the call hung.
-_APPLY_PRESET_POLL = 0.2
-_APPLY_PRESET_TIMEOUT = 5.0
 
 
 class WordEdit(BaseModel):
@@ -209,9 +211,32 @@ def load_video(path: str) -> dict:
 
 
 @mcp.tool()
-def export(formats: list[str], output_dir: str = "output") -> dict:
-    """Export the current transcript (e.g. ["srt_word", "ass", "json"])."""
-    return _client.export({"formats": formats, "output_dir": output_dir})
+def export(
+    formats: list[str], output_dir: str = "output", track_id: Optional[str] = None
+) -> dict:
+    """Export the current transcript (e.g. ["srt_word", "ass", "json"]).
+
+    `track_id` exports one caption track instead (see `get_ui_state().tracks`):
+    its own captions and timings, written as `<name>.<lang>.srt`. The source
+    track exports exactly as it always did.
+    """
+    payload: dict = {"formats": formats, "output_dir": output_dir}
+    if track_id:
+        entry = tracks.resolve_track(_client.get_ui_state() or {}, track_id)
+        if tracks.is_error(entry):
+            return entry
+        # The track's own render groups are what it exports, so the subtitle file
+        # and the burned-in captions can never disagree.
+        track = tracks.export_track_payload(entry)
+        if track is not None:
+            if not track["segments"]:
+                return {
+                    "status": "error",
+                    "error": f"{entry.get('label')!r} has no captions written yet.",
+                    "hint": "Translate it with set_track_text first, then export.",
+                }
+            payload["track"] = track
+    return _client.export(payload)
 
 
 # --- Style & emphasis (live UI) ------------------------------------------
@@ -228,8 +253,14 @@ def get_ui_state() -> dict:
     `appliedPreset` names the preset the current style is based on — it is
     sticky, surviving later `set_style` tweaks. `render` is the resolved
     snake_case render body the `render` tool submits.
+
+    All of the above describes the **active caption track**. `tracks` is the
+    inventory of every language tab (`activeTrackId` says which one is showing)
+    with its counters; each track's captions and render body are deliberately
+    left out to keep this call cheap — read one track's captions with
+    `get_track`.
     """
-    return _client.get_ui_state()
+    return tracks.strip_track_bodies(_client.get_ui_state() or {})
 
 
 def _preset_names(state: dict) -> dict:
@@ -256,7 +287,7 @@ def list_presets() -> dict:
 
 
 @mcp.tool()
-def set_style(patch: dict) -> dict:
+def set_style(patch: dict, track_id: Optional[str] = None) -> dict:
     """Change global subtitle style. Updates the live UI.
 
     `patch` uses camelCase StudioSettings keys (see `get_ui_state().settings`),
@@ -284,13 +315,19 @@ def set_style(patch: dict) -> dict:
 
     Out-of-range numbers are clamped by the app, so re-read the state if the exact
     value matters.
+
+    Style is per caption track: `track_id` styles one language tab (see
+    `get_ui_state().tracks`); omitted, it styles the active tab.
     """
-    _client.send_command("set_settings", {"patch": patch})
-    return {"status": "ok"}
+    payload: dict = {"patch": patch}
+    if track_id:
+        payload["track_id"] = track_id
+    _client.send_command("set_settings", payload)
+    return {"status": "ok", **({"track_id": track_id} if track_id else {})}
 
 
 @mcp.tool()
-def apply_preset(name: str) -> dict:
+def apply_preset(name: str, track_id: Optional[str] = None) -> dict:
     """Apply a style preset by name — user-saved or built-in (see `list_presets`).
 
     Matching is case-insensitive; a user preset wins over a built-in of the same
@@ -302,39 +339,48 @@ def apply_preset(name: str) -> dict:
     on success, or `{"status": "unconfirmed", ...}` — check the hint, the usual
     cause is a name that matches no preset, or the app not being on a loaded
     project (style commands need the results screen).
+
+    `track_id` applies the preset to one caption track (see `get_ui_state().tracks`)
+    and confirms against *that* track's `appliedPreset`; omitted, it is the
+    active tab's style that changes.
     """
-    _client.send_command("apply_preset", {"name": name})
+    payload: dict = {"name": name}
+    if track_id:
+        payload["track_id"] = track_id
+    _client.send_command("apply_preset", payload)
 
     # The renderer applies the preset, then mirrors its state back on a 300ms
     # debounce. Poll for the echo rather than sleeping a fixed amount — this is
     # the whole reason a batch run can trust `render` to use the right style.
-    deadline = time.monotonic() + _APPLY_PRESET_TIMEOUT
-    state: dict = {}
-    while time.monotonic() < deadline:
-        time.sleep(_APPLY_PRESET_POLL)
-        try:
-            state = _client.get_ui_state() or {}
-        except Exception:
-            continue  # backend restarting; the client retries auth itself
-        applied = state.get("appliedPreset")
-        if isinstance(applied, str) and applied.strip().lower() == name.strip().lower():
-            return {"status": "ok", "applied": applied}
+    def _applied(state: dict) -> Optional[str]:
+        if track_id:
+            entry = tracks.resolve_track(state, track_id)
+            value = None if tracks.is_error(entry) else entry.get("appliedPreset")
+        else:
+            value = state.get("appliedPreset")
+        return value if isinstance(value, str) else None
+
+    def _matches(state: dict) -> bool:
+        applied = _applied(state)
+        return applied is not None and applied.strip().lower() == name.strip().lower()
+
+    matched, state = tracks.poll_mirror(
+        _client, _matches, timeout=_CONFIRM_TIMEOUT, poll=_CONFIRM_POLL
+    )
+    if matched:
+        return {
+            "status": "ok",
+            "applied": _applied(state) or name,
+            **({"track_id": track_id} if track_id else {}),
+        }
 
     names = _preset_names(state) if state else {"user": [], "builtin": []}
-    known = [*names["user"], *names["builtin"]]
-    if known and not any(n.strip().lower() == name.strip().lower() for n in known):
-        hint = f"No preset named {name!r}. Available: {', '.join(known)}"
-    elif state.get("screen") and state.get("screen") != "results":
-        hint = (
-            f"The app is on the {state['screen']!r} screen. Load a video first — "
-            "style commands only apply to an open project."
-        )
-    else:
-        hint = (
-            "The app did not confirm the preset within "
-            f"{_APPLY_PRESET_TIMEOUT:g}s. Check CapForge is open, then re-read "
-            "get_ui_state() before rendering."
-        )
+    hint = tracks.confirm_hint(
+        state,
+        subject="the preset",
+        preset=name,
+        known_presets=tuple([*names["user"], *names["builtin"]]),
+    )
     return {"status": "unconfirmed", "requested": name, "hint": hint}
 
 
@@ -354,7 +400,7 @@ def emphasize(edits: list[WordEmphasis]) -> dict:
 # --- Vision QA -----------------------------------------------------------
 
 @mcp.tool()
-def render_frame(t: float, composite: bool = True) -> Image:
+def render_frame(t: float, composite: bool = True, track_id: Optional[str] = None) -> Image:
     """Render the subtitle frame at time `t` (seconds) and return it as an image
     so you can SEE the result and critique the design.
 
@@ -362,8 +408,11 @@ def render_frame(t: float, composite: bool = True) -> Image:
     use it to check text-over-face and contrast. composite=False returns the
     transparent overlay only. Reflects the live style, so call it after
     set_style / apply_preset / emphasize to see your change.
+
+    `track_id` previews one caption track (see `get_ui_state().tracks`) without
+    switching the app to it; omitted, it is the active tab.
     """
-    return Image(data=_client.get_frame(t, composite), format="png")
+    return Image(data=_client.get_frame(t, composite, track_id), format="png")
 
 
 @mcp.tool()
@@ -381,13 +430,34 @@ def preview_hyperframes_frame(t: float) -> Image:
 
 
 @mcp.tool()
-def check_layout(t: float, platform: str = "off") -> dict:
-    """Mechanical layout read at time `t`: caption bounding box, whether it
+def check_layout(
+    t: float,
+    platform: str = "off",
+    track_id: Optional[str] = None,
+    scan: bool = False,
+    max_lines: int = 2,
+) -> dict:
+    """Mechanical layout read — no visual judgment (use `render_frame` for that).
+
+    Default (`scan=False`), at time `t`: the caption bounding box, whether it
     touches the frame edge, and (platform = tiktok/reels/shorts) advisory
     safe-zone violations. Safe zones are guidance, not errors — text may sit
-    over them intentionally. Use `render_frame` for visual judgment.
+    over them intentionally.
+
+    `scan=True` ignores `t` and measures EVERY caption group in the track at
+    once, returning the ones that wrap past `max_lines` (default 2) or run wider
+    than the caption box, each with its `group_id`, `text` and `lines`. It
+    measures instead of rendering, so a whole track takes milliseconds.
+
+    That scan is the QA pass for a translated track: Polish and German typically
+    run 10–15 % longer than the same English line, so the expected failure is a
+    caption spilling onto a third line. Shorten those translations with
+    `set_track_text` and re-scan until it comes back empty. RSVP reading mode
+    reports no violations — it is one sliding line, so wrapping cannot happen.
+
+    `track_id` selects a caption track (default: the active tab).
     """
-    return _client.check_layout(t, platform)
+    return _client.check_layout(t, platform, track_id=track_id, scan=scan, max_lines=max_lines)
 
 
 # --- Transcript moments -----------------------------------------------
@@ -416,7 +486,7 @@ def find_semantic_moments(kind: str) -> dict:
 
 
 @mcp.tool()
-def render(output_dir: str = "") -> dict:
+def render(output_dir: str = "", track_id: Optional[str] = None) -> dict:
     """Render the FINAL video with the classic engine. Blocks for minutes.
 
     This is the deliverable, not a preview — check the look with `render_frame`
@@ -430,9 +500,18 @@ def render(output_dir: str = "") -> dict:
     `output_dir` defaults to the folder holding the source video. Returns
     `{"status": "ok", "file": "<absolute path>"}`, or status "cancelled" if the
     user cancelled it in the app.
+
+    `track_id` renders one caption track instead of the active tab; a translated
+    track writes `<name>.<lang>.mp4`, so delivering every language is a loop over
+    `render(track_id=…)` — there is no batch mode.
     """
     state = _client.get_ui_state() or {}
     body = state.get("render")
+    if track_id:
+        entry = tracks.resolve_track(state, track_id)
+        if tracks.is_error(entry):
+            return entry
+        body = entry.get("render")
     if not isinstance(body, dict) or not body.get("config"):
         return {
             "status": "error",
@@ -444,8 +523,9 @@ def render(output_dir: str = "") -> dict:
 
     # Submit the mirrored body verbatim: it is the renderer's own resolved
     # snake_case config plus custom_groups (manual group edits + per-group
-    # position overrides). Rebuilding it here would duplicate the casing bridge
-    # that deliberately lives only in the renderer's render.ts.
+    # position overrides), and — on a translated track — the output_name_suffix
+    # that puts the language in the filename. Rebuilding it here would duplicate
+    # the casing bridge that deliberately lives only in the renderer's render.ts.
     payload = dict(body)
     if output_dir:
         payload["output_dir"] = output_dir
@@ -453,7 +533,9 @@ def render(output_dir: str = "") -> dict:
 
 
 @mcp.tool()
-def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dict:
+def render_hyperframes(
+    quality: str = "draft", video_format: str = "mp4", track_id: Optional[str] = None
+) -> dict:
     """Render the FINAL full-length video (the captions over the video, or your
     co-authored composition) with the HyperFrames engine. This is slow and
     produces the deliverable — it is NOT a preview. Do NOT call it to "check"
@@ -478,10 +560,19 @@ def render_hyperframes(quality: str = "draft", video_format: str = "mp4") -> dic
     a reconnect. While a co-author project is active, CapForge refuses to re-scaffold
     over your authored index.html, so a render (or any panel refresh) can never
     silently overwrite your work.
+
+    `track_id` renders one caption track (see `get_ui_state().tracks`) instead of
+    the active tab, writing `<name>.<lang>_hyperframes.<ext>`.
     """
-    return _client.render_hyperframes(
-        {"render": True, "quality": quality, "video_format": video_format, "use_ui_config": True}
-    )
+    payload: dict = {
+        "render": True,
+        "quality": quality,
+        "video_format": video_format,
+        "use_ui_config": True,
+    }
+    if track_id:
+        payload["track_id"] = track_id
+    return _client.render_hyperframes(payload)
 
 
 # --- Caption style ------------------------------------------------------
@@ -811,6 +902,15 @@ def run_hyperframes_cli(args: list[str]) -> dict:
     are rejected. Returns `{ ok, exit_code, stdout, stderr, command }`.
     """
     return _client.run_hyperframes_cli(args)
+
+
+# --- Caption tracks ------------------------------------------------------
+
+# `create_track`, `set_track_text`, `get_track` and `reflow_track` live in
+# tracks.py (this file is at its size ceiling) but are ordinary tools on this
+# same server. The factory is read per call, so `_client` stays the one object
+# that has to exist.
+tracks.register(mcp, lambda: _client)
 
 
 def main() -> None:

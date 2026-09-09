@@ -433,6 +433,13 @@ def groups_for_render(
     """The display groups a render path should draw — the single place the
     ``custom_groups``-or-build decision is made.
 
+    The test is ``custom_groups is not None``, **not** truthiness: an empty list
+    is a caller saying "this track has nothing to draw", which is the state of a
+    translated caption track whose groups are all still untranslated placeholders
+    (`lib/render.ts` emits ``custom_groups: []`` for it). Reading ``[]`` as
+    "unset" would silently fall back to re-chunking the transcript and draw the
+    *source* language over the translated track.
+
     ``custom_groups`` bypass the gap-closing pass on purpose: they are
     frontend-authored groups, which the renderer already ran `closeGroupGaps`
     over before sending (`src/renderer/src/lib/groups.ts`), and they may carry
@@ -451,7 +458,7 @@ def groups_for_render(
     (``lib/rsvpReels.ts``) to the same groups on its side. It is the identity
     whenever no two groups touch, and a no-op in ``'wrap'`` mode.
     """
-    groups = custom_groups if custom_groups else _build_groups(
+    groups = custom_groups if custom_groups is not None else _build_groups(
         result,
         config.words_per_group,
         config.gap_close_threshold,
@@ -984,6 +991,79 @@ def _draw_word_list(
             x += effective_space_w
 
 
+def measure_group_words(config: VideoRenderConfig, font: ImageFont.FreeTypeFont,
+                        words: list[dict]) -> list[dict]:
+    """Per-word draw metrics for one caption group: advance width plus the timings
+    and per-word overrides the drawing code needs. Moved out of ``_render_frame``
+    unchanged so a layout check can measure a track without rasterizing a frame
+    (``backend/exporters/layout_scan.py``).
+    """
+    tracking = config.tracking
+
+    def _measure_word(text: str) -> float:
+        return _measure_tracked(text, font, tracking)
+
+    def _measure_with_font(text: str, f: ImageFont.FreeTypeFont) -> float:
+        return _measure_tracked(text, f, tracking)
+
+    all_metrics: list[dict] = []
+    for w in words:
+        ov = w.get("overrides") or {}
+        w_scale = float(ov.get("font_size_scale", 1.0))
+        w_bold  = bool(ov["bold"]) if "bold" in ov else config.bold
+        if w_scale != 1.0 or w_bold != config.bold:
+            ov_font = _get_font(config.font_family, round(config.font_size * w_scale),
+                                getattr(config, "custom_font_path", None), w_bold)
+            ww = _measure_with_font(w["word"], ov_font)
+        else:
+            ww = _measure_word(w["word"])
+        all_metrics.append({"word": w["word"], "width": ww, "start": w["start"], "end": w["end"],
+                             "overrides": ov if ov else None})
+    return all_metrics
+
+
+def wrap_rows(all_metrics: list[dict], *, effective_space_w: float, max_w_px: float,
+              num_lines: int, is_rsvp: bool) -> list[list[dict]]:
+    """Split one group's word metrics into the rows that get drawn. Moved out of
+    ``_render_frame`` unchanged; see :func:`measure_group_words`.
+    """
+    rows: list[list[dict]] = []
+    if is_rsvp:
+        # RSVP is a LAYOUT mode: one unwrapped row, however wide, so `lines` is
+        # ignored and the pivot column — not `text_align_h` — decides where a word
+        # sits *within* the row. `text_align_h` is NOT inert: it still feeds
+        # `align_shift_x` below, which moves `row_cx` and therefore the whole band
+        # (box, pivot, reticle, fade) whenever `bg_width_extra` opens up slack.
+        # See backend/exporters/rsvp_layout.py, which owns the band + pivot.
+        rows = [all_metrics]
+    elif num_lines <= 1:
+        # Greedy word-wrap: if total width exceeds max_width, break into rows
+        total_w = sum(m["width"] for m in all_metrics) + effective_space_w * max(0, len(all_metrics) - 1)
+        if total_w > max_w_px and len(all_metrics) > 1:
+            row: list[dict] = []
+            row_w = 0.0
+            for m in all_metrics:
+                add_w = (effective_space_w + m["width"]) if row else m["width"]
+                if row and row_w + add_w > max_w_px:
+                    rows.append(row)
+                    row = [m]
+                    row_w = m["width"]
+                else:
+                    row.append(m)
+                    row_w += add_w
+            if row:
+                rows.append(row)
+        else:
+            rows = [all_metrics]
+    else:
+        per_row = max(1, -(-len(all_metrics) // num_lines))  # ceil div
+        for r in range(num_lines):
+            sl = all_metrics[r * per_row:(r + 1) * per_row]
+            if sl:
+                rows.append(sl)
+    return rows
+
+
 def _render_frame(
     config: VideoRenderConfig,
     font: ImageFont.FreeTypeFont,
@@ -1046,30 +1126,11 @@ def _render_frame(
     tracking          = config.tracking
     extra_word_spacing = config.word_spacing
 
-    def _measure_word(text: str) -> float:
-        return _measure_tracked(text, font, tracking)
-
-    words = group["words"]
     effective_space_w = font.getlength(" ") + extra_word_spacing
-
-    def _measure_with_font(text: str, f: ImageFont.FreeTypeFont) -> float:
-        return _measure_tracked(text, f, tracking)
 
     all_metrics: Optional[list[dict]] = None if precomp is None else precomp.get("metrics")
     if all_metrics is None:
-        all_metrics = []
-        for w in words:
-            ov = w.get("overrides") or {}
-            w_scale = float(ov.get("font_size_scale", 1.0))
-            w_bold  = bool(ov["bold"]) if "bold" in ov else config.bold
-            if w_scale != 1.0 or w_bold != config.bold:
-                ov_font = _get_font(config.font_family, round(config.font_size * w_scale),
-                                    getattr(config, "custom_font_path", None), w_bold)
-                ww = _measure_with_font(w["word"], ov_font)
-            else:
-                ww = _measure_word(w["word"])
-            all_metrics.append({"word": w["word"], "width": ww, "start": w["start"], "end": w["end"],
-                                 "overrides": ov if ov else None})
+        all_metrics = measure_group_words(config, font, group["words"])
         if precomp is not None:
             precomp["metrics"] = all_metrics
 
@@ -1097,40 +1158,13 @@ def _render_frame(
     max_width_frac = getattr(config, "max_width", 0.9)
     max_w_px = config.resolution_w * max_width_frac
     is_rsvp = getattr(config, "reading_mode", "wrap") == "rsvp"
-    rows: list[list[dict]] = []
-    if is_rsvp:
-        # RSVP is a LAYOUT mode: one unwrapped row, however wide, so `lines` is
-        # ignored and the pivot column — not `text_align_h` — decides where a word
-        # sits *within* the row. `text_align_h` is NOT inert: it still feeds
-        # `align_shift_x` below, which moves `row_cx` and therefore the whole band
-        # (box, pivot, reticle, fade) whenever `bg_width_extra` opens up slack.
-        # See backend/exporters/rsvp_layout.py, which owns the band + pivot.
-        rows = [all_metrics]
-    elif num_lines <= 1:
-        # Greedy word-wrap: if total width exceeds max_width, break into rows
-        total_w = sum(m["width"] for m in all_metrics) + effective_space_w * max(0, len(all_metrics) - 1)
-        if total_w > max_w_px and len(all_metrics) > 1:
-            row: list[dict] = []
-            row_w = 0.0
-            for m in all_metrics:
-                add_w = (effective_space_w + m["width"]) if row else m["width"]
-                if row and row_w + add_w > max_w_px:
-                    rows.append(row)
-                    row = [m]
-                    row_w = m["width"]
-                else:
-                    row.append(m)
-                    row_w += add_w
-            if row:
-                rows.append(row)
-        else:
-            rows = [all_metrics]
-    else:
-        per_row = max(1, -(-len(all_metrics) // num_lines))  # ceil div
-        for r in range(num_lines):
-            sl = all_metrics[r * per_row:(r + 1) * per_row]
-            if sl:
-                rows.append(sl)
+    rows = wrap_rows(
+        all_metrics,
+        effective_space_w=effective_space_w,
+        max_w_px=max_w_px,
+        num_lines=num_lines,
+        is_rsvp=is_rsvp,
+    )
 
     row_widths = []
     for row in rows:
@@ -1705,8 +1739,15 @@ def render_subtitle_video(
     on_progress: Optional[Callable[[ProgressUpdate], None]] = None,
     source_video_path: Optional[str] = None,
     custom_groups: Optional[list[dict]] = None,
+    name_suffix: str = "",
 ) -> str:
     """Render subtitle video — overlay (transparent) or baked onto source.
+
+    ``name_suffix`` is inserted between the source stem and the render's own
+    suffix (``clip`` + ``.pl`` -> ``clip.pl_subtitles.mov``) so one source can
+    hold a rendered file per caption track. It reaches a filename, so callers
+    must take it from a pattern-validated field (``VideoRenderRequest``), never
+    from a raw client string.
 
     Returns the path to the output video file.
     """
@@ -1722,7 +1763,7 @@ def render_subtitle_video(
     output_dir = resolve_output_dir(output_dir, result.audio_path)
 
     os.makedirs(output_dir, exist_ok=True)
-    stem = Path(result.audio_path).stem
+    stem = Path(result.audio_path).stem + name_suffix
 
     is_baked = config.render_mode == "baked"
 

@@ -129,9 +129,33 @@ class ProgressUpdate(BaseModel):
 
 # --- Export ---
 
+# A caption track's language code (BCP-47-ish: ISO 639-1/2 plus an optional
+# region). It is formatted straight into an output FILENAME (`clip.pl.srt`), so
+# it is gated here, at the trust boundary, rather than sanitized downstream.
+LANG_CODE_PATTERN = r"^[a-z]{2,3}(-[A-Za-z]{2,4})?$"
+
+# Optional dotted suffix inserted between the source stem and the render's own
+# suffix (`clip` + `.pl` -> `clip.pl_subtitles.mov`). Same reasoning: it reaches
+# a path, so no separator, traversal or whitespace may pass.
+OUTPUT_NAME_SUFFIX_PATTERN = r"^(\.[A-Za-z0-9_-]{1,32})?$"
+
+
+class ExportTrack(BaseModel):
+    """One caption track's display groups, exported as its own subtitle file.
+
+    The renderer owns tracks; this is just the bundle it hands the exporter, so
+    a translated track exports its own text with its own timings under a
+    language-suffixed filename. ``segments`` are already the display groups.
+    """
+    id: str
+    lang: str = Field(..., pattern=LANG_CODE_PATTERN, description="ISO language code; becomes the filename suffix")
+    segments: list[Segment] = Field(default_factory=list)
+
+
 class ExportRequest(BaseModel):
     formats: list[ExportFormat]
     output_dir: str = "output"
+    track: Optional[ExportTrack] = Field(None, description="Export this caption track instead of the current transcription result")
 
 
 # --- Video Render ---
@@ -245,6 +269,9 @@ class CustomGroup(BaseModel):
     # None = use the global VideoRenderConfig.position_x/position_y.
     position_x: float | None = Field(None, ge=0.0, le=1.0, description="Per-group horizontal center override (0-1)")
     position_y: float | None = Field(None, ge=0.0, le=1.0, description="Per-group vertical center override (0-1)")
+    # Renderer-minted group id, carried so an agent can address a group it can
+    # see (check-layout's scan reports it). Never used for rendering.
+    id: Optional[str] = None
 
 
 class VideoRenderRequest(BaseModel):
@@ -252,6 +279,7 @@ class VideoRenderRequest(BaseModel):
     config: VideoRenderConfig = Field(default_factory=VideoRenderConfig)
     output_dir: str = "output"
     custom_groups: Optional[list[CustomGroup]] = Field(None, description="Manually edited groups; skips auto-grouping when provided")
+    output_name_suffix: str = Field("", pattern=OUTPUT_NAME_SUFFIX_PATTERN, description="Dotted suffix added to the output filename stem, e.g. '.pl' -> clip.pl_subtitles.mov")
 
 
 class HyperframesRenderRequest(BaseModel):
@@ -263,3 +291,5 @@ class HyperframesRenderRequest(BaseModel):
     quality: str = Field("draft", description="HyperFrames render quality: draft, standard, high")
     video_format: str = Field("mp4", description="HyperFrames output container: mp4 or webm")
     use_ui_config: bool = Field(False, description="Use the renderer's mirrored caption styling + groups instead of this request's config (the agent render path)")
+    track_id: Optional[str] = Field(None, description="With use_ui_config, read this caption track's mirrored render body instead of the active track's")
+    output_name_suffix: str = Field("", pattern=OUTPUT_NAME_SUFFIX_PATTERN, description="Dotted suffix added to the output filename stem, e.g. '.pl' -> clip.pl_hyperframes.mp4")

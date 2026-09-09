@@ -11,13 +11,41 @@ const SAFE_ZONE_OPTIONS: Array<{ value: StudioSettings['safeZone']; label: strin
   { value: 'shorts', label: 'Shorts' },
 ]
 
+interface LayoutCardProps extends StudioSectionProps {
+  /** False on a translated track, where `wordsPerGroup` re-chunks each
+   *  translated *sentence* instead of the transcript — same row, different
+   *  sentence (`lib/trackChunking.ts`). */
+  activeTrackIsSource?: boolean
+}
+
+/** What "Words/Grp" chunks, which is not the same thing on both kinds of track. */
+const WORDS_PER_GROUP_TITLE = {
+  source: 'Split the transcript into captions of this many words',
+  translated:
+    'Re-chunks each translated sentence into captions of at most N words — never merges across a sentence boundary',
+} as const
+
 /** "Layout" settings card — words/group, lines, position, max width, safe zones. */
-export function LayoutCard({ s, defaults, filter, set, cardProps }: StudioSectionProps) {
+export function LayoutCard({
+  s,
+  defaults,
+  filter,
+  set,
+  cardProps,
+  activeTrackIsSource = true,
+}: LayoutCardProps) {
   return (
     <StudioCard title="Layout" {...cardProps('layout')}>
+      {/* Words/Grp chunks the transcript on the source track. A translated
+          track has the same two levels — sentences, and captions chunked out of
+          them — so it chunks the translated sentence and never merges across a
+          sentence boundary (`lib/trackChunking.ts`). */}
       <Row label="Words/Grp" filter={filter}>
         <StudioRow
           label="Words/Grp"
+          title={
+            activeTrackIsSource ? WORDS_PER_GROUP_TITLE.source : WORDS_PER_GROUP_TITLE.translated
+          }
           value={s.wordsPerGroup}
           min={1}
           max={8}

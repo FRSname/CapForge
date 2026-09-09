@@ -18,6 +18,8 @@ import { mergeGroups, splitGroup, moveWord, reorderGroup } from '../../lib/group
 import { WordStylePopup, type WordStyleDefaults } from './WordStylePopup'
 import { GroupPositionPopup, type GroupPositionDefaults } from './GroupPositionPopup'
 import { useToast } from '../../hooks/useToast'
+import type { TrackGroupState } from '../../lib/tracks'
+import { EndTimeButton, TrackStateChip } from './GroupRowChrome'
 
 interface GroupEditorProps {
   groups: Segment[]
@@ -38,6 +40,13 @@ interface GroupEditorProps {
   /** Source media duration (seconds) — upper bound when extending the last
    *  group's end (which has no "next group" to clamp against). */
   mediaDuration?: number
+  /**
+   * Translated tracks only: each group's state against the source it was
+   * written from (`classifyTrack`), keyed by group id. Absent on the source
+   * track — and a group missing from the map is treated as `clean`, so a group
+   * created after the last classification never flashes a marker.
+   */
+  groupStates?: ReadonlyMap<string, TrackGroupState>
 }
 
 type DragSource =
@@ -60,6 +69,7 @@ export function GroupEditor({
   defaults,
   positionDefaults,
   mediaDuration,
+  groupStates,
 }: GroupEditorProps) {
   const { toast } = useToast()
 
@@ -554,6 +564,9 @@ export function GroupEditor({
                     ↺
                   </button>
                 )}
+                {/* Translated tracks: how this caption stands against the
+                    source words it was written from (`classifyTrack`). */}
+                <TrackStateChip state={groupStates?.get(group.id)} />
               </span>
 
               {/* Position-override indicator — click to edit */}
@@ -751,36 +764,6 @@ export function GroupEditor({
         />
       )}
     </div>
-  )
-}
-
-// ── EndTimeButton ────────────────────────────────────────────────
-// Extracted so `hovered` can be local `useState` — this button lives
-// inside `groups.map(...)`, and hooks can't be called in a loop callback.
-// Hover color is derived declaratively each render (not an imperative
-// `.style.color` write) so an external change to `isDirty` while hovered
-// (e.g. the group's end time is dragged on the timeline) can't be
-// silently clobbered by a stale mouseleave value.
-interface EndTimeButtonProps {
-  label: string
-  isDirty: boolean
-  title: string
-  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void
-}
-
-function EndTimeButton({ label, isDirty, title, onClick }: EndTimeButtonProps) {
-  const [hovered, setHovered] = useState(false)
-  return (
-    <button
-      className="transition-colors"
-      style={{ color: hovered || isDirty ? 'var(--color-accent)' : 'var(--color-text-2)' }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      onClick={onClick}
-      title={title}
-    >
-      {label}
-    </button>
   )
 }
 

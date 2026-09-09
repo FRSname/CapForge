@@ -79,6 +79,12 @@ export interface Word {
    *  falling back to array position. Optional: words loaded from an older project
    *  file or straight off the backend have none until `ensureWordIds` runs. */
   wid?: string
+  /** Translated-track words only: this word's `start`/`end` were *derived* from
+   *  the group span (proportionally by character count) rather than measured
+   *  against the audio, so an automatic pass may re-derive them. Absent means
+   *  authoritative/pinned — a source word (always measured) never carries it,
+   *  and a timeline drag of a translated word deletes it. */
+  timingDerived?: boolean
 }
 
 /** A subtitle segment (one block of text). */
@@ -98,6 +104,22 @@ export interface Segment {
    *  deliberately carved-out gap survives. Cleared whenever the group's bounds are
    *  recomputed from its words. Never set on source segments. */
   endEdited?: boolean
+  /** Translated-track groups only: the source words this group's text was
+   *  written from, as `{wid, text}` pairs in source document order. It is the
+   *  reference `lib/trackStaleness.ts` compares against to decide whether the
+   *  source has changed under a translation — the text is part of the record
+   *  because a typo fix keeps its `wid` (`lib/wordTiming.ts`), so a wid-only
+   *  compare would never notice it. Never set on source segments or groups. */
+  sourceWords?: Array<{ wid: string; text: string }>
+  /** Translated-track groups only: default (absent) = this group's `start`/`end`
+   *  follow the source span its `sourceWords` describe. Set to `false` when the
+   *  user drags this group on the translated tab, which pins its own timing and
+   *  exempts it from `propagateSourceTiming`. Never set on source segments. */
+  timingLinked?: boolean
+  /** Translated-track groups only: the translation a re-flow detached from this
+   *  span, kept purely as context for whoever writes the new one. Cleared the
+   *  moment text is set on the group. Never set on source segments. */
+  previousText?: string
 }
 
 /** Top-level transcription result from the backend. */

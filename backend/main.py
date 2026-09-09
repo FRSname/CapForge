@@ -72,16 +72,23 @@ from backend.exporters.hyperframes_version import (
     reset_version_cache,
 )
 from backend.exporters.json_export import export_json
+from backend.exporters.layout_scan import DEFAULT_MAX_LINES, scan_layout
 from backend.exporters.premiere_export import export_subforge
 from backend.exporters.srt_standard import export_srt_standard
 from backend.exporters.srt_word import export_srt_word
 from backend.exporters.vtt_export import export_vtt
-from backend.exporters.video_render import RenderCancelled, cancel_render, render_subtitle_video
+from backend.exporters.video_render import (
+    RenderCancelled,
+    cancel_render,
+    groups_for_render,
+    render_subtitle_video,
+)
 from backend.models.schemas import (
     ExportFormat,
     ExportRequest,
     HyperframesRenderRequest,
     JobStatus,
+    LANG_CODE_PATTERN,
     ProgressUpdate,
     RealignRequest,
     RealignResponse,
@@ -176,7 +183,14 @@ current_ui_state: Optional[dict] = None
 # `load_video` imports a file into the open app and starts transcription — it is
 # the entry point of an agent-driven batch run, and unlike the others it is
 # handled on every screen (the app is typically idle on the drop screen).
-AGENT_COMMAND_OPS = {"set_settings", "apply_preset", "set_word_overrides", "load_video"}
+# The three caption-track writes (`create_track`, `set_track_text`,
+# `reflow_track`) are commands like the rest: the renderer owns tracks, applies
+# them to its own state and echoes the outcome in the mirror. The backend keeps
+# no track state and implements no track rule.
+TRACK_COMMAND_OPS = ("create_track", "set_track_text", "reflow_track")
+AGENT_COMMAND_OPS = {
+    "set_settings", "apply_preset", "set_word_overrides", "load_video", *TRACK_COMMAND_OPS,
+}
 
 # Render-approval gate. An agent-triggered final HyperFrames render must be
 # approved by the human in the app before it starts — the agent should preview +
@@ -685,6 +699,59 @@ async def agent_get_ui_state():
     return current_ui_state
 
 
+_LANG_CODE_RE = re.compile(LANG_CODE_PATTERN)
+
+
+def _require_command_str(payload: dict, key: str, op: str) -> str:
+    """Read a required non-empty string out of a relayed command payload."""
+    value = payload.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise HTTPException(status_code=400, detail=f"{op} requires a non-empty '{key}' string")
+    return value
+
+
+def _validate_track_command(op: str, payload: dict) -> None:
+    """Validate a caption-track command before it is broadcast.
+
+    Same reasoning as ``load_video``: the renderer applies these to its own
+    state, so a malformed one would otherwise vanish into the broadcast and the
+    agent's confirm-by-poll would wait for an echo that never arrives. Only the
+    *shape* is checked here — whether the track or the group ids exist is the
+    renderer's answer, returned through the mirror echo.
+    """
+    # Every track write is confirmed by id, so an unnamed one is unconfirmable.
+    _require_command_str(payload, "command_id", op)
+
+    if op == "create_track":
+        _require_command_str(payload, "track_id", op)
+        lang = _require_command_str(payload, "lang", op)
+        if not _LANG_CODE_RE.fullmatch(lang):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"create_track requires an ISO language code such as 'pl' or "
+                    f"'pt-BR', got {lang!r}"
+                ),
+            )
+    elif op == "set_track_text":
+        entries = payload.get("entries")
+        if not isinstance(entries, list) or not entries:
+            raise HTTPException(
+                status_code=400,
+                detail="set_track_text requires a non-empty 'entries' list",
+            )
+        for i, entry in enumerate(entries):
+            if (
+                not isinstance(entry, dict)
+                or not isinstance(entry.get("group_id"), str)
+                or not isinstance(entry.get("text"), str)
+            ):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"set_track_text entries[{i}] must be {{group_id: str, text: str}}",
+                )
+
+
 @app.post("/api/agent/command", dependencies=[Depends(require_agent_token)])
 async def agent_command(cmd: dict):
     """Relay a style/emphasis/import command to the renderer over /ws/progress.
@@ -716,6 +783,14 @@ async def agent_command(cmd: dict):
             raise HTTPException(
                 status_code=409,
                 detail="Open CapForge to load a video — no UI is connected.",
+            )
+
+    if op in TRACK_COMMAND_OPS:
+        _validate_track_command(op, payload)
+        if not ws_clients:
+            raise HTTPException(
+                status_code=409,
+                detail="Open CapForge to edit caption tracks — no UI is connected.",
             )
 
     await broadcast_event({"type": "agent_command", "op": op, "payload": payload})
@@ -772,11 +847,81 @@ def _describe_validation_errors(exc: ValidationError) -> str:
     return ", ".join(parts) or "unknown field"
 
 
-def _agent_frame_inputs() -> tuple[VideoRenderConfig, Optional[list]]:
-    """Resolve the (config, custom_groups) the renderer last mirrored."""
+def _track_inventory(state: dict) -> list[dict]:
+    """The compact ``{id, label, lang}`` list an unknown-track error reports, so
+    the agent can retry with an id that exists instead of guessing."""
+    tracks = state.get("tracks")
+    if not isinstance(tracks, list):
+        return []
+    return [
+        {"id": t.get("id"), "label": t.get("label"), "lang": t.get("lang")}
+        for t in tracks
+        if isinstance(t, dict)
+    ]
+
+
+def _mirrored_track_render(state: dict, track_id: str) -> Optional[dict]:
+    """The render body the renderer mirrored for one caption track.
+
+    Raises 404 with the track inventory when nothing in the mirror carries that
+    id — including when no ``tracks`` key was mirrored at all (a renderer older
+    than caption tracks), where the inventory is simply empty.
+    """
+    tracks = state.get("tracks")
+    for track in tracks if isinstance(tracks, list) else []:
+        if isinstance(track, dict) and track.get("id") == track_id:
+            return track.get("render")
+    raise HTTPException(
+        status_code=404,
+        detail={
+            "title": f"Unknown track: {track_id!r}",
+            "hint": (
+                "The renderer mirrors one entry per open caption track. Pass one "
+                "of the ids listed here, or omit track_id to use the active track."
+            ),
+            "tracks": _track_inventory(state),
+        },
+    )
+
+
+def _req_track_id(req: dict) -> Optional[str]:
+    """Read the optional ``track_id`` out of an agent request body.
+
+    Absent or empty means "the active track", i.e. the historical behaviour.
+    """
+    track_id = req.get("track_id")
+    if track_id is None:
+        return None
+    if not isinstance(track_id, str):
+        raise HTTPException(status_code=400, detail="track_id must be a string")
+    return track_id or None
+
+
+def _req_max_lines(req: dict) -> int:
+    """Read the layout scan's ``max_lines`` bound out of an agent request body."""
+    raw = req.get("max_lines", DEFAULT_MAX_LINES)
+    try:
+        max_lines = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=400, detail=f"max_lines must be an integer, got {raw!r}"
+        ) from exc
+    if max_lines < 1:
+        raise HTTPException(status_code=400, detail="max_lines must be at least 1")
+    return max_lines
+
+
+def _agent_frame_inputs(track_id: Optional[str] = None) -> tuple[VideoRenderConfig, Optional[list]]:
+    """Resolve the (config, custom_groups) the renderer last mirrored.
+
+    ``track_id`` picks one caption track's mirrored render body; ``None`` reads
+    the top-level ``render`` — the active track's body, and the historical
+    behaviour every pre-tracks caller still gets unchanged.
+    """
     if current_result is None:
         raise HTTPException(status_code=404, detail="No transcription result available")
-    render = (current_ui_state or {}).get("render")
+    state = current_ui_state or {}
+    render = state.get("render") if track_id is None else _mirrored_track_render(state, track_id)
     if not render or "config" not in render:
         raise HTTPException(
             status_code=409,
@@ -817,9 +962,10 @@ async def agent_render_frame(req: dict):
 
     Uses the live mirrored style. ``composite`` (default true) overlays the
     captions on the actual video frame so the agent can judge text-over-face
-    and contrast; false returns the transparent overlay only.
+    and contrast; false returns the transparent overlay only. ``track_id``
+    previews one caption track (default: the active one).
     """
-    config, custom_groups = _agent_frame_inputs()
+    config, custom_groups = _agent_frame_inputs(_req_track_id(req))
     t = float(req.get("t", 0.0))
     composite = bool(req.get("composite", True))
     source = current_result.audio_path if composite else None
@@ -834,11 +980,31 @@ async def agent_render_frame(req: dict):
 @app.post("/api/agent/check-layout", dependencies=[Depends(require_agent_token)])
 async def agent_check_layout(req: dict):
     """Mechanical layout read at ``t``: caption bbox, frame-edge contact, and
-    advisory safe-zone violations (platform: tiktok/reels/shorts/off)."""
-    config, custom_groups = _agent_frame_inputs()
+    advisory safe-zone violations (platform: tiktok/reels/shorts/off).
+
+    With ``scan: true`` it answers a different question — which of *all* the
+    track's groups wrap past ``max_lines`` (default 2) or overflow the caption
+    box. That pass measures instead of rendering (no frame is rasterized), which
+    is what makes a whole-track check take milliseconds; it is the loop for a
+    translated track, whose text routinely runs 10-15 % longer than the source.
+    ``track_id`` selects the track (default: the active one).
+    """
+    config, custom_groups = _agent_frame_inputs(_req_track_id(req))
+    loop = asyncio.get_running_loop()
+
+    if req.get("scan"):
+        max_lines = _req_max_lines(req)
+
+        def _scan() -> dict:
+            # groups_for_render first, so the scanned groups are the drawn ones
+            # (custom groups verbatim, otherwise built from the transcript).
+            groups = groups_for_render(current_result, config, custom_groups)
+            return scan_layout(config, groups, max_lines)
+
+        return await loop.run_in_executor(None, _scan)
+
     t = float(req.get("t", 0.0))
     platform = str(req.get("platform", "off"))
-    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
         None, lambda: analyze_layout(current_result, config, t, custom_groups, platform)
     )
@@ -846,12 +1012,33 @@ async def agent_check_layout(req: dict):
 
 @app.post("/api/export", dependencies=[Depends(require_local_token)])
 async def export_result(request: ExportRequest):
-    """Export the latest transcription result to the requested formats."""
+    """Export the latest transcription result to the requested formats.
+
+    With a ``track``, the *track's* groups are exported instead — its own text
+    and timings, written next to the source as ``<stem>.<lang><ext>``. The track
+    is carried in the request rather than read from the mirror because export is
+    a UI action on state the renderer owns; the backend keeps no track state.
+    """
     if current_result is None:
         raise HTTPException(status_code=404, detail="No transcription result to export")
 
+    result = current_result
+    name_suffix = ""
+    if request.track is not None:
+        # `lang` is pattern-gated on ExportTrack, so it is safe in a filename.
+        result = TranscriptionResult(
+            segments=request.track.segments,
+            language=request.track.lang,
+            audio_path=current_result.audio_path,
+            duration=current_result.duration,
+        )
+        name_suffix = f".{request.track.lang}"
+
     output_dir = request.output_dir
-    files = _do_export(current_result, request.formats, output_dir, current_result.audio_path)
+    files = _do_export(
+        result, request.formats, output_dir, current_result.audio_path,
+        name_suffix=name_suffix,
+    )
     return {"status": "ok", "files": files}
 
 
@@ -911,6 +1098,7 @@ async def render_video(request: VideoRenderRequest):
                 on_progress=progress_cb,
                 source_video_path=current_result.audio_path if request.config.render_mode == "baked" else None,
                 custom_groups=custom_groups_dicts,
+                name_suffix=request.output_name_suffix,
             ),
         )
 
@@ -998,7 +1186,7 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
         [g.model_dump() for g in request.custom_groups] if request.custom_groups else None
     )
     if request.use_ui_config:
-        config, ui_groups = _agent_frame_inputs()
+        config, ui_groups = _agent_frame_inputs(request.track_id)
         if ui_groups is not None:
             custom_groups_dicts = ui_groups
 
@@ -1026,7 +1214,9 @@ async def export_hyperframes_endpoint(request: HyperframesRenderRequest):
     # chose, or — for an empty/relative value like the schema default "output" —
     # the folder next to the source file. Never the opaque backend CWD.
     out_dir = resolve_output_dir(request.output_dir, current_result.audio_path)
-    stem = Path(current_result.audio_path).stem or "capforge"
+    # The suffix (".pl") names the caption track this render came from; it is
+    # pattern-gated on the request model before it reaches a path.
+    stem = (Path(current_result.audio_path).stem or "capforge") + request.output_name_suffix
     ext = ".webm" if request.video_format == "webm" else ".mp4"
 
     def _scaffold(into: str) -> str:
@@ -1637,8 +1827,13 @@ def _do_export(
     formats: list[ExportFormat],
     output_dir: str,
     audio_path: str,
+    name_suffix: str = "",
 ) -> list[str]:
     """Write exported files and return list of output paths.
+
+    ``name_suffix`` is inserted after the source stem (``clip`` + ``.pl`` ->
+    ``clip.pl.srt``) so one source can hold a subtitle file per caption track.
+    It reaches a path, so callers must take it from a validated field.
 
     ``output_dir`` is resolved through ``resolve_output_dir`` (same sandbox as
     the HyperFrames export path): a non-absolute or otherwise unusable value
@@ -1648,7 +1843,7 @@ def _do_export(
     """
     output_dir = resolve_output_dir(output_dir, audio_path)
     os.makedirs(output_dir, exist_ok=True)
-    stem = Path(audio_path).stem
+    stem = Path(audio_path).stem + name_suffix
     both_srt = ExportFormat.SRT_WORD in formats and ExportFormat.SRT_STANDARD in formats
     written: list[str] = []
 

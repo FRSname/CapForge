@@ -97,8 +97,19 @@ class CapForgeClient:
     def send_command(self, op: str, payload: dict) -> Any:
         return self._request("POST", "/api/agent/command", json={"op": op, "payload": payload})
 
-    def check_layout(self, t: float, platform: str = "off") -> Any:
-        return self._request("POST", "/api/agent/check-layout", json={"t": t, "platform": platform})
+    def check_layout(
+        self, t: float, platform: str = "off", track_id: Optional[str] = None,
+        scan: bool = False, max_lines: int = 2,
+    ) -> Any:
+        # The scan keys are only sent for a scan, so an ordinary layout read is
+        # byte-identical to the request this always made.
+        payload: dict[str, Any] = {"t": t, "platform": platform}
+        if track_id:
+            payload["track_id"] = track_id
+        if scan:
+            payload["scan"] = True
+            payload["max_lines"] = max_lines
+        return self._request("POST", "/api/agent/check-layout", json=payload)
 
     def find_moments(self, query: str) -> Any:
         return self._request("GET", f"/api/agent/find-moments?query={quote(query)}")
@@ -170,24 +181,34 @@ class CapForgeClient:
             json={"style": style}, timeout=_LONG_TIMEOUT,
         )
 
-    def get_frame(self, t: float, composite: bool = True, _retry: bool = True) -> bytes:
-        """Render a QA frame and return raw PNG bytes (not JSON)."""
+    def get_frame(
+        self, t: float, composite: bool = True, track_id: Optional[str] = None,
+        _retry: bool = True,
+    ) -> bytes:
+        """Render a QA frame and return raw PNG bytes (not JSON).
+
+        `track_id` previews one caption track's mirrored style; omitted, the
+        backend reads the active track's, as it always did.
+        """
         self._ensure()
+        body: dict[str, Any] = {"t": t, "composite": composite}
+        if track_id:
+            body["track_id"] = track_id
         try:
             res = httpx.post(
                 f"{self._base}/api/render-frame",
-                json={"t": t, "composite": composite},
+                json=body,
                 headers=self._headers(),
                 timeout=_LONG_TIMEOUT,
             )
         except httpx.ConnectError as exc:
             self.reset()
             if _retry:
-                return self.get_frame(t, composite, _retry=False)
+                return self.get_frame(t, composite, track_id, _retry=False)
             raise BackendNotFound("Could not reach the CapForge backend. Is the app still open?") from exc
         if res.status_code == 401 and _retry:
             self.reset()
-            return self.get_frame(t, composite, _retry=False)
+            return self.get_frame(t, composite, track_id, _retry=False)
         res.raise_for_status()
         return res.content
 

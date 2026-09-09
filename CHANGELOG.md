@@ -1,5 +1,55 @@
 # Changelog
 
+▶ **[Watch the tutorial — how to use CapForge](https://www.youtube.com/watch?v=7xxLt5FEq1E)**
+
+**Latest release — v2.6.0:** RSVP speed-reading captions · captions held across short gaps · pick your transcription model · gradient text and background colours · favorite fonts · readable `.srt` and `.vtt` cues.
+
+## CapForge v2.6.0
+
+This release is mostly about new ways to read a caption. There's a Spritz-style speed-reading mode where the line slides under your eye instead of your eye moving across it, and short silences between captions no longer blank the screen. Colours can be gradients now, and the transcription model is finally something you pick rather than a silent 1.6 GB download.
+
+### New Features
+
+**RSVP speed-reading captions**
+A new reading mode lays the caption out as a single unwrapped line that slides so the active word's focus letter stays pinned to a fixed column — the Spritz layout, where your eye holds still and the words move past it. Consecutive captions with no blank frame between them flow through as one continuous line rather than snapping back to the first word each time. The new Reading card sets the mode and everything about it: where the focus column sits, how long the slide takes, how much the surrounding words dim, the edge fade, the focus colour, and an optional reticle marking the pivot. It renders identically in the live preview, the classic export and the HyperFrames engine.
+
+**Captions held across short gaps**
+A brief silence between two captions used to blank the screen for a few frames, which reads as a flicker. Captions are now held across gaps shorter than a threshold you set — the "Gap close" dial in the Layout card, 0.25s by default — and the final caption is held past its last word by "Hold last", one second by default, so it doesn't vanish the instant speech stops. Either dial at 0 turns that half off. Both apply to the preview and the render alike, and an end you placed by hand, dragged on the timeline or typed in the Groups list, is left exactly where you put it. The manual button that stretches every group is now called "Close all gaps".
+
+**Choose your transcription model**
+CapForge always downloaded and ran Large Turbo, about 1.6 GB, which put the app out of reach of low-end machines entirely. The first-run wizard now shows every model with its download size and its trade-off — Tiny at 75 MB through Large Turbo — and installs only the one you pick; a dropdown in Settings changes it afterwards, and a model you haven't downloaded yet is fetched the first time you use it. Large Turbo is still pre-selected everywhere, because the smaller models are noticeably less accurate; what changed is that the 1.6 GB is now an informed choice with a one-click downgrade. Accepting the recommendation still leaves the app free to step down to a lighter model on a GPU with too little memory for turbo, exactly as before.
+
+**Gradient caption colours**
+Caption text and the background box can each take a linear gradient instead of a flat colour. The colour picker gained a gradient mode with sliders for the angle and for each stop's position, and stops can be added or removed; "Add stop" splits the widest gap. Gradients render identically in the live preview, the classic export and the HyperFrames engine. Words carrying a colour of their own — the active word, per-word overrides — stay flat.
+
+**Favorite fonts**
+Star a font to pin it to the top of the picker, in both the main font list and the per-word override popup.
+
+### Fixes
+
+**Subtitle exports are readable cues, not paragraphs**
+An exported `.srt` or `.vtt` could hold a whole paragraph in a single cue, because each cue was a raw transcription chunk rather than a sentence. Exports are now split along the standard broadcast conventions — 42 characters a line, at most two lines, at most seven seconds — breaking at sentence boundaries first, then on length, then on duration, without being fooled by abbreviations, initials, decimals or a lowercase continuation. Cue times are copied from the existing word timings and never recomputed, so nothing drifts against the audio. The `.ass` exporter still emits one cue per chunk; splitting it means re-scoping its per-word karaoke tags, which is a separate job.
+
+**Colour picker no longer clipped by the studio card**
+The picker popover was drawn inside the studio card, which clips its contents in order to round its header — so the taller gradient editor lost its stop rows and its Add-stop button off the bottom edge, and the plain colour picker was being clipped too, just less visibly. The popover now floats above the card and flips above the swatch when there isn't room below.
+
+**Restored projects render again**
+A project saved by an older build could fail to render with an opaque "Unprocessable Entity" error: settings added to CapForge since that project was saved were missing, and turned into invalid numbers on the way to the renderer. Opening a project now fills in the current defaults for anything the file doesn't carry.
+
+**Presets no longer reset your caption grouping**
+Applying a preset wrote its own words-per-group value, which rebuilt every group from scratch and threw away hand-edited group ends along with them. Grouping is a per-project setting now, and presets leave it alone. Older presets and shared `.cfpreset` files still load; their grouping value is simply ignored.
+
+**Private system fonts hidden from the picker**
+macOS marks its internal faces with a leading dot in the family name — 73 of the 380 families on a stock install. They no longer clutter the font list. A project that already references one keeps rendering.
+
+### Internal
+
+**RSVP and gradients pinned across all three renderers**
+Both features have a shared scalar core written out three times — Python, TypeScript and the embedded HTML runtime — pinned against one another by shared JSON fixtures, plus new golden frames and cross-renderer parity runs. The preview, the classic export and the HyperFrames engine can't drift apart on either feature without a test going red.
+
+**The continuous RSVP line is fast enough to preview**
+Flowing captions through group boundaries means measuring a much longer line every frame. The off-screen part is culled and each line's layout is cached, both pixel-neutral: 900 words a frame drops from 140ms to 9.7ms.
+
 ## CapForge v2.5.0
 
 This release is mostly about trusting your edits. Correcting a word in the transcript, or rearranging caption groups by hand, used to quietly undo work elsewhere — that whole class of desync is gone. Plus per-word background boxes, and the agent tooling needed to run a batch end to end.

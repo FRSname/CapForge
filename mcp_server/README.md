@@ -78,19 +78,23 @@ actually reads.
 | `remove_filler_words` | Drop um/uh/er… (timing preserved) → live UI |
 | `load_video` | Load a video into the **open app** and start transcribing — the entry point of a batch run |
 | `transcribe` | Start a transcription headlessly, bypassing the UI (blocks until done) |
-| `export` | Export current transcript (srt/ass/json/…) |
-| `get_ui_state` | Current screen + style + display groups + preset names + resolved render config |
+| `export` | Export current transcript (srt/ass/json/…). `track_id` exports that caption track's own text and timings as `<name>.<lang>.srt` |
+| `get_ui_state` | Current screen + style + display groups + preset names + resolved render config, plus the caption-track inventory (`tracks`, `activeTrackId`) — groups and render bodies stripped; use `get_track` for groups |
 | `list_presets` | Style presets available in the app: `{user, builtin}` |
-| `set_style` | Change global style (camelCase StudioSettings patch) → live UI |
-| `apply_preset` | Apply a **user-saved or built-in** style preset by name → live UI; blocks until the app confirms |
-| `render` | Render the final video with the CLASSIC (Pillow) engine → output path. No approval gate |
+| `set_style` | Change global style (camelCase StudioSettings patch) → live UI. `track_id` styles one caption track (default: the active one) |
+| `apply_preset` | Apply a **user-saved or built-in** style preset by name → live UI; blocks until the app confirms. Optional `track_id` |
+| `create_track` | Add a translated caption track (a language tab) and get back its blank group ids paired with the source text to translate. Switches the app to the new tab |
+| `set_track_text` | Write translations onto a track, one caption per group; word timings are derived proportionally across each group's existing span |
+| `get_track` | A track's captions with their `clean`/`stale`/`untranslated` state — filterable to the ones needing work (`stale_only`) or to a time window |
+| `reflow_track` | Rebuild a track's caption skeleton after the source's grouping changed (`reflowNeeded`); carries text through unchanged groups, blanks the rest with their `previousText` |
+| `render` | Render the final video with the CLASSIC (Pillow) engine → output path. No approval gate. `track_id` renders that caption track, whose language suffixes the filename (`clip.pl_subtitles.mov`) |
 | `emphasize` | Style individual words (size/animation/color) → live UI |
-| `render_frame` | CLASSIC (Pillow) frame at time `t` (composited over video) — agent SEES it |
+| `render_frame` | CLASSIC (Pillow) frame at time `t` (composited over video) — agent SEES it. Optional `track_id` |
 | `preview_hyperframes_frame` | ONE HyperFrames frame at `t` (native/custom caption) — fast preview, agent SEES it |
-| `check_layout` | Caption bbox + frame-edge + advisory safe-zone check at `t` |
+| `check_layout` | Caption bbox + frame-edge + advisory safe-zone check at `t`. With `scan=True` it instead measures **every** caption group and reports the ones that wrap past `max_lines` or overflow the box — the translation-overflow loop; optional `track_id` |
 | `find_moments` | Find transcript moments (word timings) matching a phrase — where to time a composition or caption change |
 | `find_semantic_moments` | Find moments by category: `numbers` / `cta` / `speaker_change` (diarization) |
-| `render_hyperframes` | Render captions via HyperFrames → output path |
+| `render_hyperframes` | Render captions via HyperFrames → output path. Optional `track_id` |
 | `list_caption_styles` | List caption styles: `classic` + native HyperFrames registry styles |
 | `set_caption_style` | Set the caption look (classic / `caption-pill-karaoke` / …) → UI dropdown; becomes visible only in HyperFrames preview/render |
 | `get_custom_caption_contract` | Contract + starter template for authoring your OWN caption style from scratch |
@@ -105,6 +109,15 @@ actually reads.
 | `import_into_workspace` | Import an effect pack (folder: a top-level `<name>.html` + optional README/registry-item.json + assets) into the workspace, layout preserved |
 | `run_hyperframes_cli` | Run an allowlisted HyperFrames CLI check (lint/inspect/compositions/info/docs) in the workspace — the dev loop |
 | `hyperframes_guide` | The HyperFrames **creative library** — caption craft, motion, type, the text-highlight vocabulary, transitions, palettes. Call with no topic for the operating model + index, then a topic id to pull on demand |
+
+### Caption tracks (translations)
+
+`create_track` → `set_track_text` → `check_layout(track_id, scan=True)` → shorten what
+overflows → re-write → re-scan. The renderer owns tracks; every write here is a command
+the app confirms, so **CapForge must be open**. See
+[`docs/caption-tracks.md`](../docs/caption-tracks.md) for the data model, the staleness
+rules and what is deliberately absent (there is no `delete_track`, and no batch render —
+loop over `render(track_id)`).
 
 ## Batch runs (a folder of videos, one style)
 

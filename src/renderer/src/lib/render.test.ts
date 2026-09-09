@@ -292,6 +292,66 @@ describe('buildRenderBody — custom groups', () => {
   })
 })
 
+describe('buildRenderBody — caption tracks', () => {
+  const groups = [group('hello world', 0, 2), group('again', 5, 6)]
+
+  test('emits no output_name_suffix for the source track', () => {
+    // Default and explicit-empty must both leave the body byte-identical to what
+    // a single-track project has always sent.
+    expect(Object.keys(buildRenderBody(STUDIO_DEFAULTS, [], false))).toEqual(['config'])
+    expect(Object.keys(buildRenderBody(STUDIO_DEFAULTS, [], false, {}, undefined, ''))).toEqual([
+      'config',
+    ])
+  })
+
+  test('emits the suffix for a translated track, on the body not the config', () => {
+    const body = buildRenderBody(STUDIO_DEFAULTS, [], false, {}, undefined, '.pl')
+    expect(body.output_name_suffix).toBe('.pl')
+    // A track is not a style — VideoRenderConfig must never learn about it.
+    expect('output_name_suffix' in body.config).toBe(false)
+  })
+
+  test('each custom group carries its renderer-side id', () => {
+    const body = buildRenderBody(STUDIO_DEFAULTS, groups, true)
+    expect(body.custom_groups!.map((g) => g.id)).toEqual([groups[0].id, groups[1].id])
+  })
+
+  test('drops word-less groups — no renderer may see an untranslated placeholder', () => {
+    const withPlaceholder: Segment[] = [
+      groups[0],
+      {
+        id: 'blank',
+        start: 2,
+        end: 4,
+        text: '',
+        words: [],
+        sourceWords: [{ wid: 'w1', text: 'x' }],
+      },
+      groups[1],
+    ]
+    const body = buildRenderBody(STUDIO_DEFAULTS, withPlaceholder, true)
+    expect(body.custom_groups).toHaveLength(2)
+    expect(body.custom_groups!.map((g) => g.id)).toEqual([groups[0].id, groups[1].id])
+  })
+
+  test('an all-placeholder edited track still sends custom_groups, as []', () => {
+    // The dangerous fallback: with no `custom_groups` key the backend re-chunks
+    // from the stored transcription (`groups_for_render`), so a translated track
+    // whose groups were *all* filtered out as word-less would render the
+    // **source** captions. An explicit empty list says "draw nothing" instead.
+    const blanks: Segment[] = [{ id: 'blank', start: 0, end: 1, text: '', words: [] }]
+    const body = buildRenderBody(STUDIO_DEFAULTS, blanks, true)
+    expect('custom_groups' in body).toBe(true)
+    expect(body.custom_groups).toEqual([])
+  })
+
+  test('the same placeholders with groupsEdited=false send no custom_groups key', () => {
+    // An unedited source track must keep the cheap backend re-chunking path.
+    const blanks: Segment[] = [{ id: 'blank', start: 0, end: 1, text: '', words: [] }]
+    expect('custom_groups' in buildRenderBody(STUDIO_DEFAULTS, blanks, false)).toBe(false)
+  })
+})
+
 describe('older project files (restore → render)', () => {
   // A project saved by an earlier build has no value for fields added since.
   // A plain missing field is harmless — JSON.stringify omits it and the backend

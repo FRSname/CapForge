@@ -191,7 +191,34 @@ export function closeGroupGaps(
 // These operate on an already-built groups array; they do NOT mutate. Callers
 // pass the result back up to ResultsScreen.setSegments (or a groups store).
 
-/** Merge the group at `index` with the next group. No-op if out of range. */
+/**
+ * The caption-track fields (`types/app.ts`) a merge produces. Empty for
+ * source-track groups — neither side carries a record, so the merged group must
+ * come out exactly as it always has, with none of the three keys present.
+ *
+ * - `sourceWords`: both records concatenated in group order, so the merged
+ *   translation still describes every source word behind it.
+ * - `timingLinked`: linked (left absent) only when **both** sides were linked;
+ *   absent counts as linked. If either side was pinned by a manual drag, the
+ *   merge inherits the pin — re-linking would silently move a hand-placed span.
+ * - `previousText` is dropped by the caller: it described a span that no longer
+ *   exists.
+ */
+function mergedTrackFields(a: Segment, b: Segment): Partial<Segment> {
+  if (!a.sourceWords && !b.sourceWords) return {}
+  const pinned = a.timingLinked === false || b.timingLinked === false
+  return {
+    sourceWords: [...(a.sourceWords ?? []), ...(b.sourceWords ?? [])],
+    ...(pinned ? { timingLinked: false } : {}),
+  }
+}
+
+/**
+ * Merge the group at `index` with the next group. No-op if out of range.
+ *
+ * `endEdited` is dropped (the merged bounds come from the words), and so is
+ * `previousText`. The caption-track fields follow `mergedTrackFields`.
+ */
 export function mergeGroups(groups: Segment[], index: number): Segment[] {
   if (index < 0 || index >= groups.length - 1) return groups
   const a = groups[index]
@@ -203,6 +230,7 @@ export function mergeGroups(groups: Segment[], index: number): Segment[] {
     text: `${a.text} ${b.text}`.trim(),
     words: [...a.words, ...b.words],
     speaker: a.speaker ?? b.speaker,
+    ...mergedTrackFields(a, b),
   }
   return [...groups.slice(0, index), combined, ...groups.slice(index + 2)]
 }
@@ -211,6 +239,16 @@ export function mergeGroups(groups: Segment[], index: number): Segment[] {
  * Split group at `index` after the Nth word (1-based). Words `[0..n-1]` stay
  * in the left group; `[n..]` become a new right group. No-op if n is at the
  * edges (nothing to split off).
+ *
+ * `endEdited` and `previousText` are dropped from both halves. On a translated
+ * group both halves keep the **full** `sourceWords` record — a translation is
+ * not word-aligned to its source, so neither half can claim a sub-range — and
+ * the link is left exactly as it was: two halves with identical records are a
+ * *sibling run*, which `propagateSourceTiming` (`lib/trackTiming.ts`) moves as
+ * one caption and rescales inside its span, so neither half is snapped back to
+ * the whole source span. A group the user had already pinned hands that pin to
+ * both halves. Source-track groups (no record) split exactly as before, with
+ * none of the three keys present.
  */
 export function splitGroup(groups: Segment[], index: number, n: number): Segment[] {
   const g = groups[index]
@@ -218,6 +256,14 @@ export function splitGroup(groups: Segment[], index: number, n: number): Segment
   if (n <= 0 || n >= g.words.length) return groups
   const left: Word[] = g.words.slice(0, n)
   const right: Word[] = g.words.slice(n)
+  /** Called per half so the two records are separate arrays, never one shared. */
+  const trackFields = (): Partial<Segment> =>
+    g.sourceWords
+      ? {
+          sourceWords: [...g.sourceWords],
+          ...(g.timingLinked === false ? { timingLinked: false } : {}),
+        }
+      : {}
   const a: Segment = {
     id: `${g.id}#L`,
     start: left[0].start,
@@ -225,6 +271,7 @@ export function splitGroup(groups: Segment[], index: number, n: number): Segment
     text: left.map((w) => w.word).join(' '),
     words: left,
     speaker: g.speaker,
+    ...trackFields(),
   }
   const b: Segment = {
     id: `${g.id}#R`,
@@ -233,6 +280,7 @@ export function splitGroup(groups: Segment[], index: number, n: number): Segment
     text: right.map((w) => w.word).join(' '),
     words: right,
     speaker: g.speaker,
+    ...trackFields(),
   }
   return [...groups.slice(0, index), a, b, ...groups.slice(index + 1)]
 }
@@ -345,13 +393,23 @@ type Bucket = {
  *    from a segment none of whose words are grouped yet (a freshly added
  *    subtitle) starts its own group instead of being absorbed by the previous
  *    one.
- * 4. Groups left with no words are dropped (as `moveWord` already does).
+ * 4. Groups left with no words are dropped (as `moveWord` already does) —
+ *    **except** a group carrying `sourceWords`. That is a translated track's
+ *    untranslated placeholder (`lib/tracks.ts`): a blank caption with its own
+ *    span and a record of the source words behind it. It has no words *yet*, and
+ *    dropping it would silently delete the slot the translator is supposed to
+ *    fill. `buildRenderBody` drops word-less groups from the render payload
+ *    instead, so no renderer ever sees one.
  * 5. Bounds: a group whose word ids are unchanged keeps `start`/`end`
  *    **verbatim** — that is what preserves a manual timeline drag and the
  *    stretched end baked by "Close all gaps". A group whose word set changed gets
  *    bounds recomputed from its words (`finalizeBounds` semantics, matching the
- *    stale-bounds fix in 90c2e7a).
- * 6. `speaker` and `positionOverride` ride the group.
+ *    stale-bounds fix in 90c2e7a). A placeholder is unchanged by definition
+ *    (no words before, none after), so its span survives.
+ * 6. `speaker` and `positionOverride` ride the group, as do the caption-track
+ *    fields `sourceWords`, `timingLinked` and `previousText` — they all travel
+ *    on the base group spread, which is what keeps a translated group linked to
+ *    its source across an edit.
  *
  * Falls back to `restoreManualGroupState(buildStudioGroups(...))` — the old,
  * document-order behaviour — when identity is unavailable: a project saved
@@ -400,8 +458,14 @@ export function reconcileGroups(
   const bucketOfWord = new Map<string, Bucket>()
   buckets.forEach((b) => b.words.forEach((w) => bucketOfWord.set(w.wid!, b)))
 
-  // Every group word vanished — nothing left to anchor insertions to.
-  if (bucketOfWord.size === 0) return rebuild()
+  // Every group word vanished — nothing left to anchor insertions to. A track of
+  // nothing but untranslated placeholders (Rule 4) is the one shape where that
+  // is normal rather than broken: it has no words to match by design, and a
+  // document-order rebuild would replace its authored skeleton with N-word
+  // chunks of the segments. Leave it exactly as it is.
+  if (bucketOfWord.size === 0) {
+    return previous.some((g) => g.sourceWords) ? previous : rebuild()
+  }
 
   // Rule 3 — walk the segments in document order, placing new words next to the
   // last word we know the home of.
@@ -454,7 +518,7 @@ export function reconcileGroups(
 
   // Rules 4-6.
   return buckets
-    .filter((b) => b.words.length > 0)
+    .filter((b) => b.words.length > 0 || b.base?.sourceWords != null)
     .map((b) => {
       const words = b.words
       if (!b.base) {
