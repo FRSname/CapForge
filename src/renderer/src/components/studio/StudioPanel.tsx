@@ -4,7 +4,7 @@
  */
 
 import { useMemo, useState } from 'react'
-import { ExportPanel } from './ExportPanel'
+import { ExportPanel, type ExportTrack } from './ExportPanel'
 import { ExportFooter } from './ExportFooter'
 import { CustomRenderPanel } from './CustomRenderPanel'
 import { HyperFramesPanel } from './HyperFramesPanel'
@@ -246,6 +246,13 @@ interface StudioPanelProps {
   groups?: Segment[]
   /** True once the user has manually edited groups (merge/split/reorder/overrides). */
   groupsEdited?: boolean
+  /** Output filename suffix for the active caption track (`".pl"`). Empty on the
+   *  source track, which is every single-track project. */
+  nameSuffix?: string
+  /** The active caption track, when it is a translated one — its captions ride
+   *  along on a subtitle-file export so the exporter writes *these* lines, not
+   *  the source transcript. Null on the source track. */
+  exportTrack?: ExportTrack | null
   /** Source media path — used for "Same as source" output dir + quick-render metadata. */
   audioPath?: string
   /** Probed source video info — drives quick-render resolution/fps. */
@@ -282,6 +289,8 @@ export function StudioPanel({
   onChange,
   groups = [],
   groupsEdited = false,
+  nameSuffix = '',
+  exportTrack = null,
   audioPath = '',
   sourceVideoInfo = null,
   userPresets = [],
@@ -310,7 +319,7 @@ export function StudioPanel({
     onChangeMerged({ ...s, ...patch })
   }
 
-  const render = useRender({ settings: s, groups, groupsEdited })
+  const render = useRender({ settings: s, groups, groupsEdited, nameSuffix })
 
   // ── Settings search ─────────────────────────────────────────
   const filter = useMemo(() => filterSettings(searchQuery), [searchQuery])
@@ -425,6 +434,7 @@ export function StudioPanel({
               render={render}
               outputDir={outputDir}
               onOutputDir={setOutputDir}
+              track={exportTrack}
             />
 
             {/* ── Custom Render ─────────────────────────────────── */}

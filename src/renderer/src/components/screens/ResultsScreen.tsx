@@ -12,20 +12,15 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type {
-  TranscriptionResult,
-  Segment,
-  WordOverrides,
-  GroupPositionOverride,
-} from '../../types/app'
-import { buildStudioGroups, closeGroupGaps, fillGroupGaps, reconcileGroups } from '../../lib/groups'
-import { joinWords, retimeWords, tokenize } from '../../lib/wordTiming'
-import { adoptWordIds, ensureWordIds, withWordIds } from '../../lib/wordIds'
-import { adoptEndEdited } from '../../lib/endEdited'
+import type { TranscriptionResult, Segment } from '../../types/app'
+import { buildStudioGroups, closeGroupGaps, fillGroupGaps } from '../../lib/groups'
+import { ensureWordIds } from '../../lib/wordIds'
 import { DEFAULT_PAD_V } from '../../lib/renderConstants'
-import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
-import { PROJECT_VERSION, suggestProjectName } from '../../lib/project'
+import type { ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
+import { syncSegmentsIntoTrack } from '../../lib/tracks'
+import type { CaptionTrack, TrackEditorState } from '../../lib/tracks'
 import { useUndoRedo } from '../../hooks/useUndoRedo'
+import { useTimelineEditing } from '../../hooks/useTimelineEditing'
 import { useToast } from '../../hooks/useToast'
 import { api, type RealignSegmentPayload } from '../../lib/api'
 import { AudioPlayer, type AudioPlayerHandle } from '../player/AudioPlayer'
@@ -37,12 +32,39 @@ import { GroupPositionPopup } from '../editor/GroupPositionPopup'
 import type { StudioSettings } from '../studio/StudioPanel'
 
 interface ResultsScreenProps {
+  /** The active track's transcript: project metadata + that track's segments. */
   result: TranscriptionResult
+  /** Which caption track this editor is mounted on (App re-keys on a switch). */
+  trackId: string
   /** Studio settings — owned by App.tsx, read-only here. */
   settings: StudioSettings
-  /** Publish groups + edited flag up to App for StudioPanel render/export. */
-  onGroupsUpdate: (groups: Segment[], edited: boolean) => void
-  /** Ref that App.tsx uses to gather/restore project state for save/open. */
+  /**
+   * True on the source track: groups may be rebuilt from document order when
+   * the transcript or `wordsPerGroup` changes. False on a translated track,
+   * whose grouping is inherited from the source (`reflowTrack` is the only way
+   * it changes) — a rebuild there would re-chunk the translation into arbitrary
+   * N-word blocks and throw the source links away.
+   */
+  autoGroup: boolean
+  /**
+   * The track's stored raw groups, adopted verbatim. Read **only** by the
+   * `useState` initializer: a prop change must never reset editor state, or a
+   * project restore/agent write would clobber whatever the user is doing. The
+   * remount key is the one reset.
+   */
+  initialGroups: Segment[] | null
+  initialGroupsEdited: boolean
+  /** The stored "segments were edited" claim. Seeded, not assumed false: an
+   *  agent transcript edit can land on a track while another tab is up, and
+   *  losing the flag on the switch back would drop `custom_groups` from the
+   *  render and let the backend re-chunk the transcript. */
+  initialSegmentsEdited: boolean
+  /** Publish the editor's raw state back to the track store on every change. */
+  onTrackStateChange: (state: TrackEditorState) => void
+  /** Fires once the transcript is known to carry approximate word timings, so
+   *  App can persist the flag with the project. */
+  onAlignmentDegraded?: () => void
+  /** Ref App.tsx uses to reach into the mounted editor (agent edits + undo). */
   projectIORef?: React.MutableRefObject<ProjectIOHandle | null>
   /** Fires whenever undo/redo availability changes so App can surface buttons in TitleBar. */
   onUndoRedoChange?: (state: {
@@ -57,8 +79,14 @@ type EditorView = 'text' | 'groups'
 
 export function ResultsScreen({
   result,
+  trackId,
   settings,
-  onGroupsUpdate,
+  autoGroup,
+  initialGroups,
+  initialGroupsEdited,
+  initialSegmentsEdited,
+  onTrackStateChange,
+  onAlignmentDegraded,
   projectIORef,
   onUndoRedoChange,
 }: ResultsScreenProps) {
@@ -75,37 +103,21 @@ export function ResultsScreen({
   // source segments or wpg change, matching vanilla's behaviour.
   // Derived from the id'd `segments` above, never from `result.segments` — the
   // two must share one word-id set or reconcileGroups can match nothing.
-  const [groups, setGroups] = useState<Segment[]>(() =>
-    buildStudioGroups(segments, settings.wordsPerGroup)
+  // A track that already has groups (restored project, translated skeleton,
+  // a tab switched back to) hands them in; otherwise they are chunked here.
+  const [groups, setGroups] = useState<Segment[]>(
+    () => initialGroups ?? buildStudioGroups(segments, settings.wordsPerGroup)
   )
   // True once the user manually merges/splits/reorders groups — flag is sent
   // to the backend so renderSubtitleVideo uses `custom_groups` instead of
   // re-chunking from the stored transcription.
-  const [groupsEdited, setGroupsEdited] = useState(false)
+  const [groupsEdited, setGroupsEdited] = useState(initialGroupsEdited)
   // True once the user edits segments (text, timing, etc.) — ensures the
   // re-derived groups are still sent to the backend for rendering.
-  const [segmentsEdited, setSegmentsEdited] = useState(false)
+  const [segmentsEdited, setSegmentsEdited] = useState(initialSegmentsEdited)
   // Transient: when set, SubtitleEditor scrolls/focuses that segment's text
   // field (used right after a manual "+ Add subtitle" so the user can type).
   const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null)
-  // Timeline right-click on a word in the word lane → style/text popup.
-  // Word identity is positional (groupIdx + wordIdx), not id-based — see the
-  // stale-index guard effect below.
-  const [wordPopup, setWordPopup] = useState<{
-    groupIdx: number
-    wordIdx: number
-    anchorRect: DOMRect
-    /** Word count of the target group when the popup opened. A text commit that
-     *  splits the word changes it, invalidating wordIdx. */
-    wordCount: number
-  } | null>(null)
-  // Timeline right-click on a group block → position-override popup. Group
-  // identity is positional (groupIdx), not id-based — see the stale-index
-  // guard effect below (mirrors the word popup's guard).
-  const [groupPosPopup, setGroupPosPopup] = useState<{
-    groupIdx: number
-    anchorRect: DOMRect
-  } | null>(null)
   const [editorWidth, setEditorWidth] = useState(420)
   // Segment id currently being re-aligned via /api/realign (null = idle).
   const [realigningSegId, setRealigningSegId] = useState<string | null>(null)
@@ -115,6 +127,14 @@ export function ResultsScreen({
 
   const playerRef = useRef<AudioPlayerHandle>(null)
   const { toast } = useToast()
+
+  // Degraded alignment is a property of the *transcript*, not of this editor, so
+  // App is told as well — it owns `result`, and the project file must remember
+  // that these timings are approximate.
+  const markAlignmentDegraded = useCallback(() => {
+    setAlignmentDegraded(true)
+    onAlignmentDegraded?.()
+  }, [onAlignmentDegraded])
 
   // ── Undo/redo for segment + group edits ───────────────────────
   const { pushUndo, undo, redo, canUndo, canRedo, isRestoringRef } = useUndoRedo(
@@ -155,34 +175,43 @@ export function ResultsScreen({
     const wpgChanged = settings.wordsPerGroup !== prevWpg.current
     prevWpg.current = settings.wordsPerGroup
 
-    if (groupsEdited && !wpgChanged) {
-      // The user has arranged these groups by hand. Membership is theirs, not a
-      // function of document order, so words are matched back to the segments by
-      // `wid` and stay in the group the user put them in — a word moved to a
-      // non-adjacent group, a reordered group, a merge or a split all survive an
-      // edit to the source segments. NEVER re-slice a flat word pool by index
-      // here: that silently restores document order, which is the bug this
-      // replaced (docs/plans/fill-gaps-resets-custom-groups.md).
-      setGroups((prev) => reconcileGroups(prev, segments, settings.wordsPerGroup))
-    } else {
-      // Rebuild from scratch — no manual edits or wpg changed. Position
-      // overrides don't set groupsEdited (they don't change boundaries), so
-      // carry them forward by group ID here; a wpg change shifts the
-      // ${seg.id}:${offset} IDs, dropping overrides for regrouped chunks —
-      // intentional, the old grouping no longer exists.
-      setGroups((prev) => {
-        const rebuilt = buildStudioGroups(segments, settings.wordsPerGroup)
-        const overridesById = new Map(
-          prev.filter((g) => g.positionOverride).map((g) => [g.id, g.positionOverride])
-        )
-        if (overridesById.size === 0) return rebuilt
-        return rebuilt.map((g) => {
-          const po = overridesById.get(g.id)
-          return po ? { ...g, positionOverride: po } : g
-        })
-      })
-      if (wpgChanged) setGroupsEdited(false)
-    }
+    // Both branches live in `syncSegmentsIntoTrack` (lib/tracks.ts) so the store
+    // can run the same reconciliation on a track that is *not* mounted (an agent
+    // transcript edit while another tab is up). Restating what it guarantees,
+    // because it is the reason this code exists:
+    //
+    // When the user has arranged these groups by hand, membership is theirs, not
+    // a function of document order, so words are matched back to the segments by
+    // `wid` and stay in the group the user put them in — a word moved to a
+    // non-adjacent group, a reordered group, a merge or a split all survive an
+    // edit to the source segments. NEVER re-slice a flat word pool by index:
+    // that silently restores document order, which is the bug this replaced
+    // (docs/plans/fill-gaps-resets-custom-groups.md).
+    //
+    // Otherwise the groups are rebuilt from scratch. Position overrides don't
+    // set groupsEdited (they don't change boundaries), so they are carried
+    // forward by group ID; a wpg change shifts the ${seg.id}:${offset} IDs,
+    // dropping overrides for regrouped chunks — intentional, the old grouping no
+    // longer exists.
+    setGroups((prev) => {
+      const shim: CaptionTrack = {
+        id: trackId,
+        label: '',
+        lang: '',
+        // The rebuild branch is the source track's alone (see `autoGroup`).
+        isSource: autoGroup,
+        segments,
+        groups: prev,
+        groupsEdited,
+        segmentsEdited,
+        settings,
+        appliedPreset: null,
+      }
+      return syncSegmentsIntoTrack(shim, segments, settings.wordsPerGroup, wpgChanged).groups
+    })
+    // A wpg change hands the groups back to the automatic pass — the same flag
+    // `syncSegmentsIntoTrack` returns on the rebuild branch.
+    if (wpgChanged && autoGroup) setGroupsEdited(false)
   }, [segments, settings.wordsPerGroup]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /**
@@ -204,15 +233,20 @@ export function ResultsScreen({
     [groups, settings.gapCloseThreshold, settings.lastGroupHold]
   )
 
-  // Publish groups + edited state to App for StudioPanel. The *display* groups go
-  // up, so a render that takes the `custom_groups` path (groupsEdited or a position
-  // override — see render.ts) ships closed gaps too; the backend applies the same
-  // pass itself only on the other path, inside `_build_groups`.
-  // Requires `onGroupsUpdate` to be referentially stable, or this effect re-runs
-  // on every App render.
+  // Publish the editor's state into the track store on every change, so the
+  // store is always a checkpoint of this tab and nothing has to be gathered out
+  // of the component at save time.
+  //
+  // **Raw** groups go up, never `displayGroups`: gap closing and the tail hold
+  // are a derived view (see the comment above), and writing them back as state
+  // would compound the hold by one per edit. App re-derives the display groups
+  // from the store with the very same call.
+  //
+  // Requires `onTrackStateChange` to be referentially stable, or this effect
+  // re-runs on every App render.
   useEffect(() => {
-    onGroupsUpdate(displayGroups, groupsEdited || segmentsEdited)
-  }, [displayGroups, groupsEdited, segmentsEdited, onGroupsUpdate])
+    onTrackStateChange({ segments, groups, groupsEdited, segmentsEdited })
+  }, [segments, groups, groupsEdited, segmentsEdited, onTrackStateChange])
 
   // Wrapper that GroupEditor calls — flips the edited flag the first time the
   // user touches the groups.
@@ -330,51 +364,20 @@ export function ResultsScreen({
   }, [groups, currentTime])
 
   // ── Project I/O handle ─────────────────────────────────────────────
+  // Save/restore are NOT here: App composes the project file from the track
+  // store (which this component checkpoints on every change) and restores by
+  // re-keying this component with fresh initial props. What remains is the pair
+  // of agent reach-ins that must land in the *mounted* editor, because they push
+  // an undo entry the user can revert.
   useEffect(() => {
     if (!projectIORef) return
     projectIORef.current = {
-      gather: () => {
-        const anyEdited = groupsEdited || segmentsEdited
-        // Position overrides live on groups but do NOT flip the edited flag
-        // (they don't change group boundaries) — persist the groups anyway so
-        // the overrides survive a save/reopen.
-        const hasPosOverrides = groups.some((g) => g.positionOverride)
-        return {
-          version: PROJECT_VERSION,
-          suggestedName: suggestProjectName(result.audioPath),
-          selectedFilePath: result.audioPath,
-          outputDir: 'output',
-          transcriptionResult: { ...result, segments, alignmentDegraded },
-          studioSettings: settings,
-          customGroupsEdited: anyEdited,
-          studioGroups: anyEdited || hasPosOverrides ? groups : null,
-        }
-      },
-      restore: (file: ProjectFile) => {
-        // Assumes a freshly-mounted instance: App keys ResultsScreen by
-        // resultsSessionId, so segments/groups state already initialized from
-        // the new `result` prop — only manually-edited groups need restoring.
-        // Do NOT add a setSegments mirror here.
-        if (file.studioGroups && file.studioGroups.length > 0) {
-          // A project saved before word ids existed restores groups whose words
-          // have none, while `segments` minted its own set on mount. Adopt the
-          // segments' ids by matching text+timing so the restored manual grouping
-          // is still reconcilable; a project saved after this change already has
-          // matching ids on both sides and passes through untouched.
-          // `adoptEndEdited` does the same retrofit for the hand-placed-end claim,
-          // so gaps the user shaped before that flag existed aren't closed back up.
-          setGroups(adoptEndEdited(adoptWordIds(file.studioGroups, segments)))
-          // Only mark edited when boundaries were actually edited — groups
-          // saved solely for position overrides keep auto-grouping semantics.
-          if (file.customGroupsEdited) setGroupsEdited(true)
-        }
-      },
       applyAgentResult: (agentResult: TranscriptionResult) => {
         // Replace the live transcript with the agent's edit. pushUndo first so
         // the user can revert. setSegmentsEdited re-publishes derived groups.
         pushUndo()
         commitSegments(agentResult.segments)
-        if (agentResult.alignmentDegraded) setAlignmentDegraded(true)
+        if (agentResult.alignmentDegraded) markAlignmentDegraded()
         setSegmentsEdited(true)
       },
       applyWordOverrides: (edits: WordOverrideEdit[]) => {
@@ -440,234 +443,28 @@ export function ResultsScreen({
     setFocusSegmentId(newSeg.id)
   }, [currentTime, pushUndo, commitSegments])
 
-  // Timeline edge-drag: adjust a group's start/end time or move the whole block.
-  //
-  // Dragging the right edge or the whole block *places* this group's end, so the
-  // group is marked `endEdited` and from then on the automatic gap-closing pass
-  // leaves it alone (a deliberately carved-out gap survives) — see closeGroupGaps.
-  // A left-edge drag doesn't touch the end, so it makes no such claim. The flag is
-  // cleared again whenever the group's bounds are recomputed from its words
-  // (`finalizeBounds`), and GroupEditor offers a reset affordance for an
-  // accidental two-pixel drag.
-  const handleSegmentEdge = useCallback(
-    (
-      segId: string,
-      edge: 'start' | 'end' | 'body',
-      newVal: number | { start: number; end: number }
-    ) => {
-      setGroups((prev) =>
-        prev.map((g) => {
-          if (g.id !== segId) return g
-          if (edge === 'body' && typeof newVal === 'object') {
-            return { ...g, start: newVal.start, end: newVal.end, endEdited: true }
-          }
-          if (typeof newVal !== 'number') return g
-          if (edge === 'end') return { ...g, end: newVal, endEdited: true }
-          return { ...g, [edge]: newVal }
-        })
-      )
-      setGroupsEdited(true)
-    },
-    []
-  )
-
-  // Called once at the start of each drag — snapshot state before any movement.
-  const handleSegmentEdgeDragStart = useCallback(() => {
-    pushUndo()
-  }, [pushUndo])
-
-  // Word-lane drag: retime one word inside a group. The group's own bounds
-  // widen if the first/last word is pushed past them (never into a neighbour —
-  // the timeline clamps to adjacent groups before calling this).
-  //
-  // Deliberately does NOT set `endEdited`, unlike handleSegmentEdge above. The
-  // end moves here as a *side effect* of retiming a word, not as a statement
-  // about where this caption should stop: the user is placing a word, and the
-  // group bound follows because it has to contain it. Only a gesture aimed at
-  // the group's own end (right-edge/body drag, or the Groups editor's end field)
-  // is a claim. Flagging it here would silently exempt the group from gap
-  // closing forever because someone nudged a word.
-  //
-  // It does not *clear* an existing `endEdited` either: the end is only ever
-  // widened here (`Math.max`), so a hand-placed end is never contradicted, and
-  // revoking the claim would let a word nudge silently re-close a gap the user
-  // carved out on purpose. `resetEndEdit` in GroupEditor is the one way out.
-  const handleWordEdge = useCallback(
-    (segId: string, wordIdx: number, patch: { start: number; end: number }) => {
-      setGroups((prev) =>
-        prev.map((g) => {
-          if (g.id !== segId) return g
-          const words = g.words.map((w, i) =>
-            i === wordIdx ? { ...w, start: patch.start, end: patch.end } : w
-          )
-          return {
-            ...g,
-            words,
-            start: Math.min(g.start, patch.start),
-            end: Math.max(g.end, patch.end),
-          }
-        })
-      )
-      setGroupsEdited(true)
-    },
-    []
-  )
-
-  const handleWordEdgeDragStart = useCallback(() => {
-    pushUndo()
-  }, [pushUndo])
-
-  // Timeline word lane right-click → open the style/text popup for that
-  // word. One undo snapshot per popup "session" (mirrors the drag-start
-  // pattern above) rather than one per keystroke/slider tick — the popup's
-  // onApply fires continuously while it's open. The snapshot itself is taken
-  // lazily on the first real change (see wordPopupUndoPushedRef below) so an
-  // inspect-only open/close (Escape, outside click, no edits) doesn't push a
-  // no-op undo entry.
-  const wordPopupUndoPushedRef = useRef(false)
-  const handleTimelineWordContextMenu = useCallback(
-    (segId: string, wordIdx: number, rect: DOMRect) => {
-      const groupIdx = groups.findIndex((g) => g.id === segId)
-      if (groupIdx === -1) return
-      wordPopupUndoPushedRef.current = false
-      setWordPopup({ groupIdx, wordIdx, anchorRect: rect, wordCount: groups[groupIdx].words.length })
-    },
-    [groups]
-  )
-
-  // Style override apply/reset for the timeline word popup — same sparse-
-  // storage + groupsEdited mechanics as handleWordEdge (setGroups directly,
-  // flip groupsEdited). The undo snapshot is pushed once, on the first apply
-  // of the popup session (see wordPopupUndoPushedRef above).
-  const applyTimelineWordOverride = useCallback(
-    (gi: number, wi: number, overrides: WordOverrides) => {
-      if (!wordPopupUndoPushedRef.current) {
-        pushUndo()
-        wordPopupUndoPushedRef.current = true
-      }
-      setGroups((prev) =>
-        prev.map((g, idx) =>
-          idx !== gi
-            ? g
-            : {
-                ...g,
-                words: g.words.map((w, j) =>
-                  j !== wi
-                    ? w
-                    : { ...w, overrides: Object.keys(overrides).length ? overrides : undefined }
-                ),
-              }
-        )
-      )
-      setGroupsEdited(true)
-    },
-    [pushUndo]
-  )
-
-  // Text correction from the timeline word popup — preserves start/end/
-  // overrides via spread (SubtitleEditor.tsx's word-edit pattern) and rebuilds
-  // the group's joined text. A boundary-locking edit (Open decision #1): it
-  // flips groupsEdited exactly like GroupEditor/SubtitleEditor text edits.
-  // Same lazy one-snapshot-per-session undo push as applyTimelineWordOverride.
-  const applyTimelineWordText = useCallback(
-    (gi: number, wi: number, newText: string) => {
-      if (!wordPopupUndoPushedRef.current) {
-        pushUndo()
-        wordPopupUndoPushedRef.current = true
-      }
-      setGroups((prev) =>
-        prev.map((g, idx) => {
-          if (idx !== gi) return g
-          const target = g.words[wi]
-          if (!target) return g
-          const tokens = tokenize(newText)
-          // One token in, one token out — the common typo fix. Spread so the
-          // word keeps its exact timing and overrides.
-          const replacement =
-            tokens.length === 1
-              ? [{ ...target, word: tokens[0] }]
-              : // Typing two words splits this word: retime strictly inside its
-                // own span so no neighbour moves (lib/wordTiming.ts). The first
-                // piece keeps the original `wid` so the group still anchors to a
-                // word the segments know about; the extras get fresh ids. This
-                // edit is group-only (segments are untouched), so a later
-                // segments edit still refreshes the first piece's text from the
-                // source and drops the extras — the same divergence the previous
-                // index-based sync had, deliberately not widened here.
-                withWordIds(
-                  retimeWords([target], tokens, {
-                    start: target.start,
-                    end: target.end,
-                  }).map((w, k) => (k === 0 && target.wid ? { ...w, wid: target.wid } : w))
-                )
-          const words = [...g.words.slice(0, wi), ...replacement, ...g.words.slice(wi + 1)]
-          return { ...g, words, text: joinWords(words) }
-        })
-      )
-      setGroupsEdited(true)
-    },
-    [pushUndo]
-  )
-
-  // Timeline group block right-click → open the position-override popup for
-  // that group. Same lazy one-snapshot-per-session undo pattern as the word
-  // popup above (wordPopupUndoPushedRef) rather than GroupEditor's per-apply
-  // onBeforeEdit — the popup's onApply fires continuously while sliders move.
-  const groupPosUndoPushedRef = useRef(false)
-  const handleTimelineGroupContextMenu = useCallback(
-    (segId: string, rect: DOMRect) => {
-      const groupIdx = groups.findIndex((g) => g.id === segId)
-      if (groupIdx === -1) return
-      groupPosUndoPushedRef.current = false
-      setGroupPosPopup({ groupIdx, anchorRect: rect })
-    },
-    [groups]
-  )
-
-  // Position-override apply/reset for the timeline group popup — mirrors
-  // GroupEditor's applyPositionOverride (sparse storage: an override with no
-  // keys collapses to undefined) but routes through handleGroupsPositionChange
-  // instead of the boundary-edit path, so groupsEdited is never flipped — a
-  // position override doesn't change group boundaries, and re-grouping must
-  // keep working. The undo snapshot is pushed once, lazily, on the first
-  // apply of the popup session (see groupPosUndoPushedRef above).
-  const applyTimelineGroupPosition = useCallback(
-    (gi: number, override: GroupPositionOverride) => {
-      if (!groupPosUndoPushedRef.current) {
-        pushUndo()
-        groupPosUndoPushedRef.current = true
-      }
-      handleGroupsPositionChange(
-        groups.map((g, idx) =>
-          idx !== gi
-            ? g
-            : { ...g, positionOverride: Object.keys(override).length ? override : undefined }
-        )
-      )
-    },
-    [groups, handleGroupsPositionChange, pushUndo]
-  )
-
-  // Stale-index guard: close the popup if the groups array changed shape
-  // (re-grouping, merge/split, undo/redo) such that the target word no
-  // longer exists — word identity here is positional, not id-based. A text
-  // commit that splits the word into two also invalidates wordIdx without
-  // removing it, so the group's word count is checked too.
-  useEffect(() => {
-    if (!wordPopup) return
-    const group = groups[wordPopup.groupIdx]
-    if (!group?.words[wordPopup.wordIdx] || group.words.length !== wordPopup.wordCount) {
-      setWordPopup(null)
-    }
-  }, [groups, wordPopup])
-
-  // Same stale-index guard for the group position popup — group identity is
-  // also positional (groupIdx), not id-based.
-  useEffect(() => {
-    if (groupPosPopup && !groups[groupPosPopup.groupIdx]) {
-      setGroupPosPopup(null)
-    }
-  }, [groups, groupPosPopup])
+  // Timeline edge drags + the word/group right-click popups (hooks/useTimelineEditing.ts).
+  const {
+    wordPopup,
+    setWordPopup,
+    groupPosPopup,
+    setGroupPosPopup,
+    handleSegmentEdge,
+    handleSegmentEdgeDragStart,
+    handleWordEdge,
+    handleWordEdgeDragStart,
+    handleTimelineWordContextMenu,
+    applyTimelineWordOverride,
+    applyTimelineWordText,
+    handleTimelineGroupContextMenu,
+    applyTimelineGroupPosition,
+  } = useTimelineEditing({
+    groups,
+    setGroups,
+    setGroupsEdited,
+    onPositionChange: handleGroupsPositionChange,
+    pushUndo,
+  })
 
   // Re-run WhisperX forced alignment on one segment. The backend re-fits word
   // timings to the audio; per-word style overrides are re-attached by index
@@ -716,7 +513,7 @@ export function ResultsScreen({
         )
         setSegmentsEdited(true)
         if (res.alignment_degraded) {
-          setAlignmentDegraded(true)
+          markAlignmentDegraded()
           toast('Using approximate word timings — forced alignment is unavailable', 'info')
         } else {
           toast('Word timings re-aligned', 'success')
@@ -728,7 +525,7 @@ export function ResultsScreen({
         setRealigningSegId(null)
       }
     },
-    [segments, realigningSegId, result.language, pushUndo, toast, commitSegments]
+    [segments, realigningSegId, result.language, pushUndo, toast, commitSegments, markAlignmentDegraded]
   )
 
   const handleResizeMouseDown = useCallback(

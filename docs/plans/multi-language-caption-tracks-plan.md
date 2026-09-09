@@ -418,6 +418,21 @@ behaves exactly as `main` does.
 - Do not apply an agent transcript edit to whichever ResultsScreen happens to be mounted.
 - Do not add `track_id` handling to the backend in this phase (Phase 4) — the renderer must work against today's backend.
 
+### As shipped (2026-09-09)
+
+- The store lives in **`hooks/useTrackStore.ts`** (`tracks`/`activeTrackId`/`revisions` + the derived `activeTrack`, `sourceTrack`, `classifications`, `displayGroups`), so `App.tsx` stays under the size ceiling. Its pure helpers — `emptySourceTrack`, `sourceTrackFromResult`, `projectMetaFor` — are what the App-composition test exercises.
+- The mirror body is composed by **`lib/uiStateMirror.ts`** (`buildUiStateCore` / `buildTrackEntries` / `mergeUiStateBody`, plus `nameSuffixFor` and `renderEditedFlag`), which is what makes §E testable. The two effects share **one** 300 ms trailing timer, so a change that moves both halves still costs a single PUT.
+- The three track commands are decoded by **`lib/trackCommands.ts`** (`applyTrackCommand`, `isTrackCommand`, `commandIdOf`) — pure, throws a human-readable message, and `set_track_text` validates every `group_id` up front so a batch with one bad id changes nothing. `AgentLiveSync` echoes `{id, status, error}` for **every** exit, including "no project is open", so the agent's poll can never hang on a refused command.
+- Per-key undo is a pure primitive, `createKeyedUndoStacks` in `lib/undoStack.ts` (one debouncer and one `MAX_HISTORY` cap per key); `useSettingsUndo(settings, setSettings, key)` is now a thin wrapper. The hook body is not testable in the node env, so the keying contract is pinned at the `undoStack` level, as the phase allowed.
+- **`initialSegmentsEdited` is a fifth ResultsScreen prop** beyond the four the phase listed. Without it a tab switch back to a track whose segments an agent edited off-tab would reset the flag to `false`, dropping `custom_groups` from that track's render and letting the backend re-chunk. It is seeded exactly like `initialGroupsEdited`.
+- **`onAlignmentDegraded`** is a sixth prop, for the same class of reason: `gather()` used to read ResultsScreen's local `alignmentDegraded`, and with the composition moved to App the flag has to reach `result` (project metadata) or a save would forget that the timings are approximate.
+- `ResultsScreen`'s key is `${resultsSessionId}:${activeTrackId}:${revisions[activeTrackId] ?? 0}` — the per-track revision the phase's item 5 asked for, held in the store rather than on `CaptionTrack` so the Phase 1 model is untouched. It is bumped by the timing-link effect for any track that moved, and by `set_track_text` / `reflow_track` (which write underneath a possibly-mounted editor).
+- The timing link runs in App (not the store) because it needs the list of tracks that moved in order to bump their revisions; `propagateSourceTiming`'s reference stability is what keeps it from re-triggering itself.
+- `AgentLiveSync` lost its `settings` prop: `settingsForTrack()` with no argument returns the active track's settings, so keeping both would have been dead code.
+- **`hooks/useTimelineEditing.ts`** is a behaviour-preserving extraction of ResultsScreen's edge-drag + right-click-popup cluster (moved verbatim, comments included). `ResultsScreen.tsx` was already 993 lines on `main`; the phase's changes would have pushed it to ~1013, and this brings it to 790.
+- The probe that reads the source video's resolution/fps writes to **every** track: output geometry is a fact about the media, not a per-track style choice.
+- A new transcription (`handleTranscribeDone`) replaces the whole store, dropping translated tracks — they were written against the previous video's words. The style carries over, as it always did.
+
 ---
 
 ## Phase 3 — Track UI: tabs, language picker, markers, reflow banner, font hint (agent: implementer)

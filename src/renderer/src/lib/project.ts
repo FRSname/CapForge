@@ -86,14 +86,16 @@ export class ProjectVersionError extends ProjectFileError {
 }
 
 /**
- * What ResultsScreen exposes to its parent — the App uses this to save/load a
- * project without owning every piece of editor state directly.
+ * What ResultsScreen exposes to its parent — the imperative reach-ins that must
+ * land in the *mounted* editor rather than in the store, because they push an
+ * undo entry the user can revert.
+ *
+ * Save/load are deliberately **not** here any more: App composes the file from
+ * the track store (`projectFileFromTracks`) and restores by re-keying the
+ * editor with fresh initial props, so there is no state to gather out of a
+ * component or push back into one.
  */
 export interface ProjectIOHandle {
-  /** Snapshot the current editor state into a ProjectFile payload. */
-  gather: () => Omit<ProjectFile, '_filePath'>
-  /** Apply a ProjectFile loaded from disk, restoring editor state. */
-  restore: (file: ProjectFile) => void
   /** Replace the live transcript with an agent edit (pushes undo first). */
   applyAgentResult: (result: TranscriptionResult) => void
   /** Merge per-word style overrides onto group words (agent emphasis). */

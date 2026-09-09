@@ -72,6 +72,21 @@ export interface CaptionTrack {
   sourceSnapshot?: { groupWids: string[][] }
 }
 
+/**
+ * The four pieces of a track the editor owns while it is mounted.
+ *
+ * `ResultsScreen` holds exactly this and publishes it upward on every change
+ * (`onTrackStateChange`), so the store never has to reach into the editor to
+ * checkpoint it. `groups` are **raw** — publishing `displayGroupsFor()` output
+ * would bake the non-idempotent tail hold back into editable state.
+ */
+export interface TrackEditorState {
+  segments: Segment[]
+  groups: Segment[]
+  groupsEdited: boolean
+  segmentsEdited: boolean
+}
+
 export interface CreateTrackOptions {
   id: string
   lang: string

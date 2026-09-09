@@ -1,17 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Screen, TranscriptionResult, Segment } from './types/app'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { Screen, TranscriptionResult } from './types/app'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from './lib/project'
-import { api, type VideoInfo } from './lib/api'
+import { migrateProjectFile, projectFileFromTracks, tracksFromProjectFile } from './lib/project'
+import { api, type AgentCommand, type VideoInfo } from './lib/api'
 import { builtinPresetNames } from './lib/agentCommands'
-import { buildRenderBody } from './lib/render'
-import { sanitizeSettings } from './lib/settingsSanitize'
+import { ensureWordIds } from './lib/wordIds'
+import { SOURCE_TRACK_ID, syncSegmentsIntoTrack } from './lib/tracks'
+import type { TrackEditorState, TrackMirrorEntry } from './lib/tracks'
+import { applyTrackCommand } from './lib/trackCommands'
+import { propagateSourceTiming } from './lib/trackTiming'
+import {
+  IDLE_AGENT_ECHO,
+  buildTrackEntries,
+  buildUiStateBody,
+  buildUiStateCore,
+  mergeUiStateBody,
+  nameSuffixFor,
+  renderEditedFlag,
+} from './lib/uiStateMirror'
+import type { AgentCommandEcho, UiStateCore } from './lib/uiStateMirror'
 import { TitleBar } from './components/TitleBar/TitleBar'
 import { DropZoneScreen } from './components/screens/DropZoneScreen'
 import { ProgressScreen } from './components/screens/ProgressScreen'
 import { ResultsScreen } from './components/screens/ResultsScreen'
 import { SettingsPanel } from './components/SettingsPanel'
 import { ShortcutOverlay } from './components/ShortcutOverlay'
-import { StudioPanel, STUDIO_DEFAULTS, snapFps } from './components/studio/StudioPanel'
+import { StudioPanel, snapFps } from './components/studio/StudioPanel'
 import type { StudioSettings } from './components/studio/StudioPanel'
 import { Button } from './components/ui/Button'
 import { AgentLiveSync } from './components/AgentLiveSync'
@@ -20,25 +34,50 @@ import { ToastRelay } from './components/ui/ToastRelay'
 import { useSettingsUndo } from './hooks/useSettingsUndo'
 import { useAutosave } from './hooks/useAutosave'
 import { useUserPresets } from './hooks/useUserPresets'
+import {
+  emptySourceTrack,
+  projectMetaFor,
+  sourceTrackFromResult,
+  useTrackStore,
+} from './hooks/useTrackStore'
 
 export function App() {
   const [screen, setScreen] = useState<Screen>('file')
   const [filePath, setFilePath] = useState<string | null>(null)
+  // Project metadata only — language, duration, audio path, the alignment flag.
+  // The transcript itself is the source track's `segments` (see useTrackStore).
   const [result, setResult] = useState<TranscriptionResult | null>(null)
-  const [settings, setSettings] = useState<StudioSettings>({ ...STUDIO_DEFAULTS })
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   // App sits above ToastProvider, so failures raised here are relayed into the
   // toast system by <ToastRelay> below rather than reported directly.
   const [restoreWarning, setRestoreWarning] = useState<string | null>(null)
 
-  // Published from ResultsScreen — forwarded to StudioPanel for render/export.
-  const [groups, setGroups] = useState<Segment[]>([])
-  const [groupsEdited, setGroupsEdited] = useState(false)
   const [sourceVideoInfo, setSourceVideoInfo] = useState<VideoInfo | null>(null)
 
   const projectIORef = useRef<ProjectIOHandle | null>(null)
-  const pendingRestore = useRef<ProjectFile | null>(null)
+
+  // ── The caption-track store ─────────────────────────────────────
+  // Everything the editor, the sidebar, the render path and the agent mirror
+  // read is derived from here — there is no second copy of a track's settings
+  // or groups anywhere.
+  const {
+    tracks,
+    activeTrackId,
+    activeTrack,
+    sourceTrack,
+    classifications,
+    displayGroups,
+    revisions,
+    replaceTracks,
+    commitTracks,
+    updateTrack,
+    updateAllTracks,
+    commitEditorState,
+    bumpRevision,
+  } = useTrackStore()
+
+  const settings = activeTrack.settings
 
   // Crash recovery — an autosave snapshot left on disk by a session that didn't
   // end via an explicit Save or New (i.e. a crash or accidental close).
@@ -54,29 +93,56 @@ export function App() {
   } | null>(null)
 
   // Identity of the loaded transcription/project — bumped whenever a new result
-  // replaces the current one. Used as ResultsScreen's `key` so it remounts with
-  // fresh editor state (segments, groups, undo stack, edit flags) instead of
-  // keeping the previous video's when a project is opened over an existing one.
+  // replaces the current one. Used (with the active track id and that track's
+  // revision) as ResultsScreen's `key` so it remounts with fresh editor state
+  // (segments, groups, undo stack, edit flags) instead of keeping the previous
+  // video's when a project is opened over an existing one.
   const [resultsSessionId, setResultsSessionId] = useState(0)
 
   // User preset library, owned here so the UI-state mirror can publish the
   // names to the MCP agent and `apply_preset` can resolve against them.
   const { userPresets, refresh: refreshUserPresets } = useUserPresets()
+  const userPresetNames = useMemo(() => userPresets.map((p) => p.name), [userPresets])
 
-  // Canonical name of the preset the current style is based on. STICKY: survives
-  // later set_settings patches and manual edits, and only changes when another
-  // preset is applied or the session resets. The MCP `apply_preset` tool polls
-  // the mirror for this to confirm the apply landed before rendering.
-  const [appliedPreset, setAppliedPreset] = useState<string | null>(null)
+  // The last agent write command, echoed into the mirror so the tool that sent
+  // it can confirm by polling (the `apply_preset` pattern).
+  const [agentEcho, setAgentEcho] = useState<AgentCommandEcho>(IDLE_AGENT_ECHO)
 
-  // Settings undo — wraps setSettings so every UI change is undoable.
-  const settingsUndo = useSettingsUndo(settings, setSettings)
+  // ── Settings, per track ─────────────────────────────────────────
+  const setTrackSettings = useCallback(
+    (trackId: string, next: StudioSettings) => {
+      updateTrack(trackId, (track) => ({ ...track, settings: next }))
+    },
+    [updateTrack]
+  )
+
+  const applyActiveSettings = useCallback(
+    (next: StudioSettings) => setTrackSettings(activeTrackId, next),
+    [setTrackSettings, activeTrackId]
+  )
+
+  // Settings undo — wraps the active track's setter so every UI change is
+  // undoable, with a separate history per track (Cmd+Z never reaches another tab).
+  const settingsUndo = useSettingsUndo(settings, applyActiveSettings, activeTrackId)
   const handleSettingsChange = useCallback(
     (next: StudioSettings) => {
       settingsUndo.push(settings)
-      setSettings(next)
+      applyActiveSettings(next)
     },
-    [settings, settingsUndo]
+    [settings, settingsUndo, applyActiveSettings]
+  )
+
+  /**
+   * Canonical name of the preset a track's style is based on. STICKY: survives
+   * later set_settings patches and manual edits, and only changes when another
+   * preset is applied or the session resets. The MCP `apply_preset` tool polls
+   * the mirror for this to confirm the apply landed before rendering.
+   */
+  const handlePresetApplied = useCallback(
+    (name: string, trackId?: string) => {
+      updateTrack(trackId ?? activeTrackId, (track) => ({ ...track, appliedPreset: name }))
+    },
+    [updateTrack, activeTrackId]
   )
 
   // ── File handling ───────────────────────────────────────────────
@@ -90,6 +156,10 @@ export function App() {
 
   function handleTranscribeDone(data: TranscriptionResult) {
     setResult(data)
+    // A new transcript replaces the whole store: any translated track was
+    // written against the *previous* video's words and means nothing now. The
+    // style carries over (only New / load_video reset it).
+    replaceTracks([sourceTrackFromResult(data, sourceTrack)], SOURCE_TRACK_ID)
     setResultsSessionId((n) => n + 1)
     setScreen('results')
   }
@@ -98,11 +168,8 @@ export function App() {
     setFilePath(null)
     setResult(null)
     setScreen('file')
-    setSettings({ ...STUDIO_DEFAULTS })
-    setGroups([])
-    setGroupsEdited(false)
+    replaceTracks([emptySourceTrack()], SOURCE_TRACK_ID)
     setSourceVideoInfo(null)
-    setAppliedPreset(null)
     window.subforge.autosaveClear()
   }
 
@@ -113,8 +180,8 @@ export function App() {
    *
    * Replacing an already-loaded project resets the same state `handleNew` does.
    * That reset is the batch-safety requirement: without it video 2 inherits
-   * video 1's groups, groupsEdited, resolution and per-group position overrides,
-   * and every later output is silently wrong.
+   * video 1's groups, groupsEdited, resolution, per-group position overrides and
+   * every translated track, and every later output is silently wrong.
    *
    * Only filePath + screen are set; ProgressScreen self-starts the transcription
    * from filePath and its onDone → handleTranscribeDone completes the transition.
@@ -126,36 +193,104 @@ export function App() {
         return 'Agent tried to load a video while a job is already running.'
       }
       setResult(null)
-      setSettings({ ...STUDIO_DEFAULTS })
-      setGroups([])
-      setGroupsEdited(false)
+      replaceTracks([emptySourceTrack()], SOURCE_TRACK_ID)
       setSourceVideoInfo(null)
-      setAppliedPreset(null)
-      pendingRestore.current = null
       setFilePath(path)
       setScreen('progress')
       return null
     },
-    [screen]
+    [screen, replaceTracks]
   )
 
-  // ── Groups published from ResultsScreen ─────────────────────────
-  const handleGroupsUpdate = useCallback((g: Segment[], edited: boolean) => {
-    setGroups(g)
-    setGroupsEdited(edited)
+  // ── Editor state published from ResultsScreen ───────────────────
+  // Identity changes only when the active track does — which is precisely when
+  // ResultsScreen remounts anyway, so its publish effect never re-runs for a
+  // callback change alone. (A ref would be wrong here: child effects run before
+  // the parent's, so on a tab switch the freshly mounted editor would publish
+  // into the *previous* track's slot.)
+  const handleTrackStateChange = useCallback(
+    (state: TrackEditorState) => commitEditorState(activeTrackId, state),
+    [commitEditorState, activeTrackId]
+  )
+
+  // Approximate word timings are a property of the transcript, so the flag has
+  // to live with the project metadata and survive a save.
+  const markAlignmentDegraded = useCallback(() => {
+    setResult((prev) => (!prev || prev.alignmentDegraded ? prev : { ...prev, alignmentDegraded: true }))
   }, [])
 
   // ── Agent live-sync ─────────────────────────────────────────────
-  // Forward an agent transcript edit into the live editor via the ResultsScreen
-  // imperative handle. Memoized so AgentLiveSync's control connection is stable.
-  const handleApplyAgentResult = useCallback((r: TranscriptionResult) => {
-    projectIORef.current?.applyAgentResult(r)
-  }, [])
+  /**
+   * An agent transcript edit always targets the **source** track, whichever tab
+   * happens to be open: `update_words` and `remove_filler_words` edit the
+   * transcript, and applying them to whatever editor is mounted would rewrite a
+   * translation with English words. When the source is the active tab the edit
+   * goes through the mounted editor (which pushes an undo entry the user can
+   * revert); otherwise it is reconciled straight into the stored track.
+   */
+  const handleApplyAgentResult = useCallback(
+    (r: TranscriptionResult) => {
+      if (activeTrackId === sourceTrack.id) {
+        // The editor reports the alignment flag back through onAlignmentDegraded.
+        projectIORef.current?.applyAgentResult(r)
+        return
+      }
+      updateTrack(sourceTrack.id, (track) => ({
+        ...syncSegmentsIntoTrack(
+          track,
+          ensureWordIds(r.segments),
+          track.settings.wordsPerGroup,
+          false
+        ),
+        segmentsEdited: true,
+      }))
+      if (r.alignmentDegraded) markAlignmentDegraded()
+    },
+    [activeTrackId, sourceTrack.id, updateTrack, markAlignmentDegraded]
+  )
 
   const handleApplyWordOverrides = useCallback((edits: WordOverrideEdit[]) => {
     projectIORef.current?.applyWordOverrides(edits)
   }, [])
 
+  /** The style command's target: the named track, or the active one. */
+  const settingsForTrack = useCallback(
+    (trackId?: string): StudioSettings | null => {
+      const id = trackId || activeTrackId
+      return tracks.find((t) => t.id === id)?.settings ?? null
+    },
+    [tracks, activeTrackId]
+  )
+
+  const handleAgentSettings = useCallback(
+    (next: StudioSettings, trackId?: string) => {
+      const id = trackId || activeTrackId
+      // Only the active track's change is undoable — the undo stack belongs to
+      // the tab the user is looking at.
+      if (id === activeTrackId) handleSettingsChange(next)
+      else setTrackSettings(id, next)
+    },
+    [activeTrackId, handleSettingsChange, setTrackSettings]
+  )
+
+  /**
+   * `create_track` / `set_track_text` / `reflow_track`. Every rule lives in
+   * `lib/trackCommands.ts`; failures throw and AgentLiveSync echoes the message
+   * back to the agent instead of swallowing it.
+   */
+  const handleAgentTrackCommand = useCallback(
+    (cmd: AgentCommand): string => {
+      const next = applyTrackCommand(tracks, activeTrackId, cmd)
+      commitTracks(next.tracks, next.activeTrackId)
+      // The editor owns its own copy of the track it is mounted on, so a write
+      // that lands underneath it only becomes visible on a remount.
+      if (next.remountTrackId) bumpRevision(next.remountTrackId)
+      return next.message
+    },
+    [tracks, activeTrackId, commitTracks, bumpRevision]
+  )
+
+  // ── UI-state mirror ─────────────────────────────────────────────
   // Mirror UI state to the backend so the agent can read what to change AND so
   // /api/render-frame renders with the live style. `render` is the snake_case
   // body (the casing bridge lives only in buildRenderBody). Debounced — settings
@@ -163,28 +298,60 @@ export function App() {
   // Mirrors on EVERY screen (not just results) so the agent can see where the
   // app is and which presets exist before a video is loaded — `list_presets`
   // and `load_video` both have to work from the drop screen.
-  useEffect(() => {
-    const t = setTimeout(() => {
-      api
-        .putUiState({
-          screen,
-          settings,
-          groups,
-          // Kept for back-compat: existing agent prompts read `presets`.
-          presets: builtinPresetNames(),
-          presetsDetail: {
-            builtin: builtinPresetNames(),
-            user: userPresets.map((p) => p.name),
-          },
-          appliedPreset,
-          render: buildRenderBody(settings, groups, groupsEdited),
-        })
-        .catch(() => {
-          /* best-effort mirror */
-        })
+  //
+  // Written in two halves, because they change at wildly different rates: the
+  // legacy keys churn on every keystroke, while the per-track inventory (a
+  // render body + a classification per track) only moves when a track does.
+  // Each half writes into this ref and the pusher sends the merge, so neither
+  // can blank the other.
+  const mirrorRef = useRef<{ core: UiStateCore | null; tracks: TrackMirrorEntry[] }>({
+    core: null,
+    tracks: [],
+  })
+  // One shared trailing debounce, so a change that moves both halves still costs
+  // a single PUT.
+  const mirrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const scheduleMirror = useCallback(() => {
+    if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current)
+    mirrorTimerRef.current = setTimeout(() => {
+      mirrorTimerRef.current = null
+      const { core, tracks: entries } = mirrorRef.current
+      if (!core) return
+      api.putUiState(mergeUiStateBody(core, entries)).catch(() => {
+        /* best-effort mirror */
+      })
     }, 300)
-    return () => clearTimeout(t)
-  }, [screen, settings, groups, groupsEdited, userPresets, appliedPreset])
+  }, [])
+
+  useEffect(
+    () => () => {
+      if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current)
+    },
+    []
+  )
+
+  useEffect(() => {
+    mirrorRef.current = {
+      ...mirrorRef.current,
+      core: buildUiStateCore({
+        screen,
+        activeTrack,
+        activeDisplayGroups: displayGroups,
+        builtinPresets: builtinPresetNames(),
+        userPresetNames,
+        agent: agentEcho,
+      }),
+    }
+    scheduleMirror()
+  }, [screen, activeTrack, displayGroups, userPresetNames, agentEcho, scheduleMirror])
+
+  useEffect(() => {
+    mirrorRef.current = {
+      ...mirrorRef.current,
+      tracks: buildTrackEntries(tracks, sourceTrack, classifications),
+    }
+    scheduleMirror()
+  }, [tracks, sourceTrack, classifications, scheduleMirror])
 
   // Resync-after-reconnect: give the API layer a snapshot of the live result +
   // UI state so that if the backend crashes/restarts, the control socket's reopen
@@ -193,36 +360,67 @@ export function App() {
     api.registerResync(() => {
       // No project open (drop/progress screen): re-push UI state only. The
       // `result` half is genuinely absent, not lost, so it must stay undefined.
-      const liveResult =
-        screen === 'results'
-          ? (projectIORef.current?.gather().transcriptionResult ?? result)
-          : null
+      const liveResult = screen === 'results' ? result : null
       return {
         result: liveResult
           ? {
-              segments: liveResult.segments,
+              segments: sourceTrack.segments,
               language: liveResult.language,
               duration: liveResult.duration,
               audio_path: liveResult.audioPath,
               alignment_degraded: Boolean(liveResult.alignmentDegraded),
             }
           : undefined,
-        uiState: {
+        uiState: buildUiStateBody({
           screen,
-          settings,
-          groups,
-          presets: builtinPresetNames(),
-          presetsDetail: {
-            builtin: builtinPresetNames(),
-            user: userPresets.map((p) => p.name),
-          },
-          appliedPreset,
-          render: buildRenderBody(settings, groups, groupsEdited),
-        },
+          activeTrack,
+          activeDisplayGroups: displayGroups,
+          builtinPresets: builtinPresetNames(),
+          userPresetNames,
+          agent: agentEcho,
+          tracks,
+          sourceTrack,
+          classifications,
+        }),
       }
     })
     return () => api.registerResync(null)
-  }, [screen, result, settings, groups, groupsEdited, userPresets, appliedPreset])
+  }, [
+    screen,
+    result,
+    activeTrack,
+    displayGroups,
+    userPresetNames,
+    agentEcho,
+    tracks,
+    sourceTrack,
+    classifications,
+  ])
+
+  // ── Source-track timing link ────────────────────────────────────
+  // Whenever the source's words or grouping move, every translated group that
+  // is still linked to a source span moves with it (D4).
+  //
+  // `propagateSourceTiming` is reference-stable and returns a source track
+  // untouched, so a single-track project does nothing at all here and this can
+  // never re-trigger itself. A track that *did* move while its editor is up has
+  // to be remounted, or the editor would keep publishing the pre-move groups
+  // back over the relink — which can only happen from an agent edit to the
+  // source while a translated tab is open.
+  useEffect(() => {
+    const moved: string[] = []
+    const next = tracks.map((track) => {
+      const relinked = propagateSourceTiming(track, sourceTrack)
+      if (relinked !== track) moved.push(track.id)
+      return relinked
+    })
+    if (moved.length === 0) return
+    commitTracks(next, activeTrackId)
+    for (const id of moved) bumpRevision(id)
+    // Deliberately narrow: this reacts to the SOURCE moving, and reads the rest
+    // of the store as it is at that moment.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceTrack.segments, sourceTrack.groups])
 
   // ── Source video info probe ─────────────────────────────────────
   // Runs once per result.audioPath — auto-sets resolution + fps.
@@ -234,14 +432,21 @@ export function App() {
       .then((info) => {
         if (cancelled) return
         setSourceVideoInfo(info)
-        setSettings((prev) => {
-          const next = { ...prev }
+        // Output geometry is a fact about the source media, not a per-track
+        // style choice, so it lands on every track.
+        updateAllTracks((track) => {
+          const next = { ...track.settings }
+          let changed = false
           if (info.width && info.height) {
             next.resolution = [info.width, info.height]
             next.resolutionIsSource = true
+            changed = true
           }
-          if (info.fps) next.fps = snapFps(info.fps)
-          return next
+          if (info.fps) {
+            next.fps = snapFps(info.fps)
+            changed = true
+          }
+          return changed ? { ...track, settings: next } : track
         })
       })
       .catch(() => {
@@ -250,24 +455,44 @@ export function App() {
     return () => {
       cancelled = true
     }
-  }, [result?.audioPath])
+  }, [result?.audioPath, updateAllTracks])
 
   // ── Project save ────────────────────────────────────────────────
+  const projectFile = useCallback((): ProjectFile | null => {
+    if (screen !== 'results' || !result) return null
+    return projectFileFromTracks(projectMetaFor(result), tracks, activeTrackId)
+  }, [screen, result, tracks, activeTrackId])
+
   const handleSave = useCallback(async () => {
-    const handle = projectIORef.current
-    if (!handle) return
-    const savedPath = await window.subforge.saveProject(handle.gather())
+    const file = projectFile()
+    if (!file) return
+    const savedPath = await window.subforge.saveProject(file)
     // Explicit save is now the source of truth — drop the autosave snapshot so
     // it isn't offered as "unsaved" next launch. Later edits re-arm it.
     if (savedPath) await window.subforge.autosaveClear()
-  }, [])
+  }, [projectFile])
 
   const handleRestoreWarningShown = useCallback(() => setRestoreWarning(null), [])
 
   // ── Project restore (shared by Open and crash-recovery) ─────────
-  const restoreFromProjectFile = useCallback(async (file: ProjectFile) => {
-    // Push transcription to backend so render/export work.
-    if (file.transcriptionResult) {
+  const restoreFromProjectFile = useCallback(
+    async (raw: unknown) => {
+      // The trust boundary: validate and lift to the current version *before*
+      // anything is touched, so a file from a newer build (or a damaged one)
+      // leaves the session exactly as it was, with a real message.
+      let file: ProjectFile
+      try {
+        file = migrateProjectFile(raw)
+      } catch (err) {
+        setRestoreWarning(
+          err instanceof Error ? err.message : 'This project file could not be opened.'
+        )
+        return
+      }
+
+      const restored = tracksFromProjectFile(file)
+
+      // Push transcription to backend so render/export work.
       const tr = file.transcriptionResult
       await api
         .updateResult({
@@ -286,29 +511,25 @@ export function App() {
             }. Rendering may fail.`
           )
         })
-    }
 
-    setFilePath(file.selectedFilePath)
-    setResult(file.transcriptionResult)
-    setResultsSessionId((n) => n + 1)
-    // Merge over defaults: a project saved by an older build has no value for
-    // fields added since, and buildRenderBody() divides some of them — which
-    // yields NaN → JSON null → a 422 from the backend at render time. Sanitize
-    // for the mirror image of that: a value that IS present but out of the
-    // backend's range (e.g. a shadowOpacity of 90 saved before this guard).
-    setSettings(sanitizeSettings({ ...STUDIO_DEFAULTS, ...file.studioSettings }))
-    // A restored project's style came from the file, not from a preset.
-    setAppliedPreset(null)
-    setScreen('results')
-
-    pendingRestore.current = file
-  }, [])
+      setFilePath(file.selectedFilePath)
+      setResult(file.transcriptionResult)
+      // `tracksFromProjectFile` has already merged each track's settings over the
+      // defaults (an older file has no value for fields added since, and
+      // buildRenderBody divides some of them → NaN → JSON null → a 422) and
+      // sanitized them (a value that IS present but out of the backend's range).
+      replaceTracks(restored.tracks, restored.activeTrackId)
+      setResultsSessionId((n) => n + 1)
+      setScreen('results')
+    },
+    [replaceTracks]
+  )
 
   // ── Project open ────────────────────────────────────────────────
   const handleOpen = useCallback(async () => {
     const raw = await window.subforge.openProject()
     if (!raw) return
-    await restoreFromProjectFile(raw as ProjectFile)
+    await restoreFromProjectFile(raw)
   }, [restoreFromProjectFile])
 
   // ── Crash recovery ──────────────────────────────────────────────
@@ -339,20 +560,9 @@ export function App() {
     setRecoverySnapshot(null)
   }, [])
 
-  // Flush any pending restore once ResultsScreen mounts its handle.
-  useEffect(() => {
-    if (pendingRestore.current && projectIORef.current) {
-      projectIORef.current.restore(pendingRestore.current)
-      pendingRestore.current = null
-    }
-  })
-
   // ── Autosave (crash recovery) ───────────────────────────────────
   // Snapshot the live session ~2s after any edit; cleared on Save / New.
-  const lastSavedAt = useAutosave(() => {
-    if (screen !== 'results') return null
-    return projectIORef.current?.gather() ?? null
-  }, [screen, groups, groupsEdited, settings])
+  const lastSavedAt = useAutosave(projectFile, [screen, tracks, activeTrackId, result])
 
   // ── Global keyboard shortcuts ───────────────────────────────────
   useEffect(() => {
@@ -383,6 +593,14 @@ export function App() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [handleSave, handleOpen, settingsUndo])
+
+  // The transcript the active tab edits: project metadata with that track's own
+  // segments (the source track's are the transcript; a translated track's are
+  // its text-view units).
+  const activeResult = useMemo(
+    () => (result ? { ...result, segments: activeTrack.segments } : null),
+    [result, activeTrack.segments]
+  )
 
   return (
     <ToastProvider>
@@ -450,13 +668,23 @@ export function App() {
               />
             </div>
           )}
-          {screen === 'results' && result && (
+          {screen === 'results' && activeResult && (
             <div className="screen-in flex-1 flex min-h-0 min-w-0 overflow-hidden">
+              {/* Keyed by session + track + that track's revision: switching tab
+                  (or a write that landed underneath the editor) remounts it with
+                  fresh state from the store. Nothing has to be checkpointed
+                  first, because raw editor state is published continuously. */}
               <ResultsScreen
-                key={resultsSessionId}
-                result={result}
+                key={`${resultsSessionId}:${activeTrackId}:${revisions[activeTrackId] ?? 0}`}
+                result={activeResult}
+                trackId={activeTrackId}
                 settings={settings}
-                onGroupsUpdate={handleGroupsUpdate}
+                autoGroup={activeTrack.isSource}
+                initialGroups={activeTrack.groups.length > 0 ? activeTrack.groups : null}
+                initialGroupsEdited={activeTrack.groupsEdited}
+                initialSegmentsEdited={activeTrack.segmentsEdited}
+                onTrackStateChange={handleTrackStateChange}
+                onAlignmentDegraded={markAlignmentDegraded}
                 projectIORef={projectIORef}
                 onUndoRedoChange={setSubtitleUndo}
               />
@@ -467,13 +695,19 @@ export function App() {
           <StudioPanel
             settings={settings}
             onChange={handleSettingsChange}
-            groups={groups}
-            groupsEdited={groupsEdited}
+            groups={displayGroups}
+            groupsEdited={renderEditedFlag(activeTrack)}
+            nameSuffix={nameSuffixFor(activeTrack)}
+            exportTrack={
+              activeTrack.isSource
+                ? null
+                : { id: activeTrack.id, lang: activeTrack.lang, segments: displayGroups }
+            }
             audioPath={result?.audioPath ?? filePath ?? ''}
             sourceVideoInfo={sourceVideoInfo}
             userPresets={userPresets}
             onPresetsChanged={refreshUserPresets}
-            onPresetApplied={setAppliedPreset}
+            onPresetApplied={handlePresetApplied}
           />
         </main>
 
@@ -481,13 +715,15 @@ export function App() {
         <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         <AgentLiveSync
           resultsActive={screen === 'results'}
-          settings={settings}
+          settingsForTrack={settingsForTrack}
           userPresets={userPresets}
           applyResult={handleApplyAgentResult}
-          applySettings={handleSettingsChange}
+          applySettings={handleAgentSettings}
           applyWordOverrides={handleApplyWordOverrides}
-          onPresetApplied={setAppliedPreset}
+          onPresetApplied={handlePresetApplied}
           loadVideo={handleLoadVideo}
+          applyTrackCommand={handleAgentTrackCommand}
+          onAgentCommandEcho={setAgentEcho}
         />
       </div>
     </ToastProvider>

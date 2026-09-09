@@ -10,6 +10,7 @@
  * triggered the render.
  */
 
+import type { Segment } from '../../types/app'
 import { StudioCard } from './StudioCard'
 import { Button } from '../ui/Button'
 import { api } from '../../lib/api'
@@ -17,14 +18,34 @@ import { dirname } from '../../lib/render'
 import type { RenderController } from '../../hooks/useRender'
 import { useToast } from '../../hooks/useToast'
 
+/**
+ * The active caption track when it is a *translated* one — sent alongside an
+ * export so the exporter writes that track's lines instead of the source
+ * transcript, and names the file after its language. Null on the source track,
+ * where the request body is exactly what it always was.
+ */
+export interface ExportTrack {
+  id: string
+  lang: string
+  /** The track's display groups (gaps closed) — one cue each. */
+  segments: Segment[]
+}
+
 interface ExportPanelProps {
   audioPath: string
   render: RenderController
   outputDir: string
   onOutputDir: (dir: string) => void
+  track?: ExportTrack | null
 }
 
-export function ExportPanel({ audioPath, render, outputDir, onOutputDir }: ExportPanelProps) {
+export function ExportPanel({
+  audioPath,
+  render,
+  outputDir,
+  onOutputDir,
+  track = null,
+}: ExportPanelProps) {
   const { busy } = render
   const { toast } = useToast()
 
@@ -76,7 +97,7 @@ export function ExportPanel({ audioPath, render, outputDir, onOutputDir }: Expor
           className="flex-1 text-[11px] py-1 justify-center"
           onClick={() =>
             api
-              .exportResult(buildExportParams(['srt_word'], effectiveOutputDir))
+              .exportResult(buildExportParams(['srt_word'], effectiveOutputDir, track))
               .then(() => toast('Exported SRT (word-aligned)', 'success'))
               .catch((e) => toast(e.message || 'Export failed', 'error'))
           }
@@ -90,7 +111,7 @@ export function ExportPanel({ audioPath, render, outputDir, onOutputDir }: Expor
           className="flex-1 text-[11px] py-1 justify-center"
           onClick={() =>
             api
-              .exportResult(buildExportParams(['srt_standard'], effectiveOutputDir))
+              .exportResult(buildExportParams(['srt_standard'], effectiveOutputDir, track))
               .then(() => toast('Exported SRT', 'success'))
               .catch((e) => toast(e.message || 'Export failed', 'error'))
           }
@@ -104,7 +125,7 @@ export function ExportPanel({ audioPath, render, outputDir, onOutputDir }: Expor
           className="flex-1 text-[11px] py-1 justify-center"
           onClick={() =>
             api
-              .exportResult(buildExportParams(['vtt'], effectiveOutputDir))
+              .exportResult(buildExportParams(['vtt'], effectiveOutputDir, track))
               .then(() => toast('Exported VTT', 'success'))
               .catch((e) => toast(e.message || 'Export failed', 'error'))
           }
@@ -117,7 +138,7 @@ export function ExportPanel({ audioPath, render, outputDir, onOutputDir }: Expor
           className="flex-1 text-[11px] py-1 justify-center"
           onClick={() =>
             api
-              .exportResult(buildExportParams(['ass'], effectiveOutputDir))
+              .exportResult(buildExportParams(['ass'], effectiveOutputDir, track))
               .then(() => toast('Exported ASS (karaoke)', 'success'))
               .catch((e) => toast(e.message || 'Export failed', 'error'))
           }
@@ -131,7 +152,7 @@ export function ExportPanel({ audioPath, render, outputDir, onOutputDir }: Expor
           className="flex-1 text-[11px] py-1 justify-center"
           onClick={() =>
             api
-              .exportResult(buildExportParams(['hyperframes'], effectiveOutputDir))
+              .exportResult(buildExportParams(['hyperframes'], effectiveOutputDir, track))
               .then(() => toast('Exported HyperFrames transcript', 'success'))
               .catch((e) => toast(e.message || 'Export failed', 'error'))
           }
@@ -145,7 +166,14 @@ export function ExportPanel({ audioPath, render, outputDir, onOutputDir }: Expor
   )
 }
 
-/** Backend rejects empty output_dir; only include the field when set. */
-function buildExportParams(formats: string[], outputDir: string) {
-  return outputDir ? { formats, output_dir: outputDir } : { formats }
+/**
+ * Backend rejects empty output_dir; only include the field when set.
+ *
+ * `track` rides along only for a translated caption track. Today's backend has
+ * no field for it and Pydantic's default `extra='ignore'` drops it, so a source
+ * export sends byte-identical params to what it always did.
+ */
+function buildExportParams(formats: string[], outputDir: string, track: ExportTrack | null) {
+  const base = outputDir ? { formats, output_dir: outputDir } : { formats }
+  return track ? { ...base, track } : base
 }

@@ -6,7 +6,8 @@
  *   - result_updated  → re-fetch transcript and apply (soft-locked while editing)
  *   - agent_command   → set_settings / apply_preset (style), set_word_overrides
  *                       (keyword emphasis), load_video (import + transcribe),
- *                       applied live to renderer state.
+ *                       create_track / set_track_text / reflow_track (caption
+ *                       tracks), applied live to renderer state.
  *
  * The socket is connected on EVERY screen, not just results. `load_video` has to
  * reach the app while it sits on the drop screen with nothing loaded — that is the
@@ -26,19 +27,23 @@ import type { StudioSettings } from './studio/StudioPanel'
 import type { WordOverrideEdit } from '../lib/project'
 import type { UserPreset } from '../hooks/useUserPresets'
 import { applySettingsCommand, resolvePreset, toastMessageForCommand } from '../lib/agentCommands'
+import { commandIdOf, isTrackCommand } from '../lib/trackCommands'
+import type { AgentCommandEcho } from '../lib/uiStateMirror'
 import { useToast } from '../hooks/useToast'
 
 interface AgentLiveSyncProps {
   /** True while the results screen is up — gates transcript/style handlers. */
   resultsActive: boolean
-  /** Current studio settings — read when applying a style command. */
-  settings: StudioSettings
+  /** The settings a style command applies to: those of the track named by its
+   *  `track_id`, or of the active tab when it is omitted. Null when the id names
+   *  no track — the command is then refused rather than applied to the wrong one. */
+  settingsForTrack: (trackId?: string) => StudioSettings | null
   /** User preset library — `apply_preset` resolves against this first. */
   userPresets: UserPreset[]
   /** Apply an agent transcript edit to the live editor (pushes undo). */
   applyResult: (result: TranscriptionResult) => void
-  /** Apply a new StudioSettings (set_settings / apply_preset). */
-  applySettings: (next: StudioSettings) => void
+  /** Apply a new StudioSettings (set_settings / apply_preset) to a track. */
+  applySettings: (next: StudioSettings, trackId?: string) => void
   /** Merge per-word overrides onto group words (emphasis). */
   applyWordOverrides: (edits: WordOverrideEdit[]) => void
   /**
@@ -46,9 +51,17 @@ interface AgentLiveSyncProps {
    * App keeps it until another preset replaces it or the session resets, so
    * `apply_preset` → `set_style` tweak → `render` still reports the basis preset.
    */
-  onPresetApplied: (name: string) => void
+  onPresetApplied: (name: string, trackId?: string) => void
   /** Load a video and start transcription (op: load_video). Returns a failure reason. */
   loadVideo: (path: string) => string | null
+  /**
+   * Apply a track write command (`create_track` / `set_track_text` /
+   * `reflow_track`), returning the toast copy. **Throws** with a human-readable
+   * message on refusal — which is echoed to the agent rather than swallowed.
+   */
+  applyTrackCommand: (cmd: AgentCommand) => string
+  /** Publish how the last agent write command ended, for confirm-by-poll. */
+  onAgentCommandEcho: (echo: AgentCommandEcho) => void
 }
 
 function isEditableTarget(el: EventTarget | null): boolean {
@@ -59,13 +72,15 @@ function isEditableTarget(el: EventTarget | null): boolean {
 
 export function AgentLiveSync({
   resultsActive,
-  settings,
+  settingsForTrack,
   userPresets,
   applyResult,
   applySettings,
   applyWordOverrides,
   onPresetApplied,
   loadVideo,
+  applyTrackCommand,
+  onAgentCommandEcho,
 }: AgentLiveSyncProps) {
   const { toast } = useToast()
   const editingRef = useRef(false)
@@ -76,22 +91,26 @@ export function AgentLiveSync({
   // Hold everything the control handlers need in refs so the connection effect
   // can have an empty dep list and never reconnect mid-session.
   const resultsActiveRef = useRef(resultsActive)
-  const settingsRef = useRef(settings)
+  const settingsForTrackRef = useRef(settingsForTrack)
   const userPresetsRef = useRef(userPresets)
   const applyResultRef = useRef(applyResult)
   const applySettingsRef = useRef(applySettings)
   const applyWordOverridesRef = useRef(applyWordOverrides)
   const onPresetAppliedRef = useRef(onPresetApplied)
   const loadVideoRef = useRef(loadVideo)
+  const applyTrackCommandRef = useRef(applyTrackCommand)
+  const onAgentCommandEchoRef = useRef(onAgentCommandEcho)
   const toastRef = useRef(toast)
   resultsActiveRef.current = resultsActive
-  settingsRef.current = settings
+  settingsForTrackRef.current = settingsForTrack
   userPresetsRef.current = userPresets
   applyResultRef.current = applyResult
   applySettingsRef.current = applySettings
   applyWordOverridesRef.current = applyWordOverrides
   onPresetAppliedRef.current = onPresetApplied
   loadVideoRef.current = loadVideo
+  applyTrackCommandRef.current = applyTrackCommand
+  onAgentCommandEchoRef.current = onAgentCommandEcho
   toastRef.current = toast
 
   // Soft lock — track whether a text field currently has focus.
@@ -135,6 +154,38 @@ export function AgentLiveSync({
       }
     }
 
+    /**
+     * `create_track` / `set_track_text` / `reflow_track`.
+     *
+     * Unlike the style ops these are confirmed by polling: the tool mints a
+     * `command_id`, the renderer echoes `{id, status, error}` into the UI-state
+     * mirror, and the tool waits for its own id. So **every** exit here echoes —
+     * a refusal reports the reason rather than leaving the agent to time out
+     * against an unchanged mirror.
+     */
+    const handleTrackCommand = (cmd: AgentCommand) => {
+      const id = commandIdOf(cmd)
+      const echo = (status: 'ok' | 'error', error: string | null) => {
+        onAgentCommandEchoRef.current({
+          lastCommandId: id,
+          lastCommandStatus: status,
+          lastCommandError: error,
+        })
+      }
+      try {
+        if (!resultsActiveRef.current) {
+          throw new Error('No project is open in CapForge — load a video first.')
+        }
+        const message = applyTrackCommandRef.current(cmd)
+        echo('ok', null)
+        toastRef.current(message, 'info')
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        echo('error', message)
+        toastRef.current(message, 'error')
+      }
+    }
+
     const handleCommand = (cmd: AgentCommand) => {
       try {
         // Works on every screen — this is how a batch run starts a video.
@@ -145,6 +196,14 @@ export function AgentLiveSync({
             failure ?? 'Agent loaded a video — transcribing…',
             failure ? 'error' : 'info'
           )
+          return
+        }
+
+        // The three track write commands answer with an explicit `{id, status,
+        // error}` echo the agent polls for, so they handle their own failures
+        // here — the blanket catch below must never be what swallows one.
+        if (isTrackCommand(cmd.op)) {
+          handleTrackCommand(cmd)
           return
         }
 
@@ -159,7 +218,16 @@ export function AgentLiveSync({
           return
         }
 
-        const next = applySettingsCommand(settingsRef.current, cmd, userPresetsRef.current)
+        // A style command may name a track; without one it means the active tab.
+        const trackId =
+          typeof cmd.payload?.track_id === 'string' ? cmd.payload.track_id : undefined
+        const target = settingsForTrackRef.current(trackId)
+        if (!target) {
+          toastRef.current(`Agent named a caption track that does not exist: "${trackId}".`, 'error')
+          return
+        }
+
+        const next = applySettingsCommand(target, cmd, userPresetsRef.current)
         if (next) {
           // Resolve again for the canonical spelling — the agent may have sent
           // a differently-cased name, and `appliedPreset` is what the MCP tool
@@ -168,8 +236,8 @@ export function AgentLiveSync({
             cmd.op === 'apply_preset'
               ? resolvePreset(cmd.payload?.name, userPresetsRef.current)
               : null
-          applySettingsRef.current(next)
-          if (resolved) onPresetAppliedRef.current(resolved.name)
+          applySettingsRef.current(next, trackId)
+          if (resolved) onPresetAppliedRef.current(resolved.name, trackId)
           const { message, type } = toastMessageForCommand(cmd, resolved?.name)
           toastRef.current(message, type)
         }

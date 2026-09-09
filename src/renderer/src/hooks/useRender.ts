@@ -44,9 +44,18 @@ interface UseRenderArgs {
   settings: StudioSettings
   groups: Segment[]
   groupsEdited: boolean
+  /** Output filename suffix for a non-source caption track (`".pl"` →
+   *  `video.pl.mp4`). Empty on the source, which is every single-track project,
+   *  and `buildRenderBody` then emits no key at all. */
+  nameSuffix?: string
 }
 
-export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): RenderController {
+export function useRender({
+  settings,
+  groups,
+  groupsEdited,
+  nameSuffix = '',
+}: UseRenderArgs): RenderController {
   const [status, setStatus] = useState<RenderStatus>('idle')
   const [progress, setProgress] = useState(0)
   const [elapsed, setElapsed] = useState('')
@@ -112,7 +121,7 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
       })
 
       try {
-        const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir)
+        const body = buildRenderBody(settings, groups, groupsEdited, overrides, outputDir, nameSuffix)
         const res = (await (engine === 'hyperframes'
           ? api.exportHyperframes(body)
           : api.renderVideo(body))) as HyperframesExportResponse & { status?: string }
@@ -153,7 +162,7 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
         if (!cancelled) toast(msg, 'error')
       }
     },
-    [settings, groups, groupsEdited, stopTimer, toast]
+    [settings, groups, groupsEdited, nameSuffix, stopTimer, toast]
   )
 
   // Generate the HyperFrames project folder (render:false) and hand it to the
@@ -163,7 +172,7 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
     async (outputDir?: string) => {
       try {
         toast('Building HyperFrames project…', 'info')
-        const body = buildRenderBody(settings, groups, groupsEdited, {}, outputDir)
+        const body = buildRenderBody(settings, groups, groupsEdited, {}, outputDir, nameSuffix)
         const res = (await api.exportHyperframes({ ...body, render: false })) as {
           project?: string
         }
@@ -176,7 +185,7 @@ export function useRender({ settings, groups, groupsEdited }: UseRenderArgs): Re
         toast(msg, 'error')
       }
     },
-    [settings, groups, groupsEdited, toast]
+    [settings, groups, groupsEdited, nameSuffix, toast]
   )
 
   const cancelRender = useCallback(() => {
