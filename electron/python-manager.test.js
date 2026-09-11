@@ -16,8 +16,12 @@ const path = require('node:path')
 const os = require('node:os')
 
 const {
+  PythonBackend,
   PREFERRED_PORT,
   LOG_MAX_BYTES,
+  READY_POLL_INITIAL_MS,
+  READY_POLL_INTERVAL_MS,
+  createReadyGate,
   resolvePythonPath,
   resolveBundledBinDir,
   buildBackendEnv,
@@ -300,4 +304,85 @@ test('rotateLogIfNeeded is a no-op (does not throw) when the log file does not e
     assert.doesNotThrow(() => rotateLogIfNeeded(logPath))
     assert.equal(fs.existsSync(logPath), false)
   })
+})
+
+// --- createReadyGate ----------------------------------------------------------
+
+test('createReadyGate exposes a promise that stays pending until settled', async () => {
+  const gate = createReadyGate()
+  const marker = Symbol('pending')
+  const winner = await Promise.race([gate.promise, Promise.resolve(marker)])
+  assert.equal(winner, marker)
+})
+
+test('createReadyGate resolves its promise with the settled value', async () => {
+  const gate = createReadyGate()
+  gate.resolve('ready')
+  assert.equal(await gate.promise, 'ready')
+})
+
+test('createReadyGate rejects its promise with the given error', async () => {
+  const gate = createReadyGate()
+  gate.reject(new Error('backend did not start'))
+  await assert.rejects(() => gate.promise, /backend did not start/)
+})
+
+test('createReadyGate settles once — a later reject cannot un-resolve it', async () => {
+  const gate = createReadyGate()
+  gate.resolve('ready')
+  gate.reject(new Error('too late'))
+  gate.resolve('also too late')
+  assert.equal(await gate.promise, 'ready')
+})
+
+test('createReadyGate settles once — a later resolve cannot clear a rejection', async () => {
+  const gate = createReadyGate()
+  gate.reject(new Error('spawn failed'))
+  gate.resolve('too late')
+  await assert.rejects(() => gate.promise, /spawn failed/)
+})
+
+test('createReadyGate rejection is safe to observe long after it happened', async () => {
+  // The gate is rejected while nothing awaits it (backend dies during window
+  // load); the internal no-op catch keeps Node quiet, but the error must still
+  // reach a later awaiter.
+  const gate = createReadyGate()
+  gate.reject(new Error('late observer'))
+  await new Promise((r) => setTimeout(r, 10))
+  await assert.rejects(() => gate.promise, /late observer/)
+})
+
+// --- readiness poll schedule --------------------------------------------------
+
+test('the readiness poll schedule is 100ms initial + 100ms steps', () => {
+  // Pinned: the window is created before the backend answers, and the
+  // port/token IPCs wait on this poll, so a coarse schedule shows up directly
+  // as startup latency.
+  assert.equal(READY_POLL_INITIAL_MS, 100)
+  assert.equal(READY_POLL_INTERVAL_MS, 100)
+})
+
+// --- PythonBackend readiness gate ---------------------------------------------
+
+test('a freshly constructed PythonBackend exposes a pending whenReady() promise', async () => {
+  // No start() call here — constructing the object must not spawn anything, and
+  // the gate must already be awaitable so main.js can register the port/token
+  // IPC handlers before the backend exists.
+  const backend = new PythonBackend()
+  const ready = backend.whenReady()
+  assert.equal(typeof ready.then, 'function')
+  const marker = Symbol('pending')
+  assert.equal(await Promise.race([ready, Promise.resolve(marker)]), marker)
+})
+
+test('whenReady() returns the same promise on every call', () => {
+  const backend = new PythonBackend()
+  assert.equal(backend.whenReady(), backend.whenReady())
+})
+
+test('a constructed PythonBackend starts on PREFERRED_PORT with a fresh local token', () => {
+  const backend = new PythonBackend()
+  assert.equal(backend.port, PREFERRED_PORT)
+  assert.match(backend.localToken, /^[0-9a-f]{64}$/)
+  assert.notEqual(new PythonBackend().localToken, backend.localToken)
 })
