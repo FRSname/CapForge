@@ -47,6 +47,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [language, setLanguage] = useState('')
   const [whisperModel, setWhisperModel] = useState('')
   const [diarize, setDiarize] = useState(false)
+  const [freeModelAfterJob, setFreeModelAfterJob] = useState(false)
   const [hfToken, setHfToken] = useState('')
   const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null)
   const { toast } = useToast()
@@ -75,7 +76,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         const port = await window.subforge.getBackendPort()
         api.setPort(port)
         api.setLocalToken(await window.subforge.getLocalToken())
-        const [langs, info, savedLang, savedModel, savedDiarize, savedToken] =
+        const [langs, info, savedLang, savedModel, savedDiarize, savedToken, savedFreeModel] =
           await Promise.all([
             api.getLanguages(),
             api.getSystemInfo() as Promise<SystemInfo>,
@@ -83,6 +84,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             window.subforge.getState('whisper_model', ''),
             window.subforge.getState('diarize', false),
             window.subforge.getState('hf_token', ''),
+            window.subforge.getState('free_model_after_job', false),
           ])
         setLanguages(Array.isArray(langs) ? langs : [])
         setSysInfo(info)
@@ -90,6 +92,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         setWhisperModel(savedModel as string)
         setDiarize(savedDiarize as boolean)
         setHfToken(savedToken as string)
+        setFreeModelAfterJob(savedFreeModel as boolean)
       } catch {
         /* backend may not be up yet */
       }
@@ -110,6 +113,11 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   async function handleDiarizeChange(v: boolean) {
     setDiarize(v)
     await window.subforge.setState('diarize', v)
+  }
+
+  async function handleFreeModelAfterJobChange(v: boolean) {
+    setFreeModelAfterJob(v)
+    await window.subforge.setState('free_model_after_job', v)
   }
 
   async function handleTokenChange(token: string) {
@@ -244,6 +252,15 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
               Smaller models are faster and use less memory. A model you haven't used
               yet downloads the first time you transcribe with it.
+            </p>
+            <Toggle
+              checked={freeModelAfterJob}
+              onChange={handleFreeModelAfterJobChange}
+              label="Free model memory after each job"
+            />
+            <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+              Unloads the Whisper model when a transcription finishes. Slower next start,
+              less memory held while you edit — for machines with little RAM.
             </p>
           </div>
 
