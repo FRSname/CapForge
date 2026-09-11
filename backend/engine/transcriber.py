@@ -5,8 +5,11 @@ from __future__ import annotations
 import gc
 import logging
 import os
+import threading
+import time
+from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, NamedTuple, Optional
 
 import whisperx
 from huggingface_hub import snapshot_download
@@ -47,8 +50,38 @@ ALIGNMENT_MODELS: dict[str, tuple[str, str]] = {
     ),
 }
 
+# whisperx.load_audio() always resamples to 16 kHz, so sample count / this is
+# the audio duration in seconds (used for the [perf] realtime factor).
+AUDIO_SAMPLE_RATE = 16_000
+
+# CTranslate2's CPU thread count. whisperx 3.8.6 defaults to 4; using every core
+# measured +32% throughput on an M4 CPU.
+DEFAULT_CPU_THREADS = 4
+
 # Callback type for progress reporting
 ProgressCallback = Optional[Callable[[ProgressUpdate], Any]]
+
+
+class ModelConfig(NamedTuple):
+    """The resolved (model, device, compute type) triple plus the probe it came
+    from. Produced by one helper so warm() and transcribe() can never disagree."""
+
+    model_size: str
+    device: str
+    compute_type: str
+    hardware: Any
+
+
+@contextmanager
+def _timed(step: str, timings: dict[str, float], job: str = "transcribe"):
+    """Time one pipeline step, record it, and emit a greppable [perf] line."""
+    started = time.perf_counter()
+    try:
+        yield
+    finally:
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        timings[step] = elapsed_ms
+        logger.info("[perf] job=%s step=%s ms=%d", job, step, round(elapsed_ms))
 
 
 class TranscriptionCancelled(Exception):
@@ -64,6 +97,9 @@ class Transcriber:
         self._device: Optional[str] = None
         self._compute_type: Optional[str] = None
         self._cancelled = False
+        # Guards model loads/unloads: a warm-on-drop may be in flight when the
+        # user hits Start. Reentrant because _load_model calls unload_model.
+        self._load_lock = threading.RLock()
         # Alignment model cached per language for realign_segments — cheap to
         # keep resident vs. reloading on every word-timing edit.
         self._align_model = None
@@ -78,6 +114,30 @@ class Transcriber:
         if self._cancelled:
             raise TranscriptionCancelled("Transcription cancelled by user")
 
+    def warm(
+        self,
+        model: Optional[ModelSize] = None,
+        on_progress: ProgressCallback = None,
+    ) -> dict:
+        """Pre-load the Whisper model so the first Start doesn't pay for it.
+
+        Resolves model/device/compute exactly like transcribe() does, and takes
+        the same load lock — a Start racing a warm simply waits for the load and
+        then finds the model already resident.
+        """
+        cfg = self._resolve_model_config(model)
+        started = time.perf_counter()
+        with self._load_lock:
+            self._device = cfg.device
+            self._compute_type = cfg.compute_type
+            self._load_model(cfg.model_size, cfg.device, cfg.compute_type, on_progress)
+        loaded_ms = int((time.perf_counter() - started) * 1000)
+        logger.info(
+            "[perf] job=warm model=%s device=%s load_ms=%d",
+            cfg.model_size, cfg.device, loaded_ms,
+        )
+        return {"model": cfg.model_size, "device": cfg.device, "loaded_ms": loaded_ms}
+
     def transcribe(
         self,
         request: TranscribeRequest,
@@ -89,88 +149,53 @@ class Transcriber:
         if not Path(audio_path).is_file():
             raise FileNotFoundError(f"Audio file not found: {audio_path}")
 
-        hw = detect_hardware()
-        device = hw.recommended_device.value
-        compute_type = hw.recommended_compute_type.value
         # An explicit request.model wins over the hardware recommendation; device and
         # compute type still come from the hardware, so picking a small model on a
         # CUDA box keeps the fast path.
-        model_size = (request.model or hw.recommended_model).value
+        cfg = self._resolve_model_config(request.model)
         print(
-            f"[capforge] model={model_size} "
-            f"({'explicit' if request.model else 'auto'}) device={device} "
-            f"compute_type={compute_type}",
+            f"[capforge] model={cfg.model_size} "
+            f"({'explicit' if request.model else 'auto'}) device={cfg.device} "
+            f"compute_type={cfg.compute_type}",
             flush=True,
         )
 
-        self._device = device
-        self._compute_type = compute_type
+        self._device = cfg.device
+        self._compute_type = cfg.compute_type
+        timings: dict[str, float] = {}
+        job_start = time.perf_counter()
 
         # --- Step 1: Load model ---
         self._report(on_progress, JobStatus.LOADING_MODEL, 5, "Loading WhisperX model…")
-        self._load_model(model_size, device, compute_type, on_progress)
+        with _timed("load_model", timings), self._load_lock:
+            self._load_model(cfg.model_size, cfg.device, cfg.compute_type, on_progress)
 
         # --- Step 2: Transcribe ---
         self._check_cancelled()
         self._report(on_progress, JobStatus.TRANSCRIBING, 15, "Transcribing audio…")
         audio = whisperx.load_audio(audio_path)
-        transcribe_kwargs: dict[str, Any] = {"batch_size": self._pick_batch_size(hw.vram_mb)}
+        transcribe_kwargs: dict[str, Any] = {
+            "batch_size": self._pick_batch_size(cfg.hardware.vram_mb)
+        }
         if request.language:
             transcribe_kwargs["language"] = request.language
 
-        result = self._model.transcribe(audio, **transcribe_kwargs)
+        with _timed("transcribe", timings):
+            result = self._model.transcribe(audio, **transcribe_kwargs)
         detected_language = result.get("language", request.language)
         self._report(on_progress, JobStatus.TRANSCRIBING, 50, f"Audio transcribed — detected language: {detected_language}")
 
         # --- Step 3: Align ---
         self._check_cancelled()
-        self._report(on_progress, JobStatus.ALIGNING, 55, "Loading alignment model…")
-        model_a = None
-        alignment_degraded = False
-        try:
-            model_a, metadata = self._load_alignment_model(
-                detected_language, device, on_progress
+        with _timed("align", timings):
+            result, alignment_degraded = self._align_words(
+                result, audio, detected_language, cfg.device, on_progress
             )
-            self._report(on_progress, JobStatus.ALIGNING, 60, "Aligning words…")
-            result = whisperx.align(
-                result["segments"], model_a, metadata, audio, device,
-                return_char_alignments=False,
-            )
-            self._report(on_progress, JobStatus.ALIGNING, 75, "Word alignment complete")
-        except Exception as exc:
-            alignment_degraded = True
-            warning = (
-                f"Forced alignment unavailable for language {detected_language!r}: "
-                f"{exc}. Preserving the transcription with approximate word timings."
-            )
-            logger.warning(warning, exc_info=True)
-            self._report(on_progress, JobStatus.ALIGNING, 75, f"Warning: {warning}")
-            result = self._add_approximate_word_timings(result)
-        finally:
-            if model_a is not None:
-                del model_a
-                gc.collect()
-                self._try_cuda_empty_cache()
 
         # --- Step 4: Diarize (optional) ---
         self._check_cancelled()
-        if request.enable_diarization and request.hf_token:
-            self._report(on_progress, JobStatus.DIARIZING, 78, "Running speaker diarization…")
-            from whisperx.diarize import DiarizationPipeline
-            # whisperx 3.8.6 renamed `use_auth_token` -> `token`.
-            diarize_model = DiarizationPipeline(
-                model_name=DIARIZATION_MODEL,
-                token=request.hf_token,
-                device=device,
-            )
-            diarize_segments = diarize_model(audio)
-            result = whisperx.assign_word_speakers(diarize_segments, result)
-            del diarize_model
-            gc.collect()
-            self._try_cuda_empty_cache()
-            self._report(on_progress, JobStatus.DIARIZING, 90, "Diarization complete")
-        else:
-            self._report(on_progress, JobStatus.ALIGNING, 90, "Skipping diarization")
+        with _timed("diarize", timings):
+            result = self._diarize(result, audio, request, cfg.device, on_progress)
 
         # --- Build result ---
         self._report(on_progress, JobStatus.DONE, 95, "Building result…")
@@ -180,11 +205,77 @@ class Transcriber:
             audio_path,
             alignment_degraded=alignment_degraded,
         )
+        self._log_job_perf(cfg, audio, transcription, timings, job_start)
         self._report(on_progress, JobStatus.DONE, 100, "Done")
         return transcription
 
+    def _align_words(
+        self,
+        result: dict,
+        audio: Any,
+        detected_language: Optional[str],
+        device: str,
+        on_progress: ProgressCallback,
+    ) -> tuple[dict, bool]:
+        """Step 3: forced alignment, degrading to approximate word timings.
+
+        Uses the per-language cache, so the alignment model stays resident
+        across jobs exactly like the transcription model (unload_model frees it).
+        """
+        self._report(on_progress, JobStatus.ALIGNING, 55, "Loading alignment model…")
+        try:
+            self._load_align_model(detected_language, device, on_progress)
+            self._report(on_progress, JobStatus.ALIGNING, 60, "Aligning words…")
+            aligned = whisperx.align(
+                result["segments"], self._align_model, self._align_metadata, audio, device,
+                return_char_alignments=False,
+            )
+            self._report(on_progress, JobStatus.ALIGNING, 75, "Word alignment complete")
+            return aligned, False
+        except Exception as exc:
+            warning = (
+                f"Forced alignment unavailable for language {detected_language!r}: "
+                f"{exc}. Preserving the transcription with approximate word timings."
+            )
+            logger.warning(warning, exc_info=True)
+            self._report(on_progress, JobStatus.ALIGNING, 75, f"Warning: {warning}")
+            return self._add_approximate_word_timings(result), True
+
+    def _diarize(
+        self,
+        result: dict,
+        audio: Any,
+        request: TranscribeRequest,
+        device: str,
+        on_progress: ProgressCallback,
+    ) -> dict:
+        """Step 4: optional speaker diarization (unchanged behaviour)."""
+        if not (request.enable_diarization and request.hf_token):
+            self._report(on_progress, JobStatus.ALIGNING, 90, "Skipping diarization")
+            return result
+
+        self._report(on_progress, JobStatus.DIARIZING, 78, "Running speaker diarization…")
+        from whisperx.diarize import DiarizationPipeline
+        # whisperx 3.8.6 renamed `use_auth_token` -> `token`.
+        diarize_model = DiarizationPipeline(
+            model_name=DIARIZATION_MODEL,
+            token=request.hf_token,
+            device=device,
+        )
+        diarize_segments = diarize_model(audio)
+        result = whisperx.assign_word_speakers(diarize_segments, result)
+        del diarize_model
+        gc.collect()
+        self._try_cuda_empty_cache()
+        self._report(on_progress, JobStatus.DIARIZING, 90, "Diarization complete")
+        return result
+
     def unload_model(self) -> None:
         """Free the loaded models (transcription + cached alignment) from memory."""
+        with self._load_lock:
+            self._unload_model_locked()
+
+    def _unload_model_locked(self) -> None:
         freed = False
         if self._model is not None:
             del self._model
@@ -285,6 +376,77 @@ class Transcriber:
 
     # --- Private helpers ---
 
+    @staticmethod
+    def _resolve_model_config(model: Optional[ModelSize]) -> ModelConfig:
+        """Resolve model/device/compute from the hardware probe.
+
+        The single source of truth for both warm() and transcribe(): an explicit
+        model wins, device and compute type always come from the hardware.
+        """
+        hw = detect_hardware()
+        return ModelConfig(
+            model_size=(model or hw.recommended_model).value,
+            device=hw.recommended_device.value,
+            compute_type=hw.recommended_compute_type.value,
+            hardware=hw,
+        )
+
+    @classmethod
+    def _log_job_perf(
+        cls,
+        cfg: ModelConfig,
+        audio: Any,
+        transcription: TranscriptionResult,
+        timings: dict[str, float],
+        job_start: float,
+    ) -> None:
+        """Emit the one-line [perf] summary for a completed transcription."""
+        total_ms = (time.perf_counter() - job_start) * 1000
+        audio_s = cls._audio_seconds(audio, transcription)
+        parts = [
+            "[perf] job=transcribe",
+            f"model={cfg.model_size}",
+            f"device={cfg.device}",
+            f"compute={cfg.compute_type}",
+        ]
+        if audio_s is not None:
+            parts.append(f"audio_s={audio_s:.1f}")
+        parts += [
+            f"load_ms={round(timings.get('load_model', 0.0))}",
+            f"transcribe_ms={round(timings.get('transcribe', 0.0))}",
+            f"align_ms={round(timings.get('align', 0.0))}",
+            f"diarize_ms={round(timings.get('diarize', 0.0))}",
+            f"total_ms={round(total_ms)}",
+        ]
+        if audio_s is not None and total_ms > 0:
+            parts.append(f"rtf={audio_s / (total_ms / 1000):.2f}")
+        logger.info(" ".join(parts))
+
+    @staticmethod
+    def _audio_seconds(
+        audio: Any, transcription: TranscriptionResult
+    ) -> Optional[float]:
+        """Audio duration for the realtime factor.
+
+        whisperx.load_audio returns a 16 kHz mono array, so the sample count is
+        authoritative; anything else falls back to the last segment's end.
+        """
+        samples: Optional[int] = None
+        if not isinstance(audio, (str, bytes, bytearray)):
+            shape = getattr(audio, "shape", None)
+            if shape:
+                samples = int(shape[-1])
+            else:
+                try:
+                    samples = len(audio)
+                except TypeError:
+                    samples = None
+        if samples:
+            return samples / AUDIO_SAMPLE_RATE
+        if transcription.segments:
+            return float(transcription.segments[-1].end)
+        return None
+
     def _load_model(
         self, model_size: str, device: str, compute_type: str,
         on_progress: ProgressCallback = None,
@@ -293,7 +455,12 @@ class Transcriber:
             return  # Already loaded
         self.unload_model()
         model_dir = os.environ.get("CAPFORGE_MODEL_DIR")
-        kwargs: dict[str, Any] = {"compute_type": compute_type}
+        kwargs: dict[str, Any] = {
+            "compute_type": compute_type,
+            # CTranslate2 worker threads. whisperx defaults to 4 regardless of
+            # the machine; every core measured +32% throughput on an M4 CPU.
+            "threads": os.cpu_count() or DEFAULT_CPU_THREADS,
+        }
         if model_dir:
             kwargs["download_root"] = model_dir
 
@@ -341,8 +508,18 @@ class Transcriber:
 
         self._model_size = model_size
 
-    def _load_align_model(self, language: str, device: str) -> None:
-        normalized_language = language.lower()
+    def _load_align_model(
+        self,
+        language: Optional[str],
+        device: str,
+        on_progress: ProgressCallback = None,
+    ) -> None:
+        """Load (and keep resident) the alignment model for one language.
+
+        Shared by transcribe() and realign_segments(): the model survives a job
+        so back-to-back transcriptions in the same language load it once.
+        """
+        normalized_language = language.lower() if language else language
         if self._align_model is not None and self._align_lang == normalized_language:
             return
         if self._align_model is not None:
@@ -352,7 +529,9 @@ class Transcriber:
             self._align_lang = None
             gc.collect()
             self._try_cuda_empty_cache()
-        model_a, metadata = self._load_alignment_model(normalized_language, device)
+        model_a, metadata = self._load_alignment_model(
+            normalized_language, device, on_progress
+        )
         self._align_model = model_a
         self._align_metadata = metadata
         self._align_lang = normalized_language

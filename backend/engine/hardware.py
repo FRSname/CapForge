@@ -1,9 +1,19 @@
-"""Hardware auto-detection: GPU, VRAM, and recommended settings."""
+"""Hardware auto-detection: GPU, VRAM, and recommended settings.
+
+The probe is expensive (importing torch plus a ``sysctl`` subprocess is ~700 ms)
+and its answer cannot change while the process lives, so it runs exactly once
+per backend launch: :func:`_detect_hardware_uncached` holds the real work,
+:func:`_cached_hardware` memoizes it, and :func:`detect_hardware` hands every
+caller its own copy so nobody can mutate the cached value. Use
+:func:`reset_hardware_cache` in tests.
+"""
+
+import functools
 
 from backend.models.schemas import ComputeType, DeviceType, ModelSize, SystemInfo
 
 
-def detect_hardware() -> SystemInfo:
+def _detect_hardware_uncached() -> SystemInfo:
     """Detect available hardware and recommend WhisperX settings."""
     info = SystemInfo()
 
@@ -71,6 +81,32 @@ def detect_hardware() -> SystemInfo:
         _configure_cpu(info)
 
     return info
+
+
+@functools.lru_cache(maxsize=1)
+def _cached_hardware() -> SystemInfo:
+    """Run the probe once per process (the ``[capforge] torch=…`` diagnostics
+    therefore print once, which is the point)."""
+    return _detect_hardware_uncached()
+
+
+def detect_hardware() -> SystemInfo:
+    """Return the cached hardware probe as a private copy.
+
+    SystemInfo is a mutable Pydantic model and callers do adjust it, so the
+    cache is never handed out directly.
+    """
+    return _cached_hardware().model_copy(deep=True)
+
+
+def reset_hardware_cache() -> None:
+    """Drop the memoized probe. For tests; the answer is fixed at runtime."""
+    _cached_hardware.cache_clear()
+
+
+# Mirror lru_cache's own API on the public entry point so callers/tests can
+# clear the cache through either name.
+detect_hardware.cache_clear = _cached_hardware.cache_clear  # type: ignore[attr-defined]
 
 
 def _mps_available(torch) -> bool:
