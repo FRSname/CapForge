@@ -207,6 +207,18 @@ This is the day-zero experiment behind the v3 library: which of these fields an
 agent actually reads back decides the record schema, so keep the notes as plain
 sections rather than prose.
 
+## The publish skill (`skills/capforge-publish/`)
+
+A generic, editable Claude Code skill that turns the open video into one copy-ready
+YouTube upload package and saves it as `notes/youtube.txt` (above). Channel-specific
+prose lives in its **Channel notes** block, so one skill serves a personal channel
+and a conference channel alike; `examples/conference-channel.md` shows a filled-in
+copy with a second destination. Settings → Claude AI integration → **Install publish
+skill** copies it to `~/.claude/skills/capforge-publish/` (opt-in, path shown; an
+edited copy is never overwritten). Claude Desktop users add it through the Desktop
+skills UI instead. Per-platform formatters (LinkedIn, X, Instagram) are deliberately
+not part of it yet — see `docs/plans/creator-hub-vision.md` §7 (4s).
+
 ## Registry styles in co-author mode
 
 `set_caption_style` is a CapForge-pipeline knob — in co-author mode it never
