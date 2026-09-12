@@ -1,0 +1,16 @@
+{
+  "host": "Apple M4, 24 GB, 10 cores, macOS 26.6.2",
+  "commit": "feat/v3-week0 (Week 0 Perf M0 applied: threads=cpu_count, resident alignment model)",
+  "measured_at": "2026-09-11",
+  "clip": "Czech talking-head, 99.6 s, large-v3-turbo int8 on CPU, language=cs, no diarization",
+  "jobs": [
+    { "job": "transcribe", "model": "large-v3-turbo", "device": "cpu", "compute": "int8",
+      "audio_s": 99.6, "load_ms": 6661, "transcribe_ms": 23747, "align_ms": 7037,
+      "diarize_ms": 0, "total_ms": 37880, "rtf": 2.63,
+      "note": "cold: Whisper + Czech wav2vec2 alignment model both loaded in-job" },
+    { "job": "transcribe", "model": "large-v3-turbo", "device": "cpu", "compute": "int8",
+      "audio_s": 99.6, "load_ms": 0, "transcribe_ms": 21148, "align_ms": 5315,
+      "diarize_ms": 0, "total_ms": 26862, "rtf": 3.71,
+      "note": "warm: both models resident from the previous job (the state warm-on-drop produces)" }
+  ]
+}

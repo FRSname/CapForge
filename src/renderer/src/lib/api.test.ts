@@ -343,6 +343,47 @@ describe('CapForgeAPI', () => {
       expect(JSON.parse(init.body as string)).not.toHaveProperty('model')
     })
 
+    test('startTranscription forwards release_model_after when set', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({}))
+
+      await api.startTranscription({ audio_path: '/a.mp4', release_model_after: true })
+
+      const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(JSON.parse(init.body as string)).toEqual({
+        audio_path: '/a.mp4',
+        release_model_after: true,
+      })
+    })
+
+    test('warm POSTs the chosen model to /api/warm', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'warm', model: 'small', device: 'cpu' }))
+
+      await api.warm('small')
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe('http://127.0.0.1:53421/api/warm')
+      expect(init.method).toBe('POST')
+      expect(init.body).toBe('{"model":"small"}')
+    })
+
+    test('warm omits model entirely when none is chosen', async () => {
+      // A missing `model` means "auto" server-side; sending null/'' would fail
+      // the same ModelSize validation startTranscription avoids.
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'warm' }))
+
+      await api.warm()
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe('http://127.0.0.1:53421/api/warm')
+      expect(init.body).toBe('{}')
+    })
+
+    test('warm resolves a busy backend without throwing', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'busy' }))
+
+      await expect(api.warm('small')).resolves.toEqual({ status: 'busy' })
+    })
+
     test('updateResult PUTs to /api/result', async () => {
       fetchMock.mockResolvedValue(jsonResponse({}))
 

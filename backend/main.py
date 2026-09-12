@@ -97,6 +97,7 @@ from backend.models.schemas import (
     TranscriptionResult,
     VideoRenderConfig,
     VideoRenderRequest,
+    WarmRequest,
 )
 from backend import workspace_fs
 
@@ -297,6 +298,16 @@ async def _write_agent_discovery() -> None:
             "CAPFORGE_LOCAL_TOKEN missing though launched by Electron; "
             "the renderer will be unable to authenticate media requests"
         )
+    # Pre-warm the hardware probe off the event loop. It imports torch and
+    # shells out to sysctl (~700 ms) and is cached for the process lifetime, so
+    # paying for it here keeps it off the first /api/system-info and the first
+    # transcribe. Deliberately not awaited — startup must not block on it.
+    try:
+        future = asyncio.get_running_loop().run_in_executor(None, detect_hardware)
+        future.add_done_callback(_log_hardware_prewarm)
+    except Exception:
+        logger.warning("Could not schedule the hardware pre-warm", exc_info=True)
+
     try:
         path = write_discovery(resolve_port(), AGENT_TOKEN)
         logger.info("Agent discovery file written: %s (port %s)", path, resolve_port())
@@ -310,6 +321,16 @@ async def _write_agent_discovery() -> None:
             discovery_path(),
             exc_info=True,
         )
+
+
+def _log_hardware_prewarm(future: "asyncio.Future[Any]") -> None:
+    """A failed pre-warm is non-fatal: detect_hardware() runs again on demand."""
+    try:
+        exc = future.exception()
+    except asyncio.CancelledError:
+        return
+    if exc is not None:
+        logger.warning("Hardware pre-warm failed: %s", exc, exc_info=exc)
 
 
 @app.on_event("shutdown")
@@ -396,7 +417,7 @@ def make_sync_progress_callback(loop: asyncio.AbstractEventLoop):
 @app.get("/api/system-info", response_model=SystemInfo)
 async def get_system_info():
     """Return detected hardware capabilities and recommendations."""
-    return detect_hardware()
+    return await asyncio.to_thread(detect_hardware)
 
 
 @app.get("/api/languages")
@@ -408,7 +429,7 @@ async def get_languages():
 @app.get("/api/models")
 async def get_models():
     """Return available model sizes."""
-    hw = detect_hardware()
+    hw = await asyncio.to_thread(detect_hardware)
     return {
         "available": ["tiny", "base", "small", "medium", "large", "large-v2", "large-v3"],
         "recommended": hw.recommended_model.value,
@@ -530,6 +551,30 @@ async def get_video_info(path: str):
         return {"width": None, "height": None, "fps": None}
 
 
+@app.post("/api/warm")
+async def warm_model(request: WarmRequest):
+    """Pre-load the Whisper model so the first Start doesn't pay for it.
+
+    Warm-on-drop: the renderer calls this when a file is dropped. Ungated, at the
+    same loopback trust level as POST /api/transcribe. It deliberately never
+    touches current_status and never broadcasts progress — a warm is invisible to
+    the UI's job state machine.
+    """
+    if current_status.status not in (JobStatus.IDLE, JobStatus.DONE, JobStatus.ERROR):
+        # A job is running, which means the model is already loading or loaded.
+        return {"status": "busy"}
+
+    loop = asyncio.get_running_loop()
+    try:
+        info = await loop.run_in_executor(None, lambda: transcriber.warm(request.model))
+    except Exception:
+        # A failed warm costs the user nothing but the pre-load: the next
+        # transcribe loads the model itself.
+        logger.exception("Model warm-up failed")
+        raise HTTPException(status_code=500, detail="Model warm-up failed")
+    return {"status": "warm", **info}
+
+
 @app.post("/api/transcribe")
 async def start_transcription(request: TranscribeRequest):
     """Start a transcription job. Runs in a background thread."""
@@ -583,6 +628,14 @@ async def start_transcription(request: TranscribeRequest):
             status_code=400 if isinstance(e, FileNotFoundError) else 500,
             detail={"title": friendly.title, "hint": friendly.hint, "raw": str(e)},
         )
+    finally:
+        # Opt-in "free the model after the job" — done for cancels and failures
+        # too, since the user asked for the memory back either way.
+        if request.release_model_after:
+            try:
+                await loop.run_in_executor(None, transcriber.unload_model)
+            except Exception:
+                logger.warning("Could not release the model after the job", exc_info=True)
 
 
 @app.get("/api/result")

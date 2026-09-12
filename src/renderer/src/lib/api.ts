@@ -58,6 +58,22 @@ export interface TranscribeParams {
   hf_token?: string
   output_dir?: string
   export_formats?: string[]
+  /**
+   * Free the Whisper + alignment models once the job finishes. Costs a cold
+   * start on the next run; hands the memory back while the user edits.
+   */
+  release_model_after?: boolean
+}
+
+/**
+ * `POST /api/warm` response. `status: 'busy'` means a job already holds the
+ * backend — the warm was skipped, which is not an error.
+ */
+export interface WarmResponse {
+  status: 'warm' | 'busy'
+  model?: string
+  device?: string
+  loaded_ms?: number
 }
 
 /** Backend HyperFrames CLI preflight (`GET /api/hyperframes/status`, snake_case wire). */
@@ -354,6 +370,16 @@ class CapForgeAPI {
 
   startTranscription(params: TranscribeParams) {
     return this.post('/api/transcribe', params)
+  }
+
+  /**
+   * Pre-load the Whisper model so the first transcription skips the cold start.
+   * Fire-and-forget: a failure (or `status: 'busy'`) just means the old
+   * load-on-demand path. Omitting `model` lets the backend pick its
+   * hardware-recommended default, matching `startTranscription`.
+   */
+  warm(model?: string): Promise<WarmResponse> {
+    return this.post<WarmResponse>('/api/warm', { model: model || undefined })
   }
 
   updateResult(result: TranscriptionResult) {

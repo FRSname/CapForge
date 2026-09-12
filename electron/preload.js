@@ -103,6 +103,8 @@ contextBridge.exposeInMainWorld('subforge', {
     connectDesktop: () => ipcRenderer.invoke('claude:connectDesktop'),
     connectCode: () => ipcRenderer.invoke('claude:connectCode'),
     getManualConfig: () => ipcRenderer.invoke('claude:getManualConfig'),
+    /** Opt-in: copy the bundled publish skill into ~/.claude/skills/. */
+    installPublishSkill: () => ipcRenderer.invoke('claude:installPublishSkill'),
   },
 
   /** Opt-in provisioning of the HyperFrames extras (managed Node + CLI + browser). */

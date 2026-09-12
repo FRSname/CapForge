@@ -47,6 +47,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   const [language, setLanguage] = useState('')
   const [whisperModel, setWhisperModel] = useState('')
   const [diarize, setDiarize] = useState(false)
+  const [freeModelAfterJob, setFreeModelAfterJob] = useState(false)
   const [hfToken, setHfToken] = useState('')
   const [sysInfo, setSysInfo] = useState<SystemInfo | null>(null)
   const { toast } = useToast()
@@ -54,6 +55,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     desktop: boolean
     code: boolean
     runtimeReady: boolean
+    publishSkill: { path: string; status: 'install' | 'up-to-date' | 'edited' | 'unknown' }
   } | null>(null)
   const [lightMode, setLightMode] = useState(() => {
     const stored = localStorage.getItem('capforge-theme')
@@ -75,7 +77,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         const port = await window.subforge.getBackendPort()
         api.setPort(port)
         api.setLocalToken(await window.subforge.getLocalToken())
-        const [langs, info, savedLang, savedModel, savedDiarize, savedToken] =
+        const [langs, info, savedLang, savedModel, savedDiarize, savedToken, savedFreeModel] =
           await Promise.all([
             api.getLanguages(),
             api.getSystemInfo() as Promise<SystemInfo>,
@@ -83,6 +85,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             window.subforge.getState('whisper_model', ''),
             window.subforge.getState('diarize', false),
             window.subforge.getState('hf_token', ''),
+            window.subforge.getState('free_model_after_job', false),
           ])
         setLanguages(Array.isArray(langs) ? langs : [])
         setSysInfo(info)
@@ -90,6 +93,7 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
         setWhisperModel(savedModel as string)
         setDiarize(savedDiarize as boolean)
         setHfToken(savedToken as string)
+        setFreeModelAfterJob(savedFreeModel as boolean)
       } catch {
         /* backend may not be up yet */
       }
@@ -112,6 +116,11 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     await window.subforge.setState('diarize', v)
   }
 
+  async function handleFreeModelAfterJobChange(v: boolean) {
+    setFreeModelAfterJob(v)
+    await window.subforge.setState('free_model_after_job', v)
+  }
+
   async function handleTokenChange(token: string) {
     setHfToken(token)
     await window.subforge.setState('hf_token', token)
@@ -121,14 +130,18 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
   // `claude` may be absent on an older preload (e.g. after a renderer-only
   // reload). Guard everything so a missing API degrades gracefully instead of
   // crashing the panel.
-  useEffect(() => {
-    if (!open) return
+  function detectClaudeClients() {
     window.subforge.claude
       ?.detect()
       .then(setClaudeClients)
       .catch(() => {
         /* best-effort — section just shows enabled buttons */
       })
+  }
+
+  useEffect(() => {
+    if (!open) return
+    detectClaudeClients()
   }, [open])
 
   async function handleClaudeConnect(target: 'desktop' | 'code') {
@@ -150,6 +163,38 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     }
   }
 
+  /**
+   * Opt-in skill install. The skill is a plain markdown workflow the user is
+   * meant to adapt, so an edited copy is reported back, never overwritten.
+   */
+  async function handleInstallPublishSkill() {
+    const claude = window.subforge.claude
+    if (!claude) {
+      toast('Restart CapForge to enable Claude integration.', 'error')
+      return
+    }
+    const res = await claude.installPublishSkill()
+    if (res.ok) {
+      if (res.status === 'installed') {
+        toast('Publish skill installed — restart Claude Code to load it.', 'success')
+      } else {
+        toast('Publish skill is already installed.', 'info')
+      }
+      // Re-detect so the install path becomes visible.
+      detectClaudeClients()
+    } else if (res.reason === 'edited') {
+      toast(
+        `You have an edited copy at ${res.path}. Delete it to reinstall the bundled version.`,
+        'info'
+      )
+      detectClaudeClients()
+    } else if (res.reason === 'not-bundled') {
+      toast('The skill is not bundled in this build.', 'error')
+    } else {
+      toast("Couldn't install the skill.", 'error')
+    }
+  }
+
   async function handleClaudeCopyConfig() {
     if (!window.subforge.claude) {
       toast('Restart CapForge to enable Claude integration.', 'error')
@@ -163,6 +208,17 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       toast('Could not copy config.', 'error')
     }
   }
+
+  // `unknown` (unreadable bundle) is treated as installable: the attempt reports
+  // the real reason instead of dead-ending the button.
+  const publishSkillState = claudeClients?.publishSkill.status ?? 'install'
+  const publishSkillInstalled = publishSkillState === 'up-to-date' || publishSkillState === 'edited'
+  const publishSkillLabel =
+    publishSkillState === 'up-to-date'
+      ? 'Publish skill installed'
+      : publishSkillState === 'edited'
+        ? 'Publish skill installed (edited)'
+        : 'Install publish skill'
 
   return (
     <>
@@ -244,6 +300,15 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
             <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
               Smaller models are faster and use less memory. A model you haven't used
               yet downloads the first time you transcribe with it.
+            </p>
+            <Toggle
+              checked={freeModelAfterJob}
+              onChange={handleFreeModelAfterJobChange}
+              label="Free model memory after each job"
+            />
+            <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+              Unloads the Whisper model when a transcription finishes. Slower next start,
+              less memory held while you edit — for machines with little RAM.
             </p>
           </div>
 
@@ -328,6 +393,35 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
                 Connect Code
               </Button>
             </div>
+
+            {/* Publish skill for Claude Code — opt-in, with a visible path. */}
+            <div className="flex flex-col gap-1">
+              <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+                Publish skill for Claude Code (optional). Installs a generic YouTube upload-package
+                workflow you can edit. Not needed for Claude Desktop, which uses its own skills UI.
+              </p>
+              <Button
+                variant="ghost"
+                className="w-full text-xs justify-center"
+                disabled={(!!claudeClients && !claudeClients.runtimeReady) || publishSkillInstalled}
+                onClick={handleInstallPublishSkill}
+              >
+                {publishSkillLabel}
+              </Button>
+              {claudeClients && claudeClients.publishSkill.status !== 'install' && (
+                <p
+                  className="text-[10px]"
+                  style={{
+                    fontFamily: 'var(--cf-font-mono)',
+                    color: 'var(--color-text-3)',
+                    wordBreak: 'break-all',
+                  }}
+                >
+                  {claudeClients.publishSkill.path}
+                </p>
+              )}
+            </div>
+
             <button
               type="button"
               className="text-left text-[11px] underline"
