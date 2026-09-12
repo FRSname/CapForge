@@ -61,6 +61,8 @@ interface ClaudeDetect {
   desktop: boolean
   code: boolean
   runtimeReady: boolean
+  /** Publish skill: where it installs to, and whether it is already there. */
+  publishSkill: { path: string; status: 'install' | 'up-to-date' | 'edited' | 'unknown' }
 }
 
 interface ClaudeConnectResult {
@@ -81,11 +83,20 @@ interface ClaudeManualConfig {
   codeCommand: string
 }
 
+/**
+ * `edited` means the user adapted their copy of SKILL.md — CapForge refuses to
+ * overwrite it rather than silently discarding their edits.
+ */
+type ClaudeSkillInstallResult =
+  | { ok: true; path: string; status: 'installed' | 'up-to-date' }
+  | { ok: false; reason: 'edited' | 'not-bundled' | 'write-failed'; path?: string; detail?: string }
+
 interface ClaudeConnectApi {
   detect: () => Promise<ClaudeDetect>
   connectDesktop: () => Promise<ClaudeConnectResult>
   connectCode: () => Promise<ClaudeConnectResult>
   getManualConfig: () => Promise<ClaudeManualConfig>
+  installPublishSkill: () => Promise<ClaudeSkillInstallResult>
 }
 
 interface HyperframesStatus {
@@ -150,6 +161,7 @@ contextBridge.exposeInMainWorld('subforge', {
     connectDesktop: () => ipcRenderer.invoke('claude:connectDesktop'),
     connectCode: () => ipcRenderer.invoke('claude:connectCode'),
     getManualConfig: () => ipcRenderer.invoke('claude:getManualConfig'),
+    installPublishSkill: () => ipcRenderer.invoke('claude:installPublishSkill'),
   },
   hyperframes: {
     status: () => ipcRenderer.invoke('hyperframes:status'),

@@ -454,6 +454,7 @@ function registerIpcHandlers() {
   ipcMain.handle('claude:connectDesktop', () => claudeConnect.connectDesktop())
   ipcMain.handle('claude:connectCode', () => claudeConnect.connectCode())
   ipcMain.handle('claude:getManualConfig', () => claudeConnect.getManualConfig())
+  ipcMain.handle('claude:installPublishSkill', () => claudeConnect.installPublishSkill())
 
   // IPC: open a generated composition in the HyperFrames "studio" — the local
   // preview webapp. The renderer first generates the project folder via the
