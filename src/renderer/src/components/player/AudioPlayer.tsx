@@ -297,6 +297,10 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
       )
         return
 
+      // No timeline key takes a modifier, and ⌘, (Open settings) would
+      // otherwise also nudge the playhead via the `,` branch below.
+      if (e.metaKey || e.ctrlKey) return
+
       if (e.key === '=' || e.key === '+') {
         e.preventDefault()
         handleZoomIn()

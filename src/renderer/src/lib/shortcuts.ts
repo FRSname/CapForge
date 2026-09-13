@@ -1,12 +1,13 @@
 /**
  * Single source of truth for the app's keyboard shortcuts.
  *
- * Rendered by both the SettingsPanel reference list and the `?` ShortcutOverlay
- * — when a shortcut is added or changed in a handler, update it here (and only
- * here) so the two surfaces never drift apart.
+ * Rendered by both Settings → Shortcuts and the `?` ShortcutOverlay — when a
+ * shortcut is added or changed in a handler, update it here (and only here) so
+ * the two surfaces never drift apart.
  *
  * Handler locations:
- *   Global    → App.tsx (⌘S/⌘O/⌘Z/?), ResultsScreen.tsx (⌘Z subtitle undo)
+ *   Global    → App.tsx (⌘S/⌘O/⌘Z/?), ResultsScreen.tsx (⌘Z subtitle undo),
+ *               SettingsDialog.tsx (⌘, opens Settings)
  *   Playback  → ResultsScreen.tsx playback keydown
  *   Editor    → ResultsScreen.tsx (⌘1/⌘2), SubtitleEditor.tsx contentEditable keydown
  *   Groups    → GroupEditor.tsx list keydown (list must be focused)
@@ -32,6 +33,7 @@ export const SHORTCUT_SECTIONS: ShortcutSection[] = [
       { keys: ['⌘O'], description: 'Open project' },
       { keys: ['⌘Z', '⌘⇧Z'], description: 'Undo / Redo' },
       { keys: ['?'], description: 'Keyboard shortcuts' },
+      { keys: ['⌘,'], description: 'Open settings' },
     ],
   },
   {
