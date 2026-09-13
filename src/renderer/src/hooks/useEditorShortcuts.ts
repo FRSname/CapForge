@@ -80,6 +80,10 @@ export function useEditorShortcuts({
         return
       }
 
+      // No playback key takes a modifier, and ⌘, (Open settings) would
+      // otherwise *also* seek to the previous group via `case ','` below.
+      if (mod) return
+
       const p = playerRef.current
       if (!p) return
 

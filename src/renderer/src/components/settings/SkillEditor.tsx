@@ -29,8 +29,8 @@ const INSTALL_LABEL: Record<SkillInstallStatus, string> = {
   outdated: 'Update',
 }
 
-/** Tall enough to edit a real SKILL.md in a 288px-wide slide-over. */
-const EDITOR_MIN_HEIGHT = '45vh'
+/** Tall enough to edit a real SKILL.md in the Settings dialog's content pane. */
+const EDITOR_MIN_HEIGHT = '50vh'
 /** The read-only bundled copy is reference material, so it gets less room. */
 const BUNDLED_MIN_HEIGHT = '25vh'
 

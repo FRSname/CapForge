@@ -21,7 +21,7 @@ import { useToast } from '../../hooks/useToast'
 import { SkillEditor, SkillStatusChip } from './SkillEditor'
 
 interface SkillsPanelProps {
-  /** The Settings slide-over is open — (re)load the list when it opens. */
+  /** The Skills UI is visible — (re)load the list when it becomes so. */
   open: boolean
 }
 
@@ -189,56 +189,63 @@ export function SkillsPanel({ open }: SkillsPanelProps) {
         </p>
       )}
 
-      {skills.length > 0 && (
-        <div className="flex flex-col gap-1">
-          {skills.map((s) => {
-            const selected = detail?.name === s.name
-            return (
-              <button
-                key={s.name}
-                type="button"
-                aria-pressed={selected}
-                disabled={busy}
-                onClick={() => handleSelect(s.name)}
-                className="flex w-full flex-col gap-0.5 rounded border px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-surface-2)]"
-                style={{
-                  borderColor: selected ? 'var(--color-border-3)' : 'var(--color-border)',
-                  background: selected ? 'var(--color-surface-2)' : 'transparent',
-                }}
-              >
-                <span className="flex w-full items-center justify-between gap-2">
-                  <span
-                    className="min-w-0 truncate text-[11px]"
-                    style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text)' }}
-                  >
-                    {s.name}
+      {/* With a skill open the dialog is wide enough for list-beside-editor;
+          with none open the list gets the full width. */}
+      <div className={detail ? 'grid grid-cols-[240px_1fr] gap-4 items-start' : undefined}>
+        {skills.length > 0 && (
+          <div className="flex flex-col gap-1">
+            {skills.map((s) => {
+              const selected = detail?.name === s.name
+              return (
+                <button
+                  key={s.name}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={busy}
+                  onClick={() => handleSelect(s.name)}
+                  className="flex w-full flex-col gap-0.5 rounded border px-2 py-1.5 text-left transition-colors hover:bg-[var(--color-surface-2)]"
+                  style={{
+                    borderColor: selected ? 'var(--color-border-3)' : 'var(--color-border)',
+                    background: selected ? 'var(--color-surface-2)' : 'transparent',
+                  }}
+                >
+                  <span className="flex w-full items-center justify-between gap-2">
+                    <span
+                      className="min-w-0 truncate text-[11px]"
+                      style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text)' }}
+                    >
+                      {s.name}
+                    </span>
+                    <SkillStatusChip status={s.installStatus} bundleChanged={s.bundleChanged} />
                   </span>
-                  <SkillStatusChip status={s.installStatus} bundleChanged={s.bundleChanged} />
-                </span>
-                <span className="line-clamp-2 text-[11px]" style={{ color: 'var(--color-text-3)' }}>
-                  {s.description}
-                </span>
-              </button>
-            )
-          })}
-        </div>
-      )}
+                  <span
+                    className="line-clamp-2 text-[11px]"
+                    style={{ color: 'var(--color-text-3)' }}
+                  >
+                    {s.description}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
 
-      <SkillEditor
-        skill={detail}
-        draft={draft}
-        dirty={dirty}
-        busy={busy}
-        showBundled={showBundled}
-        onChange={setDraft}
-        onSave={handleSave}
-        onReset={takeBundled}
-        onInstall={handleInstall}
-        onReveal={handleReveal}
-        onKeepMine={handleKeepMine}
-        onTakeNew={takeBundled}
-        onOpenBoth={() => setShowBundled((v) => !v)}
-      />
+        <SkillEditor
+          skill={detail}
+          draft={draft}
+          dirty={dirty}
+          busy={busy}
+          showBundled={showBundled}
+          onChange={setDraft}
+          onSave={handleSave}
+          onReset={takeBundled}
+          onInstall={handleInstall}
+          onReveal={handleReveal}
+          onKeepMine={handleKeepMine}
+          onTakeNew={takeBundled}
+          onOpenBoth={() => setShowBundled((v) => !v)}
+        />
+      </div>
     </div>
   )
 }

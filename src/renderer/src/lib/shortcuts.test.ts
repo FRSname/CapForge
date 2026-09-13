@@ -1,6 +1,6 @@
 /**
- * Shape sanity for the shared shortcut inventory — both the SettingsPanel
- * reference list and the `?` ShortcutOverlay render from this constant.
+ * Shape sanity for the shared shortcut inventory — both Settings → Shortcuts
+ * and the `?` ShortcutOverlay render from this constant.
  */
 
 import { describe, expect, test } from 'vitest'
@@ -35,6 +35,14 @@ describe('SHORTCUT_SECTIONS', () => {
     expect(allKeys).toContain('?')
     expect(allKeys).toContain('⌘1')
     expect(allKeys).toContain('⌘2')
+  })
+
+  test('the Global section documents ⌘, as the Settings dialog opener', () => {
+    // Arrange
+    const global = SHORTCUT_SECTIONS.find((s) => s.title === 'Global')
+
+    // Assert
+    expect(global?.items).toContainEqual({ keys: ['⌘,'], description: 'Open settings' })
   })
 
   test('descriptions are unique within each section (used as React keys)', () => {
