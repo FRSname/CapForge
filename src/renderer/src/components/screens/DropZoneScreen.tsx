@@ -19,7 +19,7 @@ export function warmForFile(): void {
   void (async () => {
     api.setPort(await window.subforge.getBackendPort())
     api.setLocalToken(await window.subforge.getLocalToken())
-    // Same key SettingsPanel writes and ProgressScreen reads; '' means "auto".
+    // Same key TranscriptionSettings writes and ProgressScreen reads; '' means "auto".
     const model = await window.subforge.getState<string>('whisper_model', '')
     await api.warm(model || undefined)
   })().catch(() => {

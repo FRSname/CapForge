@@ -338,7 +338,7 @@ class CapForgeAPI {
     return this.get<string[]>('/api/models')
   }
   async getSystemFonts(): Promise<string[]> {
-    // Font pickers can mount before SettingsPanel/useTranscription initialize
+    // Font pickers can mount before TranscriptionSettings/useTranscription initialize
     // the API client (for example when opening an existing project). Resolve
     // the current backend connection here so this authenticated request does
     // not race renderer startup.

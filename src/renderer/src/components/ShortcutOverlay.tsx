@@ -3,7 +3,7 @@
  *
  * Dialog markup mirrors RenderProgressModal (role="dialog", aria-modal, fixed
  * scrim, centered surface card). Sections come from lib/shortcuts.ts — the
- * same constant the SettingsPanel reference list renders, so there is exactly
+ * same constant the Settings → Shortcuts pane renders, so there is exactly
  * one shortcut inventory to maintain.
  */
 

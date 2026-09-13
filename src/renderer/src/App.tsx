@@ -21,10 +21,9 @@ import { TrackTabs } from './components/tracks/TrackTabs'
 import { DropZoneScreen } from './components/screens/DropZoneScreen'
 import { ProgressScreen } from './components/screens/ProgressScreen'
 import { ResultsScreen } from './components/screens/ResultsScreen'
-import { SettingsPanel } from './components/SettingsPanel'
+import { SettingsDialog } from './components/settings/SettingsDialog'
 import { ShortcutOverlay } from './components/ShortcutOverlay'
-import { StudioPanel, snapFps } from './components/studio/StudioPanel'
-import type { StudioSettings } from './components/studio/StudioPanel'
+import { StudioPanel, snapFps, type StudioSettings } from './components/studio/StudioPanel'
 import { Button } from './components/ui/Button'
 import { AgentLiveSync } from './components/AgentLiveSync'
 import { ToastProvider } from './hooks/useToast'
@@ -49,6 +48,7 @@ export function App() {
   // The transcript itself is the source track's `segments` (see useTrackStore).
   const [result, setResult] = useState<TranscriptionResult | null>(null)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const settingsTo = (open: boolean) => () => setSettingsOpen(open)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
   // App sits above ToastProvider, so failures raised here are relayed into the
   // toast system by <ToastRelay> below rather than reported directly.
@@ -624,7 +624,7 @@ export function App() {
           />
         </main>
 
-        <SettingsPanel open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <SettingsDialog open={settingsOpen} onClose={settingsTo(false)} onOpen={settingsTo(true)} />
         <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         <AgentLiveSync
           resultsActive={screen === 'results'}
