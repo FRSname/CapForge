@@ -49,6 +49,40 @@ jobs:
       - name: Run pytest
         run: python -m pytest
 
+  # The library index needs Python's `_sqlite3` extension, and FTS5 on top of it.
+  # Neither is guaranteed on Windows, so this job reports what it finds and then
+  # runs the library suite against it.
+  #
+  # Scope caveat: this checks *setup-python's* CPython, NOT the embeddable Python
+  # CapForge bundles in the Windows installer — only a packaged-app smoke test
+  # could do that. It is still worth having, and its absence is survivable,
+  # because the index is a disposable cache with two fallbacks underneath it:
+  # `LibraryIndex` degrades to a `LIKE` table when FTS5 is missing (and to
+  # `NullIndex` when `sqlite3` will not import at all), and the record folders on
+  # disk are the truth the index is rebuilt from.
+  backend-windows:
+    name: Backend library on Windows (sqlite3 + FTS5 check)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install test dependencies
+        # Same set as the `backend` job — see the note there.
+        run: pip install pytest pydantic pillow==12.2.0 fastapi httpx
+
+      - name: Report sqlite3 + FTS5
+        # A report, not a gate: the LIKE fallback covers FTS5's absence, so a
+        # failure here must not fail the job.
+        continue-on-error: true
+        run: python -c "import sqlite3; c=sqlite3.connect(':memory:'); print('sqlite', sqlite3.sqlite_version); c.execute('CREATE VIRTUAL TABLE t USING fts5(x)'); print('fts5 ok')"
+
+      - name: Run library tests
+        run: python -m pytest backend/tests/test_library_paths.py backend/tests/test_library_record_contract.py backend/tests/test_library_store.py backend/tests/test_library_index.py backend/tests/test_library_routes.py backend/tests/test_moments.py -q
+
   caption-parity:
     name: Caption parity (Pillow ↔ HyperFrames HTML)
     runs-on: ubuntu-latest
