@@ -103,8 +103,18 @@ contextBridge.exposeInMainWorld('subforge', {
     connectDesktop: () => ipcRenderer.invoke('claude:connectDesktop'),
     connectCode: () => ipcRenderer.invoke('claude:connectCode'),
     getManualConfig: () => ipcRenderer.invoke('claude:getManualConfig'),
-    /** Opt-in: copy the bundled publish skill into ~/.claude/skills/. */
-    installPublishSkill: () => ipcRenderer.invoke('claude:installPublishSkill'),
+  },
+
+  /** Bundled Claude skills: read/edit CapForge's user copy, then install it. */
+  skills: {
+    list: () => ipcRenderer.invoke('skills:list'),
+    read: (name) => ipcRenderer.invoke('skills:read', name),
+    write: (name, text) => ipcRenderer.invoke('skills:write', name, text),
+    reset: (name) => ipcRenderer.invoke('skills:reset', name),
+    acknowledgeBundle: (name) => ipcRenderer.invoke('skills:acknowledgeBundle', name),
+    /** Copy the user copy into ~/.claude/skills/<name>/. */
+    install: (name) => ipcRenderer.invoke('skills:install', name),
+    reveal: (name) => ipcRenderer.invoke('skills:reveal', name),
   },
 
   /** Opt-in provisioning of the HyperFrames extras (managed Node + CLI + browser). */

@@ -54,6 +54,7 @@ export interface SubforgeApi {
   openStudio: (projectDir: string) => Promise<{ url?: string; error?: string }>
   stopStudio: () => Promise<boolean>
   claude: ClaudeConnectApi
+  skills: SkillsApi
   hyperframes: HyperframesApi
 }
 
@@ -61,8 +62,6 @@ interface ClaudeDetect {
   desktop: boolean
   code: boolean
   runtimeReady: boolean
-  /** Publish skill: where it installs to, and whether it is already there. */
-  publishSkill: { path: string; status: 'install' | 'up-to-date' | 'edited' | 'unknown' }
 }
 
 interface ClaudeConnectResult {
@@ -83,20 +82,53 @@ interface ClaudeManualConfig {
   codeCommand: string
 }
 
-/**
- * `edited` means the user adapted their copy of SKILL.md — CapForge refuses to
- * overwrite it rather than silently discarding their edits.
- */
-type ClaudeSkillInstallResult =
-  | { ok: true; path: string; status: 'installed' | 'up-to-date' }
-  | { ok: false; reason: 'edited' | 'not-bundled' | 'write-failed'; path?: string; detail?: string }
-
 interface ClaudeConnectApi {
   detect: () => Promise<ClaudeDetect>
   connectDesktop: () => Promise<ClaudeConnectResult>
   connectCode: () => Promise<ClaudeConnectResult>
   getManualConfig: () => Promise<ClaudeManualConfig>
-  installPublishSkill: () => Promise<ClaudeSkillInstallResult>
+}
+
+/**
+ * Bundled Claude skills (`mcp_server/skills/<name>/`).
+ *
+ * CapForge keeps an editable *user copy* per skill under `~/.capforge/skills/`;
+ * installing copies that (never the bundle) into `~/.claude/skills/`, so a
+ * newer bundled version never silently overwrites the user's edits.
+ */
+export interface SkillSummary {
+  name: string
+  description: string
+  /** State of `~/.claude/skills/<name>/` relative to the user copy. */
+  installStatus: 'not-installed' | 'up-to-date' | 'outdated'
+  /** The shipped skill changed since the user copy was seeded/acknowledged. */
+  bundleChanged: boolean
+  userDir: string
+  installDir: string
+}
+
+export interface SkillDetail extends SkillSummary {
+  /** The user copy's SKILL.md — what the editor edits and what installs. */
+  text: string
+  /** The bundled SKILL.md, for an "Open both" comparison. */
+  bundledText: string
+  /** Relative `.md` paths in the user copy, SKILL.md first. */
+  files: string[]
+}
+
+export type SkillInstallResult =
+  | { ok: true; path: string; status: 'installed' | 'updated' | 'up-to-date' }
+  | { ok: false; reason: 'write-failed' | 'unknown-skill'; detail?: string }
+
+export interface SkillsApi {
+  list: () => Promise<SkillSummary[]>
+  read: (name: string) => Promise<SkillDetail>
+  write: (name: string, text: string) => Promise<SkillDetail>
+  reset: (name: string) => Promise<SkillDetail>
+  /** "Keep mine": clear `bundleChanged` without touching the user's text. */
+  acknowledgeBundle: (name: string) => Promise<SkillDetail>
+  install: (name: string) => Promise<SkillInstallResult>
+  reveal: (name: string) => Promise<void>
 }
 
 interface HyperframesStatus {
@@ -161,7 +193,15 @@ contextBridge.exposeInMainWorld('subforge', {
     connectDesktop: () => ipcRenderer.invoke('claude:connectDesktop'),
     connectCode: () => ipcRenderer.invoke('claude:connectCode'),
     getManualConfig: () => ipcRenderer.invoke('claude:getManualConfig'),
-    installPublishSkill: () => ipcRenderer.invoke('claude:installPublishSkill'),
+  },
+  skills: {
+    list: () => ipcRenderer.invoke('skills:list'),
+    read: (name: string) => ipcRenderer.invoke('skills:read', name),
+    write: (name: string, text: string) => ipcRenderer.invoke('skills:write', name, text),
+    reset: (name: string) => ipcRenderer.invoke('skills:reset', name),
+    acknowledgeBundle: (name: string) => ipcRenderer.invoke('skills:acknowledgeBundle', name),
+    install: (name: string) => ipcRenderer.invoke('skills:install', name),
+    reveal: (name: string) => ipcRenderer.invoke('skills:reveal', name),
   },
   hyperframes: {
     status: () => ipcRenderer.invoke('hyperframes:status'),

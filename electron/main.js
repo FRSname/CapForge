@@ -454,7 +454,33 @@ function registerIpcHandlers() {
   ipcMain.handle('claude:connectDesktop', () => claudeConnect.connectDesktop())
   ipcMain.handle('claude:connectCode', () => claudeConnect.connectCode())
   ipcMain.handle('claude:getManualConfig', () => claudeConnect.getManualConfig())
-  ipcMain.handle('claude:installPublishSkill', () => claudeConnect.installPublishSkill())
+
+  // IPC: bundled Claude skills — view/edit the user's copy, then install it
+  // into ~/.claude/skills/. `skillsStore` validates every name against the
+  // bundle, so an unknown name never reaches the filesystem.
+  const skillsStore = require('./skills-store')
+  ipcMain.handle('skills:list', () => skillsStore.listSkills())
+  ipcMain.handle('skills:read', (_e, name) => skillsStore.readSkill(name))
+  ipcMain.handle('skills:write', (_e, name, text) => skillsStore.writeSkill(name, text))
+  ipcMain.handle('skills:reset', (_e, name) => skillsStore.resetSkill(name))
+  ipcMain.handle('skills:acknowledgeBundle', (_e, name) => skillsStore.acknowledgeSkillBundle(name))
+  ipcMain.handle('skills:install', (_e, name) => {
+    try {
+      return skillsStore.installSkillByName(name)
+    } catch (err) {
+      // An unknown name is the only expected throw here; anything else is a
+      // real failure and installSkill already reports it as write-failed.
+      if (String(err && err.message) === 'unknown skill') {
+        return { ok: false, reason: 'unknown-skill' }
+      }
+      throw err
+    }
+  })
+  ipcMain.handle('skills:reveal', (_e, name) => {
+    skillsStore.readSkill(name) // validates the name (throws on an unknown one)
+    shell.showItemInFolder(skillsStore.skillUserFile(name))
+    return true
+  })
 
   // IPC: open a generated composition in the HyperFrames "studio" — the local
   // preview webapp. The renderer first generates the project folder via the

@@ -13,6 +13,7 @@ import { Button } from './ui/Button'
 import { IconButton } from './ui/IconButton'
 import { Select } from './ui/Select'
 import { WHISPER_MODELS, formatModelSize } from '../lib/whisperModels'
+import { SkillsPanel } from './settings/SkillsPanel'
 
 interface SettingsPanelProps {
   open: boolean
@@ -55,7 +56,6 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     desktop: boolean
     code: boolean
     runtimeReady: boolean
-    publishSkill: { path: string; status: 'install' | 'up-to-date' | 'edited' | 'unknown' }
   } | null>(null)
   const [lightMode, setLightMode] = useState(() => {
     const stored = localStorage.getItem('capforge-theme')
@@ -163,38 +163,6 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
     }
   }
 
-  /**
-   * Opt-in skill install. The skill is a plain markdown workflow the user is
-   * meant to adapt, so an edited copy is reported back, never overwritten.
-   */
-  async function handleInstallPublishSkill() {
-    const claude = window.subforge.claude
-    if (!claude) {
-      toast('Restart CapForge to enable Claude integration.', 'error')
-      return
-    }
-    const res = await claude.installPublishSkill()
-    if (res.ok) {
-      if (res.status === 'installed') {
-        toast('Publish skill installed — restart Claude Code to load it.', 'success')
-      } else {
-        toast('Publish skill is already installed.', 'info')
-      }
-      // Re-detect so the install path becomes visible.
-      detectClaudeClients()
-    } else if (res.reason === 'edited') {
-      toast(
-        `You have an edited copy at ${res.path}. Delete it to reinstall the bundled version.`,
-        'info'
-      )
-      detectClaudeClients()
-    } else if (res.reason === 'not-bundled') {
-      toast('The skill is not bundled in this build.', 'error')
-    } else {
-      toast("Couldn't install the skill.", 'error')
-    }
-  }
-
   async function handleClaudeCopyConfig() {
     if (!window.subforge.claude) {
       toast('Restart CapForge to enable Claude integration.', 'error')
@@ -208,17 +176,6 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
       toast('Could not copy config.', 'error')
     }
   }
-
-  // `unknown` (unreadable bundle) is treated as installable: the attempt reports
-  // the real reason instead of dead-ending the button.
-  const publishSkillState = claudeClients?.publishSkill.status ?? 'install'
-  const publishSkillInstalled = publishSkillState === 'up-to-date' || publishSkillState === 'edited'
-  const publishSkillLabel =
-    publishSkillState === 'up-to-date'
-      ? 'Publish skill installed'
-      : publishSkillState === 'edited'
-        ? 'Publish skill installed (edited)'
-        : 'Install publish skill'
 
   return (
     <>
@@ -394,34 +351,6 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               </Button>
             </div>
 
-            {/* Publish skill for Claude Code — opt-in, with a visible path. */}
-            <div className="flex flex-col gap-1">
-              <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
-                Publish skill for Claude Code (optional). Installs a generic YouTube upload-package
-                workflow you can edit. Not needed for Claude Desktop, which uses its own skills UI.
-              </p>
-              <Button
-                variant="ghost"
-                className="w-full text-xs justify-center"
-                disabled={(!!claudeClients && !claudeClients.runtimeReady) || publishSkillInstalled}
-                onClick={handleInstallPublishSkill}
-              >
-                {publishSkillLabel}
-              </Button>
-              {claudeClients && claudeClients.publishSkill.status !== 'install' && (
-                <p
-                  className="text-[10px]"
-                  style={{
-                    fontFamily: 'var(--cf-font-mono)',
-                    color: 'var(--color-text-3)',
-                    wordBreak: 'break-all',
-                  }}
-                >
-                  {claudeClients.publishSkill.path}
-                </p>
-              )}
-            </div>
-
             <button
               type="button"
               className="text-left text-[11px] underline"
@@ -437,6 +366,9 @@ export function SettingsPanel({ open, onClose }: SettingsPanelProps) {
               Copy config manually
             </button>
           </div>
+
+          {/* Skills — the per-user copies of CapForge's bundled Claude workflows. */}
+          <SkillsPanel open={open} />
 
           {/* Keyboard Shortcuts — rendered from the shared lib/shortcuts.ts
               constant (also drives the `?` ShortcutOverlay). */}
