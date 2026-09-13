@@ -100,6 +100,7 @@ from backend.models.schemas import (
     WarmRequest,
 )
 from backend import workspace_fs
+from backend.library.router import build_router as build_library_router, get_store as library_store
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -309,6 +310,16 @@ async def _write_agent_discovery() -> None:
         logger.warning("Could not schedule the hardware pre-warm", exc_info=True)
 
     try:
+        store = library_store()
+        store.ensure_index()
+        pruned = store.prune_scratch()
+        logger.info("Library ready at %s (%d scratch record(s) pruned)", store.root, pruned)
+    except Exception:
+        # Non-fatal: the library index is a disposable cache and is rebuilt on
+        # demand; the app must still start without it.
+        logger.error("Could not prepare the library index", exc_info=True)
+
+    try:
         path = write_discovery(resolve_port(), AGENT_TOKEN)
         logger.info("Agent discovery file written: %s (port %s)", path, resolve_port())
     except Exception:
@@ -364,6 +375,29 @@ async def require_local_token(
     if token_matches(provided, LOCAL_TOKEN) or token_matches(provided, AGENT_TOKEN):
         return
     raise HTTPException(status_code=401, detail="Invalid or missing local token")
+
+
+async def require_library_actor(
+    token: Optional[str] = Query(None),
+    x_capforge_local_token: Optional[str] = Header(None),
+    x_capforge_agent_token: Optional[str] = Header(None),
+) -> str:
+    """Gate the library routes and report *which* client is writing.
+
+    The dossier has two writers (the agent and the user's own window), and
+    every write stamps who made it, so this returns "agent"/"user" rather than
+    None. Same two tokens as require_local_token, same constant-time compare.
+    """
+    if token_matches(x_capforge_agent_token, AGENT_TOKEN):
+        return "agent"
+    if token_matches(token or x_capforge_local_token, LOCAL_TOKEN):
+        return "user"
+    raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+
+# The library owns its own module (backend/library/); the guard is injected so
+# that package never imports this one. See docs/plans/backend-library.md.
+app.include_router(build_library_router(require_library_actor))
 
 
 def _resolve_real(path) -> Optional[Path]:
