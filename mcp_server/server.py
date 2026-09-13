@@ -106,7 +106,14 @@ def get_transcript(segments_only: bool = False) -> dict:
             }
             for si, seg in enumerate(result.get("segments", []))
         ]
-        return {"language": result.get("language"), "segments": segments}
+        # `duration` rides along: it is what a chapter/description pass needs, and
+        # re-reading the full (words-included) transcript just to learn it would
+        # defeat the point of this cheap shape.
+        return {
+            "language": result.get("language"),
+            "duration": result.get("duration"),
+            "segments": segments,
+        }
     result = _client.get_result()
     segments = []
     for si, seg in enumerate(result.get("segments", [])):
@@ -478,9 +485,11 @@ def find_semantic_moments(kind: str) -> dict:
     """Find moments by category instead of a literal phrase.
 
     kind: "numbers" (spoken/written numbers — for a kinetic_stat), "cta" (calls
-    to action like "subscribe" / "link in bio"), or "speaker_change" (each new
-    diarized speaker — for a lower_third). Returns matches with `start`/`end`
-    seconds and `word_id` (plus `speaker` for speaker_change).
+    to action like "subscribe" / "link in bio"), "speaker_change" (each new
+    diarized speaker — for a lower_third), or "pause" (a silence of at least one
+    second — the word after it is a chapter-start candidate). Returns matches
+    with `start`/`end` seconds and `word_id` (plus `speaker` for speaker_change,
+    `gap` for pause, where `start`/`end` span the silence itself).
     """
     return _client.find_semantic_moments(kind)
 

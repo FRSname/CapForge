@@ -183,11 +183,44 @@ def _speaker_changes(flat: list[dict]) -> list[dict]:
     return moments
 
 
+#: Minimum silence between two consecutive words for it to read as a deliberate
+#: pause — the beat a speaker leaves at a topic change, which is where a chapter
+#: usually starts. Below this it is ordinary breathing/word spacing.
+PAUSE_MIN_S = 1.0
+
+#: Seconds are reported at millisecond precision; float subtraction otherwise
+#: leaks noise like 1.0000000000000002 into the agent-facing payload.
+_GAP_DECIMALS = 3
+
+
+def _pauses(flat: list[dict]) -> list[dict]:
+    """Silences of at least ``PAUSE_MIN_S`` between consecutive words.
+
+    The moment spans the silence itself (``prev.end`` → ``next.start``) while
+    ``text``/``word_id`` name the first word *after* it — that word is the
+    chapter-start candidate, which is what the caller actually places.
+    """
+    moments: list[dict] = []
+    for prev, nxt in zip(flat, flat[1:]):
+        gap = nxt["start"] - prev["end"]
+        if gap < PAUSE_MIN_S:
+            continue
+        moments.append({
+            "text": nxt["raw"],
+            "start": prev["end"],
+            "end": nxt["start"],
+            "word_id": nxt["word_id"],
+            "gap": round(gap, _GAP_DECIMALS),
+        })
+    return moments
+
+
 _SEMANTIC_KINDS = {
     "number": _numbers, "numbers": _numbers, "stat": _numbers, "stats": _numbers,
     "cta": _cta, "call_to_action": _cta,
     "speaker": _speaker_changes, "speakers": _speaker_changes,
     "speaker_change": _speaker_changes,
+    "pause": _pauses, "pauses": _pauses, "silence": _pauses,
 }
 
 
@@ -195,13 +228,15 @@ def find_semantic_moments(result: TranscriptionResult, kind: str) -> list[dict]:
     """Detect moments by category rather than literal text.
 
     `kind`: numbers (spoken/written numbers) | cta (calls to action) |
-    speaker_change (new diarized speaker). Each match: {text, start, end,
-    word_id} (+ speaker for speaker_change).
+    speaker_change (new diarized speaker) | pause (a silence of at least
+    PAUSE_MIN_S, whose following word is a chapter-start candidate). Each match:
+    {text, start, end, word_id} (+ speaker for speaker_change, + gap for pause).
     """
     detector = _SEMANTIC_KINDS.get(kind.strip().lower())
     if detector is None:
         raise ValueError(
-            f"Unknown semantic kind: {kind!r}. Use numbers | cta | speaker_change."
+            f"Unknown semantic kind: {kind!r}. "
+            "Use numbers | cta | speaker_change | pause."
         )
     flat = _flat_words(result)
     return detector(flat) if flat else []
