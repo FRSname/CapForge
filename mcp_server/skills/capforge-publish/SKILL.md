@@ -16,7 +16,9 @@ system.
 
 ## Channel notes (edit me)
 
-Leave a field empty to skip its slot in the output.
+Leave a field empty to skip its slot in the output. The package, including its
+section headers, is written in **Language** (default: the transcript language);
+the English headers below are the shape, not the wording.
 
 ```
 Channel:            (name, one line)
@@ -72,6 +74,15 @@ wrong, not merely different.
 6. **Every claim traces to the transcript.** Name only tools, numbers, people and
    promises the speaker actually said. No filler ("dive into", "unlock").
 7. Plain text. It gets pasted into a form, so no markdown.
+8. **Short videos.** Under 30 seconds there is no room for three chapters 10
+   seconds apart: skip CHAPTERS and say so in NOTES. Under 60 seconds the video
+   *is* the Short: write one description paragraph, and in SHORTS drop the
+   `Full video` line and CLIP CANDIDATES (the whole video is the clip).
+9. **Unknown speaker.** If nobody is named in the transcript and Channel notes
+   carry no speaker, do not stop to ask. Write `[SPEAKER NAME]` where a name
+   belongs, list it under "Placeholders still open" in NOTES, and move on. When
+   the user supplies the name later (in this or a later session), fill it in
+   everywhere and rewrite the note.
 
 ## Output
 
@@ -186,7 +197,9 @@ State the result of each check in NOTES.
 3. Present the package in the conversation as well, ready to copy.
 
 In a later session with the same video open, `read_workspace_file("notes/youtube.txt")`
-brings the package back for edits, a Shorts caption, or a second platform.
+brings the package back for edits, a Shorts caption, a second platform, or to
+fill a placeholder the user has now answered (a speaker name, the published URL).
+Read it before regenerating anything; the stored package is the source of truth.
 
 If CapForge is not open but the user has a transcript file, you can still write the
 package to the working folder as `<video name>-youtube.txt`; say that it was not
