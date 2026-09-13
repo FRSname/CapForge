@@ -26,6 +26,8 @@ import secrets
 from pathlib import Path
 from typing import Optional
 
+from backend.library.paths import capforge_home
+
 logger = logging.getLogger(__name__)
 
 #: Header the MCP server sends; FastAPI maps it from the ``x_capforge_agent_token`` param.
@@ -35,8 +37,13 @@ DEFAULT_PORT = 53421
 
 
 def discovery_path() -> Path:
-    """Well-known location both the backend and the MCP server agree on."""
-    return Path.home() / ".capforge" / "backend.json"
+    """Well-known location both the backend and the MCP server agree on.
+
+    Resolved through :func:`~backend.library.paths.capforge_home`, so relocating
+    ``CAPFORGE_HOME`` moves discovery with it (``mcp_server.discovery`` mirrors
+    the same env read from its own package).
+    """
+    return capforge_home() / "backend.json"
 
 
 def token_file_path() -> Path:

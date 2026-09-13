@@ -34,6 +34,7 @@ from typing import Optional
 from backend.exporters.hyperframes_caption_html import caption_block
 from backend.exporters.hyperframes_export import export_hyperframes
 from backend.exporters.video_render import groups_for_render, resolve_font_file
+from backend.library.paths import capforge_home
 from backend.models.schemas import TranscriptionResult, VideoRenderConfig
 from backend.workspace_fs import resolve_in_workspace
 
@@ -351,7 +352,7 @@ def hyperframes_workspace(source_path: str) -> str:
     folder. Keyed by a hash of the absolute source path so same-named files in
     different folders don't collide onto one workspace.
     """
-    home = Path(os.environ.get("CAPFORGE_HOME") or Path.home() / ".capforge")
+    home = capforge_home()
     src = Path(source_path).expanduser().resolve()
     tag = hashlib.sha1(str(src).encode("utf-8")).hexdigest()[:8]
     return str(home / "studio" / tag)
