@@ -207,17 +207,26 @@ This is the day-zero experiment behind the v3 library: which of these fields an
 agent actually reads back decides the record schema, so keep the notes as plain
 sections rather than prose.
 
-## The publish skill (`skills/capforge-publish/`)
+## Bundled skills (`skills/`)
 
-A generic, editable Claude Code skill that turns the open video into one copy-ready
-YouTube upload package and saves it as `notes/youtube.txt` (above). Channel-specific
-prose lives in its **Channel notes** block, so one skill serves a personal channel
-and a conference channel alike; `examples/conference-channel.md` shows a filled-in
-copy with a second destination. Settings → Claude AI integration → **Install publish
-skill** copies it to `~/.claude/skills/capforge-publish/` (opt-in, path shown; an
-edited copy is never overwritten). Claude Desktop users add it through the Desktop
-skills UI instead. Per-platform formatters (LinkedIn, X, Instagram) are deliberately
-not part of it yet — see `docs/plans/creator-hub-vision.md` §7 (4s).
+Each folder under `skills/` with a `SKILL.md` is a workflow Claude runs against
+CapForge, shipped with the app and **editable inside it**: Settings → Skills lists
+them, and opening one edits CapForge's per-user copy at
+`~/.capforge/skills/<name>/` (seeded from the bundle on first open, honouring
+`CAPFORGE_HOME`). **Install** copies *that* copy into `~/.claude/skills/<name>/`
+for Claude Code; Claude Desktop users use **Reveal** and add the folder through
+Desktop's skills settings. When a CapForge update changes a bundled skill, the
+editor says so and offers Keep mine / Take new / Open both — a user's edits are
+never overwritten silently. `tests/test_bundled_skills.py` pins every tool a
+skill names to a registered `@mcp.tool()`, and requires the frontmatter `name`
+to equal the folder name.
+
+- **`capforge-publish`** — turns the open video into one copy-ready YouTube upload
+  package and saves it as `notes/youtube.txt` (above). Channel-specific prose lives
+  in its **Channel notes** block, so one skill serves a personal channel and a
+  conference channel alike; `examples/conference-channel.md` shows a filled-in copy
+  with a second destination. Per-platform formatters (LinkedIn, X, Instagram) are
+  deliberately not part of it yet — see `docs/plans/creator-hub-vision.md` §7 (4s).
 
 ## Registry styles in co-author mode
 
