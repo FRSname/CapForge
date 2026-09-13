@@ -243,6 +243,47 @@ function buildUvicornArgs(port) {
   ]
 }
 
+// Health-check poll schedule for `_waitForReady()`. uvicorn answers in ~540ms
+// on a warm machine, so the previous 1000ms floor + 500ms steps spent up to
+// half a second not even asking. At 100ms the cost is a handful of extra
+// loopback requests; the win is the renderer's port/token gate opening sooner.
+const READY_POLL_INITIAL_MS = 100
+const READY_POLL_INTERVAL_MS = 100
+
+/**
+ * One-shot promise gate. `promise` settles the first time `resolve()` or
+ * `reject()` is called and every later call is ignored, so an outcome can be
+ * published from anywhere without the caller tracking whether it already was.
+ * Pure — no Electron, no I/O — so it is unit-testable on its own.
+ */
+function createReadyGate() {
+  let settle
+  let fail
+  let settled = false
+  const promise = new Promise((resolve, reject) => {
+    settle = resolve
+    fail = reject
+  })
+  // A gate may be rejected long before anything awaits it (backend fails to
+  // spawn while the window is still loading). This no-op handler keeps Node
+  // from reporting an unhandled rejection; real awaiters still see the error,
+  // because `.catch()` observes the rejection on a derived promise only.
+  promise.catch(() => {})
+  return {
+    promise,
+    resolve: (value) => {
+      if (settled) return
+      settled = true
+      settle(value)
+    },
+    reject: (err) => {
+      if (settled) return
+      settled = true
+      fail(err)
+    },
+  }
+}
+
 /** The health-check URL polled by `_waitForReady()`. */
 function buildStatusUrl(port) {
   return `http://127.0.0.1:${port}/api/status`
@@ -259,6 +300,19 @@ class PythonBackend {
     // backend env as CAPFORGE_LOCAL_TOKEN, and handed to the renderer via the
     // `backend:local-token` IPC handler. Never persisted, never logged.
     this.localToken = crypto.randomBytes(32).toString('hex')
+    // Settled by `start()`. `main.js` hands the port and the local token to the
+    // renderer only once this resolves, so the renderer can never be given the
+    // PREFERRED_PORT guess or an unusable token for a backend still booting.
+    this._ready = createReadyGate()
+  }
+
+  /**
+   * Resolves when the backend has answered the health check; rejects if the
+   * spawn or the readiness poll failed. Awaitable at any time — including
+   * before `start()` has been called — and any number of times.
+   */
+  whenReady() {
+    return this._ready.promise
   }
 
   /** Path to the current backend log file. Exposed so the UI can open it. */
@@ -278,7 +332,7 @@ class PythonBackend {
       console.log(`[CapForge] Port ${PREFERRED_PORT} busy — using ${this.port} instead.`)
     }
 
-    return new Promise((resolve, reject) => {
+    const started = new Promise((resolve, reject) => {
       const python = findPython()
       const binDir = findBundledBinDir()
       const ffmpegExe = path.join(binDir, platform.ffmpegExeName)
@@ -369,6 +423,15 @@ class PythonBackend {
       // Poll until the server responds
       this._waitForReady(resolve, reject, 30_000)
     })
+
+    // Mirror the outcome onto the readiness gate that `whenReady()` — and
+    // therefore the `backend:port` / `backend:local-token` IPC handlers —
+    // await. The gate is one-shot, so this never un-readies a live backend.
+    started.then(
+      () => this._ready.resolve(),
+      (err) => this._ready.reject(err)
+    )
+    return started
   }
 
   /** Stop the backend process. */
@@ -397,12 +460,12 @@ class PythonBackend {
           console.log('[CapForge] Backend is ready.')
           resolve()
         } else {
-          setTimeout(check, 500)
+          setTimeout(check, READY_POLL_INTERVAL_MS)
         }
       })
-      req.on('error', () => setTimeout(check, 500))
+      req.on('error', () => setTimeout(check, READY_POLL_INTERVAL_MS))
     }
-    setTimeout(check, 1000) // Give it a moment to start
+    setTimeout(check, READY_POLL_INITIAL_MS) // First probe, once uvicorn has a tick
   }
 }
 
@@ -412,6 +475,9 @@ module.exports = {
   // required, mirrors preset-io.js / path-validate.js).
   PREFERRED_PORT,
   LOG_MAX_BYTES,
+  READY_POLL_INITIAL_MS,
+  READY_POLL_INTERVAL_MS,
+  createReadyGate,
   resolvePythonPath,
   resolveBundledBinDir,
   buildBackendEnv,

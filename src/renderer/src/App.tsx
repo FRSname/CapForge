@@ -1,24 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Screen, TranscriptionResult } from './types/app'
 import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from './lib/project'
-import { migrateProjectFile, projectFileFromTracks, tracksFromProjectFile } from './lib/project'
+import { projectFileFromTracks } from './lib/project'
+import {
+  backendUpdateFailedMessage,
+  planProjectRestore,
+  restoreErrorMessage,
+} from './lib/projectRestore'
+import type { ProjectRestorePlan } from './lib/projectRestore'
 import { api, type AgentCommand, type VideoInfo } from './lib/api'
-import { builtinPresetNames } from './lib/agentCommands'
 import { ensureWordIds } from './lib/wordIds'
 import { SOURCE_TRACK_ID, syncSegmentsIntoTrack, withSentenceSegments } from './lib/tracks'
-import type { TrackEditorState, TrackMirrorEntry } from './lib/tracks'
+import type { TrackEditorState } from './lib/tracks'
 import { applyTrackCommand } from './lib/trackCommands'
 import { propagateSourceTiming } from './lib/trackTiming'
-import {
-  IDLE_AGENT_ECHO,
-  buildTrackEntries,
-  buildUiStateBody,
-  buildUiStateCore,
-  mergeUiStateBody,
-  nameSuffixFor,
-  renderEditedFlag,
-} from './lib/uiStateMirror'
-import type { AgentCommandEcho, UiStateCore } from './lib/uiStateMirror'
+import { IDLE_AGENT_ECHO, nameSuffixFor, renderEditedFlag } from './lib/uiStateMirror'
+import type { AgentCommandEcho } from './lib/uiStateMirror'
 import { TitleBar } from './components/TitleBar/TitleBar'
 import { TrackTabs } from './components/tracks/TrackTabs'
 import { DropZoneScreen } from './components/screens/DropZoneScreen'
@@ -34,6 +31,8 @@ import { ToastProvider } from './hooks/useToast'
 import { ToastRelay } from './components/ui/ToastRelay'
 import { useSettingsUndo } from './hooks/useSettingsUndo'
 import { useAutosave } from './hooks/useAutosave'
+import { useCrashRecovery } from './hooks/useCrashRecovery'
+import { useUiStateMirror } from './hooks/useUiStateMirror'
 import { useUserPresets } from './hooks/useUserPresets'
 import {
   emptySourceTrack,
@@ -95,12 +94,6 @@ export function App() {
     commitTracks,
     bumpRevision,
   })
-
-  // Crash recovery — an autosave snapshot left on disk by a session that didn't
-  // end via an explicit Save or New (i.e. a crash or accidental close).
-  const [recoverySnapshot, setRecoverySnapshot] = useState<
-    (ProjectFile & { savedAt?: number }) | null
-  >(null)
 
   const [subtitleUndo, setSubtitleUndo] = useState<{
     undo: () => void
@@ -308,101 +301,9 @@ export function App() {
   )
 
   // ── UI-state mirror ─────────────────────────────────────────────
-  // Mirror UI state to the backend so the agent can read what to change AND so
-  // /api/render-frame renders with the live style. `render` is the snake_case
-  // body (the casing bridge lives only in buildRenderBody). Debounced — settings
-  // churn during edits.
-  // Mirrors on EVERY screen (not just results) so the agent can see where the
-  // app is and which presets exist before a video is loaded — `list_presets`
-  // and `load_video` both have to work from the drop screen.
-  //
-  // Written in two halves, because they change at wildly different rates: the
-  // legacy keys churn on every keystroke, while the per-track inventory (a
-  // render body + a classification per track) only moves when a track does.
-  // Each half writes into this ref and the pusher sends the merge, so neither
-  // can blank the other.
-  const mirrorRef = useRef<{ core: UiStateCore | null; tracks: TrackMirrorEntry[] }>({
-    core: null,
-    tracks: [],
-  })
-  // One shared trailing debounce, so a change that moves both halves still costs
-  // a single PUT.
-  const mirrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const scheduleMirror = useCallback(() => {
-    if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current)
-    mirrorTimerRef.current = setTimeout(() => {
-      mirrorTimerRef.current = null
-      const { core, tracks: entries } = mirrorRef.current
-      if (!core) return
-      api.putUiState(mergeUiStateBody(core, entries)).catch(() => {
-        /* best-effort mirror */
-      })
-    }, 300)
-  }, [])
-
-  useEffect(
-    () => () => {
-      if (mirrorTimerRef.current) clearTimeout(mirrorTimerRef.current)
-    },
-    []
-  )
-
-  useEffect(() => {
-    mirrorRef.current = {
-      ...mirrorRef.current,
-      core: buildUiStateCore({
-        screen,
-        activeTrack,
-        activeDisplayGroups: displayGroups,
-        builtinPresets: builtinPresetNames(),
-        userPresetNames,
-        agent: agentEcho,
-      }),
-    }
-    scheduleMirror()
-  }, [screen, activeTrack, displayGroups, userPresetNames, agentEcho, scheduleMirror])
-
-  useEffect(() => {
-    mirrorRef.current = {
-      ...mirrorRef.current,
-      tracks: buildTrackEntries(tracks, sourceTrack, classifications),
-    }
-    scheduleMirror()
-  }, [tracks, sourceTrack, classifications, scheduleMirror])
-
-  // Resync-after-reconnect: give the API layer a snapshot of the live result +
-  // UI state so that if the backend crashes/restarts, the control socket's reopen
-  // handler can re-push what the backend lost (mirrors the two effects above).
-  useEffect(() => {
-    api.registerResync(() => {
-      // No project open (drop/progress screen): re-push UI state only. The
-      // `result` half is genuinely absent, not lost, so it must stay undefined.
-      const liveResult = screen === 'results' ? result : null
-      return {
-        result: liveResult
-          ? {
-              segments: sourceTrack.segments,
-              language: liveResult.language,
-              duration: liveResult.duration,
-              audio_path: liveResult.audioPath,
-              alignment_degraded: Boolean(liveResult.alignmentDegraded),
-            }
-          : undefined,
-        uiState: buildUiStateBody({
-          screen,
-          activeTrack,
-          activeDisplayGroups: displayGroups,
-          builtinPresets: builtinPresetNames(),
-          userPresetNames,
-          agent: agentEcho,
-          tracks,
-          sourceTrack,
-          classifications,
-        }),
-      }
-    })
-    return () => api.registerResync(null)
-  }, [
+  // Everything about the mirror — the two halves, the shared debounce and the
+  // resync-after-reconnect provider — lives in the hook.
+  useUiStateMirror({
     screen,
     result,
     activeTrack,
@@ -412,7 +313,7 @@ export function App() {
     tracks,
     sourceTrack,
     classifications,
-  ])
+  })
 
   // ── Source-track timing link ────────────────────────────────────
   // Whenever the source's words or grouping move, every translated group that
@@ -498,48 +399,32 @@ export function App() {
   // ── Project restore (shared by Open and crash-recovery) ─────────
   const restoreFromProjectFile = useCallback(
     async (raw: unknown) => {
-      // The trust boundary: validate and lift to the current version *before*
-      // anything is touched, so a file from a newer build (or a damaged one)
-      // leaves the session exactly as it was, with a real message.
-      let file: ProjectFile
+      // The trust boundary + every derivation live in `lib/projectRestore.ts`,
+      // so a file opened from anywhere else installs an identical store. A file
+      // from a newer build (or a damaged one) throws before anything is
+      // touched, leaving the session exactly as it was, with a real message.
+      let plan: ProjectRestorePlan
       try {
-        file = migrateProjectFile(raw)
+        plan = planProjectRestore(raw)
       } catch (err) {
-        setRestoreWarning(
-          err instanceof Error ? err.message : 'This project file could not be opened.'
-        )
+        setRestoreWarning(restoreErrorMessage(err))
         return
       }
 
-      const restored = tracksFromProjectFile(file)
-
       // Push transcription to backend so render/export work.
-      const tr = file.transcriptionResult
-      await api
-        .updateResult({
-          segments: tr.segments as never,
-          language: tr.language,
-          duration: tr.duration,
-          audio_path: tr.audioPath,
-          alignment_degraded: Boolean(tr.alignmentDegraded),
-        })
-        .catch((err) => {
-          // Never swallow this. Without the transcript the backend cannot
-          // render or export, and every later failure looks unrelated.
-          setRestoreWarning(
-            `Project loaded, but the backend could not be updated: ${
-              err instanceof Error ? err.message : String(err)
-            }. Rendering may fail.`
-          )
-        })
+      await api.updateResult(plan.backendResult).catch((err) => {
+        // Never swallow this. Without the transcript the backend cannot
+        // render or export, and every later failure looks unrelated.
+        setRestoreWarning(backendUpdateFailedMessage(err))
+      })
 
-      setFilePath(file.selectedFilePath)
-      setResult(file.transcriptionResult)
-      // `tracksFromProjectFile` has already merged each track's settings over the
-      // defaults (an older file has no value for fields added since, and
-      // buildRenderBody divides some of them → NaN → JSON null → a 422) and
-      // sanitized them (a value that IS present but out of the backend's range).
-      replaceTracks(restored.tracks, restored.activeTrackId)
+      setFilePath(plan.file.selectedFilePath)
+      setResult(plan.file.transcriptionResult)
+      // The plan has already merged each track's settings over the defaults (an
+      // older file has no value for fields added since, and buildRenderBody
+      // divides some of them → NaN → JSON null → a 422) and sanitized them (a
+      // value that IS present but out of the backend's range).
+      replaceTracks(plan.tracks, plan.activeTrackId)
       setResultsSessionId((n) => n + 1)
       setScreen('results')
     },
@@ -554,32 +439,14 @@ export function App() {
   }, [restoreFromProjectFile])
 
   // ── Crash recovery ──────────────────────────────────────────────
-  // On launch, read any leftover autosave snapshot and offer to restore it.
-  useEffect(() => {
-    let cancelled = false
-    window.subforge
-      .autosaveRead()
-      .then((snap) => {
-        if (!cancelled && snap) setRecoverySnapshot(snap as ProjectFile & { savedAt?: number })
-      })
-      .catch(() => {
-        /* ignore — recovery is best-effort */
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const handleRecover = useCallback(async () => {
-    if (!recoverySnapshot) return
-    await restoreFromProjectFile(recoverySnapshot)
-    setRecoverySnapshot(null)
-  }, [recoverySnapshot, restoreFromProjectFile])
-
-  const handleDiscardRecovery = useCallback(async () => {
-    await window.subforge.autosaveClear()
-    setRecoverySnapshot(null)
-  }, [])
+  // An autosave snapshot left on disk by a session that didn't end via an
+  // explicit Save or New (i.e. a crash or accidental close); restored through
+  // the same path an Open takes.
+  const {
+    snapshot: recoverySnapshot,
+    recover: handleRecover,
+    discard: handleDiscardRecovery,
+  } = useCrashRecovery(restoreFromProjectFile)
 
   // ── Autosave (crash recovery) ───────────────────────────────────
   // Snapshot the live session ~2s after any edit; cleared on Save / New.

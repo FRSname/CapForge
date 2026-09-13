@@ -180,6 +180,45 @@ command — a pack is placed by copying the folder in, then wired by hand:
 4. `preview_hyperframes_frame` to check it, then `render_hyperframes` once the
    user approves.
 
+## Per-video notes (`notes/`)
+
+The co-author workspace is keyed to the **open video** and survives across sessions,
+so it doubles as a scratch dossier for that video before CapForge has a real
+library record (see `docs/plans/creator-hub-vision.md`, §7 "Week 0"). Co-author
+mode does not have to be on; CapForge never deletes this folder (only the
+render-to-file scaffold uses a throwaway temp dir).
+
+Convention:
+
+| File | Holds |
+|---|---|
+| `notes/youtube.txt` | The copy-ready upload package: title options, description, chapters, keywords, hashtags, Shorts caption |
+| `notes/summary.md` | The transcript breakdown (summary, highlights, quotes, tools mentioned) |
+
+Recipe, with the video open in CapForge:
+
+1. `get_transcript(segments_only=True)` (plus `find_semantic_moments` for chapter
+   candidates) and write the material.
+2. `write_workspace_file("notes/youtube.txt", content)` — `.txt` and `.md` are on the
+   extension allowlist; parent folders are created.
+3. In a later session, with the same video open: `read_workspace_file("notes/youtube.txt")`.
+
+This is the day-zero experiment behind the v3 library: which of these fields an
+agent actually reads back decides the record schema, so keep the notes as plain
+sections rather than prose.
+
+## The publish skill (`skills/capforge-publish/`)
+
+A generic, editable Claude Code skill that turns the open video into one copy-ready
+YouTube upload package and saves it as `notes/youtube.txt` (above). Channel-specific
+prose lives in its **Channel notes** block, so one skill serves a personal channel
+and a conference channel alike; `examples/conference-channel.md` shows a filled-in
+copy with a second destination. Settings → Claude AI integration → **Install publish
+skill** copies it to `~/.claude/skills/capforge-publish/` (opt-in, path shown; an
+edited copy is never overwritten). Claude Desktop users add it through the Desktop
+skills UI instead. Per-platform formatters (LinkedIn, X, Instagram) are deliberately
+not part of it yet — see `docs/plans/creator-hub-vision.md` §7 (4s).
+
 ## Registry styles in co-author mode
 
 `set_caption_style` is a CapForge-pipeline knob — in co-author mode it never

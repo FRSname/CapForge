@@ -56,11 +56,12 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
     startedRef.current = true
 
     async function run() {
-      const [language, model, diarize, hfToken] = await Promise.all([
+      const [language, model, diarize, hfToken, releaseModelAfter] = await Promise.all([
         window.subforge.getState<string>('language', ''),
         window.subforge.getState<string>('whisper_model', ''),
         window.subforge.getState<boolean>('diarize', false),
         window.subforge.getState<string>('hf_token', ''),
+        window.subforge.getState<boolean>('free_model_after_job', false),
       ])
       return start(filePath, {
         language: language || undefined,
@@ -68,6 +69,7 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
         model: model || undefined,
         diarize,
         hfToken: hfToken || undefined,
+        releaseModelAfter,
       })
     }
     run()

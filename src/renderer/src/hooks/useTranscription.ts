@@ -15,6 +15,8 @@ interface TranscriptionOptions {
   diarize?: boolean
   hfToken?: string
   outputDir?: string
+  /** Free the Whisper + alignment models once the job finishes (low-RAM machines). */
+  releaseModelAfter?: boolean
 }
 
 interface UseTranscriptionReturn {
@@ -62,6 +64,7 @@ export function useTranscription(): UseTranscriptionReturn {
           enable_diarization: options.diarize ?? false,
           hf_token: options.hfToken || undefined,
           output_dir: options.outputDir || undefined,
+          release_model_after: options.releaseModelAfter ?? false,
         })
 
         if (cancelledRef.current) throw new Error('Cancelled')

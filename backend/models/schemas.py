@@ -76,6 +76,17 @@ class TranscribeRequest(BaseModel):
     hf_token: Optional[str] = Field(None, description="HuggingFace token for diarization")
     output_dir: str = "output"
     export_formats: list[ExportFormat] = Field(default_factory=lambda: [ExportFormat.SRT_WORD, ExportFormat.JSON])
+    release_model_after: bool = Field(
+        False,
+        description="Free the Whisper model from memory once the job finishes",
+    )
+
+
+class WarmRequest(BaseModel):
+    """Pre-load the Whisper model (warm-on-drop) before the user hits Start."""
+    model: Optional[ModelSize] = Field(
+        None, description="Whisper model; None = hardware-recommended auto-selection"
+    )
 
 
 class WordSegment(BaseModel):

@@ -22,6 +22,9 @@ const path = require('path')
 
 const SERVER_NAME = 'capforge'
 
+/** Folder name of the shipped publish skill, under `mcp_server/skills/`. */
+const PUBLISH_SKILL_NAME = 'capforge-publish'
+
 // ---------------------------------------------------------------------------
 // Pure helpers (no electron) — unit-tested in claude-connect.test.js
 // ---------------------------------------------------------------------------
@@ -133,6 +136,102 @@ function codeConfigPath() {
   return path.join(os.homedir(), '.claude.json')
 }
 
+/**
+ * Publish-skill install (opt-in).
+ *
+ * CapForge bundles a *generic* `capforge-publish` skill. Claude Code loads
+ * skills from `~/.claude/skills/<name>/`, so "install" is a plain file copy —
+ * but it is opt-in and never silent: the caller shows the target path, and an
+ * install that would clobber a user-edited `SKILL.md` is refused instead.
+ * The helpers below take `fs` so they are testable against temp dirs.
+ */
+
+/** Where the bundled skill lives (`getProjectDir()` resolves asar-unpacked vs dev). */
+function skillSourceDir(projectDir) {
+  return path.join(projectDir, 'mcp_server', 'skills', PUBLISH_SKILL_NAME)
+}
+
+/** Where Claude Code looks for it. */
+function skillTargetDir(homeDir) {
+  return path.join(homeDir, '.claude', 'skills', PUBLISH_SKILL_NAME)
+}
+
+/**
+ * Every `*.md` under `dir`, as paths relative to it. Dotfiles and dot-dirs are
+ * skipped (editor/OS cruft is not part of the skill).
+ */
+function _listMarkdown(dir, fsImpl, prefix = '') {
+  const entries = fsImpl.readdirSync(dir, { withFileTypes: true })
+  const files = []
+  for (const entry of entries) {
+    if (entry.name.startsWith('.')) continue
+    const rel = prefix ? `${prefix}/${entry.name}` : entry.name
+    if (entry.isDirectory()) {
+      files.push(..._listMarkdown(path.join(dir, entry.name), fsImpl, rel))
+    } else if (entry.isFile() && entry.name.endsWith('.md')) {
+      files.push(rel)
+    }
+  }
+  return files.sort()
+}
+
+/** True when both paths exist and hold identical bytes. */
+function _sameBytes(a, b, fsImpl) {
+  try {
+    return Buffer.compare(fsImpl.readFileSync(a), fsImpl.readFileSync(b)) === 0
+  } catch {
+    return false
+  }
+}
+
+/**
+ * What installing would do, without touching the disk.
+ *   - `edited`     — the target SKILL.md exists and differs from the bundled one
+ *                    (the user adapted it; their copy is never overwritten)
+ *   - `up-to-date` — every bundled file is already at the target, byte-identical
+ *   - `install`    — anything else (missing or partially copied)
+ * Throws if `sourceDir` is unreadable; callers decide what that means.
+ */
+function planSkillInstall({ sourceDir, targetDir, fs: fsImpl = fs }) {
+  const files = _listMarkdown(sourceDir, fsImpl)
+  const skillMd = 'SKILL.md'
+  const targetSkill = path.join(targetDir, skillMd)
+  if (files.includes(skillMd) && fsImpl.existsSync(targetSkill)) {
+    if (!_sameBytes(path.join(sourceDir, skillMd), targetSkill, fsImpl)) {
+      return { status: 'edited', files }
+    }
+  }
+  const allPresent = files.every((rel) =>
+    _sameBytes(path.join(sourceDir, rel), path.join(targetDir, rel), fsImpl)
+  )
+  return { status: allPresent && files.length > 0 ? 'up-to-date' : 'install', files }
+}
+
+/** Run the plan: copy on `install`, no-op on `up-to-date`, refuse on `edited`. */
+function installSkillFrom({ sourceDir, targetDir, fs: fsImpl = fs }) {
+  if (!fsImpl.existsSync(sourceDir)) {
+    return { ok: false, reason: 'not-bundled', detail: `No skill at ${sourceDir}` }
+  }
+  try {
+    const plan = planSkillInstall({ sourceDir, targetDir, fs: fsImpl })
+    // A source folder with no markdown means the build dropped the skill files;
+    // reporting "installed" for zero files would be a silent lie.
+    if (plan.files.length === 0) {
+      return { ok: false, reason: 'not-bundled', detail: `No markdown in ${sourceDir}` }
+    }
+    if (plan.status === 'edited') return { ok: false, reason: 'edited', path: targetDir }
+    if (plan.status === 'up-to-date') return { ok: true, path: targetDir, status: 'up-to-date' }
+    for (const rel of plan.files) {
+      const dest = path.join(targetDir, rel)
+      fsImpl.mkdirSync(path.dirname(dest), { recursive: true })
+      fsImpl.writeFileSync(dest, fsImpl.readFileSync(path.join(sourceDir, rel)))
+    }
+    return { ok: true, path: targetDir, status: 'installed' }
+  } catch (err) {
+    return { ok: false, reason: 'write-failed', detail: String(err && err.message) }
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Runtime-aware helpers (lazy electron deps)
 // ---------------------------------------------------------------------------
@@ -163,12 +262,40 @@ function readJsonSafe(filePath) {
   }
 }
 
+/** Copy the bundled publish skill into `~/.claude/skills/` (opt-in, user-invoked). */
+function installPublishSkill() {
+  return installSkillFrom({
+    sourceDir: skillSourceDir(getProjectDir()),
+    targetDir: skillTargetDir(os.homedir()),
+    fs,
+  })
+}
+
+/**
+ * Install state for the UI, which always shows the target path. Never throws —
+ * an unreadable bundle is reported as `unknown` rather than breaking detect().
+ */
+function publishSkillStatus() {
+  const targetDir = skillTargetDir(os.homedir())
+  try {
+    const { status } = planSkillInstall({
+      sourceDir: skillSourceDir(getProjectDir()),
+      targetDir,
+      fs,
+    })
+    return { path: targetDir, status }
+  } catch {
+    return { path: targetDir, status: 'unknown' }
+  }
+}
+
 /** Which clients look installed + whether the python runtime is ready. */
 function detectClients() {
   return {
     desktop: desktopTargets().some((t) => fs.existsSync(t.dir)),
     code: fs.existsSync(codeConfigPath()),
     runtimeReady: isRuntimeReady(),
+    publishSkill: publishSkillStatus(),
   }
 }
 
@@ -217,6 +344,7 @@ function getManualConfig() {
 
 module.exports = {
   SERVER_NAME,
+  PUBLISH_SKILL_NAME,
   buildServerEntryFrom,
   mergeMcpServers,
   storeDesktopTargetsFrom,
@@ -225,6 +353,12 @@ module.exports = {
   codeConfigPath,
   getProjectDir,
   buildServerEntry,
+  skillSourceDir,
+  skillTargetDir,
+  planSkillInstall,
+  installSkillFrom,
+  installPublishSkill,
+  publishSkillStatus,
   detectClients,
   connectDesktop,
   connectCode,

@@ -849,8 +849,11 @@ def get_workspace() -> dict:
 
 @mcp.tool()
 def read_workspace_file(path: str) -> dict:
-    """Read a text file (HTML/CSS/JS/JSON/MD) from the co-author workspace. `path`
-    is relative to the project folder returned by `get_workspace`."""
+    """Read a text file (HTML/CSS/JS/JSON/MD/TXT) from the co-author workspace.
+    `path` is relative to the project folder returned by `get_workspace`.
+
+    Also the way to read back what an earlier session left under `notes/` for
+    this video (e.g. `notes/youtube.txt`) — see `write_workspace_file`."""
     return _client.read_workspace_file(path)
 
 
@@ -865,6 +868,15 @@ def write_workspace_file(path: str, content: str) -> dict:
     `data-composition-id` + `data-width/height`, a paused `window.__timelines[...]`
     timeline). Preview with `preview_hyperframes_frame`; render with
     `render_hyperframes`. Call `hyperframes_guide` for the creative vocabulary.
+
+    **Per-video notes (`notes/`)**: the workspace is keyed to the *open video* and
+    survives across sessions, so `notes/<topic>.txt` / `.md` is the sanctioned
+    place to leave publish material for it — a YouTube description, title
+    options, chapters, a summary — without co-author mode being on. Convention:
+    `notes/youtube.txt` for the upload package, `notes/summary.md` for the
+    transcript breakdown. Read it back later with `read_workspace_file`. The
+    video must be open in CapForge (the folder is resolved from the current
+    transcript); CapForge never deletes this folder.
     """
     return _client.write_workspace_file(path, content)
 

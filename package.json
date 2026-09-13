@@ -75,6 +75,7 @@
       "backend/requirements.txt",
       "mcp_server/**/*.py",
       "mcp_server/knowledge/**/*.md",
+      "mcp_server/skills/**/*.md",
       "!mcp_server/tests/**",
       "!backend/__pycache__/**",
       "!**/*.pyc",

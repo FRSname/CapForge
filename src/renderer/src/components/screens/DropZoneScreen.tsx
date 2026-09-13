@@ -1,8 +1,31 @@
 import { useRef, useState } from 'react'
+import { api } from '../../lib/api'
 import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
 
 const ACCEPTED_EXTS = ['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'mp4', 'mkv', 'webm', 'mov']
+
+/**
+ * Pre-load the Whisper model the moment a file is picked, so the cold start
+ * overlaps with the user reading the file chip instead of the progress screen.
+ *
+ * Strictly fire-and-forget: a failed (or skipped) warm just means the old
+ * load-on-demand path, so nothing here may throw, block, or toast. Only ever
+ * called from an event handler — `window.subforge` is absent under the node
+ * test environment (components render via react-dom/server), hence the guards.
+ */
+export function warmForFile(): void {
+  if (typeof window === 'undefined' || !window.subforge) return
+  void (async () => {
+    api.setPort(await window.subforge.getBackendPort())
+    api.setLocalToken(await window.subforge.getLocalToken())
+    // Same key SettingsPanel writes and ProgressScreen reads; '' means "auto".
+    const model = await window.subforge.getState<string>('whisper_model', '')
+    await api.warm(model || undefined)
+  })().catch(() => {
+    /* cold start on the next transcribe — not worth surfacing */
+  })
+}
 
 interface DropZoneScreenProps {
   filePath: string | null
@@ -21,14 +44,18 @@ export function DropZoneScreen({ filePath, onFileSelected, onStart }: DropZoneSc
     if (!file) return
     // Electron 32+ removed File.path → use the preload bridge
     const p = window.subforge?.getPathForFile(file)
-    if (p) onFileSelected(p)
+    if (!p) return
+    onFileSelected(p)
+    warmForFile()
   }
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
     const p = window.subforge?.getPathForFile(file)
-    if (p) onFileSelected(p)
+    if (!p) return
+    onFileSelected(p)
+    warmForFile()
   }
 
   const fileName = filePath ? filePath.split(/[\\/]/).pop() : null

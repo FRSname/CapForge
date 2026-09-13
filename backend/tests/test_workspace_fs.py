@@ -64,6 +64,18 @@ def test_write_rejects_oversized(root, monkeypatch):
         wfs.write_file(root, "big.txt", "way too many bytes here")
 
 
+def test_write_notes_txt_and_md_under_notes_folder(root):
+    """The sanctioned per-video `notes/` convention (creator-hub-vision §7, Week 0):
+    an agent leaves `notes/youtube.txt` / `notes/summary.md` for the open video and
+    reads them back in a later session. Pins that both extensions are writable,
+    the folder is created, and the listing shows them."""
+    wfs.write_file(root, "notes/youtube.txt", "TITLE OPTIONS\n1. Hook")
+    wfs.write_file(root, "notes/summary.md", "# Summary\n")
+    assert wfs.read_file(root, "notes/youtube.txt") == "TITLE OPTIONS\n1. Hook"
+    listed = {e["path"] for e in wfs.list_tree(root)}
+    assert {"notes", "notes/youtube.txt", "notes/summary.md"} <= listed
+
+
 # -- read_file ------------------------------------------------------------
 
 def test_read_round_trips_text(root):
