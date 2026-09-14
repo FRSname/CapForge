@@ -29,6 +29,7 @@ export const EMPTY_FIELDS: PublishAuthored = {
   hashtags: [],
   speakers: {},
   summary_md: '',
+  collection_id: null,
   publish: { youtube: null, pushes: [] },
 }
 

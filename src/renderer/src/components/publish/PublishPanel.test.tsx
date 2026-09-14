@@ -45,6 +45,7 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     hashtags: ['#ai'],
     speakers: { SPEAKER_00: { name: 'Filip', handle: '@filip', url: '' } },
     summary_md: '# Summary\n\nWhat happened.',
+    collection_id: null,
     links: [],
     publish: { youtube: null, pushes: [] },
     history: [
@@ -73,6 +74,7 @@ function controller(
     canRevert: (field) => revertPatchFor(base, field) !== null,
     revert: noop,
     setField: noop,
+    setCollection: noop,
     beginEdit: noop,
     endEdit: noop,
     pendingAgentUpdate: null,
@@ -272,6 +274,7 @@ describe('PublishPanel', () => {
     for (const title of [
       'Title',
       'Description',
+      'Collection',
       'Chapters',
       'Tags &amp; keywords',
       'Speakers',

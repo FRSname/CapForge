@@ -168,3 +168,36 @@ describe('LibraryScreen', () => {
     expect(droppedNotMediaMessage('notes.pdf')).toContain('notes.pdf')
   })
 })
+
+describe('LibraryScreen collections', () => {
+  const collections = [
+    {
+      id: 'uck26',
+      name: 'UCK 26',
+      slots: {},
+      overrides: {} as never,
+      createdAt: '',
+      updatedAt: '',
+      members: 1,
+    },
+  ]
+
+  test('the toolbar filters by collection', () => {
+    const html = render({ videos: [video({ collection_id: 'uck26' })], collections })
+
+    expect(html).toContain('aria-label="Filter by collection"')
+    expect(html).toContain('All videos')
+    expect(html).toContain('>UCK 26<')
+    expect(html).toContain('No collection')
+  })
+
+  test('a card wears its collection chip, named', () => {
+    const html = render({ videos: [video({ title: 'Talk', collection_id: 'uck26' })], collections })
+    expect(html).toContain('title="Collection: UCK 26"')
+  })
+
+  test('a record with no collection has no chip', () => {
+    const html = render({ videos: [video()], collections })
+    expect(html).not.toContain('title="Collection:')
+  })
+})

@@ -17,8 +17,18 @@
 import { useState } from 'react'
 import type { DropPlan, LocateOutcome } from '../../lib/libraryImport'
 import { droppedImport, droppedItemsOf, droppedSkippedMessage } from '../../lib/libraryImport'
+import type { CollectionSummary } from '../../lib/collectionTypes'
+import { collectionLabel } from '../../lib/collections'
+import type { CollectionFilter, CollectionFilterOption } from '../../lib/libraryView'
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { continueCandidate, displayTitle, sortByUpdated } from '../../lib/libraryView'
+import {
+  ALL_COLLECTIONS,
+  collectionFilterOptions,
+  continueCandidate,
+  displayTitle,
+  filterByCollection,
+  sortByUpdated,
+} from '../../lib/libraryView'
 import { warmForFile } from '../screens/DropZoneScreen'
 import { Button } from '../ui/Button'
 import { LanguageChip, LibraryCard, LibraryPoster, StatusRail } from './LibraryCard'
@@ -28,6 +38,8 @@ export { droppedNotMediaMessage } from '../../lib/libraryImport'
 
 export interface LibraryScreenProps {
   videos: LibraryVideo[]
+  /** Names for the filter and the card chips; null/absent until they load. */
+  collections?: readonly CollectionSummary[] | null
   loading: boolean
   /** A card was clicked — restore its session, or go transcribe its file. */
   onOpen: (video: LibraryVideo) => void
@@ -53,6 +65,7 @@ export interface LibraryScreenProps {
 
 export function LibraryScreen({
   videos,
+  collections,
   loading,
   onOpen,
   onAddVideo,
@@ -71,8 +84,13 @@ export function LibraryScreen({
   // handler stops the event before that zone can clear its own highlight.
   const [dropCount, setDropCount] = useState(0)
 
-  const hero = continueCandidate(videos)
-  const rest = sortByUpdated(videos).filter((v) => v.id !== hero?.id)
+  const [filter, setFilter] = useState<CollectionFilter>(ALL_COLLECTIONS)
+
+  const known = collections ?? []
+  const shown = filterByCollection(videos, filter)
+  const hero = continueCandidate(shown)
+  const rest = sortByUpdated(shown).filter((v) => v.id !== hero?.id)
+  const filtering = filter !== ALL_COLLECTIONS
 
   function runDropPlan(plan: DropPlan) {
     if (plan.kind === 'none') return
@@ -135,10 +153,17 @@ export function LibraryScreen({
             className="text-[11px] uppercase tracking-widest"
             style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
           >
-            {loading ? 'loading…' : `${videos.length} video${videos.length === 1 ? '' : 's'}`}
+            {loading ? 'loading…' : countLabel(shown.length, videos.length, filtering)}
           </span>
         </div>
         <div className="app-no-drag flex items-center gap-2">
+          {videos.length > 0 && (
+            <CollectionFilterSelect
+              options={collectionFilterOptions(known, videos)}
+              value={filter}
+              onChange={setFilter}
+            />
+          )}
           <Button variant="ghost" className="text-xs" onClick={() => onImportFolder()}>
             Import folder…
           </Button>
@@ -160,6 +185,11 @@ export function LibraryScreen({
         />
       ) : (
         <div className="flex flex-col gap-8 px-8 pb-10">
+          {shown.length === 0 && (
+            <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
+              No videos match this collection filter.
+            </p>
+          )}
           {hero && <ContinueHero video={hero} onOpen={onOpen} />}
           {rest.length > 0 && (
             <div className="flex flex-col gap-3">
@@ -174,6 +204,7 @@ export function LibraryScreen({
                   <LibraryCard
                     key={video.id}
                     video={video}
+                    collectionName={collectionLabel(known, video.collection_id)}
                     onOpen={onOpen}
                     onRemove={onRemove}
                     onDelete={onDelete}
@@ -187,6 +218,35 @@ export function LibraryScreen({
         </div>
       )}
     </section>
+  )
+}
+
+/** "3 videos", or "2 of 3 videos" while a collection filter is on. */
+function countLabel(shown: number, total: number, filtering: boolean): string {
+  const noun = `video${total === 1 ? '' : 's'}`
+  return filtering ? `${shown} of ${total} ${noun}` : `${total} ${noun}`
+}
+
+interface CollectionFilterSelectProps {
+  options: CollectionFilterOption[]
+  value: CollectionFilter
+  onChange: (value: CollectionFilter) => void
+}
+
+function CollectionFilterSelect({ options, value, onChange }: CollectionFilterSelectProps) {
+  return (
+    <select
+      className="field-input w-44 text-xs"
+      aria-label="Filter by collection"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {options.map((option) => (
+        <option key={option.value} value={option.value}>
+          {option.label}
+        </option>
+      ))}
+    </select>
   )
 }
 

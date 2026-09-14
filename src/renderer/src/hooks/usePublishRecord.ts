@@ -93,6 +93,8 @@ export interface PublishController {
   canRevert: (field: PublishFieldId) => boolean
   revert: (field: PublishFieldId) => void
   setField: <K extends PublishFieldId>(field: K, value: PublishAuthored[K]) => void
+  /** Move the video into a collection (or out, with null) — written at once, not debounced. */
+  setCollection: (collectionId: string | null) => void
   beginEdit: (field: PublishFieldId) => void
   endEdit: () => void
   pendingAgentUpdate: AgentUpdateNotice | null
@@ -258,6 +260,14 @@ export function usePublishRecord({
     [schedule]
   )
 
+  const setCollection = useCallback(
+    (collectionId: string | null) => {
+      setDrafts((prev) => withoutDraft(prev, 'collection_id'))
+      patchNow({ collection_id: collectionId })
+    },
+    [patchNow]
+  )
+
   const beginEdit = useCallback((field: PublishFieldId) => {
     editingRef.current = field
   }, [])
@@ -368,6 +378,7 @@ export function usePublishRecord({
     canRevert,
     revert,
     setField,
+    setCollection,
     beginEdit,
     endEdit,
     pendingAgentUpdate,

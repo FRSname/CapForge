@@ -66,6 +66,20 @@ export function LanguageChip({ lang }: { lang: string | null }) {
   )
 }
 
+/** The collection a record belongs to, by name — nothing for a record in none. */
+export function CollectionChip({ name }: { name: string | null | undefined }) {
+  if (!name) return null
+  return (
+    <span
+      className="max-w-[96px] truncate rounded px-1 text-2xs"
+      style={{ color: 'var(--color-brand)', background: 'var(--color-surface-3)' }}
+      title={`Collection: ${name}`}
+    >
+      {name}
+    </span>
+  )
+}
+
 /** ISO → a short local date; empty when the backend sent nothing usable. */
 function formatUpdated(iso: string): string {
   const ms = Date.parse(iso)
@@ -129,6 +143,8 @@ export function LibraryPoster({ video }: { video: LibraryVideo }) {
 
 export interface LibraryCardProps {
   video: LibraryVideo
+  /** The name of the record's collection (or its bare id when none is defined). */
+  collectionName?: string | null
   onOpen: (video: LibraryVideo) => void
   /** Hide the record, keeping every file it holds. */
   onRemove: (video: LibraryVideo) => void
@@ -142,6 +158,7 @@ export interface LibraryCardProps {
 
 export function LibraryCard({
   video,
+  collectionName,
   onOpen,
   onRemove,
   onDelete,
@@ -190,6 +207,7 @@ export function LibraryCard({
           <div className="flex items-center gap-2">
             <StatusRail video={video} />
             <LanguageChip lang={video.language} />
+            <CollectionChip name={collectionName} />
             <span className="ml-auto text-2xs" style={{ color: 'var(--color-text-3)' }}>
               {formatUpdated(video.updatedAt)}
             </span>

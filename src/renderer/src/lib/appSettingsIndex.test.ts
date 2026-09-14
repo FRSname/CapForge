@@ -11,10 +11,11 @@ import {
 } from './appSettingsIndex'
 
 describe('APP_SETTINGS_CATEGORIES', () => {
-  test('is the five panes in rail order', () => {
+  test('is the six panes in rail order', () => {
     expect(APP_SETTINGS_CATEGORIES.map((c) => c.id)).toEqual([
       'general',
       'channel',
+      'collections',
       'transcription',
       'claude',
       'shortcuts',
@@ -38,11 +39,23 @@ describe('filterAppSettings', () => {
     expect(res.categories).toEqual([
       'general',
       'channel',
+      'collections',
       'transcription',
       'claude',
       'shortcuts',
     ])
     expect(res.entries).toEqual([])
+  })
+
+  test('"collection" and "event" lead to Collections', () => {
+    expect(filterAppSettings('collection').categories).toContain('collections')
+    expect(filterAppSettings('event').categories).toContain('collections')
+  })
+
+  test('"template" finds the template in both places it lives', () => {
+    const { categories } = filterAppSettings('template')
+    expect(categories).toContain('channel')
+    expect(categories).toContain('collections')
   })
 
   test('a whitespace-only query is treated as empty', () => {

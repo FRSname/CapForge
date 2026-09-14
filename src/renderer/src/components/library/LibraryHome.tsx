@@ -13,6 +13,7 @@
  */
 
 import type { LibraryVideo } from '../../lib/libraryTypes'
+import { useCollections } from '../../hooks/useCollections'
 import { useLibraryActions } from '../../hooks/useLibraryActions'
 import { useToast } from '../../hooks/useToast'
 import { useLibraryList } from '../../hooks/useLibraryList'
@@ -37,10 +38,13 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
   // with its own tone here; App's `notify` relay always shows an error.
   const { toast } = useToast()
   const actions = useLibraryActions({ refresh, notify, inform: toast })
+  // Names for the collection filter and the card chips; re-read on every visit.
+  const { collections } = useCollections({ notify })
 
   return (
     <LibraryScreen
       videos={videos}
+      collections={collections}
       loading={loading}
       onOpen={onOpen}
       onAddVideo={onAddVideo}

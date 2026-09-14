@@ -25,9 +25,11 @@ import {
   filterAppSettings,
   type AppSettingsCategoryId,
 } from '../../lib/appSettingsIndex'
+import { onSettingsCategoryRequested } from '../../lib/settingsNavigation'
 import { IconButton } from '../ui/IconButton'
 import { BriefSettings } from './BriefSettings'
 import { ClaudeSettings } from './ClaudeSettings'
+import { CollectionsSettings } from './CollectionsSettings'
 import { GeneralSettings } from './GeneralSettings'
 import { ShortcutsSettings } from './ShortcutsSettings'
 import { TranscriptionSettings } from './TranscriptionSettings'
@@ -87,6 +89,17 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onOpen])
+
+  // A card elsewhere asked for a category ("Manage collections…"): open on it.
+  useEffect(
+    () =>
+      onSettingsCategoryRequested((next) => {
+        setQuery('')
+        setCategory(next)
+        onOpen()
+      }),
+    [onOpen]
+  )
 
   // Closing clears the search: the category the user was on is worth keeping
   // across a reopen, a half-typed query is not (it would keep the rail dimmed).
@@ -178,6 +191,7 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
               <GeneralSettings lightMode={lightMode} onLightModeChange={setLightMode} />
             )}
             {category === 'channel' && <BriefSettings />}
+            {category === 'collections' && <CollectionsSettings />}
             {category === 'transcription' && <TranscriptionSettings />}
             {category === 'claude' && <ClaudeSettings />}
             {category === 'shortcuts' && <ShortcutsSettings />}

@@ -13,6 +13,7 @@
 export type AppSettingsCategoryId =
   | 'general'
   | 'channel'
+  | 'collections'
   | 'transcription'
   | 'claude'
   | 'shortcuts'
@@ -34,6 +35,7 @@ export interface AppSettingsEntry {
 export const APP_SETTINGS_CATEGORIES: ReadonlyArray<AppSettingsCategory> = [
   { id: 'general', label: 'General' },
   { id: 'channel', label: 'Channel' },
+  { id: 'collections', label: 'Collections' },
   { id: 'transcription', label: 'Transcription' },
   { id: 'claude', label: 'Claude & Skills' },
   { id: 'shortcuts', label: 'Shortcuts' },
@@ -75,6 +77,26 @@ export const APP_SETTINGS_ENTRIES: ReadonlyArray<AppSettingsEntry> = [
     category: 'channel',
     label: 'House rules',
     keywords: ['house rules', 'em dash', 'hook', 'keywords', 'description length', 'style'],
+  },
+  {
+    category: 'channel',
+    label: 'Description template and slots',
+    keywords: ['template', 'slots', 'layout', 'placeholder', 'variables', 'brief'],
+  },
+  {
+    category: 'collections',
+    label: 'Collections',
+    keywords: ['collection', 'event', 'conference', 'series', 'playlist', 'group'],
+  },
+  {
+    category: 'collections',
+    label: 'Brief overrides',
+    keywords: ['override', 'inherit', 'footer', 'hashtags', 'brief', 'event'],
+  },
+  {
+    category: 'collections',
+    label: 'Collection template and slots',
+    keywords: ['template', 'slots', 'placeholder', 'variables', 'preview', 'package'],
   },
   {
     category: 'transcription',
