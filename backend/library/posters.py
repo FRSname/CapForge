@@ -8,6 +8,14 @@ background task on create/import and backfilled at startup for records that
 predate this or whose grab failed. Nothing here ever fails an import: a record
 without a poster is a card with a placeholder.
 
+Where it runs: ``LibraryStore`` calls ``start_grab`` from its ``on_created``
+hook (wired once in ``router.get_store``), so *every* path that mints a record
+— the create route, project import, the studio migration, the agent's
+``load_video``/``transcribe`` — gets a poster without remembering to ask;
+``start_backfill`` runs once at startup for records from before this or whose
+grab failed. Both go through one single-worker pool, so ffmpeg never runs more
+than once at a time and the caller never waits.
+
 The library package stays import-light — ffmpeg is found through
 ``backend.exporters.video_render._find_ffmpeg`` lazily, and the finder is
 injectable so the tests never need a real binary.
@@ -19,8 +27,11 @@ import logging
 import os
 import subprocess
 import uuid
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Optional
+
+from backend.library.errors import RecordNotFound
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +104,9 @@ def grab_poster(source: Path, dest: Path, at_s: float, *, ffmpeg: str) -> bool:
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
         "-ss", f"{at_s:.3f}", "-i", str(source),
-        "-frames:v", "1", "-vf", f"scale={POSTER_WIDTH}:-2",
+        # Cap at POSTER_WIDTH without upscaling a narrower source (argv is a
+        # list, no shell, so the comma inside min() needs no escaping).
+        "-frames:v", "1", "-vf", f"scale=min({POSTER_WIDTH},iw):-2",
         "-q:v", str(POSTER_JPEG_QUALITY), "-f", "image2", str(tmp),
     ]
     try:
@@ -116,7 +129,7 @@ def ensure_poster(
     source_path: str,
     duration: Optional[float],
     *,
-    find_ffmpeg: FfmpegFinder = _default_ffmpeg,
+    find_ffmpeg: Optional[FfmpegFinder] = None,
 ) -> bool:
     """Grab the poster unless one exists. Never raises.
 
@@ -130,7 +143,9 @@ def ensure_poster(
     if not source.is_file():
         return False
     try:
-        ffmpeg = find_ffmpeg()
+        # Resolved per call, not bound as a default, so a test (or a future
+        # settings override) can swap the finder after import.
+        ffmpeg = (find_ffmpeg or _default_ffmpeg)()
     except FileNotFoundError as exc:
         logger.warning("Poster skipped, no ffmpeg: %s", exc)
         return False
@@ -149,7 +164,7 @@ def ensure_poster_for(store: Any, record: Any, **kw: Any) -> bool:
 
 
 def backfill_posters(
-    store: Any, *, limit: int = BACKFILL_MAX_RECORDS, find_ffmpeg: FfmpegFinder = _default_ffmpeg
+    store: Any, *, limit: int = BACKFILL_MAX_RECORDS, find_ffmpeg: Optional[FfmpegFinder] = None
 ) -> int:
     """Startup pass: a poster for every real record without one, bounded.
 
@@ -164,7 +179,36 @@ def backfill_posters(
         if summary.get("missing_media") or summary.get("poster"):
             continue
         examined += 1
-        record = store.get(summary["id"])
+        try:
+            record = store.get(summary["id"])
+        except RecordNotFound:
+            continue  # removed between the list and now — nothing to grab for
         if ensure_poster_for(store, record, find_ffmpeg=find_ffmpeg):
             grabbed += 1
     return grabbed
+
+
+# --- scheduling ------------------------------------------------------------
+# One worker: a poster is a single frame, and two ffmpeg processes racing a
+# transcription for the disk is worse than a card that fills in a second later.
+
+_POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="poster")
+
+
+def _guarded(fn: Callable[..., Any], *args: Any) -> Any:
+    """Run a poster task; a failure is logged, never lost inside a Future."""
+    try:
+        return fn(*args)
+    except Exception:
+        logger.error("Poster task %s failed", getattr(fn, "__name__", fn), exc_info=True)
+        return None
+
+
+def start_grab(store: Any, record: Any) -> Future:
+    """Grab ``record``'s poster off the calling thread — the ``on_created`` hook."""
+    return _POOL.submit(_guarded, ensure_poster_for, store, record)
+
+
+def start_backfill(store: Any) -> Future:
+    """The startup pass, off the event loop; startup never waits on ffmpeg."""
+    return _POOL.submit(_guarded, backfill_posters, store)

@@ -75,7 +75,7 @@ def test_grab_writes_the_poster_atomically(tmp_path, monkeypatch) -> None:
     cmd = calls[0]
     assert cmd[0] == FAKE_FFMPEG
     assert cmd[cmd.index("-ss") + 1] == "2.900"
-    assert f"scale={posters.POSTER_WIDTH}:-2" in cmd
+    assert f"scale=min({posters.POSTER_WIDTH},iw):-2" in cmd  # capped, never upscaled
     assert cmd[-1].startswith(str(tmp_path / ".poster-"))
 
 
@@ -146,6 +146,25 @@ def test_poster_is_derived_from_the_file_and_backfilled(tmp_path, monkeypatch) -
     assert len(calls) == 1
 
 
+def test_backfill_survives_a_record_removed_mid_pass(tmp_path, monkeypatch) -> None:
+    from backend.library.errors import RecordNotFound
+
+    store = LibraryStore(tmp_path / "library")
+    first = store.create(str(media(tmp_path, "a.mp4")))
+    store.create(str(media(tmp_path, "b.mp4")))
+    calls = fake_ffmpeg(monkeypatch)
+    real_get = store.get
+
+    def get(video_id: str):
+        if video_id == first.id:
+            raise RecordNotFound(video_id)  # deleted between list() and get()
+        return real_get(video_id)
+
+    monkeypatch.setattr(store, "get", get)
+    assert posters.backfill_posters(store, find_ffmpeg=find_fake) == 1
+    assert len(calls) == 1
+
+
 def test_backfill_skips_missing_media_and_honours_the_limit(tmp_path, monkeypatch) -> None:
     store = LibraryStore(tmp_path / "library")
     gone = media(tmp_path, "gone.mp4")
@@ -159,20 +178,67 @@ def test_backfill_skips_missing_media_and_honours_the_limit(tmp_path, monkeypatc
     assert sum(1 for row in store.list() if row["poster"]) == 2
 
 
-# --- the route ------------------------------------------------------------------
+# --- the hook and the pool -----------------------------------------------------
 
-def test_create_route_grabs_the_poster_in_the_background(client, home, tmp_path, monkeypatch) -> None:
+def test_the_store_tells_its_hook_once_per_minted_record(tmp_path) -> None:
+    seen: list[str] = []
+    store = LibraryStore(tmp_path / "library", on_created=lambda s, r: seen.append(r.id))
+    source = media(tmp_path)
+    record, created = store.create_or_get(str(source))
+    assert created and seen == [record.id]
+    # A fingerprint hit mints nothing and says nothing.
+    assert store.create_or_get(str(source)) == (record, False)
+    assert seen == [record.id]
+
+
+def test_a_failing_hook_never_fails_the_write(tmp_path) -> None:
+    def boom(store, record):
+        raise RuntimeError("no ffmpeg today")
+
+    store = LibraryStore(tmp_path / "library", on_created=boom)
+    record = store.create(str(media(tmp_path)))
+    assert store.get(record.id).id == record.id
+
+
+def test_start_grab_and_start_backfill_run_on_the_pool(tmp_path, monkeypatch) -> None:
     calls = fake_ffmpeg(monkeypatch)
     monkeypatch.setattr(posters, "_default_ffmpeg", find_fake)
+    store = LibraryStore(tmp_path / "library")
+    record = store.create(str(media(tmp_path, "a.mp4")))
+    assert posters.start_grab(store, record).result(timeout=5) is True
+    assert store.has_poster(record)
+    store.create(str(media(tmp_path, "b.mp4")))
+    assert posters.start_backfill(store).result(timeout=5) == 1
+    assert len(calls) == 2 and all(c[0] == FAKE_FFMPEG for c in calls)
+
+
+def test_a_pool_task_that_raises_is_logged_not_lost(tmp_path, monkeypatch, caplog) -> None:
+    def explode(*args):
+        raise RuntimeError("ffmpeg ate the disk")
+
+    monkeypatch.setattr(posters, "ensure_poster_for", explode)
+    store = LibraryStore(tmp_path / "library")
+    record = store.create(str(media(tmp_path)))
+    with caplog.at_level("ERROR", logger="backend.library.posters"):
+        assert posters.start_grab(store, record).result(timeout=5) is None
+    assert "Poster task" in caplog.text and "ffmpeg ate the disk" in caplog.text
+
+
+# --- the route ------------------------------------------------------------------
+
+def test_create_route_grabs_the_poster_through_the_hook(client, home, tmp_path, monkeypatch) -> None:
+    """`get_store` wires `posters.start_grab` as the hook; here it is made
+    synchronous so the response can be asserted without waiting on the pool."""
+    calls = fake_ffmpeg(monkeypatch)
+    monkeypatch.setattr(posters, "_default_ffmpeg", find_fake)
+    monkeypatch.setattr(posters, "start_grab", lambda store, record: posters.ensure_poster_for(store, record))
     source = media(tmp_path)
     headers = {AGENT_HEADER: AGENT_TOKEN}
     res = client.post("/api/library", json={"source_path": str(source)}, headers=headers)
     assert res.status_code == 201
-    # The response itself is pre-grab: the flag is derived from the file.
-    assert res.json()["poster"] is False
-    # TestClient runs background tasks before returning, so the next read has it.
     video_id = res.json()["id"]
     assert len(calls) == 1
+    assert res.json()["poster"] is True  # the hook ran inside create_or_get here
     assert client.get(f"/api/library/{video_id}", headers=headers).json()["poster"] is True
     asset = client.get(f"/api/library/{video_id}/asset/poster.jpg", headers=headers)
     assert asset.status_code == 200 and asset.content == JPEG_BYTES

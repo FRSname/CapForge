@@ -301,15 +301,6 @@ async def broadcast_event(payload: dict) -> None:
 
 # --- Agent control layer: discovery file + token auth ---
 
-def _backfill_posters(store) -> None:
-    try:
-        grabbed = library_posters.backfill_posters(store)
-        if grabbed:
-            logger.info("Posters grabbed for %d library record(s)", grabbed)
-    except Exception:
-        logger.error("Poster backfill failed", exc_info=True)
-
-
 @app.on_event("startup")
 async def _write_agent_discovery() -> None:
     """Publish {port, token} so a local MCP server can find and authenticate."""
@@ -339,11 +330,9 @@ async def _write_agent_discovery() -> None:
         store.ensure_index()
         pruned = store.prune_scratch()
         logger.info("Library ready at %s (%d scratch record(s) pruned)", store.root, pruned)
-        # Posters for records that predate v3 #6 or whose grab failed — one
-        # bounded daemon thread, never awaited: startup must not wait on ffmpeg.
-        threading.Thread(
-            target=_backfill_posters, args=(store,), name="poster-backfill", daemon=True
-        ).start()
+        # Posters for records that predate v3 #6 or whose grab failed: the
+        # library's own single-worker pool, never awaited.
+        library_posters.start_backfill(store)
     except Exception:
         # Non-fatal: the library index is a disposable cache and is rebuilt on
         # demand; the app must still start without it.

@@ -409,12 +409,17 @@ class CapForgeAPI {
     return res.json() as Promise<T>
   }
 
-  /** GET a specifically auth-gated local route without changing generic GET semantics. */
-  private async getWithLocalToken<T>(path: string): Promise<T> {
+  /** GET with the local token attached — the one place that header is built for a GET. */
+  private async fetchWithLocalToken(path: string): Promise<Response> {
     await this.ensureBridge()
     const headers: Record<string, string> = {}
     if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
-    const res = await fetch(`${this.base}${path}`, { headers })
+    return fetch(`${this.base}${path}`, { headers })
+  }
+
+  /** GET a specifically auth-gated local route without changing generic GET semantics. */
+  private async getWithLocalToken<T>(path: string): Promise<T> {
+    const res = await this.fetchWithLocalToken(path)
     if (!res.ok) throw await this.handleError(res)
     return res.json() as Promise<T>
   }
@@ -425,12 +430,9 @@ class CapForgeAPI {
    * `127.0.0.1`, so the caller turns it into an object URL.
    */
   async getLibraryPoster(id: string): Promise<Blob | null> {
-    await this.ensureBridge()
-    const headers: Record<string, string> = {}
-    if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
-    const res = await fetch(`${this.base}/api/library/${encodeURIComponent(id)}/asset/poster.jpg`, {
-      headers,
-    })
+    const res = await this.fetchWithLocalToken(
+      `/api/library/${encodeURIComponent(id)}/asset/poster.jpg`
+    )
     if (res.status === 404) return null
     if (!res.ok) throw await this.handleError(res)
     return res.blob()
