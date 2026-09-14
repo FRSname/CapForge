@@ -7,7 +7,7 @@ propagates instead of looking like a tidy answer.
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from typing import Any, Callable, Optional
 
 import httpx
 
@@ -63,6 +63,41 @@ def _validation_summary(errors: list) -> str:
     return "CapForge refused the write — " + "; ".join(parts) + suffix
 
 
+#: The status a refused body comes back as (FastAPI's, and the rule check's).
+_UNPROCESSABLE = 422
+
+#: What a rule refusal says when the backend sent violations but no sentence.
+_VIOLATIONS_DETAIL = "CapForge refused the write — it breaks a hard publish rule."
+
+
+def _violations_refusal(exc: httpx.HTTPStatusError) -> Optional[dict]:
+    """The refusal dict for a 422 carrying `violations`, else None.
+
+    `PATCH /api/library/{id}` runs the hard publish rules before writing, so its
+    422 is a *rule* answer — `{field, rule, message, severity}` the agent can act
+    on — not pydantic complaining about a body shape. Those keep the field
+    summary above; only a body with a `violations` list takes this path.
+    """
+    if exc.response.status_code != _UNPROCESSABLE:
+        return None
+    try:
+        body = exc.response.json()
+    except ValueError:
+        return None
+    if not isinstance(body, dict):
+        return None
+    violations = body.get("violations")
+    if not isinstance(violations, list):
+        return None
+    detail = body.get("detail")
+    return {
+        "status": _ERROR,
+        "reason": "violations",
+        "detail": detail if isinstance(detail, str) else _VIOLATIONS_DETAIL,
+        "violations": violations,
+    }
+
+
 def _library_call(fn: Callable[[], dict]) -> dict:
     """Run a tool body, turning the three failure modes into error dicts.
 
@@ -81,6 +116,7 @@ def _library_call(fn: Callable[[], dict]) -> dict:
             "current": exc.current,
         }
     except httpx.HTTPStatusError as exc:
-        return _fail(_http_detail(exc))
+        refusal = _violations_refusal(exc)
+        return refusal if refusal is not None else _fail(_http_detail(exc))
 
 

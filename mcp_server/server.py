@@ -15,7 +15,7 @@ from typing import Literal, Optional
 from mcp.server.fastmcp import FastMCP, Image
 from pydantic import BaseModel, Field
 
-from . import library, tracks
+from . import library, publish, tracks
 from .cleanup import apply_word_edits, remove_fillers
 from .client import CapForgeClient
 from .knowledge import TopicNotFound, read_index, read_topic
@@ -964,6 +964,14 @@ def run_hyperframes_cli(args: list[str]) -> dict:
 # in library.py (this file is at its size ceiling) but are ordinary tools on this
 # same server.
 library.register(mcp, lambda: _client)
+
+
+# --- Publish -------------------------------------------------------------
+
+# `get_brief`, `set_brief`, `validate_video`, `check_chapters` and
+# `get_upload_package` live in publish.py — the write/validate/render loop over
+# a library record (docs/plans/publish-workspace.md).
+publish.register(mcp, lambda: _client)
 
 
 # --- Caption tracks ------------------------------------------------------
