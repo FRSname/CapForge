@@ -1,0 +1,160 @@
+"""The publish guide (`mcp_server/publish_guide/`) must not drift from the tool surface.
+
+creator-hub-vision §7 #5: "A test must assert every tool named in the guide exists
+on the server, or it drifts." The guide is prose the agent follows literally, and
+the prompts are its entry points — a renamed tool would silently break both.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from mcp_server import publish_guide
+from mcp_server.knowledge import TopicNotFound
+
+from .test_bundled_skills import _TOOL_REF, MOMENT_KINDS, _registered_tools
+
+PROMPT_NAMES = {name for _, name, _ in publish_guide.PROMPTS}
+#: `find_video_moments(kind=…)` values the guide may name — parameters, not tools.
+KINDS = MOMENT_KINDS | {"pause"}
+#: Backticked snake_case names that are record fields, shape keys or another
+#: server's tool, not CapForge tools. A new one fails the drift test until it is
+#: filed here — which is the point: the list is read, not guessed.
+NOT_TOOLS = KINDS | PROMPT_NAMES | {
+    # dossier fields and their shape keys (backend/library/schemas.py)
+    "title_options", "short_description", "summary_md", "tools_mentioned",
+    "external_refs", "clip_suggestions", "visual_suggestion", "start_s", "end_s",
+    # tool parameters the guide spells out
+    "video_id", "segments_only", "include_scratch", "youtube_video_id", "published_at",
+    # the Update-conf MCP's tool, reached only when that server is connected
+    "set_session_enrichment",
+}
+
+
+def _guide_texts() -> dict[str, str]:
+    texts = {"INDEX.md": publish_guide.GUIDE.read_index()}
+    for tid in publish_guide.TOPICS:
+        texts[tid] = publish_guide.GUIDE.read_topic(tid)
+    return texts
+
+
+# --- the manifest ---------------------------------------------------------
+
+def test_every_manifest_topic_has_a_shipped_file() -> None:
+    for tid, (filename, desc) in publish_guide.TOPICS.items():
+        path = publish_guide._GUIDE_DIR / filename
+        assert path.is_file(), f"missing file for topic '{tid}': {filename}"
+        assert desc.strip(), f"topic '{tid}' has an empty description"
+        assert len(path.read_text(encoding="utf-8")) > 300, f"topic '{tid}' is a stub"
+
+
+def test_the_seven_topics_of_the_plan() -> None:
+    """vision §3.4 names the set; a topic added or dropped is a plan change."""
+    assert list(publish_guide.TOPICS) == [
+        "workflow", "breakdown", "description", "chapters", "thumbnails", "shorts", "batch",
+    ]
+
+
+def test_index_lists_every_topic_and_the_operating_model() -> None:
+    index = publish_guide.GUIDE.read_index()
+    assert "Operating model" in index
+    for tid in publish_guide.TOPICS:
+        assert f"`{tid}`" in index, f"topic '{tid}' missing from INDEX.md"
+    for name in PROMPT_NAMES:
+        assert f"**{name}**" in index, f"prompt '{name}' missing from INDEX.md"
+
+
+def test_no_orphan_files_in_guide_dir() -> None:
+    mapped = {fn for fn, _ in publish_guide.TOPICS.values()} | {"INDEX.md"}
+    on_disk = {p.name for p in Path(publish_guide._GUIDE_DIR).glob("*.md")}
+    assert on_disk == mapped, f"orphan/missing files: {on_disk ^ mapped}"
+
+
+def test_unknown_and_traversal_ids_are_refused() -> None:
+    with pytest.raises(TopicNotFound):
+        publish_guide.GUIDE.read_topic("does-not-exist")
+    with pytest.raises(TopicNotFound):
+        publish_guide.GUIDE.read_topic("../server")
+    # The tool answers with the message, never raises into the MCP layer.
+    assert publish_guide.publish_guide("../server").startswith("Unknown topic")
+    assert "Operating model" in publish_guide.publish_guide()
+
+
+# --- the drift test -------------------------------------------------------
+
+@pytest.mark.parametrize("name", ["INDEX.md", *publish_guide.TOPICS])
+def test_every_tool_the_guide_names_exists(name: str) -> None:
+    tools = _registered_tools()
+    referenced = set(_TOOL_REF.findall(_guide_texts()[name])) - NOT_TOOLS
+    unknown = referenced - tools
+    assert not unknown, f"publish_guide/{name} names tools that do not exist: {sorted(unknown)}"
+
+
+@pytest.mark.parametrize("fn,name,_desc", publish_guide.PROMPTS, ids=lambda p: p if isinstance(p, str) else "")
+def test_every_tool_a_prompt_names_exists_and_it_points_at_the_guide(fn, name, _desc) -> None:
+    text = fn("abc123") if name != "batch_publish" else fn("transcribed")
+    referenced = set(_TOOL_REF.findall(text)) - NOT_TOOLS
+    unknown = referenced - _registered_tools()
+    assert not unknown, f"prompt '{name}' names tools that do not exist: {sorted(unknown)}"
+    assert "publish_guide" in referenced, f"prompt '{name}' must send the agent to the guide first"
+    assert ("abc123" in text) or ("transcribed" in text), "the argument must reach the prompt text"
+
+
+def test_the_guide_reads_the_record_before_writing() -> None:
+    """The workflow's one direction (fields in, package out) must be stated."""
+    workflow = publish_guide.GUIDE.read_topic("workflow")
+    assert "get_video" in workflow and "set_video_meta" in workflow
+    assert workflow.index("get_video") < workflow.index("set_video_meta")
+    assert "mark_published" in workflow
+
+
+# --- registration ---------------------------------------------------------
+
+class _Recorder:
+    """Stands in for FastMCP: records what `register` hands it."""
+
+    def __init__(self) -> None:
+        self.tools: list[str] = []
+        self.resources: list[str] = []
+        self.prompts: list[tuple[str, str]] = []
+
+    def tool(self):
+        return lambda fn: self.tools.append(fn.__name__) or fn
+
+    def resource(self, uri: str):
+        return lambda fn: self.resources.append(uri) or fn
+
+    def prompt(self, name: str, description: str):
+        return lambda fn: self.prompts.append((name, description)) or fn
+
+
+def test_register_adds_one_tool_two_resources_and_the_four_prompts() -> None:
+    mcp = _Recorder()
+    publish_guide.register(mcp)
+    assert mcp.tools == ["publish_guide"]
+    assert mcp.resources == [publish_guide.RESOURCE_ENTRY, publish_guide.RESOURCE_TOPIC]
+    assert [n for n, _ in mcp.prompts] == ["breakdown", "describe", "chapters", "batch_publish"]
+    assert all(d.strip() for _, d in mcp.prompts)
+
+
+def test_real_fastmcp_lists_the_prompts_and_serves_the_resources() -> None:
+    """Against the SDK itself, when it is installed (the app's runtime ships it)."""
+    fastmcp = pytest.importorskip("mcp.server.fastmcp")
+    import asyncio
+
+    mcp = fastmcp.FastMCP("capforge-test")
+    publish_guide.register(mcp)
+    prompts = asyncio.run(mcp.list_prompts())
+    assert {p.name for p in prompts} == PROMPT_NAMES
+    by_name = {p.name: p for p in prompts}
+    assert [(a.name, a.required) for a in by_name["describe"].arguments] == [("video_id", True)]
+    assert [(a.name, a.required) for a in by_name["batch_publish"].arguments] == [("status", False)]
+    rendered = asyncio.run(mcp.get_prompt("chapters", {"video_id": "vid_9"}))
+    assert "vid_9" in rendered.messages[0].content.text
+    entry = asyncio.run(mcp.read_resource(publish_guide.RESOURCE_ENTRY))
+    assert "Operating model" in list(entry)[0].content
+    topic = asyncio.run(mcp.read_resource("capforge://publish/chapters"))
+    assert "five hard rules" in list(topic)[0].content
+    assert {t.name for t in asyncio.run(mcp.list_tools())} == {"publish_guide"}

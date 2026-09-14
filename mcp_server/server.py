@@ -15,7 +15,7 @@ from typing import Literal, Optional
 from mcp.server.fastmcp import FastMCP, Image
 from pydantic import BaseModel, Field
 
-from . import library, publish, tracks
+from . import library, publish, publish_guide, tracks
 from .cleanup import apply_word_edits, remove_fillers
 from .client import CapForgeClient
 from .knowledge import TopicNotFound, read_index, read_topic
@@ -972,6 +972,11 @@ library.register(mcp, lambda: _client)
 # `get_upload_package` live in publish.py — the write/validate/render loop over
 # a library record (docs/plans/publish-workspace.md).
 publish.register(mcp, lambda: _client)
+
+# `publish_guide` (the workflow as pull-on-demand topics), the
+# `capforge://publish` resources and the `breakdown` / `describe` / `chapters`
+# / `batch_publish` prompts live in publish_guide.py (vision §3.4).
+publish_guide.register(mcp)
 
 
 # --- Caption tracks ------------------------------------------------------
