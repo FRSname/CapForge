@@ -20,12 +20,27 @@ CHAPTER_START_S = 61.25
 
 @pytest.fixture
 def main_module():
-    """Import backend.main with heavy ML deps stubbed (dev venv lacks whisperx)."""
+    """Import backend.main with heavy ML deps stubbed (dev venv lacks whisperx).
+
+    huggingface_hub is stubbed too, and with the two names transcriber.py pulls
+    at import time, so this file runs alone — the Windows CI job runs only the
+    library tests, where no earlier test module has left a stub behind.
+    """
     inserted = []
-    for name in ("whisperx", "torch", "torchaudio"):
+    for name in ("whisperx", "torch", "torchaudio", "huggingface_hub"):
         if name not in sys.modules:
             sys.modules[name] = types.ModuleType(name)
             inserted.append(name)
+    hub = sys.modules["huggingface_hub"]
+    if not hasattr(hub, "snapshot_download"):
+        hub.snapshot_download = lambda *a, **k: None  # type: ignore[attr-defined]
+    if "huggingface_hub.errors" not in sys.modules:
+        errors = types.ModuleType("huggingface_hub.errors")
+        errors.LocalEntryNotFoundError = type(  # type: ignore[attr-defined]
+            "LocalEntryNotFoundError", (Exception,), {}
+        )
+        sys.modules["huggingface_hub.errors"] = errors
+        inserted.append("huggingface_hub.errors")
     import backend.main as m
 
     yield m
