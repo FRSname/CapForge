@@ -15,7 +15,7 @@ from typing import Literal, Optional
 from mcp.server.fastmcp import FastMCP, Image
 from pydantic import BaseModel, Field
 
-from . import tracks
+from . import library, tracks
 from .cleanup import apply_word_edits, remove_fillers
 from .client import CapForgeClient
 from .knowledge import TopicNotFound, read_index, read_topic
@@ -144,6 +144,9 @@ def update_words(edits: list[WordEdit]) -> dict:
       - merge:   replace the survivor + delete the neighbor in ONE call, e.g.
         `[{"segment": 0, "word": 3, "new": "ChatGPT"}, {"segment": 0, "word": 4, "op": "delete"}]`
         merges "chat GPT" -> "ChatGPT" spanning [first.start, second.end].
+
+    Edits the *open* session. For a video you found in the library, call
+    `open_video(video_id)` first — a stored record's transcript is read-only.
     """
     result = _client.get_result()
     updated, count = apply_word_edits(result, [e.model_dump() for e in edits])
@@ -157,6 +160,9 @@ def remove_filler_words(extra_fillers: Optional[list[str]] = None) -> dict:
 
     Timestamps are preserved (no resync). Pass `extra_fillers` to add words like
     "like" or "you know" that aren't removed by default.
+
+    Edits the *open* session. For a video you found in the library, call
+    `open_video(video_id)` first — a stored record's transcript is read-only.
     """
     result = _client.get_result()
     fillers = None
@@ -169,6 +175,23 @@ def remove_filler_words(extra_fillers: Optional[list[str]] = None) -> dict:
 
 
 # --- Job tools ------------------------------------------------------------
+
+def _library_record(audio_path: str) -> dict:
+    """The library record for a freshly transcribed file: `{"video_id": …}`.
+
+    Log-and-continue, deliberately: the transcript is the primary result of
+    `transcribe`, so a library failure comes back as a `library_error` key
+    alongside it rather than as a raised error that would hide the transcript.
+    """
+    try:
+        record = _client.library_create(audio_path) or {}
+    except Exception as exc:
+        return {"library_error": f"No library record was created for {audio_path}: {exc}"}
+    video_id = record.get("id")
+    return {"video_id": video_id} if video_id else {
+        "library_error": f"CapForge returned no record id for {audio_path}"
+    }
+
 
 @mcp.tool()
 def transcribe(
@@ -183,6 +206,9 @@ def transcribe(
     `model` picks the Whisper model ("tiny", "base", "small", "large-v3-turbo");
     omit it to use the model chosen at install time or matched to the hardware.
     A model that is not on disk yet is downloaded on first use.
+
+    Also creates the video's library record and returns its `video_id`, so the
+    dossier tools (`get_video`, `set_video_meta`) can address it afterwards.
     """
     payload = {
         "audio_path": audio_path,
@@ -194,7 +220,8 @@ def transcribe(
     # while an explicit null fails ModelSize validation.
     if model:
         payload["model"] = model
-    return _client.transcribe(payload)
+    result = _client.transcribe(payload)
+    return {**result, **_library_record(audio_path)} if isinstance(result, dict) else result
 
 
 @mcp.tool()
@@ -213,8 +240,13 @@ def load_video(path: str) -> dict:
     Errors if the path is not a file, if a job is already running, or if CapForge
     is not open. Prefer this over `transcribe`, which bypasses the UI.
     """
-    _client.send_command("load_video", {"path": path})
-    return {"status": "ok", "loading": path, "next": "poll get_status() until done"}
+    response = _client.send_command("load_video", {"path": path}) or {}
+    loaded = {"status": "ok", "loading": path, "next": "poll get_status() until done"}
+    # The backend creates the library record for the file it just loaded and
+    # returns its id; it is absent only if that write failed (the load still
+    # happened). Pass it through so the agent can write the dossier later.
+    video_id = response.get("video_id") if isinstance(response, dict) else None
+    return {**loaded, "video_id": video_id} if video_id else loaded
 
 
 @mcp.tool()
@@ -923,6 +955,15 @@ def run_hyperframes_cli(args: list[str]) -> dict:
     are rejected. Returns `{ ok, exit_code, stdout, stderr, command }`.
     """
     return _client.run_hyperframes_cli(args)
+
+
+# --- Library -------------------------------------------------------------
+
+# `list_videos`, `search_library`, `get_video`, `get_video_transcript`,
+# `set_video_meta`, `mark_published`, `find_video_moments` and `open_video` live
+# in library.py (this file is at its size ceiling) but are ordinary tools on this
+# same server.
+library.register(mcp, lambda: _client)
 
 
 # --- Caption tracks ------------------------------------------------------
