@@ -195,6 +195,15 @@ def poll_mirror(
     return False, state
 
 
+#: The v3 home screen has its own way into a project, so "load a video first"
+#: would send the agent past the stored record it should be opening.
+LIBRARY_SCREEN = "library"
+LIBRARY_HINT = (
+    "The app is on the library screen — call open_video (a stored record) "
+    "or load_video (a file) first."
+)
+
+
 def confirm_hint(
     state: dict,
     *,
@@ -207,6 +216,8 @@ def confirm_hint(
         if not any(n.strip().lower() == preset.strip().lower() for n in known_presets):
             return f"No preset named {preset!r}. Available: {', '.join(known_presets)}"
     screen = state.get("screen") if isinstance(state, dict) else None
+    if screen == LIBRARY_SCREEN:
+        return LIBRARY_HINT
     if screen and screen != "results":
         return (
             f"The app is on the {screen!r} screen. Load a video first — "
