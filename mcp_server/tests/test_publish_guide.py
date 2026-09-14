@@ -14,7 +14,7 @@ import pytest
 from mcp_server import publish_guide
 from mcp_server.knowledge import TopicNotFound
 
-from .test_bundled_skills import _TOOL_REF, MOMENT_KINDS, _registered_tools
+from .test_bundled_skills import _TOOL_REF, MCP_DIR, MOMENT_KINDS, _registered_tools
 
 PROMPT_NAMES = {name for _, name, _ in publish_guide.PROMPTS}
 #: `find_video_moments(kind=…)` values the guide may name — parameters, not tools.
@@ -82,6 +82,22 @@ def test_unknown_and_traversal_ids_are_refused() -> None:
     assert "Operating model" in publish_guide.publish_guide()
 
 
+def test_the_packaged_app_ships_the_topic_files() -> None:
+    """electron-builder's `files` is an allowlist by glob — knowledge/ and
+    skills/ are listed explicitly, and so must this directory be, or the
+    installed app has the tool and none of its text."""
+    import json
+
+    files = json.loads((MCP_DIR.parent / "package.json").read_text(encoding="utf-8"))["build"]["files"]
+    assert "mcp_server/publish_guide/**/*.md" in files
+
+
+def test_guide_and_topic_text_never_raise_into_the_mcp_layer() -> None:
+    assert publish_guide.GUIDE.guide() == publish_guide.GUIDE.read_index()
+    assert publish_guide.GUIDE.guide("shorts") == publish_guide.GUIDE.read_topic("shorts")
+    assert publish_guide.GUIDE.topic_text("nope").startswith("Unknown topic 'nope'. Available: workflow")
+
+
 # --- the drift test -------------------------------------------------------
 
 @pytest.mark.parametrize("name", ["INDEX.md", *publish_guide.TOPICS])
@@ -92,7 +108,7 @@ def test_every_tool_the_guide_names_exists(name: str) -> None:
     assert not unknown, f"publish_guide/{name} names tools that do not exist: {sorted(unknown)}"
 
 
-@pytest.mark.parametrize("fn,name,_desc", publish_guide.PROMPTS, ids=lambda p: p if isinstance(p, str) else "")
+@pytest.mark.parametrize("fn,name,_desc", publish_guide.PROMPTS, ids=[n for _, n, _ in publish_guide.PROMPTS])
 def test_every_tool_a_prompt_names_exists_and_it_points_at_the_guide(fn, name, _desc) -> None:
     text = fn("abc123") if name != "batch_publish" else fn("transcribed")
     referenced = set(_TOOL_REF.findall(text)) - NOT_TOOLS

@@ -19,7 +19,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Optional
 
-from .knowledge import TopicNotFound, TopicSet
+from .knowledge import TopicSet
 
 _GUIDE_DIR = Path(__file__).parent / "publish_guide"
 
@@ -52,12 +52,7 @@ def publish_guide(topic: Optional[str] = None) -> str:
     "shorts", "batch") to pull that reference on demand. Consult this BEFORE
     writing publish fields with set_video_meta.
     """
-    if not topic:
-        return GUIDE.read_index()
-    try:
-        return GUIDE.read_topic(topic)
-    except TopicNotFound as exc:
-        return str(exc)
+    return GUIDE.guide(topic)
 
 
 def _entry_resource() -> str:
@@ -67,10 +62,7 @@ def _entry_resource() -> str:
 
 def _topic_resource(topic: str) -> str:
     """One publish guide topic by id (see the entry resource)."""
-    try:
-        return GUIDE.read_topic(topic)
-    except TopicNotFound as exc:
-        return str(exc)
+    return GUIDE.topic_text(topic)
 
 
 # --- Prompts -------------------------------------------------------------

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 _KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
 _INDEX_FILE = "INDEX.md"
@@ -61,6 +62,21 @@ class TopicSet:
             known = ", ".join(self.topics)
             raise TopicNotFound(f"Unknown topic '{topic}'. Available: {known}.")
         return (self.directory / entry[0]).read_text(encoding="utf-8")
+
+    def topic_text(self, topic: str) -> str:
+        """What a resource/tool answers for ``topic``: the content, or — for an
+        id outside the manifest — the "Unknown topic … Available: …" message as
+        text, so the MCP layer never sees an exception."""
+        try:
+            return self.read_topic(topic)
+        except TopicNotFound as exc:
+            return str(exc)
+
+    def guide(self, topic: Optional[str] = None) -> str:
+        """The guide-tool contract: the entry when called with no topic, else
+        ``topic_text``. Both guide tools and all four resources are one line
+        over this and ``topic_text``, so the not-found behaviour lives here once."""
+        return self.read_index() if not topic else self.topic_text(topic)
 
 
 #: topic id -> (filename, one-line description). Keep in sync with INDEX.md.
