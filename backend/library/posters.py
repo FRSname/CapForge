@@ -3,9 +3,9 @@
 The card needs a picture and the record folder is where sidecars live
 (``poster.jpg`` on the asset allowlist, ``paths.ASSET_NAME_RE``). The grab is
 one ffmpeg call, written atomically (a dot-prefixed temp file in the same
-folder — never servable — then ``os.replace``), scheduled as a FastAPI
-background task on create/import and backfilled at startup for records that
-predate this or whose grab failed. Nothing here ever fails an import: a record
+folder — never servable — then ``os.replace``), grabbed whenever a record is
+minted and backfilled at startup for records that predate this or whose grab
+failed. Nothing here ever fails an import: a record
 without a poster is a card with a placeholder.
 
 Where it runs: ``LibraryStore`` calls ``start_grab`` from its ``on_created``
@@ -104,9 +104,10 @@ def grab_poster(source: Path, dest: Path, at_s: float, *, ffmpeg: str) -> bool:
     cmd = [
         ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
         "-ss", f"{at_s:.3f}", "-i", str(source),
-        # Cap at POSTER_WIDTH without upscaling a narrower source (argv is a
-        # list, no shell, so the comma inside min() needs no escaping).
-        "-frames:v", "1", "-vf", f"scale=min({POSTER_WIDTH},iw):-2",
+        # Cap at POSTER_WIDTH without upscaling a narrower source. The quotes
+        # are for ffmpeg's filtergraph parser, not a shell: a bare comma inside
+        # min() would split the chain ("No such filter: 'iw):-2'").
+        "-frames:v", "1", "-vf", f"scale=w='min({POSTER_WIDTH},iw)':h=-2",
         "-q:v", str(POSTER_JPEG_QUALITY), "-f", "image2", str(tmp),
     ]
     try:
