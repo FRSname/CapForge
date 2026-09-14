@@ -333,6 +333,41 @@ class CapForgeAPI {
     this.localToken = token
   }
 
+  private bridgeReady: Promise<void> | null = null
+
+  /**
+   * Resolve the backend port + local token from Electron once, before the
+   * first authenticated request. Every transport helper awaits this, so a
+   * hook that fetches on mount (the library list, the publish record) no
+   * longer races the async hand-over that used to live only in AgentLiveSync
+   * — that race showed as an empty library after a fresh launch. Absent
+   * `window.subforge` (node tests) it resolves at once; an IPC failure
+   * rejects the request and clears the memo so the next call retries.
+   */
+  ensureBridge(): Promise<void> {
+    if (typeof window === 'undefined' || !window.subforge) return Promise.resolve()
+    if (!this.bridgeReady) {
+      this.bridgeReady = Promise.all([
+        window.subforge.getBackendPort(),
+        window.subforge.getLocalToken(),
+      ])
+        .then(([port, token]) => {
+          this.setPort(port)
+          this.setLocalToken(token)
+        })
+        .catch((err: unknown) => {
+          this.bridgeReady = null
+          throw err
+        })
+    }
+    return this.bridgeReady
+  }
+
+  /** Forget the resolved bridge (tests; a fresh launch never needs it). */
+  resetBridge(): void {
+    this.bridgeReady = null
+  }
+
   private async handleError(res: Response): Promise<ApiError> {
     const fallback = { detail: res.statusText }
     const body = await res.json().catch(() => fallback)
@@ -368,6 +403,7 @@ class CapForgeAPI {
   }
 
   private async get<T>(path: string): Promise<T> {
+    await this.ensureBridge()
     const res = await fetch(`${this.base}${path}`)
     if (!res.ok) throw await this.handleError(res)
     return res.json() as Promise<T>
@@ -375,6 +411,7 @@ class CapForgeAPI {
 
   /** GET a specifically auth-gated local route without changing generic GET semantics. */
   private async getWithLocalToken<T>(path: string): Promise<T> {
+    await this.ensureBridge()
     const headers: Record<string, string> = {}
     if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
     const res = await fetch(`${this.base}${path}`, { headers })
@@ -383,6 +420,7 @@ class CapForgeAPI {
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
+    await this.ensureBridge()
     // A subset of POST routes (e.g. /api/export, /api/render-video,
     // /api/export-hyperframes) are auth-gated because they write to a
     // client-supplied output_dir, so send the per-launch local token on every
@@ -400,6 +438,7 @@ class CapForgeAPI {
   }
 
   private async put<T>(path: string, body: unknown): Promise<T> {
+    await this.ensureBridge()
     // PUT /api/result is auth-gated (it sets the media-allowlist anchor), so
     // send the per-launch local token. Unlike media <src> loads, a fetch() can
     // set a header — cleaner than a query param. Harmless on PUTs that ignore it.
@@ -425,6 +464,7 @@ class CapForgeAPI {
    * `current` record and a `422`'s `violations`.
    */
   private async patch<T>(path: string, body: unknown, ifMatch?: number): Promise<T> {
+    await this.ensureBridge()
     const headers: Record<string, string> = { 'Content-Type': 'application/json' }
     if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
     if (ifMatch !== undefined) headers['If-Match'] = String(ifMatch)
@@ -447,6 +487,7 @@ class CapForgeAPI {
   }
 
   private async del<T>(path: string): Promise<T> {
+    await this.ensureBridge()
     const res = await fetch(`${this.base}${path}`, { method: 'DELETE' })
     if (!res.ok) throw await this.handleError(res)
     return res.json() as Promise<T>
@@ -454,6 +495,7 @@ class CapForgeAPI {
 
   /** DELETE an auth-gated local route (the library ones) — same shape as `del`. */
   private async delWithLocalToken<T>(path: string): Promise<T> {
+    await this.ensureBridge()
     const headers: Record<string, string> = {}
     if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
     const res = await fetch(`${this.base}${path}`, { method: 'DELETE', headers })

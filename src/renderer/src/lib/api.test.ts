@@ -31,6 +31,7 @@ describe('CapForgeAPI', () => {
     // Reset the singleton's mutable state so tests don't leak into each other.
     api.setPort(53421)
     api.setLocalToken('')
+    api.resetBridge()
   })
 
   afterEach(() => {
@@ -907,5 +908,60 @@ describe('record_updated dispatch', () => {
     })
 
     expect(seen).toEqual([])
+  })
+})
+
+
+describe('bridge readiness (the empty-library-after-launch race)', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    api.setPort(53421)
+    api.setLocalToken('')
+    api.resetBridge()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test('a library call made before AgentLiveSync configured the client still resolves port + token', async () => {
+    const getBackendPort = vi.fn().mockResolvedValue(52690)
+    const getLocalToken = vi.fn().mockResolvedValue('launch-token')
+    vi.stubGlobal('window', { subforge: { getBackendPort, getLocalToken } })
+    fetchMock.mockResolvedValue(jsonResponse({ videos: [] }))
+
+    await api.listLibrary()
+    await api.listLibrary()
+
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:52690/api/library', {
+      headers: { 'X-CapForge-Local-Token': 'launch-token' },
+    })
+    // Resolved once, not per request.
+    expect(getBackendPort).toHaveBeenCalledTimes(1)
+    expect(getLocalToken).toHaveBeenCalledTimes(1)
+  })
+
+  test('an IPC failure rejects the request and is retried on the next call', async () => {
+    const getBackendPort = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('bridge down'))
+      .mockResolvedValue(52690)
+    vi.stubGlobal('window', {
+      subforge: { getBackendPort, getLocalToken: vi.fn().mockResolvedValue('t') },
+    })
+    fetchMock.mockResolvedValue(jsonResponse({ videos: [] }))
+
+    await expect(api.listLibrary()).rejects.toThrow('bridge down')
+    await expect(api.listLibrary()).resolves.toEqual([])
+    expect(getBackendPort).toHaveBeenCalledTimes(2)
+  })
+
+  test('without the Electron bridge (node tests) requests go straight through', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ videos: [] }))
+    await expect(api.listLibrary()).resolves.toEqual([])
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:53421/api/library', { headers: {} })
   })
 })
