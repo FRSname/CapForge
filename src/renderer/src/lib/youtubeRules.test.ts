@@ -121,7 +121,10 @@ describe('chapterSuggestions', () => {
 
   test('never lands on top of a chapter the user already wrote', () => {
     const existing: Chapter[] = [{ start_s: 0, title: 'Welcome' }]
-    const suggestions = chapterSuggestions([moment(5, 'too close'), moment(120, 'far enough')], existing)
+    const suggestions = chapterSuggestions(
+      [moment(5, 'too close'), moment(120, 'far enough')],
+      existing
+    )
 
     // The opener is already covered, and the 5s moment is inside its gap.
     expect(suggestions).toEqual([{ start_s: 120, title: 'far enough' }])
@@ -132,10 +135,22 @@ describe('chapterSuggestions', () => {
   })
 
   test('honours a caller-supplied gap', () => {
-    // 50s apart: the 60s moment falls inside the 30s one's gap, and 30s is
-    // itself inside the opener's, so the 00:00 row is not added on top of it.
+    // 50s apart: the opener claims 00:00 first, the 30s moment falls inside
+    // its gap and only the 60s one is far enough out.
     const wide = chapterSuggestions([moment(30, 'a'), moment(60, 'b')], [], CHAPTER_MIN_GAP_S * 5)
-    expect(wide.map((c) => c.start_s)).toEqual([30])
+    expect(wide.map((c) => c.start_s)).toEqual([0, 60])
+  })
+
+  test('a moment near the start never stands in for the opener', () => {
+    // YouTube reads the first chapter at 00:00. A pause 4s in cannot open the
+    // list, so the Intro row is added and the 4s moment is inside its gap —
+    // the old behaviour suggested [4s] alone, which the validator then refused.
+    expect(
+      chapterSuggestions([moment(4, 'They usually struggle'), moment(14, 'I built my own')], [])
+    ).toEqual([
+      { start_s: 0, title: OPENING_CHAPTER_TITLE },
+      { start_s: 14, title: 'I built my own' },
+    ])
   })
 })
 

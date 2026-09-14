@@ -120,6 +120,11 @@ export function chapterSuggestions(
   minGapS: number = CHAPTER_MIN_GAP_S
 ): Chapter[] {
   const taken: number[] = existing.map((c) => c.start_s).sort((a, b) => a - b)
+  // YouTube reads the first chapter at 00:00, so a moment near the start can
+  // never stand in for the opener: the 00:00 row is claimed first and every
+  // candidate is spread out from it.
+  const opener: Chapter[] = taken.includes(0) ? [] : [{ start_s: 0, title: OPENING_CHAPTER_TITLE }]
+  if (opener.length > 0) taken.push(0)
   const tooClose = (start: number) => taken.some((t) => Math.abs(t - start) < minGapS)
 
   const picked: Chapter[] = []
@@ -131,8 +136,6 @@ export function chapterSuggestions(
     picked.push({ start_s: start, title })
   }
 
-  const opened = taken.some((t) => t < minGapS)
-  const opener: Chapter[] = opened ? [] : [{ start_s: 0, title: OPENING_CHAPTER_TITLE }]
   return [...opener, ...picked].sort((a, b) => a.start_s - b.start_s)
 }
 

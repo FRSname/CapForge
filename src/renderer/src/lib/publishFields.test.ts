@@ -24,6 +24,7 @@ import {
   revertPatchFor,
   speakersFromTranscript,
   tagsLine,
+  violationsForField,
 } from './publishFields'
 
 function record(over: Partial<PublishRecord> = {}): PublishRecord {
@@ -182,6 +183,29 @@ describe('mergeAgentUpdate (the soft lock)', () => {
   test('takes the whole remote record when nothing is being edited', () => {
     const remote = record({ rev: 5, title: 'Claude wrote this' })
     expect(mergeAgentUpdate(record(), remote, null)).toBe(remote)
+  })
+})
+
+describe('violationsForField', () => {
+  test('a finding on a row of the field is drawn under the field', () => {
+    const violations = [
+      {
+        field: 'chapters[0]',
+        rule: 'chapters_start_at_zero',
+        message: 'first at 00:00',
+        severity: 'hard' as const,
+      },
+      { field: 'chapters', rule: 'chapters_min', message: 'at least 3', severity: 'hard' as const },
+      { field: 'title', rule: 'title_max_chars', message: 'too long', severity: 'hard' as const },
+    ]
+
+    expect(violationsForField(violations, 'chapters').map((v) => v.rule)).toEqual([
+      'chapters_start_at_zero',
+      'chapters_min',
+    ])
+    expect(violationsForField(violations, 'title').map((v) => v.rule)).toEqual(['title_max_chars'])
+    // A prefix is not a row: `chapters` never picks up a hypothetical `chapters_extra`.
+    expect(violationsForField([{ ...violations[2], field: 'titles' }], 'title')).toEqual([])
   })
 })
 

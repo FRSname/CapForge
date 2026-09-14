@@ -53,6 +53,28 @@ export function remainingDrafts(drafts: PublishDrafts, sent: PublishDrafts): Pub
   return keep as PublishDrafts
 }
 
+/**
+ * The drafts that outlive an agent write. A draft on a field the agent left
+ * alone (the value is the same on both sides of the update) is still the
+ * user's unsaved text and stays — a Suggest result the validator refused must
+ * not vanish because the agent wrote the tags. A draft the agent wrote over is
+ * dropped, except the locked field, which the banner offers to apply or keep.
+ */
+export function survivingDrafts(
+  drafts: PublishDrafts,
+  local: PublishRecord,
+  remote: PublishRecord,
+  locked: PublishFieldId | null
+): PublishDrafts {
+  const keep: Record<string, unknown> = {}
+  for (const [field, value] of Object.entries(drafts)) {
+    const id = field as PublishFieldId
+    const untouched = JSON.stringify(local[id]) === JSON.stringify(remote[id])
+    if (id === locked || untouched) keep[field] = value
+  }
+  return keep as PublishDrafts
+}
+
 /** The drafts without one field — used by Revert and by Apply. */
 export function withoutDraft(drafts: PublishDrafts, field: PublishFieldId): PublishDrafts {
   const next = { ...drafts }

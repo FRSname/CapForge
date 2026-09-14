@@ -6,7 +6,14 @@
 import { describe, expect, test } from 'vitest'
 import type { Chapter, Moment, PublishRecord } from './publishTypes'
 import type { Word } from '../types/app'
-import { EMPTY_FIELDS, lockedField, mergeDrafts, remainingDrafts, withoutDraft } from './publishDrafts'
+import {
+  EMPTY_FIELDS,
+  lockedField,
+  mergeDrafts,
+  remainingDrafts,
+  survivingDrafts,
+  withoutDraft,
+} from './publishDrafts'
 import {
   insertChapter,
   removeChapter,
@@ -72,6 +79,29 @@ describe('withoutDraft and lockedField', () => {
     // Focus alone is not a lock — an agent write into an untouched field lands.
     expect(lockedField('title', {})).toBeNull()
     expect(lockedField(null, { title: 'typing' })).toBeNull()
+  })
+})
+
+describe('survivingDrafts (an agent wrote the record)', () => {
+  test('keeps a draft on a field the agent left alone', () => {
+    // The agent wrote tags; the unsaved chapter list (a Suggest result the
+    // validator refused) is still the user's and must not vanish with it.
+    const local = record({ tags: [] })
+    const remote = record({ rev: 2, tags: ['captions'] })
+    const drafts = { chapters: [{ start_s: 4, title: 'They' }], title: 'typing' }
+
+    expect(survivingDrafts(drafts, local, remote, null)).toEqual(drafts)
+  })
+
+  test('drops a draft the agent wrote over, unless it is the locked field', () => {
+    const local = record({ title: 'old', description: 'old' })
+    const remote = record({ rev: 2, title: 'agent', description: 'agent' })
+    const drafts = { title: 'mine', description: 'mine' }
+
+    expect(survivingDrafts(drafts, local, remote, 'title')).toEqual({ title: 'mine' })
+    expect(survivingDrafts(drafts, local, remote, null)).toEqual({})
+    // Nothing was mutated.
+    expect(drafts).toEqual({ title: 'mine', description: 'mine' })
   })
 })
 

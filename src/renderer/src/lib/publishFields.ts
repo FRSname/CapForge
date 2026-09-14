@@ -10,7 +10,7 @@
  * Pure module: no React, no `window`, no I/O.
  */
 
-import type { HistoryEntry, PublishAuthored, PublishRecord } from './publishTypes'
+import type { HistoryEntry, PublishAuthored, PublishRecord, Violation } from './publishTypes'
 import type { Segment } from '../types/app'
 import { HOOK_CHARS } from './youtubeRules'
 
@@ -71,7 +71,9 @@ export function fieldLabel(field: string): string {
  * renderer keeps a nullable one), and it is written only by `markPublished`
  * with the whole block.
  */
-export const WIRE_EXCLUDED_FIELDS: ReadonlySet<PublishFieldId> = new Set<PublishFieldId>(['publish'])
+export const WIRE_EXCLUDED_FIELDS: ReadonlySet<PublishFieldId> = new Set<PublishFieldId>([
+  'publish',
+])
 
 export function authoredFields(source: PublishAuthored): Record<string, unknown> {
   const out: Record<string, unknown> = {}
@@ -181,6 +183,15 @@ export function mergeAgentUpdate(
 ): PublishRecord {
   if (!editingField) return remote
   return { ...remote, [editingField]: local[editingField] }
+}
+
+/**
+ * The findings a card draws under `field`: the field itself and any row of
+ * it — the backend reports a bad first chapter as `chapters[0]`, and that
+ * belongs under the chapter list, not nowhere.
+ */
+export function violationsForField(violations: readonly Violation[], field: string): Violation[] {
+  return violations.filter((v) => v.field === field || v.field.startsWith(`${field}[`))
 }
 
 /**

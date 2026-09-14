@@ -29,6 +29,7 @@ import {
   lockedField,
   mergeDrafts,
   remainingDrafts,
+  survivingDrafts,
   withoutDraft,
 } from '../lib/publishDrafts'
 import type { PublishDrafts } from '../lib/publishDrafts'
@@ -45,6 +46,7 @@ import {
   provenanceOf,
   revertPatchFor,
   speakersFromTranscript,
+  violationsForField,
 } from '../lib/publishFields'
 import type { PublishFieldId, Provenance } from '../lib/publishFields'
 import { youtubeIdFromUrl } from '../lib/youtubeRules'
@@ -225,20 +227,27 @@ export function usePublishRecord({
         .then((remote) => {
           const { record: local, drafts: pending } = stateRef.current
           const locked = lockedField(editingRef.current, pending)
-          if (!local || !locked) {
-            setRecord(remote)
-            setDrafts({})
-            return
+          // Drafts on fields the agent left alone stay; the locked one stays
+          // too and gets the banner; the rest are the agent's now.
+          const surviving = local ? survivingDrafts(pending, local, remote, locked) : {}
+          const next =
+            local && locked ? mergeAgentUpdate({ ...local, ...pending }, remote, locked) : remote
+          setRecord(next)
+          setDrafts(surviving)
+          if (locked) {
+            setPendingAgentUpdate({ field: locked, by: event.by, remoteValue: remote[locked] })
           }
-          setRecord(mergeAgentUpdate({ ...local, ...pending }, remote, locked))
-          setDrafts({ [locked]: pending[locked] } as PublishDrafts)
-          setPendingAgentUpdate({ field: locked, by: event.by, remoteValue: remote[locked] })
+          // The findings on screen describe the record before the agent's
+          // write; ask again over what is shown now.
+          validate(remote.id, mergeDrafts(next, surviving))
         })
         .catch((err) =>
-          notifyRef.current(`The agent changed this record but it could not be read: ${reasonOf(err)}`)
+          notifyRef.current(
+            `The agent changed this record but it could not be read: ${reasonOf(err)}`
+          )
         )
     })
-  }, [videoId])
+  }, [videoId, validate])
 
   // ── The card-facing API ─────────────────────────────────────────
   const setField = useCallback(
@@ -258,7 +267,7 @@ export function usePublishRecord({
   }, [])
 
   const violationsFor = useCallback(
-    (field: string) => violations.filter((v) => v.field === field),
+    (field: string) => violationsForField(violations, field),
     [violations]
   )
 
@@ -330,10 +339,7 @@ export function usePublishRecord({
     [patchNow]
   )
 
-  const setChapters = useCallback(
-    (next: Chapter[]) => setField('chapters', next),
-    [setField]
-  )
+  const setChapters = useCallback((next: Chapter[]) => setField('chapters', next), [setField])
 
   const suggestChapters = useCallback(() => {
     const current = stateRef.current.record
