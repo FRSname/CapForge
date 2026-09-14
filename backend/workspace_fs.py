@@ -13,9 +13,10 @@ Pure + framework-free so it unit-tests without a server. The endpoints in
 
 from __future__ import annotations
 
-import os
 import shutil
 from pathlib import Path
+
+from backend.library.paths import capforge_home
 
 # Extensions an agent may write or import. Deliberately excludes executables,
 # shell/config files, and anything outside web/video authoring.
@@ -72,10 +73,9 @@ def _sensitive_roots() -> list[Path]:
     """Directories an import must never read from — secrets and CapForge's own
     data home (which holds the agent token + backend discovery file)."""
     home = Path.home()
-    capforge_home = Path(os.environ.get("CAPFORGE_HOME") or home / ".capforge")
     names = (".ssh", ".aws", ".gnupg", ".config", ".kube", ".docker",
              ".azure", ".gcloud", ".gpg")
-    roots = [capforge_home, *(home / n for n in names)]
+    roots = [capforge_home(), *(home / n for n in names)]
     out: list[Path] = []
     for r in roots:
         try:

@@ -53,7 +53,7 @@ So adding an API means **three** edits: `ipcMain.handle` in `electron/main.js`, 
 ### Communication
 
 - **REST** — `backend/main.py` registers ~45 routes; the ones with non-obvious rules:
-  - **Local-token gated** (`require_local_token`, 7 routes): `GET /api/fonts/system`, `GET /api/serve-audio`, `GET /api/video-info`, `PUT /api/result`, `POST /api/export`, `POST /api/render-video`, `POST /api/export-hyperframes`. `GET /api/result` is **ungated** — only the PUT is.
+  - **Local-token gated** (`require_local_token`, 7 routes): `GET /api/fonts/system`, `GET /api/serve-audio`, `GET /api/video-info`, `PUT /api/result`, `POST /api/export`, `POST /api/render-video`, `POST /api/export-hyperframes`. `GET /api/result` is **ungated** — only the PUT is. The library routes (`/api/library/*`) accept **either** token via `require_library_actor`.
   - **Agent-token gated**: all `/api/agent/*` (~19 routes) plus `POST /api/render-frame`.
   - **Deliberately ungated UI mirrors**: `GET|POST /api/coauthor`, `POST /api/coauthor/sync-captions`, and `PUT /api/ui-state` (the write side of the agent-gated `GET /api/agent/ui-state`). The local renderer has no agent token but drives co-author mode from the HyperFrames panel; same loopback trust level as `/api/export-hyperframes`, and the source comments say so. Don't "fix" these by gating them.
 - **WebSocket**: `/ws/progress` pushes `ProgressUpdate` events (status + percentage + message).
@@ -88,6 +88,20 @@ Read [docs/caption-parity.md](docs/caption-parity.md) before touching caption ge
 ### HyperFrames Integration → [docs/hyperframes-integration.md](docs/hyperframes-integration.md)
 
 The bridge to the HyperFrames Node CLI subprocess is hardened separately from caption parity: CLI version gate, structured error hierarchy, the durable co-author marker, the scaffold fingerprint cache (**bump `SCAFFOLD_VERSION` when the scaffold or embedded caption runtime changes shape**), the snapshot picker, and the read-only CLI subcommand allowlist.
+
+### Video library (v3.0) → [docs/plans/backend-library.md](docs/plans/backend-library.md)
+
+`backend/library/` is the **backend-owned, durable per-video record** (the "dossier") of the creator-hub plan ([docs/plans/creator-hub-vision.md](docs/plans/creator-hub-vision.md) §2). It bends the "renderer owns, backend mirrors" rule in exactly one place: the *session* (transcript, groups, style, tracks) stays renderer-owned, but `record.json`, the derived `transcript.json`, the assets and a disposable SQLite/FTS5 index live under `$CAPFORGE_HOME/library/<id>/` and are readable with **no window open**. Rules that are easy to break:
+
+- **`backend/library/paths.py` `capforge_home()` is the only reader of `CAPFORGE_HOME`** — discovery (`agent_bridge.discovery_path`), the studio workspace, the import guard and the library all resolve through it (`mcp_server/discovery.py` mirrors the two-line env read because it cannot import `backend`). Don't build `~/.capforge` paths anywhere else.
+- **The guard is injected, not imported**: `main.py` calls `build_router(require_library_actor)`; the library package never imports `main.py`, and `backend/library/__init__.py` must stay import-free (`agent_bridge` imports `paths`, so a re-export there would make a cycle). The dependency returns `"agent"` / `"user"` by which token matched, and every write stamps that into the record's capped `history[]`.
+- **Every write is `write_json_atomic`** (tmp + `os.replace`); folders are the truth, `library.db` is a cache rebuilt from folders when missing or on a `SCHEMA_VERSION` mismatch, with a `LIKE` fallback when FTS5 is absent and a pure-Python `NullIndex` when `sqlite3` won't import.
+- **`PATCH /api/library/{id}` requires `If-Match: <rev>`** (`428` without it) and a stale rev answers `409` **with the current record in the body** so an agent re-reads instead of clobbering. `RecordPatch` is `extra="forbid"` over the authored fields only; system fields are refused with `422`. A no-op patch does not bump `rev`.
+- **Chapters are seconds** (`Chapter.start_s`), never `si-wi` word ids — pinned by `test_library_record_contract.py`, which also partitions every `VideoRecord` field into `AUTHORED_FIELDS` / `SYSTEM_FIELDS` (an unclassified new field fails the backend job, same idea as `test_caption_cfg_contract.py`).
+- **Status is derived at read time, never stored**: `imported → transcribed → captioned (a render exists) → drafted (description) → published (publish.youtube.videoId)`.
+- **Assets** are served only by the fixed-name allowlist (`poster.jpg`, `peaks.bin`, `thumbnails/<hex>.jpg`) resolved strictly under the record folder; every rejection is the same `404`. The renderer CSP blocks `127.0.0.1` images, so a future card fetches them into a blob.
+- **Scratch records** (`scratch: true`) hide under `.scratch/`, are read-only until `POST …/promote`, and are pruned after `SCRATCH_LIFESPAN_DAYS` at startup — agent QA runs must not pollute the library.
+- Nothing library-related may ever become a `VideoRenderConfig` field; `record_id` will ride the **request** models.
 
 ### TypeScript Config
 
