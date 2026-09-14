@@ -6,8 +6,14 @@ record id.
 
 This module is also where ``PATCH /api/library/{id}`` gets its refusal:
 :func:`violation_refusal` runs the hard rules over the *merged* authored fields
-(the stored record plus the patch) and answers a 422 before anything is written.
-A record on disk therefore never carries a title YouTube would reject.
+(the stored record plus the patch), and refuses a ``collection_id`` that names
+no collection, answering a 422 before anything is written. A record on disk
+therefore never carries a title YouTube would reject.
+
+Collections (docs/plans/library-collections.md): the package and the validators
+use the **effective** brief — the channel brief under the record's collection.
+A record whose ``collection_id`` names no collection (an orphan) simply renders
+with the channel brief.
 """
 
 from __future__ import annotations
@@ -21,12 +27,16 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
 from backend.library.brief import Brief, BriefPatch, load_brief, save_brief
-from backend.library.package import render_youtube_package
+from backend.library.collection_store import Collection, effective_brief
+from backend.library.errors import CollectionNotFound, CollectionsUnreadable
+from backend.library.package import assemble_description, render_youtube_package
 from backend.library.schemas import RecordPatch, VideoRecord
 from backend.library.validate import (
     Violation,
+    assembled_violations,
     authored_fields,
     hard_violations,
+    unknown_collection_violation,
     validate_fields,
     validate_record,
 )
@@ -39,17 +49,23 @@ UNSUPPORTED_PLATFORM = (
 #: The ``detail`` a refused write answers with; the findings ride beside it.
 VIOLATION_DETAIL = "{count} rule(s) violated"
 BRIEF_UNREADABLE_STATUS = 500
+COLLECTIONS_UNREADABLE_STATUS = 500
 
 
 class ValidateRequest(BaseModel):
-    """``{fields?, duration?, video_id?}`` — with a ``video_id``, the missing
-    halves are read from the record and its transcript."""
+    """``{fields?, duration?, video_id?, collection_id?}`` — with a ``video_id``,
+    the missing halves are read from the record and its transcript.
+
+    ``collection_id`` is the panel's unsaved choice: a present ``null`` means
+    "no collection", and leaving it out uses the record's own.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     fields: Optional[dict[str, Any]] = None
     duration: Optional[float] = None
     video_id: Optional[str] = None
+    collection_id: Optional[str] = None
 
 
 def register_publish_routes(
@@ -72,6 +88,21 @@ def read_brief(store: Any) -> Brief:
         return load_brief(store.root)
     except ValueError as exc:
         raise HTTPException(status_code=BRIEF_UNREADABLE_STATUS, detail=str(exc)) from exc
+
+
+def read_collection(store: Any, collection_id: Optional[str]) -> Optional[Collection]:
+    """The named collection, or None for no id or an orphan id.
+
+    A corrupt ``collections.json`` is a 500 with the parse message, never "none".
+    """
+    if collection_id is None:
+        return None
+    try:
+        return store.find_collection(collection_id)
+    except CollectionsUnreadable as exc:
+        raise HTTPException(
+            status_code=COLLECTIONS_UNREADABLE_STATUS, detail=str(exc)
+        ) from exc
 
 
 def record_duration(store: Any, record: VideoRecord) -> Optional[float]:
@@ -99,13 +130,42 @@ def violation_refusal(
     """The 422 for a patch whose *merged* result breaks a hard rule, or None.
 
     Merged, not patched: a record is refused on the state it would end up in,
-    so a violation can never hide behind a write that did not repeat it.
+    so a violation can never hide behind a write that did not repeat it. An
+    unknown ``collection_id`` rides in the same ``violations`` list.
     """
     merged = {**authored_fields(record), **patch.model_dump(exclude_unset=True)}
-    found = hard_violations(merged, duration=record_duration(store, record))
+    found = [
+        *hard_violations(merged, duration=record_duration(store, record)),
+        *_collection_findings(store, record, patch),
+    ]
     if not found:
         return None
     return _violations_response(found)
+
+
+def collection_refusal(
+    store: Any, record: VideoRecord, patch: RecordPatch
+) -> Optional[JSONResponse]:
+    """Only the unknown-collection check. The PATCH route re-runs it under the
+    store's write lock, so a collection deleted after :func:`violation_refusal`
+    cannot gain a member."""
+    found = _collection_findings(store, record, patch)
+    return _violations_response(found) if found else None
+
+
+def _collection_findings(
+    store: Any, record: VideoRecord, patch: RecordPatch
+) -> list[Violation]:
+    """Joining a collection that does not exist. ``null`` is always allowed, and
+    re-sending the id the record already holds is a no-op, not a join."""
+    if "collection_id" not in patch.model_fields_set:
+        return []
+    wanted = patch.collection_id
+    if wanted is None or wanted == record.collection_id:
+        return []
+    if read_collection(store, wanted) is not None:
+        return []
+    return [unknown_collection_violation(wanted)]
 
 
 def _violations_response(found: list[Violation]) -> JSONResponse:
@@ -120,6 +180,28 @@ def _violations_response(found: list[Violation]) -> JSONResponse:
 
 def _dump(found: list[Violation]) -> list[dict]:
     return [violation.model_dump() for violation in found]
+
+
+def _requested_collection(
+    store: Any, body: ValidateRequest, record: Optional[VideoRecord]
+) -> Optional[Collection]:
+    """The collection a validation runs under: the body's, else the record's.
+
+    A ``collection_id`` the body names explicitly must exist (404); the record's
+    own may be an orphan, which is simply no collection.
+    """
+    if "collection_id" not in body.model_fields_set:
+        return read_collection(store, record.collection_id if record else None)
+    if body.collection_id is None:
+        return None
+    try:
+        return store.get_collection(body.collection_id)
+    except CollectionNotFound as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except CollectionsUnreadable as exc:
+        raise HTTPException(
+            status_code=COLLECTIONS_UNREADABLE_STATUS, detail=str(exc)
+        ) from exc
 
 
 # --- routes ------------------------------------------------------------------
@@ -152,6 +234,7 @@ def _register_validate_route(
         """Run the rules over a draft, a stored record, or a mix of the two."""
         store = get_store()
         fields, duration = body.fields, body.duration
+        record: Optional[VideoRecord] = None
         if body.video_id is not None:
             with library_errors():
                 record = store.get(body.video_id)
@@ -159,7 +242,9 @@ def _register_validate_route(
                 fields = authored_fields(record)
             if duration is None:
                 duration = record_duration(store, record)
-        brief = read_brief(store)
+        brief = effective_brief(
+            read_brief(store), _requested_collection(store, body, record)
+        )
         try:
             found = validate_fields(fields or {}, duration=duration, brief=brief)
         except ValueError as exc:
@@ -177,6 +262,11 @@ def _register_package_route(
 
         The package is rendered *even with* violations — the user is mid-edit
         and hiding the text would be worse than showing the findings beside it.
+        ``violations`` holds the record's own findings (under the effective
+        brief) followed by the assembled description's (``package.description``).
+        ``description`` is that assembled DESCRIPTION body on its own (no header,
+        no rule lines) — exactly the text those ``package.description`` rules
+        measured, so a preview never scrapes it out of ``text``.
         """
         if platform != YOUTUBE:
             raise HTTPException(
@@ -187,11 +277,26 @@ def _register_package_route(
         with library_errors():
             record = store.get(video_id)
         brief = read_brief(store)
+        collection = read_collection(store, record.collection_id)
         duration = record_duration(store, record)
+        speakers = diarized_speakers(store, record)
         text = render_youtube_package(
             record, brief, duration=duration,
             source_name=Path(record.sourcePath).name,
-            diarized_ids=diarized_speakers(store, record),
+            diarized_ids=speakers, collection=collection,
         )
-        violations = validate_record(record, duration=duration, brief=brief)
-        return {"platform": platform, "text": text, "violations": _dump(violations)}
+        assembled = assemble_description(
+            record, brief, collection=collection, diarized_ids=speakers
+        )
+        violations = [
+            *validate_record(
+                record, duration=duration, brief=effective_brief(brief, collection)
+            ),
+            *assembled_violations(assembled),
+        ]
+        return {
+            "platform": platform,
+            "text": text,
+            "violations": _dump(violations),
+            "description": assembled.body,
+        }

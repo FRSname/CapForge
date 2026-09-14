@@ -1,0 +1,17 @@
+{
+  "description": "The built-in description-template slot names (docs/plans/library-collections.md decision 4). Two copies must equal this list: backend/library/template.py BUILTIN_SLOTS and src/renderer/src/lib/collections.ts BUILTIN_SLOTS. A custom slot may not shadow any of them.",
+  "slots": [
+    "description",
+    "title",
+    "short_description",
+    "recorded_at",
+    "highlights",
+    "chapters",
+    "links",
+    "speakers",
+    "footer",
+    "hashtags",
+    "channel",
+    "collection"
+  ]
+}

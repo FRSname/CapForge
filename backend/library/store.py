@@ -24,6 +24,7 @@ from typing import Any, Callable, Iterator, Optional, Union
 from uuid import uuid4
 
 from backend.library import fs, posters
+from backend.library.collection_store import CollectionStoreMixin
 from backend.library.errors import (  # re-exported: callers import them from here
     LibraryError,
     MediaNotFound,
@@ -101,11 +102,11 @@ def _truncate(value: Any) -> Any:
     return value
 
 
-class LibraryStore(StoreAdminMixin):
+class LibraryStore(StoreAdminMixin, CollectionStoreMixin):
     """Every record under ``root`` (``$CAPFORGE_HOME/library`` in production).
 
     Housekeeping (remove/detach/import/migrate) lives in ``store_admin``'s
-    mixin — this file is at its size ceiling.
+    mixin and collections in ``collection_store``'s — this file is at its ceiling.
     """
 
     def __init__(

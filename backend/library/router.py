@@ -35,9 +35,14 @@ from backend.library.errors import (
 )
 from backend.library.paths import library_root, record_dir, resolve_asset
 from backend.library.router_admin import register_admin_routes
+from backend.library.router_collections import register_collection_routes
 from backend.library.router_derived import LiveSession, register_derived_routes
 from backend.library.router_import import register_import_routes
-from backend.library.router_publish import register_publish_routes, violation_refusal
+from backend.library.router_publish import (
+    collection_refusal,
+    register_publish_routes,
+    violation_refusal,
+)
 from backend.library.schemas import RecordPatch, RenderEntry, VideoRecord
 from backend.library.store import LibraryStore
 
@@ -188,14 +193,15 @@ def build_router(
     package must not import: ``live_session()`` is the open window's transcript,
     and ``on_record_changed`` is awaited after every successful record write.
 
-    Registration order matters: ``/rebuild-index``, ``/brief``, ``/validate`` and
-    ``/watch`` must be declared before the ``/{video_id}`` routes they would otherwise be
-    captured by.
+    Registration order matters: ``/rebuild-index``, ``/collections``, ``/brief``,
+    ``/validate`` and ``/watch`` must be declared before the ``/{video_id}`` routes
+    they would otherwise be captured by.
     """
     router = APIRouter(
         prefix=ROUTER_PREFIX, tags=["library"], dependencies=[Depends(actor_dep)]
     )
-    _register_collection_routes(router)
+    register_collection_routes(router, get_store=get_store)
+    _register_library_routes(router)
     register_admin_routes(
         router, get_store=get_store, view=_view, library_errors=_library_errors,
         actor_dep=actor_dep, on_record_changed=on_record_changed,
@@ -218,7 +224,7 @@ def build_router(
     return router
 
 
-def _register_collection_routes(router: APIRouter) -> None:
+def _register_library_routes(router: APIRouter) -> None:
     """Routes over the library as a whole."""
 
     @router.post("/rebuild-index")
@@ -287,7 +293,13 @@ def _register_record_routes(
             if refusal is not None:
                 return refusal
             try:
-                record = store.patch(video_id, patch, rev=rev, by=actor)
+                with store.write_lock:
+                    # Re-checked under the lock: a collection deleted since the
+                    # check above must not gain a member (collections plan, 8).
+                    refusal = collection_refusal(store, current, patch)
+                    if refusal is not None:
+                        return refusal
+                    record = store.patch(video_id, patch, rev=rev, by=actor)
             except StaleRevision as exc:
                 return JSONResponse(
                     status_code=http_status.HTTP_409_CONFLICT,

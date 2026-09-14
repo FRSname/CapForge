@@ -21,10 +21,11 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
 
 from backend.library import fs
 from backend.library.schemas import Link
+from backend.library.template import validate_slot_names
 
 #: The brief's file name under the library root.
 BRIEF_FILE = "brief.json"
@@ -65,6 +66,19 @@ class Brief(BaseModel):
     default_hashtags: list[str] = Field(default_factory=list)
     link_rows: list[Link] = Field(default_factory=list)
     house_rules: HouseRules = Field(default_factory=HouseRules)
+    #: The DESCRIPTION layout with ``{{slot}}`` placeholders (``template.py``).
+    #: Empty means the built-in layout, byte-identical to the pre-template package.
+    description_template: str = ""
+    #: Custom slots; a collection's slots merge over these key-wise.
+    slots: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("slots")
+    @classmethod
+    def _slot_names(cls, value: Optional[dict[str, str]]) -> Optional[dict[str, str]]:
+        """A malformed or built-in-shadowing slot name is a 422, never stored."""
+        if value is not None:
+            validate_slot_names(value)
+        return value
 
 
 class BriefPatch(Brief):
@@ -82,6 +96,8 @@ class BriefPatch(Brief):
     default_hashtags: Optional[list[str]] = None
     link_rows: Optional[list[Link]] = None
     house_rules: Optional[HouseRules] = None
+    description_template: Optional[str] = None
+    slots: Optional[dict[str, str]] = None
 
 
 #: ``save_brief`` is read-modify-write on one file; two concurrent PATCHes of the
