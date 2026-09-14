@@ -137,4 +137,4 @@ jobs:
       - name: Run caption parity suite
         env:
           CAPFORGE_PARITY: '1'
-        run: python -m pytest backend/tests/test_caption_parity.py -x
+        run: python -m pytest backend/tests/test_caption_parity.py backend/tests/test_library_posters_ffmpeg.py -x
