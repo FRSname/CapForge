@@ -6,6 +6,20 @@
 import type { TranscriptionResult as AppTranscriptionResult } from '../types/app'
 import type { LibraryRecord, LibraryVideo } from './libraryTypes'
 import { parseLibraryList, parseLibraryRecord } from './libraryTypes'
+import type {
+  Brief,
+  Moment,
+  PublishRecord,
+  UploadPackage,
+  Violation,
+} from './publishTypes'
+import {
+  parseBrief,
+  parseMoments,
+  parsePublishRecord,
+  parseUploadPackage,
+  parseViolations,
+} from './publishTypes'
 
 /** `DELETE /api/library/{id}?mode=` — hide the record, or hand back its folder. */
 export type LibraryDeleteMode = 'remove' | 'detach'
@@ -30,6 +44,67 @@ interface ValidationIssue {
 
 /** How many field errors to name before summarising the rest. */
 const MAX_REPORTED_ISSUES = 3
+
+/** The record moved under us — someone else (the agent) wrote it first. */
+const HTTP_CONFLICT = 409
+/** The backend's hard validators refused the write. */
+const HTTP_UNPROCESSABLE = 422
+
+/**
+ * A `PATCH` lost the `If-Match` race: the agent wrote the record between our
+ * read and our write. `current` is the record as it is **now** when the backend
+ * sent one back, null when its body carried nothing usable — either way the
+ * caller must reconcile rather than retry blindly.
+ */
+export class StaleRecordError extends Error {
+  readonly current: PublishRecord | null
+  constructor(message: string, current: PublishRecord | null) {
+    super(message)
+    this.name = 'StaleRecordError'
+    this.current = current
+  }
+}
+
+/**
+ * The backend refused the write because it broke a **hard** rule
+ * (`backend/library/validate.py` — the one implementation). The findings are
+ * rendered under the fields they name; the user's draft is kept.
+ */
+export class ValidationRefusedError extends Error {
+  readonly violations: Violation[]
+  constructor(message: string, violations: Violation[]) {
+    super(message)
+    this.name = 'ValidationRefusedError'
+    this.violations = violations
+  }
+}
+
+/** `POST /api/library/validate` — unsaved panel text validates too. */
+export interface ValidateFieldsRequest {
+  fields?: Record<string, unknown>
+  duration?: number
+  video_id?: string
+}
+
+/**
+ * The `current` record a `409` body carries, or null when it carried nothing
+ * usable. A malformed copy is not worth failing the collision over — the caller
+ * refetches either way; it just loses the free one.
+ */
+function recordOrNull(value: unknown): PublishRecord | null {
+  try {
+    return parsePublishRecord(value)
+  } catch {
+    return null
+  }
+}
+
+/** A record was written somewhere else (agent, promote, import) — `by` is the actor. */
+export interface RecordUpdatedEvent {
+  videoId: string
+  rev: number
+  by: string
+}
 
 /**
  * Turn FastAPI's 422 `detail` array into something a user can act on.
@@ -234,6 +309,9 @@ class CapForgeAPI {
   // before" flag so the very first connect doesn't trigger a redundant push.
   private _resyncProvider: (() => ResyncSnapshot | null) | null = null
   private _controlHasConnected = false
+  // `record_updated` listeners (the Publish workspace). Kept off ControlHandlers
+  // so the control socket's owner (AgentLiveSync) is untouched by publish work.
+  private _recordUpdatedSubs = new Set<(event: RecordUpdatedEvent) => void>()
 
   // Per-launch token that gates the local media endpoints (serve-audio,
   // video-info). Sent as a query param because <audio>/<video> src loads and
@@ -255,16 +333,64 @@ class CapForgeAPI {
     this.localToken = token
   }
 
+  private bridgeReady: Promise<void> | null = null
+
+  /**
+   * Resolve the backend port + local token from Electron once, before the
+   * first authenticated request. Every transport helper awaits this, so a
+   * hook that fetches on mount (the library list, the publish record) no
+   * longer races the async hand-over that used to live only in AgentLiveSync
+   * — that race showed as an empty library after a fresh launch. Absent
+   * `window.subforge` (node tests) it resolves at once; an IPC failure
+   * rejects the request and clears the memo so the next call retries.
+   */
+  ensureBridge(): Promise<void> {
+    if (typeof window === 'undefined' || !window.subforge) return Promise.resolve()
+    if (!this.bridgeReady) {
+      this.bridgeReady = Promise.all([
+        window.subforge.getBackendPort(),
+        window.subforge.getLocalToken(),
+      ])
+        .then(([port, token]) => {
+          this.setPort(port)
+          this.setLocalToken(token)
+        })
+        .catch((err: unknown) => {
+          this.bridgeReady = null
+          throw err
+        })
+    }
+    return this.bridgeReady
+  }
+
+  /** Forget the resolved bridge (tests; a fresh launch never needs it). */
+  resetBridge(): void {
+    this.bridgeReady = null
+  }
+
   private async handleError(res: Response): Promise<ApiError> {
     const fallback = { detail: res.statusText }
     const body = await res.json().catch(() => fallback)
-    const detail = body.detail
+    return this.errorFromBody(res, body)
+  }
+
+  /**
+   * The formatting half of `handleError`, split out because a response body can
+   * only be read once: the `PATCH` path has to inspect the parsed body itself
+   * (409/422 carry structured data) before falling back to a generic message.
+   */
+  private errorFromBody(res: Response, body: { detail?: unknown }): ApiError {
+    const detail = body?.detail
     const err = new Error() as ApiError
-    if (detail && typeof detail === 'object' && detail.title) {
-      err.title = detail.title
-      err.hint = detail.hint ?? ''
-      err.raw = detail.raw ?? ''
-      err.message = detail.hint ? `${detail.title} — ${detail.hint}` : detail.title
+    const structured =
+      detail && typeof detail === 'object' && !Array.isArray(detail)
+        ? (detail as { title?: string; hint?: string; raw?: string })
+        : null
+    if (structured?.title) {
+      err.title = structured.title
+      err.hint = structured.hint ?? ''
+      err.raw = structured.raw ?? ''
+      err.message = structured.hint ? `${structured.title} — ${structured.hint}` : structured.title
     } else if (Array.isArray(detail)) {
       // FastAPI validation failure (422). Without this the user only ever sees
       // the bare status phrase "Unprocessable Entity", which says nothing about
@@ -277,6 +403,7 @@ class CapForgeAPI {
   }
 
   private async get<T>(path: string): Promise<T> {
+    await this.ensureBridge()
     const res = await fetch(`${this.base}${path}`)
     if (!res.ok) throw await this.handleError(res)
     return res.json() as Promise<T>
@@ -284,6 +411,7 @@ class CapForgeAPI {
 
   /** GET a specifically auth-gated local route without changing generic GET semantics. */
   private async getWithLocalToken<T>(path: string): Promise<T> {
+    await this.ensureBridge()
     const headers: Record<string, string> = {}
     if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
     const res = await fetch(`${this.base}${path}`, { headers })
@@ -292,6 +420,7 @@ class CapForgeAPI {
   }
 
   private async post<T>(path: string, body: unknown): Promise<T> {
+    await this.ensureBridge()
     // A subset of POST routes (e.g. /api/export, /api/render-video,
     // /api/export-hyperframes) are auth-gated because they write to a
     // client-supplied output_dir, so send the per-launch local token on every
@@ -309,6 +438,7 @@ class CapForgeAPI {
   }
 
   private async put<T>(path: string, body: unknown): Promise<T> {
+    await this.ensureBridge()
     // PUT /api/result is auth-gated (it sets the media-allowlist anchor), so
     // send the per-launch local token. Unlike media <src> loads, a fetch() can
     // set a header — cleaner than a query param. Harmless on PUTs that ignore it.
@@ -323,7 +453,41 @@ class CapForgeAPI {
     return res.json() as Promise<T>
   }
 
+  /**
+   * PATCH an auth-gated library route. `ifMatch` is the record revision the
+   * caller read — the backend refuses the write with a `409` when the record
+   * has moved on, which is what makes an agent/user collision *render* instead
+   * of silently overwriting (vision §9.7).
+   *
+   * The two structured refusals are detected **by status, before** the generic
+   * formatter, because their bodies carry data the panel has to show: a `409`'s
+   * `current` record and a `422`'s `violations`.
+   */
+  private async patch<T>(path: string, body: unknown, ifMatch?: number): Promise<T> {
+    await this.ensureBridge()
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
+    if (ifMatch !== undefined) headers['If-Match'] = String(ifMatch)
+    const res = await fetch(`${this.base}${path}`, {
+      method: 'PATCH',
+      headers,
+      body: JSON.stringify(body),
+    })
+    if (res.ok) return res.json() as Promise<T>
+
+    const raw = await res.json().catch(() => ({ detail: res.statusText }))
+    const detail = typeof raw?.detail === 'string' ? raw.detail : res.statusText
+    if (res.status === HTTP_CONFLICT && raw && 'current' in raw) {
+      throw new StaleRecordError(detail, recordOrNull(raw.current))
+    }
+    if (res.status === HTTP_UNPROCESSABLE && Array.isArray(raw?.violations)) {
+      throw new ValidationRefusedError(detail, parseViolations(raw.violations))
+    }
+    throw this.errorFromBody(res, raw)
+  }
+
   private async del<T>(path: string): Promise<T> {
+    await this.ensureBridge()
     const res = await fetch(`${this.base}${path}`, { method: 'DELETE' })
     if (!res.ok) throw await this.handleError(res)
     return res.json() as Promise<T>
@@ -331,6 +495,7 @@ class CapForgeAPI {
 
   /** DELETE an auth-gated local route (the library ones) — same shape as `del`. */
   private async delWithLocalToken<T>(path: string): Promise<T> {
+    await this.ensureBridge()
     const headers: Record<string, string> = {}
     if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
     const res = await fetch(`${this.base}${path}`, { method: 'DELETE', headers })
@@ -526,6 +691,77 @@ class CapForgeAPI {
     return this.post<LibraryMigrationResult>('/api/library/migrate-studio', {})
   }
 
+  // ── Publish workspace (the dossier, the brief, the validators) ────
+  /**
+   * The record view of one library entry — the whole dossier the Publish panel
+   * edits. Parsed at the boundary (`lib/publishTypes.ts`) like the list is.
+   */
+  getLibraryRecord(id: string): Promise<PublishRecord> {
+    return this.getWithLocalToken<unknown>(`/api/library/${encodeURIComponent(id)}`).then(
+      parsePublishRecord
+    )
+  }
+
+  /**
+   * Write authored fields, guarded by the revision the panel last read.
+   * Throws `StaleRecordError` (409) when the agent got there first and
+   * `ValidationRefusedError` (422) when a hard rule refused the write.
+   */
+  patchLibraryRecord(
+    id: string,
+    patch: Record<string, unknown>,
+    rev: number
+  ): Promise<PublishRecord> {
+    return this.patch<unknown>(`/api/library/${encodeURIComponent(id)}`, patch, rev).then(
+      parsePublishRecord
+    )
+  }
+
+  /** The global channel brief (Settings → Channel). One small file, no If-Match. */
+  getBrief(): Promise<Brief> {
+    return this.getWithLocalToken<unknown>('/api/library/brief').then(parseBrief)
+  }
+
+  patchBrief(patch: Record<string, unknown>): Promise<Brief> {
+    return this.patch<unknown>('/api/library/brief', patch).then(parseBrief)
+  }
+
+  /**
+   * Run the validators over **unsaved** panel text. The rules themselves live
+   * in Python once (`backend/library/validate.py`); the renderer only meters,
+   * snaps and formats.
+   */
+  validateFields(request: ValidateFieldsRequest): Promise<Violation[]> {
+    return this.post<unknown>('/api/library/validate', request).then(parseViolations)
+  }
+
+  /** The rendered upload package — returned even when it violates something. */
+  getUploadPackage(id: string, platform = 'youtube'): Promise<UploadPackage> {
+    return this.getWithLocalToken<unknown>(
+      `/api/library/${encodeURIComponent(id)}/package?platform=${encodeURIComponent(platform)}`
+    ).then(parseUploadPackage)
+  }
+
+  /** Chapter candidates from the stored transcript (`pause` / `speaker_change`). */
+  getLibraryMoments(id: string, kind: string): Promise<Moment[]> {
+    return this.getWithLocalToken<unknown>(
+      `/api/library/${encodeURIComponent(id)}/moments?kind=${encodeURIComponent(kind)}`
+    ).then(parseMoments)
+  }
+
+  /**
+   * Subscribe to `record_updated` pushes (the control channel's fifth event).
+   * A set of subscribers rather than another `ControlHandlers` slot on purpose:
+   * `AgentLiveSync` owns the handler object and must not grow a publish concern.
+   * Returns the unsubscribe.
+   */
+  onRecordUpdated(cb: (event: RecordUpdatedEvent) => void): () => void {
+    this._recordUpdatedSubs.add(cb)
+    return () => {
+      this._recordUpdatedSubs.delete(cb)
+    }
+  }
+
   getVideoInfo(filePath: string) {
     const token = encodeURIComponent(this.localToken)
     return this.get<VideoInfo>(
@@ -649,6 +885,15 @@ class CapForgeAPI {
           })
         } else if (raw.type === 'render_approval_resolved') {
           this._controlHandlers?.onRenderApprovalResolved?.(raw.id)
+        } else if (raw.type === 'record_updated') {
+          // A dossier write landed (agent, promote, import) — tell every
+          // subscriber which record moved and to which revision.
+          const event: RecordUpdatedEvent = {
+            videoId: String(raw.video_id ?? ''),
+            rev: Number(raw.rev ?? 0),
+            by: String(raw.by ?? ''),
+          }
+          for (const sub of this._recordUpdatedSubs) sub(event)
         }
       } catch {
         /* ignore malformed */

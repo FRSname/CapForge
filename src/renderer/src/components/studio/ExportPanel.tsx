@@ -10,26 +10,19 @@
  * triggered the render.
  */
 
-import type { Segment } from '../../types/app'
 import { StudioCard } from './StudioCard'
 import { Button } from '../ui/Button'
 import { api } from '../../lib/api'
 import { dirname } from '../../lib/render'
 import type { RenderController } from '../../hooks/useRender'
 import { useToast } from '../../hooks/useToast'
+import { buildExportParams } from '../../lib/exportParams'
+import type { ExportTrack } from '../../lib/exportParams'
 
-/**
- * The active caption track when it is a *translated* one — sent alongside an
- * export so the exporter writes that track's lines instead of the source
- * transcript, and names the file after its language. Null on the source track,
- * where the request body is exactly what it always was.
- */
-export interface ExportTrack {
-  id: string
-  lang: string
-  /** The track's display groups (gaps closed) — one cue each. */
-  segments: Segment[]
-}
+// The request body + the translated-track shape moved to `lib/exportParams.ts`
+// when the Publish footer grew its own SRT/VTT buttons — re-exported here so
+// every existing import site (StudioPanel, App) keeps working.
+export type { ExportTrack }
 
 interface ExportPanelProps {
   audioPath: string
@@ -164,16 +157,4 @@ export function ExportPanel({
       </div>
     </StudioCard>
   )
-}
-
-/**
- * Backend rejects empty output_dir; only include the field when set.
- *
- * `track` rides along only for a translated caption track. Today's backend has
- * no field for it and Pydantic's default `extra='ignore'` drops it, so a source
- * export sends byte-identical params to what it always did.
- */
-function buildExportParams(formats: string[], outputDir: string, track: ExportTrack | null) {
-  const base = outputDir ? { formats, output_dir: outputDir } : { formats }
-  return track ? { ...base, track } : base
 }

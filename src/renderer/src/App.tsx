@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Screen, TranscriptionResult } from './types/app'
-import type { ProjectFile, ProjectIOHandle, WordOverrideEdit } from './lib/project'
+import type { ProjectFile, ProjectIOHandle } from './lib/project'
 import { projectFileFromTracks } from './lib/project'
 import {
   backendUpdateFailedMessage,
@@ -8,11 +8,9 @@ import {
   restoreErrorMessage,
 } from './lib/projectRestore'
 import type { ProjectRestorePlan } from './lib/projectRestore'
-import { api, type AgentCommand } from './lib/api'
-import { ensureWordIds } from './lib/wordIds'
-import { SOURCE_TRACK_ID, syncSegmentsIntoTrack, withSentenceSegments } from './lib/tracks'
+import { api } from './lib/api'
+import { SOURCE_TRACK_ID, withSentenceSegments } from './lib/tracks'
 import type { TrackEditorState } from './lib/tracks'
-import { applyTrackCommand } from './lib/trackCommands'
 import { propagateSourceTiming } from './lib/trackTiming'
 import { IDLE_AGENT_ECHO, nameSuffixFor, renderEditedFlag } from './lib/uiStateMirror'
 import type { AgentCommandEcho } from './lib/uiStateMirror'
@@ -25,7 +23,9 @@ import { ProgressScreen } from './components/screens/ProgressScreen'
 import { ResultsScreen } from './components/screens/ResultsScreen'
 import { SettingsDialog } from './components/settings/SettingsDialog'
 import { ShortcutOverlay } from './components/ShortcutOverlay'
-import { StudioPanel, type StudioSettings } from './components/studio/StudioPanel'
+import type { StudioSettings } from './components/studio/StudioPanel'
+import { PublishAside } from './components/publish/PublishAside'
+import { WorkspaceToggle } from './components/publish/WorkspaceToggle'
 import { AgentLiveSync } from './components/AgentLiveSync'
 import { ToastProvider } from './hooks/useToast'
 import { ToastRelay } from './components/ui/ToastRelay'
@@ -34,7 +34,10 @@ import { useAutosave } from './hooks/useAutosave'
 import { useSourceVideoInfo } from './hooks/useSourceVideoInfo'
 import { useGlobalShortcuts } from './hooks/useGlobalShortcuts'
 import { useCrashRecovery } from './hooks/useCrashRecovery'
+import { useAgentBridge } from './hooks/useAgentBridge'
 import { useLibrarySession } from './hooks/useLibrarySession'
+import { usePublishRecord } from './hooks/usePublishRecord'
+import { usePublishWorkspace } from './hooks/usePublishWorkspace'
 import { useUiStateMirror } from './hooks/useUiStateMirror'
 import { useUserPresets } from './hooks/useUserPresets'
 import {
@@ -260,72 +263,20 @@ export function App() {
   }, [])
 
   // ── Agent live-sync ─────────────────────────────────────────────
-  /**
-   * An agent transcript edit always targets the **source** track, whichever tab
-   * happens to be open: `update_words` and `remove_filler_words` edit the
-   * transcript, and applying them to whatever editor is mounted would rewrite a
-   * translation with English words. When the source is the active tab the edit
-   * goes through the mounted editor (which pushes an undo entry the user can
-   * revert); otherwise it is reconciled straight into the stored track.
-   */
-  const handleApplyAgentResult = useCallback(
-    (r: TranscriptionResult) => {
-      if (activeTrackId === sourceTrack.id) {
-        // The editor reports the alignment flag back through onAlignmentDegraded.
-        projectIORef.current?.applyAgentResult(r)
-        return
-      }
-      updateTrack(sourceTrack.id, (track) => ({
-        ...syncSegmentsIntoTrack(
-          track,
-          ensureWordIds(r.segments),
-          track.settings.wordsPerGroup,
-          false
-        ),
-        segmentsEdited: true,
-      }))
-      if (r.alignmentDegraded) markAlignmentDegraded()
-    },
-    [activeTrackId, sourceTrack.id, updateTrack, markAlignmentDegraded]
-  )
-
-  const handleApplyWordOverrides = useCallback((edits: WordOverrideEdit[]) => {
-    projectIORef.current?.applyWordOverrides(edits)
-  }, [])
-
-  /** The style command's target: the named track, or the active one. */
-  const settingsForTrack = useCallback(
-    (trackId?: string): StudioSettings | null => {
-      const id = trackId || activeTrackId
-      return tracks.find((t) => t.id === id)?.settings ?? null
-    },
-    [tracks, activeTrackId]
-  )
-
-  const handleAgentSettings = useCallback(
-    (next: StudioSettings, trackId?: string) => {
-      const id = trackId || activeTrackId
-      // Only the active track's change is undoable — the undo stack belongs to
-      // the tab the user is looking at.
-      if (id === activeTrackId) handleSettingsChange(next)
-      else setTrackSettings(id, next)
-    },
-    [activeTrackId, handleSettingsChange, setTrackSettings]
-  )
-
-  /**
-   * `create_track` / `set_track_text` / `reflow_track`. Every rule lives in
-   * `lib/trackCommands.ts`; failures throw and AgentLiveSync echoes the message
-   * back to the agent instead of swallowing it.
-   */
-  const handleAgentTrackCommand = (cmd: AgentCommand): string => {
-    const next = applyTrackCommand(tracks, activeTrackId, cmd)
-    commitTracks(next.tracks, next.activeTrackId)
-    // The editor owns its own copy of the track it is mounted on, so a write
-    // that lands underneath it only becomes visible on a remount.
-    if (next.remountTrackId) bumpRevision(next.remountTrackId)
-    return next.message
-  }
+  // The five handlers AgentLiveSync calls live in `hooks/useAgentBridge.ts`;
+  // App only supplies the store, the mounted editor and the undoable setter.
+  const agent = useAgentBridge({
+    tracks,
+    activeTrackId,
+    sourceTrack,
+    updateTrack,
+    commitTracks,
+    bumpRevision,
+    projectIORef,
+    markAlignmentDegraded,
+    applyActiveSettings: handleSettingsChange,
+    setTrackSettings,
+  })
 
   // ── Source-track timing link ────────────────────────────────────
   // Whenever the source's words or grouping move, every translated group that
@@ -420,7 +371,7 @@ export function App() {
   const session = useLibrarySession({
     screen,
     restoreFromProjectFile,
-    applyTrackCommand: handleAgentTrackCommand,
+    applyTrackCommand: agent.applyTrackCommand,
     onChooseFile: handleOpenFromLibrary,
     notify: setRestoreWarning,
   })
@@ -429,8 +380,20 @@ export function App() {
   ensureRecordRef.current = session.ensureRecordFor
   clearActiveRef.current = session.clearActive
 
+  // ── The Publish workspace ───────────────────────────────────────
+  // `workspace` is an axis over the open record, not a fifth screen: both
+  // asides stay mounted and the player is shared (vision §4).
+  const publishWorkspace = usePublishWorkspace({ activeVideoId: session.activeVideoId })
+  const publish = usePublishRecord({
+    videoId: session.activeVideoId,
+    segments: sourceTrack.segments,
+    duration: result?.duration ?? null,
+    notify: setRestoreWarning,
+  })
+
   useUiStateMirror({
     screen,
+    workspace: publishWorkspace.workspace,
     result,
     activeTrack,
     displayGroups,
@@ -552,13 +515,26 @@ export function App() {
               {/* The tab strip lives HERE, above the editor and outside it:
                   ResultsScreen is remounted on every tab switch, so a strip
                   inside it would unmount itself mid-click. */}
-              <TrackTabs
-                tracks={trackActions.tabs}
-                activeTrackId={activeTrackId}
-                onSelect={setActiveTrackId}
-                onAdd={trackActions.addTrack}
-                onClose={trackActions.closeTrack}
-              />
+              {/* The workspace toggle rides the same row; both children draw
+                  the strip's bottom border so it runs the full width. */}
+              <div className="flex items-stretch shrink-0">
+                <div className="flex-1 min-w-0">
+                  <TrackTabs
+                    tracks={trackActions.tabs}
+                    activeTrackId={activeTrackId}
+                    onSelect={setActiveTrackId}
+                    onAdd={trackActions.addTrack}
+                    onClose={trackActions.closeTrack}
+                  />
+                </div>
+                <div className="flex items-center border-b border-[var(--color-border)] pl-2 pr-2.5">
+                  <WorkspaceToggle
+                    workspace={publishWorkspace.workspace}
+                    onChange={publishWorkspace.setWorkspace}
+                    publishEnabled={publishWorkspace.publishEnabled}
+                  />
+                </div>
+              </div>
               <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden">
                 {/* Keyed by session + track + that track's revision: switching tab
                     (or a write that landed underneath the editor) remounts it with
@@ -582,47 +558,56 @@ export function App() {
                   onAlignmentDegraded={markAlignmentDegraded}
                   projectIORef={projectIORef}
                   onUndoRedoChange={setSubtitleUndo}
+                  seekTo={publishWorkspace.pendingSeek}
+                  onTimeUpdate={publishWorkspace.handleTimeUpdate}
                 />
               </div>
             </div>
           )}
 
-          {/* ── Studio sidebar ───────────────────────────────────
-              Hidden rather than unmounted on the library screen (§4), so its
-              render state survives a trip home. `contents` keeps the layout. */}
-          <div className={screen === 'library' ? 'hidden' : 'contents'}>
-            <StudioPanel
-              settings={settings}
-              onChange={handleSettingsChange}
-              groups={displayGroups}
-              groupsEdited={renderEditedFlag(activeTrack)}
-              nameSuffix={nameSuffixFor(activeTrack)}
-              exportTrack={
-                activeTrack.isSource
-                  ? null
-                  : { id: activeTrack.id, lang: activeTrack.lang, segments: displayGroups }
-              }
-              audioPath={result?.audioPath ?? filePath ?? ''}
-              sourceVideoInfo={sourceVideoInfo}
-              userPresets={userPresets}
-              onPresetsChanged={refreshUserPresets}
-              onPresetApplied={handlePresetApplied}
-              activeTrackIsSource={activeTrack.isSource}
-              outputDir={session.outputDir}
-              onOutputDirChange={session.setOutputDir}
-            />
-          </div>
+          {/* ── The right-hand column ────────────────────────────
+              Both asides stay mounted: hidden on the library screen (§4) so
+              the studio's render state survives a trip home, and hidden by
+              workspace so switching costs nothing. */}
+          <PublishAside
+            workspace={publishWorkspace.workspace}
+            hidden={screen === 'library'}
+            publish={publish}
+            segments={sourceTrack.segments}
+            tracks={tracks}
+            outputDir={session.outputDir}
+            onSeek={publishWorkspace.seek}
+            getPlayhead={publishWorkspace.getPlayhead}
+            studio={{
+              settings,
+              onChange: handleSettingsChange,
+              groups: displayGroups,
+              groupsEdited: renderEditedFlag(activeTrack),
+              nameSuffix: nameSuffixFor(activeTrack),
+              exportTrack: activeTrack.isSource
+                ? null
+                : { id: activeTrack.id, lang: activeTrack.lang, segments: displayGroups },
+              audioPath: result?.audioPath ?? filePath ?? '',
+              sourceVideoInfo,
+              userPresets,
+              onPresetsChanged: refreshUserPresets,
+              onPresetApplied: handlePresetApplied,
+              activeTrackIsSource: activeTrack.isSource,
+              outputDir: session.outputDir,
+              onOutputDirChange: session.setOutputDir,
+            }}
+          />
         </main>
 
         <SettingsDialog open={settingsOpen} onClose={settingsTo(false)} onOpen={settingsTo(true)} />
         <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
         <AgentLiveSync
           resultsActive={screen === 'results'}
-          settingsForTrack={settingsForTrack}
+          settingsForTrack={agent.settingsForTrack}
           userPresets={userPresets}
-          applyResult={handleApplyAgentResult}
-          applySettings={handleAgentSettings}
-          applyWordOverrides={handleApplyWordOverrides}
+          applyResult={agent.applyResult}
+          applySettings={agent.applySettings}
+          applyWordOverrides={agent.applyWordOverrides}
           onPresetApplied={handlePresetApplied}
           loadVideo={handleLoadVideo}
           applyEchoedCommand={session.applyEchoedCommand}

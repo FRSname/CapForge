@@ -1,206 +1,190 @@
 ---
 name: capforge-publish
-description: "Turn the video open in CapForge into a copy-ready YouTube upload package (title options, description with chapters, tags, hashtags, short description, Shorts caption and clip candidates) and save it as notes/youtube.txt in that video's CapForge workspace. Use when the user asks for a YouTube description, title ideas, chapters, tags, a Shorts caption, or an upload package for the video open in CapForge."
+description: "Turn a video CapForge knows about into a copy-ready YouTube upload package: title options, a description with chapters, tags, hashtags, a short description, a Shorts caption and clip candidates, thumbnail ideas. The text is written onto the video's library record, so it survives the session and the user can edit it in the Publish workspace. Use when the user asks for a YouTube description, title ideas, chapters, tags, a Shorts caption, or an upload package."
 ---
 
 # CapForge publish package
 
-CapForge holds the word-level transcript of the open video. This skill turns it into
-one plain-text package the user pastes into YouTube Studio, and stores that package
-next to the video so a later session can pick it up.
+CapForge holds the word-level transcript of a video and a durable **record** for it:
+the dossier every authored field lives in. This skill fills that record in, has
+CapForge check it against YouTube's limits, and then reads back one plain-text
+package the user pastes into YouTube Studio.
 
-This file is yours to adapt. Everything channel-specific lives in **Channel notes**
-below; the rest is the workflow and YouTube's own limits. See
-`examples/conference-channel.md` for a filled-in copy that also pushes to a second
-system.
+The direction matters: **fields are the source, the package is the rendering.** You
+write structured fields; CapForge renders them. Never paste package text back into a
+field.
 
-## Channel notes (edit me)
-
-Leave a field empty to skip its slot in the output. The package, including its
-section headers, is written in **Language** (default: the transcript language);
-the English headers below are the shape, not the wording.
-
-```
-Channel:            (name, one line)
-Audience:           (who watches, what they already know)
-Voice:              (plain / technical / playful; first or third person)
-Language:           (default: the transcript language)
-Footer:             (lines that end every description: links, credits, series)
-Recorded-at line:   (template, e.g. "Recorded at {{event}}, {{date}}")
-Speaker block:      (how a speaker is introduced: bio length, which links)
-Default hashtags:   (5 to 10 tags every video carries)
-Link rows:          (label: URL, one per line)
-House rules:        (optional, e.g. "no em dashes", "description 1800 to 2200
-                     characters", "keywords line with 12 to 20 terms")
-```
+Channel-level style — audience, voice, footer, default hashtags, house rules — lives
+in the **brief**, not in this file. The user edits it in CapForge under
+Settings → Channel; you read it with `get_brief()` (and only change it with
+`set_brief(patch)` when the user states a channel-wide rule).
 
 ## Requirements
 
-CapForge must be running with the video open; the package is keyed to that video.
-Tools used, all from the `capforge` MCP server:
+CapForge must be running. The video either is **open in the app** or already has a
+**record in the library** — both work, and the record is what you write to. All
+tools come from the `capforge` MCP server.
 
-- `get_status` to confirm a transcript is loaded and which file it is.
-- `get_transcript(segments_only=True)` for the text with segment timings. Ask for the
-  full shape only when you need word-level timing for a quote.
-- `find_semantic_moments(kind)` with `numbers`, `cta`, `speaker_change` for chapter
-  and highlight candidates; `find_moments(phrase)` to time a specific line.
-- `get_workspace`, `read_workspace_file`, `write_workspace_file` for the notes.
+- `get_video(video_id=…)` or `get_video(path=…)` for the record and its rev.
+- `get_brief()` for the channel style contract.
+- `get_transcript(segments_only=True)` when the video is the open session;
+  `get_video_transcript(video_id)` when it is only in the library.
+- `find_video_moments(video_id, kind=…)` for timestamps; `find_semantic_moments(kind)`
+  and `find_moments(phrase)` do the same against the open session.
+- `set_video_meta`, `validate_video`, `get_upload_package`, `mark_published`.
 
-If CapForge is not connected or reports no transcript, say so and stop. Do not
-invent content from a title alone.
+If you have no record and no transcript, say so and stop. Do not invent content from
+a title alone. `list_videos()` and `search_library(q)` find the record when the user
+names the video rather than a path.
 
 ## Input
 
-1. `get_status`, then `get_transcript(segments_only=True)`.
-2. `read_workspace_file("notes/youtube.txt")`. If it exists, show its title and date
-   and ask whether to refresh it or start over. Reuse what still holds.
-3. Ask for the published video URL only if the user wants the Shorts caption to link
-   to it; otherwise use `[FULL VIDEO URL]` and flag it in NOTES.
+1. Read the record: `get_video(...)`. Keep its rev — every write needs the one you
+   last read. Fields already filled in (by an earlier run or by the user in the
+   Publish workspace) are the starting point; show them and ask before replacing
+   anything the user wrote.
+2. `get_brief()`. Everything it states is binding unless the user overrides it here.
+3. The transcript: `get_transcript(segments_only=True)` for the open video, else
+   `get_video_transcript(video_id)`. Ask for word-level timing only when you need it
+   for a quote.
+4. Chapter and highlight candidates: `find_video_moments(video_id, kind="pause")` and
+   `kind="speaker_change"`. Use `find_moments` / `find_video_moments(query=…)` to time
+   a specific line.
+5. Ask for the published video URL only if the user wants the Shorts caption to link
+   to it; otherwise leave the placeholder and say so.
 
 ## Hard rules
 
-These are YouTube's limits and the honesty rules. Breaking one makes the output
-wrong, not merely different.
+CapForge validates these — `validate_video(video_id)` names the field and the rule,
+and a write that breaks one is refused. Breaking one makes the output wrong, not
+merely different.
 
 1. **Title** at most 100 characters; aim under 70 so it survives mobile truncation.
-2. **Description** at most 5000 bytes. The first 150 characters appear before
-   "more" and must work alone.
+2. **Description** at most 5000 bytes. The first 150 characters appear before "more"
+   and must work alone.
 3. **No `<` or `>`** anywhere in title, description or tags.
-4. **Tags** are one comma-separated line, at most 500 characters in total.
-5. **Chapters**: the first is `00:00`, at least three, ascending, at least 10 seconds
-   apart, all inside the video's duration. Timestamps come from the transcript
-   (`find_semantic_moments`, segment starts) and are never invented. Format
-   `MM:SS`, or `H:MM:SS` past an hour.
+4. **Tags** join into one comma-separated line of at most 500 characters.
+5. **Chapters**: the first starts at 0, at least three, ascending, at least 10 seconds
+   apart, all inside the video's duration. Times come from the transcript and are
+   never invented. You write seconds; CapForge formats MM:SS and H:MM:SS.
 6. **Every claim traces to the transcript.** Name only tools, numbers, people and
    promises the speaker actually said. No filler ("dive into", "unlock").
-7. Plain text. It gets pasted into a form, so no markdown.
-8. **Short videos.** Under 30 seconds there is no room for three chapters 10
-   seconds apart: skip CHAPTERS and say so in NOTES. Under 60 seconds the video
-   *is* the Short: write one description paragraph, and in SHORTS drop the
-   `Full video` line and CLIP CANDIDATES (the whole video is the clip).
-9. **Unknown speaker.** If nobody is named in the transcript and Channel notes
-   carry no speaker, do not stop to ask. Write `[SPEAKER NAME]` where a name
-   belongs, list it under "Placeholders still open" in NOTES, and move on. When
-   the user supplies the name later (in this or a later session), fill it in
-   everywhere and rewrite the note.
+7. Plain text in every field. It gets pasted into a form, so no markdown — except the
+   summary field, which is markdown by definition.
+8. **Short videos.** Under 30 seconds there is no room for three chapters 10 seconds
+   apart: write no chapters at all and say why. Under 60 seconds the video *is* the
+   Short: one description paragraph, and the Shorts block carries only the caption
+   (the whole video is the clip).
+9. **Unknown speaker.** If nobody is named in the transcript and the brief carries no
+   speaker, do not stop to ask. Leave the speaker's name empty on the record, tell
+   the user it is open — CapForge prints `[SPEAKER NAME]` in the package and lists it
+   under the open placeholders — and move on. When the user supplies the name later,
+   write it and re-read the package.
 
-## Output
+## Write
 
-One text package, in this order. Sections in `{{braces}}` come from Channel notes
-and are dropped when the note is empty.
+One call per batch of fields: `set_video_meta(video_id, patch, rev)`. A patch replaces
+whole fields (a list patch is the new list, not an append), and the rev must be the
+one you just read — if the write comes back stale, re-read the record, re-apply and
+write again. The user may be typing in the Publish workspace while you work.
+
+The fields, with their exact shapes:
 
 ```
-TITLE OPTIONS
-1. [hook-led, under 70 characters]
-2. [search-friendly alternative]
-3. [third angle]
-
-=====================================================================
-DESCRIPTION
-=====================================================================
-
-[Opening paragraph, 2 to 3 sentences. Lead with the problem or the claim,
-not with "In this video". The first 150 characters have to work alone.]
-
-[Second paragraph, 2 to 4 sentences. What is actually shown, in order.
-Name the demo, the repo, the numbers, as said.]
-
-{{Recorded-at line}}
-
-WHAT YOU'LL LEARN
-- [4 to 6 concrete points, each useful on its own]
-
-CHAPTERS
-00:00 [label, at most 6 words]
-[one line per chapter]
-
-LINKS
-[Resources named in the video, one per line]
-{{Link rows}}
-
-{{Speaker block}}
-
-{{Footer}}
-
-#Hashtag #Hashtag [8 to 15, {{Default hashtags}} first]
-
-=====================================================================
-TAGS
-=====================================================================
-[one comma-separated line, at most 500 characters, specific before broad]
-
-=====================================================================
-SHORT DESCRIPTION
-=====================================================================
-[One sentence under 150 characters for cards, playlists and social.]
-
-=====================================================================
-SHORTS
-=====================================================================
-CAPTION
-[Line 1: the single claim or question, under 100 characters.]
-[Lines 2 to 3: context, who is speaking. Under 300 characters in total.]
-
-Full video: [FULL VIDEO URL]
-
-#Shorts #Hashtag [6 to 10]
-
-CLIP CANDIDATES
-[2 to 3 moments, each: start-end timestamp, one line on why it stands alone.
-Self-contained claims, surprising numbers, a demo that failed instructively,
-a quotable line. Timestamps from the transcript.]
-
-=====================================================================
-THUMBNAIL IDEAS
-=====================================================================
-[2 to 3 briefs: headline of at most 4 words, one line of visual suggestion.
-Text only; CapForge does not generate images.]
-
-=====================================================================
-NOTES
-=====================================================================
-Source: CapForge transcript, [file name], [duration]
-Description: [n] characters, [n] bytes
-Shorts caption: [n] characters
-Chapters: [n], first 00:00, minimum gap [n]s
-[Placeholders still open, e.g. the full video URL]
-[House-rule checks and their result]
+title              one line, at most 100 characters
+title_options      3 angles: hook-led, search-friendly, a third; each at most 100
+description        plain text, at most 5000 bytes, first 150 characters stand alone
+short_description  one sentence, at most 200 characters, for cards and social
+chapters           [{"start_s": 61.25, "title": "The budget problem"}]
+tags               ["kubernetes", "cost control"]  (specific before broad)
+hashtags           ["#Kubernetes", "#DevOps"]      (8 to 15, the brief's defaults first)
+keywords           ["autoscaling", "spot instances"]  (the brief may set a count)
+summary_md         a markdown summary for reuse elsewhere
+highlights         [{"text": "What you'll learn line", "start_s": 61.25, "end_s": 74.0}]
+quotes             [{"text": "verbatim line", "start_s": 61.25, "end_s": 74.0}]
+tools_mentioned    ["kubectl", "k9s"]  (only what the speaker named)
+links              [{"label": "Repo", "url": "https://example.com"}]
+speakers           {"SPEAKER_00": {"name": "Ada Lovelace", "handle": "@ada", "url": "https://…"}}
+shorts             {"caption": "…", "clip_suggestions": [{"start_s": 61.25, "end_s": 95.0, "why": "…"}]}
+thumbnail          {"ideas": [{"label": "Budget", "type": "face", "headline": "≤4 words",
+                               "subtext": "one line", "visual_suggestion": "one line",
+                               "recommended": true}]}
 ```
 
-## Chapters
+Notes on the content, not the shape:
 
-Candidates, in order of preference: speaker changes, long pauses between segments,
-a topic shift you can name in a few words, a number or demo the speaker announces.
-Snap each chapter to the start of the segment where the topic begins. Do not pad to
-reach a count; six good chapters beat twelve thin ones.
+- The description's opening paragraph leads with the problem or the claim, never with
+  "In this video". The second says what is actually shown, in order.
+- Highlights are the "what you'll learn" lines — 4 to 6, each useful on its own, each
+  carrying the time it is said.
+- Chapter titles are at most 6 words. Do not pad to reach a count; six good chapters
+  beat twelve thin ones. Candidates in order of preference: speaker changes, long
+  pauses, a topic shift you can name, a number or demo the speaker announces. Snap
+  each one to the start of the segment where the topic begins, and dry-run the list
+  with `check_chapters(video_id, chapters)` before writing it.
+- Clip candidates are 2 to 3 self-contained moments: a surprising number, a demo that
+  failed instructively, a quotable line.
+- Thumbnail ideas are text only; CapForge does not generate images.
+- The speakers map is keyed by the diarized id in the transcript (SPEAKER_00, …).
 
-## Before you finish
+## Validate
 
-State the result of each check in NOTES.
+`validate_video(video_id)` after writing. It answers `{hard, style, ok}`:
 
-1. Title options are all at most 100 characters.
-2. Description is at most 5000 bytes, and the first 150 characters stand alone.
-3. No `<` or `>` in title, description or tags; tags line at most 500 characters.
-4. Chapters: `00:00` first, at least three, ascending, gaps of at least 10 seconds,
-   all inside the duration.
-5. Shorts caption body under 300 characters and the full-video line is present.
-6. Every tool, number and claim appears in the transcript.
-7. Every House rule in Channel notes is applied.
+- **hard** — YouTube's limits and the chapter rules. Fix every one and write again.
+  CapForge refuses a write that breaks one, so a hard finding never sits unnoticed.
+- **style** — the channel brief's house rules (no em dashes, a description length
+  window, a keyword count, a hook in the first 150 characters). Fix them unless the
+  user told you otherwise in this conversation; they never block a write.
 
-## Saving
+Only `ok: true` means the record is ready to hand over.
 
-1. `write_workspace_file("notes/youtube.txt", package)`. The folder is keyed to the
-   open video and survives across sessions; CapForge never deletes it. If the file
-   already exists and the user did not ask to refresh it, write
-   `notes/youtube-2.txt` instead of overwriting.
-2. Tell the user the workspace path from `get_workspace` so they can find the file.
-3. Present the package in the conversation as well, ready to copy.
+## Present
 
-In a later session with the same video open, `read_workspace_file("notes/youtube.txt")`
-brings the package back for edits, a Shorts caption, a second platform, or to
-fill a placeholder the user has now answered (a speaker name, the published URL).
-Read it before regenerating anything; the stored package is the source of truth.
+1. `get_upload_package(video_id)` returns the rendered text plus any violations still
+   open. Show the text in the conversation, ready to copy, and name anything left in
+   `violations` instead of hiding it.
+2. Tell the user the package also lives in CapForge's Publish workspace, where every
+   field is editable and "Copy upload package" copies the same text.
+3. A file copy is optional: if the user wants one,
+   `write_workspace_file("notes/youtube.txt", text)` stores it beside the video, and
+   `get_workspace()` tells them where that folder is. The record, not the file, is the
+   source of truth.
 
-If CapForge is not open but the user has a transcript file, you can still write the
-package to the working folder as `<video name>-youtube.txt`; say that it was not
-stored in CapForge.
+## Later
+
+- When the user pastes the published URL, call `mark_published(video_id, url)`. That
+  is what moves the record to `published`; CapForge uploads nothing.
+- A later run starts by reading the record again (`get_video`), not by regenerating.
+  Fill the placeholder the user has now answered, or change the one field they asked
+  about, and read the package again.
+- If an earlier run saved the optional file, `read_workspace_file("notes/youtube.txt")`
+  brings that copy back — but it is a snapshot: the record wins wherever they differ.
+
+## Push to Update-conf (optional)
+
+Only when the user asks, and only if a conference-site MCP with
+set_session_enrichment is connected. Map the record onto its fields:
+
+```
+description                → youtubeDescription
+short_description          → youtubeShortDescription   (at most 200 characters)
+highlights[].text          → highlights
+links                      → customLinks
+thumbnail.ideas            → youtubeThumbnailHooks     (at most 5; label, type,
+                             headline, subtext, visualSuggestion, recommended)
+summary_md                 → longDescriptionMd
+publish.youtube.url        → videoUrl
+```
+
+Then record the push on the record itself with `set_video_meta`, so the next session
+knows it happened:
+
+```
+external_refs   {"updateconf": {"sessionId": "…", "url": "https://…"}}
+publish         {"pushes": [{"target": "updateconf", "at": "2026-09-14T10:00:00Z",
+                             "fields": ["youtubeDescription", "highlights"]}]}
+```
+
+Read the record first and send the whole `publish` object back — a patch replaces the
+field, so a partial one would drop the YouTube block beside it.

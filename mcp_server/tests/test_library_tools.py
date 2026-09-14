@@ -618,3 +618,44 @@ def test_validation_errors_name_the_refused_field(monkeypatch) -> None:
 
     assert "rev" in text and "Extra inputs are not permitted" in text
     assert "422 Unprocessable" not in text
+
+
+# --- a 422 carrying violations is a refusal, not a pydantic complaint ---------
+
+def violations_error(detail: str, violations: list) -> httpx.HTTPStatusError:
+    request = httpx.Request("PATCH", f"http://127.0.0.1/api/library/{VIDEO_ID}")
+    response = httpx.Response(
+        422, request=request, json={"detail": detail, "violations": violations}
+    )
+    return httpx.HTTPStatusError("422", request=request, response=response)
+
+
+def test_set_video_meta_maps_a_violations_422_into_a_readable_refusal(monkeypatch) -> None:
+    """The hard rules run before the write: the agent must see field and rule."""
+    refused = [
+        {"field": "title", "rule": "TITLE_MAX_CHARS",
+         "message": "Title is 118 characters; the limit is 100", "severity": "hard"},
+    ]
+    stub = _use(monkeypatch, StubClient())
+    stub.raises = violations_error("CapForge refused the write", refused)
+
+    out = library.set_video_meta(VIDEO_ID, {"title": "x" * 118}, rev=3)
+
+    assert out["status"] == "error"
+    assert out["reason"] == "violations"
+    assert out["detail"] == "CapForge refused the write"
+    assert out["violations"] == refused
+    assert stub.patches == []
+
+
+def test_a_pydantic_422_still_takes_the_field_summary_path(monkeypatch) -> None:
+    """Only a body carrying `violations` is a rule refusal — the rest are 422s."""
+    stub = _use(monkeypatch, StubClient())
+    stub.raises = http_error(
+        422, [{"loc": ["body", "rev"], "msg": "Extra inputs are not permitted"}]
+    )
+
+    out = library.set_video_meta(VIDEO_ID, {"title": "T"}, rev=3)
+
+    assert out["status"] == "error" and "reason" not in out
+    assert "rev" in out["error"]

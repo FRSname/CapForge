@@ -23,6 +23,9 @@ IF_MATCH_HEADER = "If-Match"
 #: Prefix of the library routes (`backend/library/router.py`).
 LIBRARY_PATH = "/api/library"
 
+#: The channel brief — one file for the whole library, not a per-record route.
+BRIEF_PATH = f"{LIBRARY_PATH}/brief"
+
 #: transcription/render can take minutes; reads are quick.
 _LONG_TIMEOUT = httpx.Timeout(None)
 _SHORT_TIMEOUT = httpx.Timeout(30.0)
@@ -261,6 +264,28 @@ class CapForgeClient:
         # that one rule in one place.
         params = _query({"query": query, "kind": kind})
         return self._request("GET", f"{LIBRARY_PATH}/{quote(video_id)}/moments?{params}")
+
+    # -- the brief, the validators and the upload package ------------------
+    def library_brief_get(self) -> Any:
+        return self._request("GET", BRIEF_PATH)
+
+    def library_brief_patch(self, patch: dict) -> Any:
+        """Merge top-level fields into the channel brief; returns the merged one.
+
+        No `If-Match`: the brief is one small file shared by every record, not a
+        record with a `rev` two writers can race on (plan §Contracts)."""
+        return self._request("PATCH", BRIEF_PATH, json=patch)
+
+    def library_validate(self, body: dict) -> Any:
+        """Run the publish rules. Body: `{fields?, duration?, video_id?}` — with
+        a `video_id`, whatever is missing is read from the record."""
+        return self._request("POST", f"{LIBRARY_PATH}/validate", json=body)
+
+    def library_package(self, video_id: str, platform: str = "youtube") -> Any:
+        query = _query({"platform": platform})
+        return self._request(
+            "GET", f"{LIBRARY_PATH}/{quote(video_id)}/package?{query}"
+        )
 
     # -- co-author workspace ---------------------------------------------
     def get_workspace(self) -> Any:

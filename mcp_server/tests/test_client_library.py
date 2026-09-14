@@ -209,3 +209,43 @@ def test_a_connect_error_becomes_backend_not_found(capforge, monkeypatch):
 
     with pytest.raises(BackendNotFound):
         capforge.library_get("abc")
+
+
+# --- the brief, the validators and the package ------------------------------
+
+def test_library_brief_get_and_patch(capforge, monkeypatch):
+    rec = _record(monkeypatch)
+
+    capforge.library_brief_get()
+    assert rec.last["method"] == "GET"
+    assert rec.last["url"] == f"{BASE}/api/library/brief"
+
+    capforge.library_brief_patch({"channel": "CapForge"})
+    assert rec.last["method"] == "PATCH"
+    assert rec.last["url"] == f"{BASE}/api/library/brief"
+    assert rec.last["json"] == {"channel": "CapForge"}
+    # No If-Match: the brief is one small file, not a record (plan §Contracts).
+    assert "If-Match" not in rec.last["headers"]
+    assert rec.last["headers"][AGENT_TOKEN_HEADER] == TOKEN
+
+
+def test_library_validate_posts_the_body_verbatim(capforge, monkeypatch):
+    rec = _record(monkeypatch)
+    body = {"fields": {"title": "T"}, "duration": 92.5, "video_id": "abc123"}
+
+    capforge.library_validate(body)
+
+    assert rec.last["method"] == "POST"
+    assert rec.last["url"] == f"{BASE}/api/library/validate"
+    assert rec.last["json"] == body
+
+
+def test_library_package_defaults_to_youtube(capforge, monkeypatch):
+    rec = _record(monkeypatch)
+
+    capforge.library_package("abc 123")
+    assert rec.last["method"] == "GET"
+    assert rec.last["url"] == f"{BASE}/api/library/abc%20123/package?platform=youtube"
+
+    capforge.library_package("abc123", platform="youtube")
+    assert rec.last["url"] == f"{BASE}/api/library/abc123/package?platform=youtube"

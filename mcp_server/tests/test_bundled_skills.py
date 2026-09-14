@@ -26,36 +26,70 @@ MOMENT_KINDS = {"numbers", "cta", "speaker_change"}
 
 # Tools a given skill cannot work without (keyed by folder name).
 REQUIRED_TOOLS = {
+    # The publish loop of docs/plans/publish-workspace.md: read the record and
+    # the brief, write fields, validate, render the package, mark it published.
     "capforge-publish": {
-        "get_status",
+        "get_video",
+        "get_brief",
+        "set_video_meta",
+        "validate_video",
+        "get_upload_package",
+        "find_video_moments",
         "get_transcript",
-        "find_semantic_moments",
-        "find_moments",
-        "get_workspace",
-        "read_workspace_file",
-        "write_workspace_file",
+        "mark_published",
     },
 }
 
+# Modules whose tools are decorated inline with `@mcp.tool()`.
+_DECORATED_MODULES = ("server.py",)
+
+# Modules that hand `register()` a `TOOLS` tuple instead (server.py is at its
+# size ceiling, so the newer groups live beside it and register the same way).
+_TOOL_GROUP_MODULES = ("library.py", "publish.py", "tracks.py")
+
+
+def _decorated_tools(tree: ast.Module) -> set[str]:
+    """Every function carrying an `@mcp.tool()` decorator in one module."""
+    names: set[str] = set()
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for dec in node.decorator_list:
+            target = dec.func if isinstance(dec, ast.Call) else dec
+            if (
+                isinstance(target, ast.Attribute)
+                and target.attr == "tool"
+                and isinstance(target.value, ast.Name)
+                and target.value.id == "mcp"
+            ):
+                names.add(node.name)
+    return names
+
+
+def _tool_group(tree: ast.Module) -> set[str]:
+    """The names inside a module's `TOOLS = (…)` tuple — what `register()` adds."""
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        if "TOOLS" not in targets or not isinstance(node.value, (ast.Tuple, ast.List)):
+            continue
+        return {e.id for e in node.value.elts if isinstance(e, ast.Name)}
+    return set()
+
+
+def _parse(module: str) -> ast.Module:
+    return ast.parse((MCP_DIR / module).read_text(encoding="utf-8"))
+
 
 def _registered_tools() -> set[str]:
-    """Names of every `@mcp.tool()` function across the server modules (source
-    parse, so the test needs neither the `mcp` package nor a running app)."""
+    """Every tool name the server registers, decorated or via a tool group (a
+    source parse, so the test needs neither the `mcp` package nor a running app)."""
     names: set[str] = set()
-    for module in ("server.py", "tracks.py"):
-        tree = ast.parse((MCP_DIR / module).read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.FunctionDef):
-                continue
-            for dec in node.decorator_list:
-                target = dec.func if isinstance(dec, ast.Call) else dec
-                if (
-                    isinstance(target, ast.Attribute)
-                    and target.attr == "tool"
-                    and isinstance(target.value, ast.Name)
-                    and target.value.id == "mcp"
-                ):
-                    names.add(node.name)
+    for module in _DECORATED_MODULES:
+        names |= _decorated_tools(_parse(module))
+    for module in _TOOL_GROUP_MODULES:
+        names |= _tool_group(_parse(module))
     return names
 
 
@@ -100,8 +134,9 @@ def test_moment_kinds_match_the_detector() -> None:
         assert f'"{kind}"' in doc, f"find_semantic_moments no longer documents kind {kind!r}"
 
 
-def test_publish_skill_saves_into_the_sanctioned_notes_file() -> None:
-    """The day-zero convention: one text package at notes/youtube.txt."""
+def test_publish_skill_still_knows_the_optional_notes_file() -> None:
+    """The package now lives on the record; the text file is the opt-in copy, at
+    the day-zero path (docs/plans/publish-workspace.md §Skill port)."""
     text = _skill_text(SKILLS_DIR / "capforge-publish")
     assert 'write_workspace_file("notes/youtube.txt"' in text
     assert 'read_workspace_file("notes/youtube.txt")' in text

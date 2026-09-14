@@ -26,6 +26,7 @@ import {
   type AppSettingsCategoryId,
 } from '../../lib/appSettingsIndex'
 import { IconButton } from '../ui/IconButton'
+import { BriefSettings } from './BriefSettings'
 import { ClaudeSettings } from './ClaudeSettings'
 import { GeneralSettings } from './GeneralSettings'
 import { ShortcutsSettings } from './ShortcutsSettings'
@@ -176,6 +177,7 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
             {category === 'general' && (
               <GeneralSettings lightMode={lightMode} onLightModeChange={setLightMode} />
             )}
+            {category === 'channel' && <BriefSettings />}
             {category === 'transcription' && <TranscriptionSettings />}
             {category === 'claude' && <ClaudeSettings />}
             {category === 'shortcuts' && <ShortcutsSettings />}

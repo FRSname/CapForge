@@ -7,6 +7,7 @@
  */
 
 import { describe, expect, test } from 'vitest'
+import type { Workspace } from '../types/app'
 import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
 import { createTrackFromSource, displayGroupsFor } from './tracks'
 import { classifyTrack } from './trackStaleness'
@@ -25,6 +26,7 @@ import {
 
 const BODY_KEYS = [
   'screen',
+  'workspace',
   'settings',
   'groups',
   'presets',
@@ -57,9 +59,15 @@ function fixture() {
   return { source, polish }
 }
 
-function core(track = fixture().source, screen = 'results', activeVideoId: string | null = null) {
+function core(
+  track = fixture().source,
+  screen = 'results',
+  activeVideoId: string | null = null,
+  workspace: Workspace = 'captions'
+) {
   return buildUiStateCore({
     screen,
+    workspace,
     activeTrack: track,
     activeDisplayGroups: displayGroupsFor(track),
     builtinPresets: ['Bold Yellow'],
@@ -81,6 +89,12 @@ describe('buildUiStateCore', () => {
     expect(c.presetsDetail).toEqual({ builtin: ['Bold Yellow'], user: ['My Look'] })
     expect(c.appliedPreset).toBeNull()
     expect(c.render.config).toBeTruthy()
+  })
+
+  test('the workspace axis rides the core (Publish workspace)', () => {
+    // Default and switched: the agent reads which aside the user is looking at.
+    expect(core().workspace).toBe('captions')
+    expect(core(fixture().source, 'results', 'vid_abc', 'publish').workspace).toBe('publish')
   })
 
   test('the three additive scalars ride alongside', () => {
@@ -227,6 +241,7 @@ describe('the merged body', () => {
     const classifications = [null, classifyTrack(polish, source)]
     const oneShot = buildUiStateBody({
       screen: 'results',
+      workspace: 'captions',
       activeTrack: source,
       activeDisplayGroups: displayGroupsFor(source),
       builtinPresets: ['Bold Yellow'],

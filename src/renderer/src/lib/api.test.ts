@@ -1,5 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { api, formatValidationDetail, normalizeResult, type TranscriptionResult } from './api'
+import {
+  api,
+  formatValidationDetail,
+  normalizeResult,
+  StaleRecordError,
+  ValidationRefusedError,
+  type TranscriptionResult,
+} from './api'
 
 /** Minimal fetch Response stand-in — only the members api.ts actually reads. */
 function jsonResponse(
@@ -24,6 +31,7 @@ describe('CapForgeAPI', () => {
     // Reset the singleton's mutable state so tests don't leak into each other.
     api.setPort(53421)
     api.setLocalToken('')
+    api.resetBridge()
   })
 
   afterEach(() => {
@@ -674,5 +682,286 @@ describe('formatValidationDetail', () => {
     expect(formatValidationDetail([])).toBe('')
     expect(formatValidationDetail(['not an object'])).toBe('')
     expect(formatValidationDetail([{ msg: 'no loc at all' }])).toBe('no loc at all')
+  })
+})
+
+/**
+ * The Publish workspace's half of the client: the gated library-record routes,
+ * the two structured refusals a `PATCH` can answer with, and the
+ * `record_updated` dispatch that reaches subscribers without AgentLiveSync
+ * knowing anything about it.
+ */
+describe('publish routes', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  /** The minimum a record body needs to survive `parsePublishRecord`. */
+  function recordBody(over: Record<string, unknown> = {}) {
+    return { id: 'vid_1', rev: 3, title: 'Talk', ...over }
+  }
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    api.setPort(53421)
+    api.setLocalToken('tok')
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test('getLibraryRecord sends the local token and parses the dossier', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(recordBody({ chapters: [{ start_s: 0, title: 'A' }] })))
+
+    const record = await api.getLibraryRecord('vid 1')
+
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:53421/api/library/vid%201', {
+      headers: { 'X-CapForge-Local-Token': 'tok' },
+    })
+    expect(record.rev).toBe(3)
+    expect(record.chapters).toEqual([{ start_s: 0, title: 'A' }])
+  })
+
+  test('patchLibraryRecord PATCHes with If-Match set to the revision it read', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(recordBody({ rev: 4, title: 'New' })))
+
+    const record = await api.patchLibraryRecord('vid_1', { title: 'New' }, 3)
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('http://127.0.0.1:53421/api/library/vid_1')
+    expect(init.method).toBe('PATCH')
+    expect(init.headers['If-Match']).toBe('3')
+    expect(init.headers['X-CapForge-Local-Token']).toBe('tok')
+    expect(JSON.parse(init.body)).toEqual({ title: 'New' })
+    expect(record.title).toBe('New')
+  })
+
+  test('a 409 throws StaleRecordError carrying the current record', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { detail: 'Record moved', current: recordBody({ rev: 9, title: 'Claude wrote this' }) },
+        { ok: false, status: 409 }
+      )
+    )
+
+    const err = await api.patchLibraryRecord('vid_1', { title: 'Mine' }, 3).catch((e) => e)
+
+    expect(err).toBeInstanceOf(StaleRecordError)
+    expect(err.message).toBe('Record moved')
+    expect(err.current?.rev).toBe(9)
+    expect(err.current?.title).toBe('Claude wrote this')
+  })
+
+  test('a 409 whose current is unusable still reports the collision', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ detail: 'Record moved', current: { no: 'id' } }, { ok: false, status: 409 })
+    )
+
+    const err = await api.patchLibraryRecord('vid_1', { title: 'Mine' }, 3).catch((e) => e)
+
+    expect(err).toBeInstanceOf(StaleRecordError)
+    expect(err.current).toBeNull()
+  })
+
+  test('a 422 throws ValidationRefusedError carrying the findings', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        {
+          detail: 'Refused',
+          violations: [
+            { field: 'title', rule: 'TITLE_MAX_CHARS', message: 'Too long', severity: 'hard' },
+          ],
+        },
+        { ok: false, status: 422 }
+      )
+    )
+
+    const err = await api.patchLibraryRecord('vid_1', { title: 'x'.repeat(200) }, 3).catch((e) => e)
+
+    expect(err).toBeInstanceOf(ValidationRefusedError)
+    expect(err.violations).toHaveLength(1)
+    expect(err.violations[0].field).toBe('title')
+  })
+
+  test('an unstructured failure still surfaces the generic message', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ detail: 'Record not found' }, { ok: false, status: 404 })
+    )
+
+    const err = await api.patchLibraryRecord('gone', { title: 'x' }, 1).catch((e) => e)
+
+    expect(err).not.toBeInstanceOf(StaleRecordError)
+    expect(err).not.toBeInstanceOf(ValidationRefusedError)
+    expect(err.message).toBe('Record not found')
+  })
+
+  test('the brief round-trips through its own routes, without If-Match', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ channel: 'CapForge', house_rules: {} }))
+
+    await api.getBrief()
+    const brief = await api.patchBrief({ channel: 'CapForge' })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:53421/api/library/brief')
+    expect(fetchMock.mock.calls[1][1].headers['If-Match']).toBeUndefined()
+    expect(brief.channel).toBe('CapForge')
+    // A brief with no stored rules still answers with the documented defaults.
+    expect(brief.house_rules.hook_first_150).toBe(true)
+    expect(brief.house_rules.description_chars).toBeNull()
+  })
+
+  test('validateFields posts the unsaved text and returns the findings', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ violations: [{ field: 'description', rule: 'r', message: 'm' }] })
+    )
+
+    const violations = await api.validateFields({ fields: { title: 'x' }, duration: 60 })
+
+    expect(fetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:53421/api/library/validate')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({
+      fields: { title: 'x' },
+      duration: 60,
+    })
+    // An unlabelled severity is read as the strict one.
+    expect(violations[0].severity).toBe('hard')
+  })
+
+  test('getUploadPackage asks for a platform and keeps the violations riding along', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ platform: 'youtube', text: 'TITLE OPTIONS', violations: [] })
+    )
+
+    const pkg = await api.getUploadPackage('vid_1')
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://127.0.0.1:53421/api/library/vid_1/package?platform=youtube'
+    )
+    expect(pkg.text).toBe('TITLE OPTIONS')
+  })
+
+  test('getLibraryMoments returns the usable matches only', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({
+        matches: [
+          { text: 'So then', start: 12.5, end: 13, word_id: 'w1', gap: 1.2 },
+          { text: 'no start at all' },
+        ],
+      })
+    )
+
+    const moments = await api.getLibraryMoments('vid_1', 'pause')
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://127.0.0.1:53421/api/library/vid_1/moments?kind=pause'
+    )
+    expect(moments).toHaveLength(1)
+    expect(moments[0].gap).toBe(1.2)
+  })
+})
+
+describe('record_updated dispatch', () => {
+  /** The socket `connectControl` opened, so a message can be pushed into it. */
+  function openControlSocket() {
+    let socket: { onmessage?: (e: { data: string }) => void } = {}
+    vi.stubGlobal(
+      'WebSocket',
+      class {
+        onopen: (() => void) | null = null
+        onclose: (() => void) | null = null
+        onerror: (() => void) | null = null
+        onmessage: ((e: { data: string }) => void) | null = null
+        close() {}
+        constructor() {
+          socket = this as unknown as typeof socket
+        }
+      }
+    )
+    api.connectControl({})
+    return socket
+  }
+
+  afterEach(() => {
+    api.disconnectControl()
+    vi.unstubAllGlobals()
+  })
+
+  test('a record_updated frame reaches every subscriber, camelCased', () => {
+    const socket = openControlSocket()
+    const seen: unknown[] = []
+    const off = api.onRecordUpdated((e) => seen.push(e))
+
+    socket.onmessage?.({
+      data: JSON.stringify({ type: 'record_updated', video_id: 'vid_1', rev: 7, by: 'agent' }),
+    })
+
+    expect(seen).toEqual([{ videoId: 'vid_1', rev: 7, by: 'agent' }])
+    off()
+  })
+
+  test('unsubscribing stops the dispatch', () => {
+    const socket = openControlSocket()
+    const seen: unknown[] = []
+    const off = api.onRecordUpdated((e) => seen.push(e))
+
+    off()
+    socket.onmessage?.({
+      data: JSON.stringify({ type: 'record_updated', video_id: 'vid_1', rev: 7, by: 'agent' }),
+    })
+
+    expect(seen).toEqual([])
+  })
+})
+
+
+describe('bridge readiness (the empty-library-after-launch race)', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    api.setPort(53421)
+    api.setLocalToken('')
+    api.resetBridge()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test('a library call made before AgentLiveSync configured the client still resolves port + token', async () => {
+    const getBackendPort = vi.fn().mockResolvedValue(52690)
+    const getLocalToken = vi.fn().mockResolvedValue('launch-token')
+    vi.stubGlobal('window', { subforge: { getBackendPort, getLocalToken } })
+    fetchMock.mockResolvedValue(jsonResponse({ videos: [] }))
+
+    await api.listLibrary()
+    await api.listLibrary()
+
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:52690/api/library', {
+      headers: { 'X-CapForge-Local-Token': 'launch-token' },
+    })
+    // Resolved once, not per request.
+    expect(getBackendPort).toHaveBeenCalledTimes(1)
+    expect(getLocalToken).toHaveBeenCalledTimes(1)
+  })
+
+  test('an IPC failure rejects the request and is retried on the next call', async () => {
+    const getBackendPort = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('bridge down'))
+      .mockResolvedValue(52690)
+    vi.stubGlobal('window', {
+      subforge: { getBackendPort, getLocalToken: vi.fn().mockResolvedValue('t') },
+    })
+    fetchMock.mockResolvedValue(jsonResponse({ videos: [] }))
+
+    await expect(api.listLibrary()).rejects.toThrow('bridge down')
+    await expect(api.listLibrary()).resolves.toEqual([])
+    expect(getBackendPort).toHaveBeenCalledTimes(2)
+  })
+
+  test('without the Electron bridge (node tests) requests go straight through', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ videos: [] }))
+    await expect(api.listLibrary()).resolves.toEqual([])
+    expect(fetchMock).toHaveBeenCalledWith('http://127.0.0.1:53421/api/library', { headers: {} })
   })
 })

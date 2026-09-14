@@ -1,8 +1,11 @@
 # Example: a conference channel
 
 A filled-in **Channel notes** block for a channel that publishes recorded conference
-sessions, plus an optional second destination. Copy what fits into your own
-`SKILL.md`; the workflow and YouTube rules stay as they are.
+sessions, plus an optional second destination.
+
+These values now live in CapForge's **channel brief** (Settings → Channel, or
+`get_brief` / `set_brief`), not in `SKILL.md` — this file is the worked example of
+what to put there. The workflow and YouTube rules stay as they are.
 
 ## Channel notes
 
