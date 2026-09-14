@@ -92,6 +92,13 @@ interface ResultsScreenProps {
   onAlignmentDegraded?: () => void
   /** Ref App.tsx uses to reach into the mounted editor (agent edits + undo). */
   projectIORef?: React.MutableRefObject<ProjectIOHandle | null>
+  /**
+   * Publish workspace: a one-shot seek request (a chapter row was clicked),
+   * forwarded to `AudioPlayer` alongside this screen's own seek target.
+   */
+  seekTo?: number | null
+  /** Publish workspace: the playhead, forwarded from `AudioPlayer`. */
+  onTimeUpdate?: (time: number) => void
   /** Fires whenever undo/redo availability changes so App can surface buttons in TitleBar. */
   onUndoRedoChange?: (state: {
     undo: () => void
@@ -118,6 +125,8 @@ export function ResultsScreen({
   groupStates,
   reflowNeeded = false,
   staleCount = 0,
+  seekTo: externalSeekTo = null,
+  onTimeUpdate: onPlayheadTime,
   onReflow,
   onTrackStateChange,
   onAlignmentDegraded,
@@ -406,7 +415,13 @@ export function ResultsScreen({
     })
   }, [view])
 
-  const handleTimeUpdate = useCallback((t: number) => setCurrentTime(t), [])
+  const handleTimeUpdate = useCallback(
+    (t: number) => {
+      setCurrentTime(t)
+      onPlayheadTime?.(t)
+    },
+    [onPlayheadTime]
+  )
 
   const handleSeek = useCallback((t: number) => {
     setCurrentTime(t)
@@ -707,7 +722,7 @@ export function ResultsScreen({
           resolution={settings.resolution}
           onTimeUpdate={handleTimeUpdate}
           onSeek={handleSeekDone}
-          seekTo={seekTarget}
+          seekTo={seekTarget ?? externalSeekTo}
           onSegmentEdge={handleSegmentEdge}
           onSegmentEdgeDragStart={handleSegmentEdgeDragStart}
           onWordEdge={handleWordEdge}

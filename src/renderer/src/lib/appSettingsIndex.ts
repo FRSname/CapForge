@@ -10,7 +10,12 @@
  * cannot find it.
  */
 
-export type AppSettingsCategoryId = 'general' | 'transcription' | 'claude' | 'shortcuts'
+export type AppSettingsCategoryId =
+  | 'general'
+  | 'channel'
+  | 'transcription'
+  | 'claude'
+  | 'shortcuts'
 
 export interface AppSettingsCategory {
   id: AppSettingsCategoryId
@@ -28,6 +33,7 @@ export interface AppSettingsEntry {
 /** Rail order, top to bottom. */
 export const APP_SETTINGS_CATEGORIES: ReadonlyArray<AppSettingsCategory> = [
   { id: 'general', label: 'General' },
+  { id: 'channel', label: 'Channel' },
   { id: 'transcription', label: 'Transcription' },
   { id: 'claude', label: 'Claude & Skills' },
   { id: 'shortcuts', label: 'Shortcuts' },
@@ -44,6 +50,31 @@ export const APP_SETTINGS_ENTRIES: ReadonlyArray<AppSettingsEntry> = [
     category: 'general',
     label: 'Logs',
     keywords: ['log', 'folder', 'debug', 'diagnostics', 'troubleshoot'],
+  },
+  {
+    category: 'channel',
+    label: 'Channel brief',
+    keywords: ['brief', 'channel', 'audience', 'voice', 'publish', 'youtube'],
+  },
+  {
+    category: 'channel',
+    label: 'Default hashtags',
+    keywords: ['hashtag', 'tags', 'brief'],
+  },
+  {
+    category: 'channel',
+    label: 'Footer and link rows',
+    keywords: ['footer', 'links', 'link rows', 'boilerplate', 'brief'],
+  },
+  {
+    category: 'channel',
+    label: 'Recorded-at line and speaker block',
+    keywords: ['speaker', 'recorded', 'event', 'template', 'brief'],
+  },
+  {
+    category: 'channel',
+    label: 'House rules',
+    keywords: ['house rules', 'em dash', 'hook', 'keywords', 'description length', 'style'],
   },
   {
     category: 'transcription',

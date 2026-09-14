@@ -239,7 +239,7 @@ const DEFAULTS: StudioSettings = {
   resolutionIsSource: false,
 }
 
-interface StudioPanelProps {
+export interface StudioPanelProps {
   settings?: StudioSettings
   onChange?: (s: StudioSettings) => void
   /** Current display groups — sent as the render's custom_groups payload (useRender). */

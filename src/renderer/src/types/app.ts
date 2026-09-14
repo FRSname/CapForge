@@ -7,6 +7,15 @@
 export type Screen = 'library' | 'file' | 'progress' | 'results'
 
 /**
+ * Which aside the results screen shows for the open record.
+ *
+ * NOT a fifth `Screen`: both workspaces read the same open transcript and
+ * track store, and App keeps both asides mounted (toggled with `hidden`), so
+ * switching never costs a re-render of the editor or the player.
+ */
+export type Workspace = 'captions' | 'publish'
+
+/**
  * Per-word style overrides that take precedence over studio defaults.
  * Keys match the Python backend's renderer contract (renderSubtitleVideo).
  */

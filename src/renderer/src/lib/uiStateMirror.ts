@@ -16,7 +16,7 @@
  * Pure module: no React, no `window`, no I/O.
  */
 
-import type { Segment } from '../types/app'
+import type { Segment, Workspace } from '../types/app'
 import type { StudioSettings } from '../components/studio/StudioPanel'
 import { buildRenderBody, type RenderBody } from './render'
 import { trackToMirrorEntry } from './tracks'
@@ -71,6 +71,12 @@ export function renderEditedFlag(track: CaptionTrack): boolean {
 /** The seven legacy keys + the three additive scalars. */
 export interface UiStateCore {
   screen: string
+  /**
+   * Which aside the results screen is showing (`'captions'` | `'publish'`).
+   * The one key the Publish workspace adds to the mirror — an agent reads it
+   * to know whether the user is looking at the caption studio or the dossier.
+   */
+  workspace: Workspace
   settings: StudioSettings
   groups: Segment[]
   presets: string[]
@@ -93,6 +99,7 @@ export interface UiStateBody extends UiStateCore {
 
 export interface UiStateCoreInput {
   screen: string
+  workspace: Workspace
   activeTrack: CaptionTrack
   /** `displayGroupsFor(activeTrack)` — passed in so App's memo is reused. */
   activeDisplayGroups: Segment[]
@@ -106,6 +113,7 @@ export function buildUiStateCore(input: UiStateCoreInput): UiStateCore {
   const { activeTrack, activeDisplayGroups } = input
   return {
     screen: input.screen,
+    workspace: input.workspace,
     settings: activeTrack.settings,
     groups: activeDisplayGroups,
     // Kept for back-compat: existing agent prompts read `presets`.

@@ -24,7 +24,7 @@
  */
 
 import { useCallback, useEffect, useRef } from 'react'
-import type { Screen, Segment, TranscriptionResult } from '../types/app'
+import type { Screen, Segment, TranscriptionResult, Workspace } from '../types/app'
 import { api } from '../lib/api'
 import { builtinPresetNames } from '../lib/agentCommands'
 import type { CaptionTrack } from '../lib/tracks'
@@ -56,6 +56,8 @@ interface TrackInputs {
 
 export interface UiStateMirrorInput extends TrackInputs {
   screen: Screen
+  /** Which aside the results screen is showing — the mirror's only new key. */
+  workspace: Workspace
   /** Project metadata — the resync half's `result`, absent off the results screen. */
   result: TranscriptionResult | null
   activeTrack: CaptionTrack
@@ -68,6 +70,7 @@ export interface UiStateMirrorInput extends TrackInputs {
 
 export function useUiStateMirror({
   screen,
+  workspace,
   result,
   activeTrack,
   displayGroups,
@@ -119,6 +122,7 @@ export function useUiStateMirror({
       ...mirrorRef.current,
       core: {
         screen,
+        workspace,
         activeTrack,
         activeDisplayGroups: displayGroups,
         userPresetNames,
@@ -129,6 +133,7 @@ export function useUiStateMirror({
     scheduleMirror()
   }, [
     screen,
+    workspace,
     activeTrack,
     displayGroups,
     userPresetNames,
@@ -165,6 +170,7 @@ export function useUiStateMirror({
           : undefined,
         uiState: buildUiStateBody({
           screen,
+          workspace,
           activeTrack,
           activeDisplayGroups: displayGroups,
           builtinPresets: builtinPresetNames(),
@@ -180,6 +186,7 @@ export function useUiStateMirror({
     return () => api.registerResync(null)
   }, [
     screen,
+    workspace,
     result,
     activeTrack,
     displayGroups,

@@ -11,9 +11,10 @@ import {
 } from './appSettingsIndex'
 
 describe('APP_SETTINGS_CATEGORIES', () => {
-  test('is the four panes in rail order', () => {
+  test('is the five panes in rail order', () => {
     expect(APP_SETTINGS_CATEGORIES.map((c) => c.id)).toEqual([
       'general',
+      'channel',
       'transcription',
       'claude',
       'shortcuts',
@@ -34,7 +35,13 @@ describe('filterAppSettings', () => {
     const res = filterAppSettings('')
 
     // Assert
-    expect(res.categories).toEqual(['general', 'transcription', 'claude', 'shortcuts'])
+    expect(res.categories).toEqual([
+      'general',
+      'channel',
+      'transcription',
+      'claude',
+      'shortcuts',
+    ])
     expect(res.entries).toEqual([])
   })
 
