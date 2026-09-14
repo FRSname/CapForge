@@ -100,7 +100,12 @@ from backend.models.schemas import (
     WarmRequest,
 )
 from backend import workspace_fs
-from backend.library.router import build_router as build_library_router, get_store as library_store
+from backend.library.router import (
+    build_router as build_library_router,
+    get_store as library_store,
+    record_id_for_media,
+    require_openable_record,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -189,9 +194,19 @@ current_ui_state: Optional[dict] = None
 # `reflow_track`) are commands like the rest: the renderer owns tracks, applies
 # them to its own state and echoes the outcome in the mirror. The backend keeps
 # no track state and implements no track rule.
+# `open_video` is `load_video`'s library twin: it restores a *stored* record's
+# session snapshot in the window. It is validated before the broadcast
+# (`require_openable_record`) because a record with nothing to restore is a
+# failure the window has no way to report.
+#: The one op that needs an open *window*, not just a running backend.
+NO_WINDOW_FOR_OPEN_VIDEO = (
+    "CapForge is running but no window is open — click the Dock icon, "
+    "then retry open_video"
+)
 TRACK_COMMAND_OPS = ("create_track", "set_track_text", "reflow_track")
 AGENT_COMMAND_OPS = {
-    "set_settings", "apply_preset", "set_word_overrides", "load_video", *TRACK_COMMAND_OPS,
+    "set_settings", "apply_preset", "set_word_overrides", "load_video", "open_video",
+    *TRACK_COMMAND_OPS,
 }
 
 # Render-approval gate. An agent-triggered final HyperFrames render must be
@@ -856,6 +871,7 @@ async def agent_command(cmd: dict):
         raise HTTPException(status_code=400, detail=f"Unknown command op: {op!r}")
 
     payload = cmd.get("payload", {}) or {}
+    result: dict = {"status": "ok"}
 
     if op == "load_video":
         # Validate here rather than broadcasting a command the renderer would
@@ -871,6 +887,18 @@ async def agent_command(cmd: dict):
                 status_code=409,
                 detail="Open CapForge to load a video — no UI is connected.",
             )
+        # The record is the library's half of a load; a failure to write it is
+        # logged there and costs only the `video_id` key (see record_id_for_media).
+        video_id = record_id_for_media(path)
+        if video_id is not None:
+            result = {**result, "video_id": video_id}
+
+    if op == "open_video":
+        # What the window cannot report — an unknown id, or a record it has no
+        # snapshot to restore — is answered at the agent's own call.
+        require_openable_record(_require_command_str(payload, "record_id", op))
+        if not ws_clients:
+            raise HTTPException(status_code=409, detail=NO_WINDOW_FOR_OPEN_VIDEO)
 
     if op in TRACK_COMMAND_OPS:
         _validate_track_command(op, payload)
@@ -881,7 +909,7 @@ async def agent_command(cmd: dict):
             )
 
     await broadcast_event({"type": "agent_command", "op": op, "payload": payload})
-    return {"status": "ok"}
+    return result
 
 
 async def _await_render_approval(meta: dict) -> bool:

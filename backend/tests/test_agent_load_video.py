@@ -56,14 +56,28 @@ def main_module():
 
 
 @pytest.fixture
-def client(main_module, monkeypatch):
+def home(tmp_path, monkeypatch):
+    """A throwaway CAPFORGE_HOME: load_video now creates a library record, and a
+    test must never write one into the developer's real library."""
+    path = tmp_path / "home"
+    monkeypatch.setenv("CAPFORGE_HOME", str(path))
+    return path
+
+
+@pytest.fixture
+def client(main_module, monkeypatch, home):
     """TestClient with a known agent token and one fake connected UI."""
+    from backend.library import router as library_router
+
     m = main_module
     monkeypatch.setattr(m, "AGENT_TOKEN", AGENT_TOKEN, raising=False)
     # A non-empty ws_clients stands in for "CapForge is open". broadcast_event
     # tolerates objects that fail to send, so a sentinel is enough.
     monkeypatch.setattr(m, "ws_clients", [object()], raising=False)
-    return TestClient(m.app)
+    try:
+        yield TestClient(m.app)
+    finally:
+        library_router.reset_store_cache()
 
 
 def _auth():
@@ -85,7 +99,10 @@ def test_accepts_an_existing_file(client, tmp_path):
     res = _post(client, {"path": str(video)})
 
     assert res.status_code == 200
-    assert res.json() == {"status": "ok"}
+    # `video_id` joined the response when load_video started creating the
+    # library record (docs/plans/mcp-library-tools.md); see test_agent_open_video.
+    assert res.json()["status"] == "ok"
+    assert res.json()["video_id"]
 
 
 def test_rejects_a_path_that_does_not_exist(client, tmp_path):
@@ -110,7 +127,7 @@ def test_rejects_a_missing_or_non_string_path(client, payload):
     assert "path" in res.json()["detail"].lower()
 
 
-def test_rejects_when_no_ui_is_connected(main_module, monkeypatch, tmp_path):
+def test_rejects_when_no_ui_is_connected(main_module, monkeypatch, tmp_path, home):
     """Nothing would receive the broadcast, so say so instead of returning ok."""
     m = main_module
     monkeypatch.setattr(m, "AGENT_TOKEN", AGENT_TOKEN, raising=False)

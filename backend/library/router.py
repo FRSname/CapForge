@@ -22,6 +22,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from backend.engine.moments import find_semantic_moments, find_transcript_moments
 from backend.library.errors import (
     MediaNotFound,
     RecordNotFound,
@@ -31,6 +32,7 @@ from backend.library.errors import (
 from backend.library.paths import library_root, record_dir, resolve_asset
 from backend.library.schemas import RecordPatch, RenderEntry, VideoRecord
 from backend.library.store import LibraryStore
+from backend.models.schemas import TranscriptionResult
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +40,16 @@ ROUTER_PREFIX = "/api/library"
 IF_MATCH_HEADER = "If-Match"
 #: Every asset rejection answers the same way, so a probe learns nothing.
 ASSET_NOT_FOUND = "Asset not found"
+#: 404 copy for the two routes that read what a saved session left behind.
+NO_PROJECT_DETAIL = "Record {id} has no stored project yet"
+#: What `open_video` answers for a record the window has nothing to restore from.
+NO_SNAPSHOT_DETAIL = (
+    "Record {id} has no session snapshot yet — open it in CapForge once "
+    "(autosave lands with the library screen)"
+)
+NO_TRANSCRIPT_DETAIL = "Record {id} has no stored transcript yet"
+#: The 400 for a moments call that asked for both detectors, or for neither.
+MOMENTS_ARG_DETAIL = "Pass exactly one of 'query' (literal text) or 'kind' (a semantic category)"
 
 #: One store per resolved library root. Keyed by path (not a singleton) so a
 #: test that relocates CAPFORGE_HOME gets a fresh store instead of a stale one
@@ -59,6 +71,41 @@ def reset_store_cache() -> None:
     for store in _STORES.values():
         store.close()
     _STORES.clear()
+
+
+def require_openable_record(video_id: str) -> None:
+    """404/409 unless ``video_id`` names a record with a stored session snapshot.
+
+    The ``open_video`` agent command asks this before broadcasting: the window
+    restores the snapshot, so "no such record" and "never saved" have to fail at
+    the agent's own call. It lives here rather than in ``main.py`` (far past its
+    size ceiling) because both answers are the library's to give.
+    """
+    store = get_store()
+    with _library_errors():
+        store.get(video_id)
+        project = store.get_project(video_id)
+    if project is None:
+        raise HTTPException(
+            status_code=http_status.HTTP_409_CONFLICT,
+            detail=NO_SNAPSHOT_DETAIL.format(id=video_id),
+        )
+
+
+def record_id_for_media(path: str) -> Optional[str]:
+    """The record id for a just-loaded media file, or None when indexing failed.
+
+    Log-and-continue is deliberate and is one of exactly two such spots: the
+    caller (``load_video``) is loading a video into the app, and the index must
+    never block that. The cost of a failure is the missing id in the response;
+    the next load creates the record again.
+    """
+    try:
+        record, _ = get_store().create_or_get(path)
+        return record.id
+    except Exception:
+        logger.error("Could not create a library record for %s", path, exc_info=True)
+        return None
 
 
 class CreateVideoRequest(BaseModel):
@@ -111,7 +158,9 @@ def build_router(actor_dep: Callable) -> APIRouter:
     )
     _register_collection_routes(router)
     _register_record_routes(router, actor_dep)
-    _register_content_routes(router)
+    _register_project_routes(router)
+    _register_derived_routes(router)
+    _register_asset_routes(router)
     return router
 
 
@@ -194,8 +243,8 @@ def _register_record_routes(router: APIRouter, actor_dep: Callable) -> None:
             return _view(store, store.add_render(video_id, entry))
 
 
-def _register_content_routes(router: APIRouter) -> None:
-    """Routes over a record's project, transcript and assets."""
+def _register_project_routes(router: APIRouter) -> None:
+    """The session snapshot itself: written by the app, read by `open_video`."""
 
     @router.put("/{video_id}/project")
     def put_project(video_id: str, project: dict = Body(...)) -> dict:
@@ -207,6 +256,58 @@ def _register_content_routes(router: APIRouter) -> None:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"rev": record.rev}
 
+    @router.get("/{video_id}/project")
+    def get_project(video_id: str) -> dict:
+        """The stored v2 session snapshot, verbatim (the renderer's `open_video`).
+
+        Returned byte-for-byte as it was PUT: `open_video` and opening a project
+        file must build the same track store, so nothing is reshaped here.
+        """
+        store = get_store()
+        with _library_errors():
+            store.get(video_id)  # 404 before we look for the snapshot
+            project = store.get_project(video_id)
+        if project is None:
+            raise HTTPException(
+                status_code=404, detail=NO_PROJECT_DETAIL.format(id=video_id)
+            )
+        return project
+
+
+def _register_derived_routes(router: APIRouter) -> None:
+    """Routes over what the backend *derived* from a stored snapshot."""
+
+    @router.get("/{video_id}/moments")
+    def get_moments(
+        video_id: str, query: Optional[str] = None, kind: Optional[str] = None
+    ) -> dict:
+        """Find moments in the *stored* transcript — no session required.
+
+        Exactly one of `query` (literal text) or `kind` (a semantic category) —
+        the two detectors answer different questions and mixing them would hide
+        which one produced a match.
+        """
+        # Blank is absent: `?query=` is a caller that meant to send nothing.
+        wanted_query = query.strip() if query else ""
+        wanted_kind = kind.strip() if kind else ""
+        if bool(wanted_query) == bool(wanted_kind):
+            raise HTTPException(status_code=400, detail=MOMENTS_ARG_DETAIL)
+        store = get_store()
+        with _library_errors():
+            # Words are the unit of a moment, so this read is never segments-only.
+            transcript = store.get_transcript(video_id, segments_only=False)
+        if transcript is None:
+            raise HTTPException(
+                status_code=404, detail=NO_TRANSCRIPT_DETAIL.format(id=video_id)
+            )
+        result = TranscriptionResult.model_validate(transcript)
+        if wanted_query:
+            return {"matches": find_transcript_moments(result, wanted_query)}
+        try:
+            return {"matches": find_semantic_moments(result, wanted_kind)}
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     @router.get("/{video_id}/transcript")
     def get_transcript(video_id: str, segments_only: bool = True) -> dict:
         store = get_store()
@@ -215,11 +316,15 @@ def _register_content_routes(router: APIRouter) -> None:
             transcript = store.get_transcript(video_id, segments_only=segments_only)
         if transcript is None:
             raise HTTPException(
-                status_code=404, detail=f"Record {video_id} has no stored transcript yet"
+                status_code=404, detail=NO_TRANSCRIPT_DETAIL.format(id=video_id)
             )
         # `source` tells the agent whether it read the record or the live
         # session; the "session" proxy for the active record lands with #3.
         return {"rev": record.rev, "source": "record", "transcript": transcript}
+
+
+def _register_asset_routes(router: APIRouter) -> None:
+    """The binary sidecars (poster, peaks, thumbnails) of one record."""
 
     @router.get("/{video_id}/asset/{name:path}")
     def get_asset(video_id: str, name: str) -> FileResponse:
