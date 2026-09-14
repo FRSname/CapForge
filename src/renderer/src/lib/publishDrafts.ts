@@ -29,7 +29,7 @@ export const EMPTY_FIELDS: PublishAuthored = {
   hashtags: [],
   speakers: {},
   summary_md: '',
-  publish: { youtube: null },
+  publish: { youtube: null, pushes: [] },
 }
 
 /** What the cards render: the record, with the unsaved drafts on top. */

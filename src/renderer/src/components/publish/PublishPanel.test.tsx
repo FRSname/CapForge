@@ -46,7 +46,7 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     speakers: { SPEAKER_00: { name: 'Filip', handle: '@filip', url: '' } },
     summary_md: '# Summary\n\nWhat happened.',
     links: [],
-    publish: { youtube: null },
+    publish: { youtube: null, pushes: [] },
     history: [
       { field: 'title', prev: 'The first draft', by: 'agent', at: THREE_MINUTES_AGO },
       { field: 'description', prev: undefined, by: 'user', at: THREE_MINUTES_AGO },
@@ -246,6 +246,7 @@ describe('SummaryCard and PublishStateCard', () => {
           url: 'https://youtu.be/dQw4w9WgXcQ',
           publishedAt: '2026-09-14T09:00:00Z',
         },
+        pushes: [],
       },
     })
 

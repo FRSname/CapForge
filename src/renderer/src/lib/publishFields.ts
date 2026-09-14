@@ -65,9 +65,20 @@ export function fieldLabel(field: string): string {
  * asked about. The system fields (`rev`, `history`, `status`, …) are not
  * validated and have no business riding along on every debounce.
  */
+/**
+ * Fields the validator and the debounced patch may carry. `publish` is not one:
+ * no rule reads it, its wire shape is an always-present youtube object (the
+ * renderer keeps a nullable one), and it is written only by `markPublished`
+ * with the whole block.
+ */
+export const WIRE_EXCLUDED_FIELDS: ReadonlySet<PublishFieldId> = new Set<PublishFieldId>(['publish'])
+
 export function authoredFields(source: PublishAuthored): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  for (const spec of PUBLISH_FIELDS) out[spec.id] = source[spec.id]
+  for (const spec of PUBLISH_FIELDS) {
+    if (WIRE_EXCLUDED_FIELDS.has(spec.id)) continue
+    out[spec.id] = source[spec.id]
+  }
   return out
 }
 

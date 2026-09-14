@@ -38,7 +38,7 @@ describe('parsePublishRecord', () => {
       speakers: {},
       summary_md: '',
       links: [],
-      publish: { youtube: null },
+      publish: { youtube: null, pushes: [] },
       history: [],
     })
   })
@@ -130,5 +130,16 @@ describe('parseUploadPackage and parseMoments', () => {
     expect(moments[0].gap).toBe(0.9)
     expect(moments[1].speaker).toBe('SPEAKER_01')
     expect(parseMoments({})).toEqual([])
+  })
+})
+
+describe('publish block pushes', () => {
+  test('keeps recorded pushes verbatim so a publish-state patch cannot clobber them', () => {
+    const parsed = parsePublishRecord({
+      id: 'vid_1', rev: 1, duration: 10, status: 'drafted',
+      publish: { youtube: { videoId: null, url: null, publishedAt: null }, pushes: [{ system: 'update-conf', at: 'x' }] },
+    })
+    expect(parsed.publish.youtube).toBeNull()
+    expect(parsed.publish.pushes).toEqual([{ system: 'update-conf', at: 'x' }])
   })
 })

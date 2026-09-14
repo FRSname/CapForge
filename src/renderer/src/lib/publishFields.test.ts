@@ -43,7 +43,7 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     speakers: {},
     summary_md: '',
     links: [],
-    publish: { youtube: null },
+    publish: { youtube: null, pushes: [] },
     history: [],
     ...over,
   }
@@ -74,7 +74,8 @@ describe('PUBLISH_FIELDS', () => {
   test('authoredFields sends the authored half and nothing else', () => {
     const payload = authoredFields(record({ title: 'Talk', tags: ['a'] }))
 
-    expect(Object.keys(payload).sort()).toEqual(PUBLISH_FIELDS.map((f) => f.id).sort())
+    const wire = PUBLISH_FIELDS.map((f) => f.id).filter((id) => id !== 'publish')
+    expect(Object.keys(payload).sort()).toEqual(wire.sort())
     expect(payload.title).toBe('Talk')
     // The system fields are not validated and must not ride along.
     expect(payload).not.toHaveProperty('rev')
@@ -214,5 +215,13 @@ describe('relativeTime', () => {
   test('says nothing at all about an unparseable timestamp', () => {
     expect(relativeTime('', now)).toBe('')
     expect(relativeTime('whenever', now)).toBe('')
+  })
+})
+
+describe('authoredFields wire shape', () => {
+  test('never sends publish — its nullable youtube block would be refused by the backend', () => {
+    const payload = authoredFields(record({ title: 'Talk' }))
+    expect('publish' in payload).toBe(false)
+    expect(payload.title).toBe('Talk')
   })
 })

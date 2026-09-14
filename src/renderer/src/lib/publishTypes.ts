@@ -41,6 +41,9 @@ export interface YoutubePublish {
 
 export interface PublishBlock {
   youtube: YoutubePublish | null
+  /** Recorded pushes to other systems (Update-conf etc.), kept verbatim so a
+   *  publish-state patch never clobbers them. */
+  pushes: unknown[]
 }
 
 /** One `history[]` entry: who last wrote a field, when, and what it said before. */
@@ -202,13 +205,15 @@ function publishBlock(value: unknown): PublishBlock {
   const raw = obj(value)
   const yt = obj(raw?.youtube)
   // A block with neither an id nor a URL is "not published yet", not a half-state.
-  if (!yt || (!str(yt.videoId) && !str(yt.url))) return { youtube: null }
+  const pushes = Array.isArray(raw?.pushes) ? raw.pushes : []
+  if (!yt || (!str(yt.videoId) && !str(yt.url))) return { youtube: null, pushes }
   return {
     youtube: {
       videoId: str(yt.videoId),
       url: str(yt.url),
       publishedAt: str(yt.publishedAt),
     },
+    pushes,
   }
 }
 

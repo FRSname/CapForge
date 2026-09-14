@@ -311,13 +311,19 @@ export function usePublishRecord({
         notifyRef.current(NOT_A_YOUTUBE_URL_MESSAGE)
         return
       }
+      // The backend replaces `publish` whole: carry the recorded pushes and any
+      // existing youtube keys, and never restamp a real publication date.
+      const existing = stateRef.current.record?.publish
+      const previous = existing?.youtube
       patchNow({
         publish: {
           youtube: {
+            ...(previous ?? {}),
             videoId: videoIdFromUrl,
             url: url.trim(),
-            publishedAt: new Date().toISOString(),
+            publishedAt: previous?.publishedAt || new Date().toISOString(),
           },
+          pushes: existing?.pushes ?? [],
         },
       })
     },
