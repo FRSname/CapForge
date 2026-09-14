@@ -7,6 +7,7 @@ the prompts are its entry points — a renamed tool would silently break both.
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
@@ -30,7 +31,13 @@ NOT_TOOLS = KINDS | PROMPT_NAMES | {
     "video_id", "segments_only", "include_scratch", "youtube_video_id", "published_at",
     # the Update-conf MCP's tool, reached only when that server is connected
     "set_session_enrichment",
+    # collections: the record field, brief/override fields, a detail key, a rule
+    "collection_id", "description_template", "recorded_at_line", "default_hashtags",
+    "link_rows", "house_rules", "effective_brief", "unknown_slot", "unknown_collection",
 }
+
+#: The built-in template slots, shared with the backend and the renderer.
+BUILTIN_SLOTS_FIXTURE = MCP_DIR.parent / "backend" / "tests" / "fixtures" / "builtin_slots.json"
 
 
 def _guide_texts() -> dict[str, str]:
@@ -50,10 +57,12 @@ def test_every_manifest_topic_has_a_shipped_file() -> None:
         assert len(path.read_text(encoding="utf-8")) > 300, f"topic '{tid}' is a stub"
 
 
-def test_the_seven_topics_of_the_plan() -> None:
-    """vision §3.4 names the set; a topic added or dropped is a plan change."""
+def test_the_eight_topics_of_the_plan() -> None:
+    """vision §3.4 names the set, library-collections adds `collections`; a topic
+    added or dropped is a plan change."""
     assert list(publish_guide.TOPICS) == [
         "workflow", "breakdown", "description", "chapters", "thumbnails", "shorts", "batch",
+        "collections",
     ]
 
 
@@ -118,6 +127,36 @@ def test_every_tool_a_prompt_names_exists_and_it_points_at_the_guide(fn, name, _
     assert ("abc123" in text) or ("transcribed" in text), "the argument must reach the prompt text"
 
 
+def test_the_collections_topic_lists_every_builtin_slot() -> None:
+    """The slot list is copy, so it is pinned to the shared fixture."""
+    slots = json.loads(BUILTIN_SLOTS_FIXTURE.read_text(encoding="utf-8"))["slots"]
+    topic = publish_guide.GUIDE.read_topic("collections")
+    missing = [s for s in slots if f"{{{{{s}}}}}" not in topic]
+    assert not missing, f"collections.md does not list built-in slots: {missing}"
+
+
+def test_the_collections_topic_states_the_rules_an_agent_breaks() -> None:
+    topic = " ".join(publish_guide.GUIDE.read_topic("collections").split())
+    assert "set_video_meta" in topic and "collection_id" in topic
+    assert "unknown_slot" in topic
+    assert "orphan" in topic
+    assert "never paste" in topic.lower()
+
+
+def test_batch_reads_the_collection_once_and_never_rewrites_descriptions() -> None:
+    batch = " ".join(publish_guide.GUIDE.read_topic("batch").split())
+    assert "get_collection" in batch
+    assert "get_upload_package" in batch and "never rewrit" in batch.lower()
+
+
+def test_batch_publish_prompt_scopes_to_a_collection_when_given_one() -> None:
+    scoped = publish_guide.batch_publish("drafted", collection="uck26")
+    assert "uck26" in scoped and "drafted" in scoped
+    assert "get_collection" in scoped
+    unscoped = publish_guide.batch_publish("drafted")
+    assert "get_collection" not in unscoped and "collection=" not in unscoped
+
+
 def test_the_guide_reads_the_record_before_writing() -> None:
     """The workflow's one direction (fields in, package out) must be stated."""
     workflow = publish_guide.GUIDE.read_topic("workflow")
@@ -166,7 +205,11 @@ def test_real_fastmcp_lists_the_prompts_and_serves_the_resources() -> None:
     assert {p.name for p in prompts} == PROMPT_NAMES
     by_name = {p.name: p for p in prompts}
     assert [(a.name, a.required) for a in by_name["describe"].arguments] == [("video_id", True)]
-    assert [(a.name, a.required) for a in by_name["batch_publish"].arguments] == [("status", False)]
+    assert [(a.name, a.required) for a in by_name["batch_publish"].arguments] == [
+        ("status", False), ("collection", False),
+    ]
+    scoped = asyncio.run(mcp.get_prompt("batch_publish", {"collection": "uck26"}))
+    assert "uck26" in scoped.messages[0].content.text
     rendered = asyncio.run(mcp.get_prompt("chapters", {"video_id": "vid_9"}))
     assert "vid_9" in rendered.messages[0].content.text
     entry = asyncio.run(mcp.read_resource(publish_guide.RESOURCE_ENTRY))

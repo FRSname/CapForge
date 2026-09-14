@@ -19,7 +19,11 @@ a title alone.
    the user in the Publish workspace, are the starting point: show them and ask
    before replacing anything the user wrote (the record's `history` says who wrote
    what).
-2. `get_brief` — binding unless the user overrides it here.
+2. The brief — binding unless the user overrides it here. `get_brief` for a video
+   in no collection. When the record has a `collection_id`, read
+   `get_collection(collection_id)` instead: its `effective_brief` is the brief this
+   video's package renders with, and its template already renders the event's
+   boilerplate (`publish_guide("collections")`).
 3. The transcript: `get_video_transcript(video_id)` from the library, or
    `get_transcript(segments_only=True)` for the open video. Ask for word-level
    timing only when you need it for a quote.
@@ -42,6 +46,7 @@ chapters           [{"start_s": 61.25, "title": "The budget problem"}]
 tags               ["kubernetes", "cost control"]          (specific before broad)
 hashtags           ["#Kubernetes", "#DevOps"]              (8–15, the brief's defaults first)
 keywords           ["autoscaling", "spot instances"]
+collection_id      "uck26"                                 (an existing collection; list_collections)
 summary_md         markdown, for reuse elsewhere
 highlights         [{"text": "…", "start_s": 61.25, "end_s": 74.0}]
 quotes             [{"text": "verbatim", "start_s": 61.25, "end_s": 74.0}]

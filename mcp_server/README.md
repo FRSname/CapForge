@@ -177,6 +177,25 @@ that refusal comes back as `{"status": "error", "reason": "violations", "violati
 […]}`, so fix the named field and write again. **Style rules** come from the brief and
 are advice: they never block a write.
 
+### Collections (events)
+
+A **collection** states an event's shared boilerplate once: `slots` (`{{event}}`,
+`{{sponsor}}`, …) and `overrides` of the channel brief (footer, recorded-at line,
+default hashtags, `description_template`, …). A video joins by its record's
+`collection_id` (`set_video_meta`). Every member's package is rendered at read time
+from its record plus the collection's **effective brief**, so changing the collection
+changes every member's package with no per-video write.
+
+| Tool | What it does |
+|---|---|
+| `list_collections` | Every collection with its member count, plus `orphans`: ids videos carry that no collection defines |
+| `get_collection` | One collection with `members` and its `effective_brief`, the brief a member video follows instead of `get_brief` |
+| `set_collection` | Upsert: creates the collection when the id is new (`name` required, and an orphan id is adopted), else patches only the arguments given. Overrides replace the channel's value (lists and blocks too) and `null` inherits; slots merge key-wise over the channel's slots |
+| `delete_collection` | Delete an empty collection; refused with the member count while any video still belongs to it |
+
+The `publish_guide("collections")` topic is the agent-facing walkthrough: setting up
+an event, the built-in template slots, the `unknown_slot` violation, adopting an orphan.
+
 The bundled `capforge-publish` skill is the whole flow in prose: read the record,
 the brief and the transcript, find timestamps with `find_video_moments`, write the
 structured fields with `set_video_meta`, validate, then show what `get_upload_package`

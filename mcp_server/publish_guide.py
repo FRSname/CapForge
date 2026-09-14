@@ -32,6 +32,7 @@ TOPICS: dict[str, tuple[str, str]] = {
     "thumbnails": ("thumbnails.md", "Thumbnail ideas as text (label, type, headline, subtext, visual suggestion) — CapForge generates no images."),
     "shorts": ("shorts.md", "The Shorts caption and 2–3 clip candidates as timestamps; CapForge cuts nothing."),
     "batch": ("batch.md", "Publishing a set of videos: list by status, one record per call, revs, what to report, scratch runs."),
+    "collections": ("collections.md", "An event's shared boilerplate: slots, brief overrides, the description template, assigning videos, adopting orphan ids."),
 }
 
 GUIDE = TopicSet(_GUIDE_DIR, TOPICS)
@@ -49,7 +50,7 @@ def publish_guide(topic: Optional[str] = None) -> str:
     source, the package is a rendering; the brief is binding; every write
     carries a rev) and the topic index. Then call with a `topic` id
     ("workflow", "breakdown", "description", "chapters", "thumbnails",
-    "shorts", "batch") to pull that reference on demand. Consult this BEFORE
+    "shorts", "batch", "collections") to pull that reference on demand. Consult this BEFORE
     writing publish fields with set_video_meta.
     """
     return GUIDE.guide(topic)
@@ -105,14 +106,27 @@ def chapters(video_id: str) -> str:
     )
 
 
-def batch_publish(status: str = "transcribed") -> str:
+def batch_publish(status: str = "transcribed", collection: Optional[str] = None) -> str:
+    if not collection:
+        return (
+            f"Publish every CapForge video whose status is `{status}`. First read "
+            "`publish_guide(\"batch\")` and follow it: list them with `list_videos`, then for "
+            "each one in turn run the workflow (breakdown, description, chapters, validate, "
+            "package) with one record per call, and finish with a table of video, title, "
+            "status and any finding still open. Stop and ask before touching a record that "
+            "already has a description."
+        )
     return (
-        f"Publish every CapForge video whose status is `{status}`. First read "
-        "`publish_guide(\"batch\")` and follow it: list them with `list_videos`, then for "
-        "each one in turn run the workflow (breakdown, description, chapters, validate, "
-        "package) with one record per call, and finish with a table of video, title, "
-        "status and any finding still open. Stop and ask before touching a record that "
-        "already has a description."
+        f"Publish every CapForge video in the collection `{collection}` whose status is "
+        f"`{status}`. First read `publish_guide(\"batch\")` and `publish_guide(\"collections\")` "
+        f"and follow them: list them with `list_videos(status=\"{status}\", "
+        f"collection=\"{collection}\")`, read `get_collection(\"{collection}\")` once and follow "
+        "its effective brief instead of `get_brief`, then for each video in turn run the "
+        "workflow (breakdown, description, chapters, validate, package) with one record per "
+        "call. Write only each video's own paragraph: never paste the boilerplate the "
+        "collection's template renders into a description. Finish with a table of video, "
+        "title, status and any finding still open. Stop and ask before touching a record "
+        "that already has a description."
     )
 
 
@@ -121,7 +135,7 @@ PROMPTS: tuple[tuple[Any, str, str], ...] = (
     (breakdown, "breakdown", "Summary, timed highlights and quotes for one video, written onto its record."),
     (describe, "describe", "The YouTube upload package for one video: title, description, tags, validated."),
     (chapters, "chapters", "Chapter candidates from the transcript's pauses and speaker changes, dry-run first."),
-    (batch_publish, "batch_publish", "Run the publish workflow over every video with a given status, one at a time."),
+    (batch_publish, "batch_publish", "Run the publish workflow over every video with a given status, optionally in one collection, one at a time."),
 )
 
 #: The one tool this module contributes.

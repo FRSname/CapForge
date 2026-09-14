@@ -15,7 +15,9 @@ and renders one plain-text package the user pastes into YouTube Studio.
 - **The brief is binding.** `get_brief` returns the channel's audience, voice, footer,
   default hashtags and house rules. Everything it states holds unless the user
   overrides it in the conversation. Change it only with `set_brief`, and only when
-  the user states a channel-wide rule.
+  the user states a channel-wide rule. A video whose record has a `collection_id`
+  follows that collection's `effective_brief` from `get_collection` instead: the
+  channel brief with the event's overrides and slots applied.
 - **Every write carries a rev.** `get_video` returns the record and its `rev`;
   `set_video_meta(video_id, patch, rev)` needs the one you last read. A stale rev
   comes back with the current record — re-read, re-apply, write again. The user may
@@ -39,7 +41,8 @@ and renders one plain-text package the user pastes into YouTube Studio.
 | need | tool |
 |---|---|
 | the record + rev | `get_video(video_id=…)` or `get_video(path=…)`; `list_videos`, `search_library` to find it |
-| the channel rules | `get_brief` |
+| the channel rules | `get_brief`; `get_collection(collection_id)` for a video in a collection |
+| an event's shared boilerplate | `list_collections`, `set_collection`, `delete_collection` |
 | the transcript | `get_video_transcript(video_id)` from the library; `get_transcript(segments_only=True)` when the video is open in the app |
 | timestamps | `find_video_moments(video_id, query=…)` or `kind="pause" \| "speaker_change" \| "numbers" \| "cta"`; `find_moments`, `find_semantic_moments` against the open session |
 | write | `set_video_meta(video_id, patch, rev)` |
@@ -58,6 +61,7 @@ and renders one plain-text package the user pastes into YouTube Studio.
 | `thumbnails` | Thumbnail ideas as text; what a good headline is; CapForge generates no images. |
 | `shorts` | The Shorts caption and 2–3 clip candidates; the under-60-seconds rule. |
 | `batch` | A set of videos: list by status, one record per call, what to report, scratch runs. |
+| `collections` | An event's shared boilerplate: slots, brief overrides, the description template, assigning videos, adopting orphan ids. |
 
 The same workflow is reachable as slash commands in Claude Desktop — **breakdown**,
 **describe**, **chapters** and **batch_publish** — each of which starts by reading
