@@ -1,5 +1,5 @@
 /**
- * Settings → General: Appearance and Logs.
+ * Settings → General: Appearance, the library folder and Logs.
  *
  * Theme state is *not* owned here. It arrives as props from `SettingsDialog`,
  * which is always mounted (see `hooks/useTheme.ts`) — this pane only exists
@@ -8,6 +8,14 @@
 
 import { Button } from '../ui/Button'
 import { Toggle } from '../ui/Toggle'
+
+/**
+ * The default library location. The real path is `capforge_home()/library`,
+ * which only the backend/main process can resolve — the renderer shows the
+ * documented default and says what overrides it, and Reveal opens the actual
+ * folder through Electron.
+ */
+const LIBRARY_FOLDER_LABEL = '~/.capforge/library'
 
 interface GeneralSettingsProps {
   lightMode: boolean
@@ -25,6 +33,31 @@ export function GeneralSettings({ lightMode, onLightModeChange }: GeneralSetting
           onChange={onLightModeChange}
           label={lightMode ? 'Light Mode' : 'Dark Mode'}
         />
+      </div>
+
+      {/* Library */}
+      <div className="flex flex-col gap-2">
+        <label className="label-xs">Library folder</label>
+        <div className="flex items-center gap-2">
+          <span
+            className="flex-1 truncate text-xs"
+            style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-2)' }}
+            title="Every video record lives here. Set CAPFORGE_HOME to move it."
+          >
+            {LIBRARY_FOLDER_LABEL}
+          </span>
+          <Button
+            variant="ghost"
+            className="text-xs justify-center"
+            onClick={() => window.subforge.revealLibraryFolder()}
+          >
+            Reveal
+          </Button>
+        </div>
+        <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
+          Records, transcripts and session snapshots. <code>CAPFORGE_HOME</code> overrides the
+          location.
+        </p>
       </div>
 
       {/* Logs */}

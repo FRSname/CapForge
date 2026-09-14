@@ -1,9 +1,12 @@
 import { useRef, useState } from 'react'
 import { api } from '../../lib/api'
+import { MEDIA_EXTENSIONS } from '../../lib/libraryView'
 import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
 
-const ACCEPTED_EXTS = ['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'mp4', 'mkv', 'webm', 'mov']
+/** The one list of accepted media extensions, shared with the library screen
+ *  (`lib/libraryView.ts`) so a drop here and a drop on the library agree. */
+const ACCEPTED_EXTS = MEDIA_EXTENSIONS
 
 /**
  * Pre-load the Whisper model the moment a file is picked, so the cold start

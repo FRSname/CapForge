@@ -255,6 +255,11 @@ interface StudioPanelProps {
   exportTrack?: ExportTrack | null
   /** Source media path — used for "Same as source" output dir + quick-render metadata. */
   audioPath?: string
+  /** Export destination. Owned by the session (`hooks/useLibrarySession.ts`), not
+   *  by the sidebar: it is seeded from `lastOutputDir`, persisted on change and
+   *  has to survive the sidebar unmounting between screens. */
+  outputDir?: string
+  onOutputDirChange?: (dir: string) => void
   /** Probed source video info — drives quick-render resolution/fps. */
   sourceVideoInfo?: VideoInfo | null
   /** User preset library — owned by App so the agent mirror can publish it. */
@@ -301,6 +306,8 @@ export function StudioPanel({
   nameSuffix = '',
   exportTrack = null,
   audioPath = '',
+  outputDir = '',
+  onOutputDirChange,
   sourceVideoInfo = null,
   userPresets = [],
   onPresetsChanged,
@@ -308,8 +315,9 @@ export function StudioPanel({
   activeTrackIsSource = true,
 }: StudioPanelProps) {
   const [internalS, setInternalS] = useState<StudioSettings>({ ...DEFAULTS })
-  const [outputDir, setOutputDir] = useState<string>('')
   const [searchQuery, setSearchQuery] = useState('')
+  // No-op when the panel is mounted without an owner (Storybook-style usage).
+  const setOutputDir = onOutputDirChange ?? (() => {})
   // Merge with defaults so older saved projects that lack new fields don't produce undefined/NaN
   const s: StudioSettings = externalSettings ? { ...DEFAULTS, ...externalSettings } : internalS
 

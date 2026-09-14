@@ -4,6 +4,17 @@
  */
 
 import type { TranscriptionResult as AppTranscriptionResult } from '../types/app'
+import type { LibraryRecord, LibraryVideo } from './libraryTypes'
+import { parseLibraryList, parseLibraryRecord } from './libraryTypes'
+
+/** `DELETE /api/library/{id}?mode=` — hide the record, or hand back its folder. */
+export type LibraryDeleteMode = 'remove' | 'detach'
+
+/** `POST /api/library/migrate-studio` — what the first-launch pass did. */
+export interface LibraryMigrationResult {
+  imported: string[]
+  skipped: Array<{ folder: string; reason: string }>
+}
 
 export interface ApiError extends Error {
   title?: string
@@ -318,6 +329,15 @@ class CapForgeAPI {
     return res.json() as Promise<T>
   }
 
+  /** DELETE an auth-gated local route (the library ones) — same shape as `del`. */
+  private async delWithLocalToken<T>(path: string): Promise<T> {
+    const headers: Record<string, string> = {}
+    if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
+    const res = await fetch(`${this.base}${path}`, { method: 'DELETE', headers })
+    if (!res.ok) throw await this.handleError(res)
+    return res.json() as Promise<T>
+  }
+
   getSystemInfo() {
     return this.get('/api/system-info')
   }
@@ -455,6 +475,55 @@ class CapForgeAPI {
    */
   getLibraryProject(id: string): Promise<unknown> {
     return this.getWithLocalToken<unknown>(`/api/library/${encodeURIComponent(id)}/project`)
+  }
+
+  /**
+   * The library home screen's list. Parsed at the boundary
+   * (`lib/libraryTypes.ts`) rather than cast: everything on a card is addressed
+   * by `id`/`sourcePath`, so a malformed row must fail loudly here.
+   */
+  listLibrary(): Promise<LibraryVideo[]> {
+    return this.getWithLocalToken<unknown>('/api/library').then(parseLibraryList)
+  }
+
+  /**
+   * Create-or-return the record for a media file (`201` new, `200` known) —
+   * the create-on-drop path taken by Start, `load_video` and a project restore.
+   */
+  createLibraryRecord(sourcePath: string): Promise<LibraryRecord> {
+    return this.post<unknown>('/api/library', { source_path: sourcePath }).then(parseLibraryRecord)
+  }
+
+  /**
+   * Store the live session snapshot in its record. This is the **primary**
+   * durable write; `autosave.json` is only the fallback when it fails.
+   */
+  putLibraryProject(id: string, project: unknown): Promise<{ rev: number }> {
+    return this.put<{ rev: number }>(`/api/library/${encodeURIComponent(id)}/project`, project)
+  }
+
+  /**
+   * `remove` hides the record but keeps every file; `detach` un-indexes it and
+   * returns the folder for Electron to trash — the backend never deletes user
+   * files itself.
+   */
+  deleteLibraryRecord(
+    id: string,
+    mode: LibraryDeleteMode
+  ): Promise<{ status: string; mode: LibraryDeleteMode; folder?: string }> {
+    return this.delWithLocalToken(
+      `/api/library/${encodeURIComponent(id)}?mode=${encodeURIComponent(mode)}`
+    )
+  }
+
+  /** Adopt a `.capforge` file on disk as a record (Import project files…). */
+  importLibraryProject(path: string): Promise<LibraryRecord> {
+    return this.post<unknown>('/api/library/import-project', { path }).then(parseLibraryRecord)
+  }
+
+  /** First-launch migration of pre-v3 studio workspaces into records. */
+  migrateStudioWorkspaces(): Promise<LibraryMigrationResult> {
+    return this.post<LibraryMigrationResult>('/api/library/migrate-studio', {})
   }
 
   getVideoInfo(filePath: string) {

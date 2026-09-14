@@ -475,6 +475,104 @@ describe('CapForgeAPI', () => {
     })
   })
 
+  describe('library routes', () => {
+    const ROW = {
+      id: 'c'.repeat(32),
+      title: '',
+      sourcePath: '/media/Talk.mp4',
+      duration: 12,
+      language: 'en',
+      status: 'transcribed',
+      collection_id: null,
+      scratch: false,
+      createdAt: '2026-09-01T10:00:00Z',
+      updatedAt: '2026-09-01T10:00:00Z',
+      missing_media: false,
+      hasProject: false,
+    }
+
+    test('listLibrary sends the local token and parses the envelope', async () => {
+      api.setLocalToken('tok')
+      fetchMock.mockResolvedValue(jsonResponse({ videos: [ROW] }))
+
+      const videos = await api.listLibrary()
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe('http://127.0.0.1:53421/api/library')
+      expect((init.headers as Record<string, string>)['X-CapForge-Local-Token']).toBe('tok')
+      expect(videos).toEqual([ROW])
+    })
+
+    test('listLibrary rejects a malformed row instead of handing it to the UI', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ videos: [{ ...ROW, status: 'nope' }] }))
+
+      await expect(api.listLibrary()).rejects.toThrow(/Library entry 0/)
+    })
+
+    test('createLibraryRecord posts the source path and keeps the revision', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ ...ROW, rev: 5 }))
+
+      const record = await api.createLibraryRecord('/media/Talk.mp4')
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe('http://127.0.0.1:53421/api/library')
+      expect(init.method).toBe('POST')
+      expect(init.body).toBe(JSON.stringify({ source_path: '/media/Talk.mp4' }))
+      expect(record.rev).toBe(5)
+    })
+
+    test('putLibraryProject PUTs the snapshot into the record', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ rev: 6 }))
+
+      expect(await api.putLibraryProject('vid 1', { version: 2 })).toEqual({ rev: 6 })
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe('http://127.0.0.1:53421/api/library/vid%201/project')
+      expect(init.method).toBe('PUT')
+      expect(init.body).toBe('{"version":2}')
+    })
+
+    test('deleteLibraryRecord names the mode and returns the folder to trash', async () => {
+      api.setLocalToken('tok')
+      fetchMock.mockResolvedValue(jsonResponse({ status: 'ok', mode: 'detach', folder: '/l/x' }))
+
+      const result = await api.deleteLibraryRecord('vid1', 'detach')
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe('http://127.0.0.1:53421/api/library/vid1?mode=detach')
+      expect(init.method).toBe('DELETE')
+      expect((init.headers as Record<string, string>)['X-CapForge-Local-Token']).toBe('tok')
+      expect(result.folder).toBe('/l/x')
+    })
+
+    test('importLibraryProject and migrateStudioWorkspaces hit their own routes', async () => {
+      fetchMock.mockResolvedValueOnce(jsonResponse(ROW))
+      fetchMock.mockResolvedValueOnce(jsonResponse({ imported: ['a'], skipped: [] }))
+
+      await api.importLibraryProject('/p/x.capforge')
+      const migration = await api.migrateStudioWorkspaces()
+
+      expect((fetchMock.mock.calls[0] as [string, RequestInit])[0]).toBe(
+        'http://127.0.0.1:53421/api/library/import-project'
+      )
+      expect((fetchMock.mock.calls[0] as [string, RequestInit])[1].body).toBe(
+        JSON.stringify({ path: '/p/x.capforge' })
+      )
+      expect((fetchMock.mock.calls[1] as [string, RequestInit])[0]).toBe(
+        'http://127.0.0.1:53421/api/library/migrate-studio'
+      )
+      expect(migration.imported).toEqual(['a'])
+    })
+
+    test('a failed library fetch rejects with the backend message, never silently', async () => {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ detail: 'library root is not writable' }, { ok: false, status: 500 })
+      )
+
+      await expect(api.listLibrary()).rejects.toThrow('library root is not writable')
+    })
+  })
+
   describe('normalizeResult', () => {
     test('mints a uuid for a segment with no id', () => {
       const raw = {

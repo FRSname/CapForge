@@ -8,7 +8,7 @@
  * open can never install two different track stores.
  *
  * Everything here is a refusal rule or a message; the React half
- * (`hooks/useLibraryOpen.ts`) only holds the `activeVideoId` state and wires
+ * (`hooks/useLibrarySession.ts`) only holds the `activeVideoId` state and wires
  * the I/O in. Failures **throw** with a human-readable message, which
  * `AgentLiveSync` toasts *and* echoes to the agent rather than swallowing.
  *
