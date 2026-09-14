@@ -155,6 +155,39 @@ Two errors are worth telling apart:
 session for it (record autosave arrives with the library screen), it answers `Record
 <id> has no session snapshot yet — open it in CapForge once`.
 
+### Publish
+
+Turning a record into a YouTube upload package is a loop with one direction: **write
+fields → validate → read the package**. The fields are the source; the package is a
+rendering of them, so its text is never written back into a field.
+
+| Tool | What it does |
+|---|---|
+| `get_brief` | The channel brief — audience, voice, footer, default hashtags, link rows, house rules. One brief for the whole library; the user edits it under Settings → Channel |
+| `set_brief` | Merge top-level brief fields (channel-wide statements only — a video's own text belongs on its record) |
+| `validate_video` | Run the publish rules over a record: `{hard, style, ok}`, each finding naming the `field`, the `rule` and a message |
+| `check_chapters` | Dry-run a chapter list against the record's duration before writing it — nothing is stored |
+| `get_upload_package` | The rendered package for a platform (`youtube` today): `{text, violations}`, plain text, ready to paste |
+
+**Hard rules** are YouTube's own limits (title ≤ 100 characters, description ≤ 5000
+bytes, tags line ≤ 500 characters, no angle brackets, chapters starting at 0, at least
+three, ascending, ≥ 10s apart, inside the duration). They live in Python once
+(`backend/library/validate.py`) and `set_video_meta` is *refused* when one is broken —
+that refusal comes back as `{"status": "error", "reason": "violations", "violations":
+[…]}`, so fix the named field and write again. **Style rules** come from the brief and
+are advice: they never block a write.
+
+The bundled `capforge-publish` skill is the whole flow in prose: read the record,
+the brief and the transcript, find timestamps with `find_video_moments`, write the
+structured fields with `set_video_meta`, validate, then show what `get_upload_package`
+renders — and `mark_published` once the user pastes the live URL. Saving the package to
+`notes/youtube.txt` is now optional; the record is the source of truth. The skill ends
+with an optional mapping for pushing a record to a conference site's own MCP
+(description → youtubeDescription, short description → youtubeShortDescription,
+highlights → highlights, links → customLinks, thumbnail ideas → youtubeThumbnailHooks,
+summary → longDescriptionMd, the published URL → videoUrl), recorded back onto the
+record's `external_refs` and `publish.pushes`.
+
 ## Batch runs (a folder of videos, one style)
 
 CapForge must be **open** — the app owns the style, presets and fonts, and the
