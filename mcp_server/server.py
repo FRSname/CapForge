@@ -15,10 +15,10 @@ from typing import Literal, Optional
 from mcp.server.fastmcp import FastMCP, Image
 from pydantic import BaseModel, Field
 
-from . import library, publish, tracks
+from . import library, publish, publish_guide, tracks
 from .cleanup import apply_word_edits, remove_fillers
 from .client import CapForgeClient
-from .knowledge import TopicNotFound, read_index, read_topic
+from .knowledge import HYPERFRAMES
 
 # Every confirmed write — `apply_preset` here, the caption-track commands in
 # tracks.py — reads the UI-state mirror back, and the renderer pushes it on a
@@ -715,27 +715,19 @@ def hyperframes_guide(topic: Optional[str] = None) -> str:
     reference on demand. Consult this BEFORE authoring a custom caption style
     with set_custom_caption_style or when designing a co-authored composition.
     """
-    if not topic:
-        return read_index()
-    try:
-        return read_topic(topic)
-    except TopicNotFound as exc:
-        return str(exc)
+    return HYPERFRAMES.guide(topic)
 
 
 @mcp.resource("hyperframes://library")
 def hyperframes_library_resource() -> str:
     """HyperFrames creative library entry: operating model + topic index."""
-    return read_index()
+    return HYPERFRAMES.read_index()
 
 
 @mcp.resource("hyperframes://topic/{topic}")
 def hyperframes_topic_resource(topic: str) -> str:
     """One HyperFrames creative topic by id (see the library resource)."""
-    try:
-        return read_topic(topic)
-    except TopicNotFound as exc:
-        return str(exc)
+    return HYPERFRAMES.topic_text(topic)
 
 
 # --- Agent-authored custom caption style --------------------------------
@@ -972,6 +964,11 @@ library.register(mcp, lambda: _client)
 # `get_upload_package` live in publish.py — the write/validate/render loop over
 # a library record (docs/plans/publish-workspace.md).
 publish.register(mcp, lambda: _client)
+
+# `publish_guide` (the workflow as pull-on-demand topics), the
+# `capforge://publish` resources and the `breakdown` / `describe` / `chapters`
+# / `batch_publish` prompts live in publish_guide.py (vision §3.4).
+publish_guide.register(mcp)
 
 
 # --- Caption tracks ------------------------------------------------------

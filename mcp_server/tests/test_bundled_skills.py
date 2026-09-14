@@ -45,7 +45,7 @@ _DECORATED_MODULES = ("server.py",)
 
 # Modules that hand `register()` a `TOOLS` tuple instead (server.py is at its
 # size ceiling, so the newer groups live beside it and register the same way).
-_TOOL_GROUP_MODULES = ("library.py", "publish.py", "tracks.py")
+_TOOL_GROUP_MODULES = ("library.py", "publish.py", "publish_guide.py", "tracks.py")
 
 
 def _decorated_tools(tree: ast.Module) -> set[str]:

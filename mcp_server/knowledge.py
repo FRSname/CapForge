@@ -17,7 +17,9 @@ the knowledge directory.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 _KNOWLEDGE_DIR = Path(__file__).parent / "knowledge"
 _INDEX_FILE = "INDEX.md"
@@ -29,6 +31,52 @@ class TopicNotFound(LookupError):
     LookupError (not KeyError) so ``str(exc)`` is the plain message — KeyError
     wraps its message in quotes, which would leak into the tool's error text.
     """
+
+
+@dataclass(frozen=True)
+class TopicSet:
+    """One pull-on-demand library: a directory, an entry file and a manifest.
+
+    The manifest is the allowlist — only mapped ids resolve to a file, so a
+    topic argument can never escape ``directory``. The HyperFrames creative
+    library below and the publish guide (``publish_guide.py``) are both one of
+    these; the module-level functions keep the original names for the first.
+    """
+
+    directory: Path
+    topics: dict[str, tuple[str, str]]
+    index_file: str = _INDEX_FILE
+
+    def list_topics(self) -> list[dict]:
+        """Manifest of available topics: ``[{"id", "description"}, ...]``."""
+        return [{"id": tid, "description": desc} for tid, (_, desc) in self.topics.items()]
+
+    def read_index(self) -> str:
+        """The entry/cover: what the library is for plus the topic index."""
+        return (self.directory / self.index_file).read_text(encoding="utf-8")
+
+    def read_topic(self, topic: str) -> str:
+        """One topic's content; ``TopicNotFound`` for an id outside the manifest."""
+        entry = self.topics.get(topic)
+        if entry is None:
+            known = ", ".join(self.topics)
+            raise TopicNotFound(f"Unknown topic '{topic}'. Available: {known}.")
+        return (self.directory / entry[0]).read_text(encoding="utf-8")
+
+    def topic_text(self, topic: str) -> str:
+        """What a resource/tool answers for ``topic``: the content, or — for an
+        id outside the manifest — the "Unknown topic … Available: …" message as
+        text, so the MCP layer never sees an exception."""
+        try:
+            return self.read_topic(topic)
+        except TopicNotFound as exc:
+            return str(exc)
+
+    def guide(self, topic: Optional[str] = None) -> str:
+        """The guide-tool contract: the entry when called with no topic, else
+        ``topic_text``. Both guide tools and all four resources are one line
+        over this and ``topic_text``, so the not-found behaviour lives here once."""
+        return self.read_index() if not topic else self.topic_text(topic)
 
 
 #: topic id -> (filename, one-line description). Keep in sync with INDEX.md.
@@ -52,14 +100,17 @@ TOPICS: dict[str, tuple[str, str]] = {
 }
 
 
+HYPERFRAMES = TopicSet(_KNOWLEDGE_DIR, TOPICS)
+
+
 def list_topics() -> list[dict]:
     """Manifest of available topics: ``[{"id", "description"}, ...]``."""
-    return [{"id": tid, "description": desc} for tid, (_, desc) in TOPICS.items()]
+    return HYPERFRAMES.list_topics()
 
 
 def read_index() -> str:
     """The CapForge entry/cover (operating model + caption contract + topic index)."""
-    return (_KNOWLEDGE_DIR / _INDEX_FILE).read_text(encoding="utf-8")
+    return HYPERFRAMES.read_index()
 
 
 def read_topic(topic: str) -> str:
@@ -68,8 +119,4 @@ def read_topic(topic: str) -> str:
     Raises ``TopicNotFound`` for an unknown id (which is also the traversal guard —
     only ids in TOPICS map to a file).
     """
-    entry = TOPICS.get(topic)
-    if entry is None:
-        known = ", ".join(TOPICS)
-        raise TopicNotFound(f"Unknown topic '{topic}'. Available: {known}.")
-    return (_KNOWLEDGE_DIR / entry[0]).read_text(encoding="utf-8")
+    return HYPERFRAMES.read_topic(topic)
