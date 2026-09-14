@@ -7,11 +7,22 @@
 
 const { test } = require('node:test')
 const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const path = require('node:path')
 
 const { firstMediaArg, MEDIA_EXTENSIONS } = require('./single-instance')
 
 /** Stand-in for argv[0] — never a candidate, even in the packaged app. */
 const EXE = '/Applications/CapForge.app/Contents/MacOS/CapForge'
+
+const MEDIA_EXTENSIONS_FIXTURE = path.join(
+  __dirname,
+  '..',
+  'backend',
+  'tests',
+  'fixtures',
+  'media_extensions.json'
+)
 
 test('returns null for a bare launch', () => {
   assert.equal(firstMediaArg([EXE]), null)
@@ -71,19 +82,12 @@ test('ignores empty / whitespace-only arguments', () => {
   assert.equal(firstMediaArg([EXE, '', '   ']), null)
 })
 
-test('MEDIA_EXTENSIONS is the DropZone list, lowercase and dotless', () => {
-  assert.deepEqual(MEDIA_EXTENSIONS, [
-    'mp3',
-    'wav',
-    'm4a',
-    'flac',
-    'aac',
-    'ogg',
-    'mp4',
-    'mkv',
-    'webm',
-    'mov',
-  ])
+test('MEDIA_EXTENSIONS equals the shared fixture, lowercase and dotless', () => {
+  // One list, three copies (backend media_scan.py, renderer libraryView.ts,
+  // this file) — all pinned to backend/tests/fixtures/media_extensions.json.
+  const fixture = JSON.parse(fs.readFileSync(MEDIA_EXTENSIONS_FIXTURE, 'utf-8'))
+  assert.deepEqual([...MEDIA_EXTENSIONS].sort(), [...fixture.extensions].sort())
+  assert.equal(new Set(MEDIA_EXTENSIONS).size, MEDIA_EXTENSIONS.length)
   for (const ext of MEDIA_EXTENSIONS) {
     assert.equal(ext, ext.toLowerCase())
     assert.equal(ext.startsWith('.'), false)

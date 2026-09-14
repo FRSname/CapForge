@@ -20,6 +20,7 @@ const { resolveExistingFile, resolveExistingDir, isUnderDir } = require('./path-
 const { isBoundsVisibleOnAnyDisplay } = require('./window-bounds')
 const { firstMediaArg } = require('./single-instance')
 const { assertTrashable, libraryRoot } = require('./library-fs')
+const { registerLibraryDialogs, mediaFileFilters } = require('./library-dialogs')
 
 let mainWindow = null
 let setupWindow = null
@@ -540,6 +541,9 @@ function registerIpcHandlers() {
     return { ok: true }
   })
 
+  // IPC: v3 library pickers (folder import, watch folder) — library-dialogs.js.
+  registerLibraryDialogs({ ipcMain, dialog, getWindow: () => mainWindow, appState })
+
   // IPC: one-click "Connect to Claude" for the MCP control layer.
   const claudeConnect = require('./claude-connect')
   ipcMain.handle('claude:detect', () => claudeConnect.detectClients())
@@ -626,25 +630,8 @@ function registerIpcHandlers() {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Select Audio File',
       defaultPath: appState.get('lastInputPath') || undefined,
-      filters: [
-        {
-          name: 'Audio / Video',
-          extensions: [
-            'mp3',
-            'wav',
-            'm4a',
-            'flac',
-            'ogg',
-            'wma',
-            'mp4',
-            'mkv',
-            'avi',
-            'mov',
-            'webm',
-          ],
-        },
-        { name: 'All Files', extensions: ['*'] },
-      ],
+      // The fixture-pinned media list + All Files (library-dialogs.js).
+      filters: mediaFileFilters(),
       properties: ['openFile'],
     })
     if (result.canceled) return null

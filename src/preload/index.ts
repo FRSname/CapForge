@@ -56,6 +56,8 @@ export interface SubforgeApi {
   trashLibraryFolder: (folderPath: string) => Promise<void>
   /** Open `<CAPFORGE_HOME>/library` in the file manager (created if missing). */
   revealLibraryFolder: () => Promise<void>
+  /** Folder picker for the library's folder import and watch folder; null when cancelled. */
+  pickLibraryFolder: () => Promise<string | null>
   /** Multi-select `.capforge` picker; resolves to the chosen paths (empty when cancelled). */
   openProjectFiles: () => Promise<string[]>
   openLogsFolder: () => Promise<void>
@@ -201,6 +203,7 @@ contextBridge.exposeInMainWorld('subforge', {
   trashLibraryFolder: (folderPath: string) =>
     ipcRenderer.invoke('library:trash-folder', folderPath),
   revealLibraryFolder: () => ipcRenderer.invoke('library:reveal'),
+  pickLibraryFolder: () => ipcRenderer.invoke('library:pick-folder'),
   openProjectFiles: () => ipcRenderer.invoke('dialog:open-projects'),
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),

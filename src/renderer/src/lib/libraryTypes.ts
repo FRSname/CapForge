@@ -141,3 +141,102 @@ export function parseLibraryRecord(value: unknown): LibraryRecord {
   const rev = nullableNumber(row?.rev)
   return { ...video, rev: rev ?? FIRST_REV }
 }
+
+/** `POST /api/library/import-folder` — one file the pass could not import. */
+export interface FolderImportFailure {
+  path: string
+  reason: string
+}
+
+/** `POST /api/library/import-folder` — what the pass did, as record ids. */
+export interface FolderImportResult {
+  created: string[]
+  /** A file the library already holds at another path — never repointed. */
+  existing: string[]
+  /** A record whose media was missing, healed by a file found here. */
+  relinked: string[]
+  failed: FolderImportFailure[]
+  /** The scan hit the backend's file or depth cap. */
+  truncated: boolean
+}
+
+/** `GET|PUT /api/library/watch` — the one import-only watch folder. */
+export interface WatchStatus {
+  folder: string | null
+  /** False when the folder is gone (a drive unplugged); watching resumes when it returns. */
+  available: boolean
+  lastScanAt: string | null
+  /** Videos the watcher imported since the backend started. */
+  importedCount: number
+}
+
+/** The control socket's `library_changed` frame — the watcher is not an actor. */
+export interface LibraryChangedEvent {
+  created: string[]
+  relinked: string[]
+}
+
+export const FOLDER_IMPORT_SHAPE_MESSAGE =
+  'The folder import came back in an unexpected shape — the backend may be out of date.'
+
+export const WATCH_STATUS_SHAPE_MESSAGE =
+  'The watch folder status came back in an unexpected shape — the backend may be out of date.'
+
+/** A list of ids, or null when any entry is not a non-empty string. */
+function idList(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null
+  return value.every((id) => typeof id === 'string' && id !== '') ? [...value] : null
+}
+
+function importFailures(value: unknown): FolderImportFailure[] | null {
+  if (!Array.isArray(value)) return null
+  const failures = value.map((item) => {
+    const row = asRecordObject(item)
+    return row && typeof row.path === 'string' ? { path: row.path, reason: str(row.reason) } : null
+  })
+  return failures.every((f) => f !== null) ? (failures as FolderImportFailure[]) : null
+}
+
+/** Validate a folder-import body. Throws on anything that is not the full shape. */
+export function parseFolderImportResult(value: unknown): FolderImportResult {
+  const body = asRecordObject(value)
+  const created = idList(body?.created)
+  const existing = idList(body?.existing)
+  const relinked = idList(body?.relinked)
+  const failed = importFailures(body?.failed)
+  if (!body || !created || !existing || !relinked || !failed) {
+    throw new Error(FOLDER_IMPORT_SHAPE_MESSAGE)
+  }
+  return { created, existing, relinked, failed, truncated: body.truncated === true }
+}
+
+/**
+ * Validate a watch status. `folder` must be present as a string or null — a
+ * body without it could only be misread as "not watching".
+ */
+export function parseWatchStatus(value: unknown): WatchStatus {
+  const body = asRecordObject(value)
+  if (!body || !('folder' in body) || (body.folder !== null && typeof body.folder !== 'string')) {
+    throw new Error(WATCH_STATUS_SHAPE_MESSAGE)
+  }
+  const count = nullableNumber(body.importedCount)
+  return {
+    folder: nullableString(body.folder),
+    available: body.available === true,
+    lastScanAt: nullableString(body.lastScanAt),
+    importedCount: count !== null && count > 0 ? Math.floor(count) : 0,
+  }
+}
+
+/**
+ * Read a `library_changed` socket frame. Never throws: the frame only triggers
+ * a refetch, and a malformed one must not break the socket handler.
+ */
+export function parseLibraryChangedEvent(value: unknown): LibraryChangedEvent {
+  const body = asRecordObject(value)
+  const strings = (list: unknown): string[] =>
+    Array.isArray(list)
+      ? list.filter((id): id is string => typeof id === 'string' && id !== '')
+      : []
+  return { created: strings(body?.created), relinked: strings(body?.relinked) }
+}

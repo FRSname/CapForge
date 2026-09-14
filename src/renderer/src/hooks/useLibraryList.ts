@@ -6,6 +6,10 @@
  * and the list is the thing that shows it. A failed fetch is reported through
  * the caller's `notify` (never swallowed) and leaves the previous rows in
  * place, so a transient backend hiccup does not blank the screen.
+ *
+ * While active it also refetches on the control socket's `library_changed`
+ * (the watch folder imported something). While inactive nothing listens — the
+ * activation edge refetches anyway.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -55,6 +59,11 @@ export function useLibraryList({ active, notify }: LibraryListInput): LibraryLis
   useEffect(() => {
     if (!active) return
     void refresh()
+  }, [active, refresh])
+
+  useEffect(() => {
+    if (!active) return
+    return api.onLibraryChanged(() => void refresh())
   }, [active, refresh])
 
   return { videos, loading, refresh }

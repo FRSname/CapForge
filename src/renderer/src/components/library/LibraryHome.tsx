@@ -14,6 +14,7 @@
 
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import { useLibraryActions } from '../../hooks/useLibraryActions'
+import { useToast } from '../../hooks/useToast'
 import { useLibraryList } from '../../hooks/useLibraryList'
 import { useLibraryMigration } from '../../hooks/useLibraryMigration'
 import { LibraryScreen } from './LibraryScreen'
@@ -23,7 +24,7 @@ export interface LibraryHomeProps {
   onOpen: (video: LibraryVideo) => void
   /** Toolbar "Add video" — go to the drop screen. */
   onAddVideo: () => void
-  /** A media file was dropped on the library. */
+  /** One media file was dropped on the library — open it in the editor. */
   onFileDropped: (path: string) => void
   /** App's toast relay; every failure below is reported through it. */
   notify: (message: string) => void
@@ -32,7 +33,10 @@ export interface LibraryHomeProps {
 export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: LibraryHomeProps) {
   const { videos, loading, refresh } = useLibraryList({ active: true, notify })
   useLibraryMigration({ refresh, notify })
-  const { removeRecord, deleteRecord, importProjects } = useLibraryActions({ refresh, notify })
+  // LibraryHome renders inside ToastProvider, so an import summary is toasted
+  // with its own tone here; App's `notify` relay always shows an error.
+  const { toast } = useToast()
+  const actions = useLibraryActions({ refresh, notify, inform: toast })
 
   return (
     <LibraryScreen
@@ -40,11 +44,15 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
       loading={loading}
       onOpen={onOpen}
       onAddVideo={onAddVideo}
-      onImportProjects={importProjects}
+      onImportProjects={actions.importProjects}
+      onImportFolder={actions.importFolder}
+      onImportFiles={actions.importFiles}
       onFileDropped={onFileDropped}
       onDropRejected={notify}
-      onRemove={removeRecord}
-      onDelete={deleteRecord}
+      onRemove={actions.removeRecord}
+      onDelete={actions.deleteRecord}
+      onLocate={actions.locate}
+      onForceLocate={actions.forceLocate}
     />
   )
 }

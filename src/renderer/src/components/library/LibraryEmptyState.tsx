@@ -3,20 +3,36 @@
  *
  * The drop affordance is `DropZoneScreen` itself — the same component the
  * `'file'` screen shows, so there is exactly one drop target implementation and
- * exactly one list of accepted extensions. Picking a file here hands it
+ * exactly one list of accepted extensions. Browsing for a file here hands it
  * straight to App, which creates the record and moves to the file screen.
+ * A *drop* is handled by `LibraryScreen` before it reaches the zone (a folder
+ * or several files mean something else there), which is why the zone is keyed:
+ * a remount per drop clears the highlight it never got to clear itself.
+ *
+ * A creator's recordings live in folders, so importing a whole folder is
+ * offered right here too, not only in the toolbar.
  */
 
 import { DropZoneScreen } from '../screens/DropZoneScreen'
+import { Button } from '../ui/Button'
 
 export interface LibraryEmptyStateProps {
-  /** A media file was dropped or browsed for. */
+  /** A media file was browsed for. */
   onFileSelected: (path: string) => void
   /** The file is chosen — go transcribe it. */
   onStart: () => void
+  /** Pick a folder and import every recording in it. */
+  onImportFolder: () => void
+  /** Changes per drop on the library, remounting the drop zone. */
+  dropZoneKey?: number
 }
 
-export function LibraryEmptyState({ onFileSelected, onStart }: LibraryEmptyStateProps) {
+export function LibraryEmptyState({
+  onFileSelected,
+  onStart,
+  onImportFolder,
+  dropZoneKey,
+}: LibraryEmptyStateProps) {
   return (
     <section
       aria-labelledby="library-empty-heading"
@@ -34,9 +50,17 @@ export function LibraryEmptyState({ onFileSelected, onStart }: LibraryEmptyState
         Your library is empty
       </h2>
       <p className="text-xs" style={{ color: 'var(--color-text-2)' }}>
-        Drop a video to start a record — everything you do to it is kept here.
+        Drop a video — or a whole folder — to start a record. Everything you do to it is kept here.
       </p>
-      <DropZoneScreen filePath={null} onFileSelected={onFileSelected} onStart={onStart} />
+      <DropZoneScreen
+        key={dropZoneKey}
+        filePath={null}
+        onFileSelected={onFileSelected}
+        onStart={onStart}
+      />
+      <Button variant="ghost" className="text-xs" onClick={onImportFolder}>
+        Import a folder of recordings…
+      </Button>
     </section>
   )
 }

@@ -97,6 +97,9 @@ contextBridge.exposeInMainWorld('subforge', {
   /** Open `<CAPFORGE_HOME>/library` in the OS file manager, creating it if missing. */
   revealLibraryFolder: () => ipcRenderer.invoke('library:reveal'),
 
+  /** Folder picker for the library's folder import and watch folder. Returns path or null. */
+  pickLibraryFolder: () => ipcRenderer.invoke('library:pick-folder'),
+
   /** Multi-select .capforge picker. Returns the chosen paths ([] when cancelled). */
   openProjectFiles: () => ipcRenderer.invoke('dialog:open-projects'),
 
