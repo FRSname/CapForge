@@ -119,6 +119,42 @@ the app confirms, so **CapForge must be open**. See
 rules and what is deliberately absent (there is no `delete_track`, and no batch render —
 loop over `render(track_id)`).
 
+## Library (the video record)
+
+A **record** is CapForge's durable dossier for one video, kept on disk under
+`$CAPFORGE_HOME/library/<id>/` (default `~/.capforge`): `record.json` (the authored
+fields — title, description, chapters, tags, publish info — plus system fields and a
+`rev`), the last saved session snapshot (`project.capforge`) and the transcript derived
+from it. It is **not** the open project: these tools answer with the app idle on the
+drop screen, and with its window closed, because the backend owns them.
+
+| Tool | What it does |
+|---|---|
+| `list_videos` | The library, filtered by `status` (`imported` → `transcribed` → `captioned` → `drafted` → `published`), `collection`, or a full-text `q`; scratch records hidden unless asked for |
+| `search_library` | Full-text search over titles, descriptions and transcript text — a thin alias for `list_videos(q=…)` |
+| `get_video` | One record's full dossier plus its `rev`, by `video_id` **or** by media `path` (exactly one) |
+| `get_video_transcript` | The record's stored transcript as `{rev, source: "record", transcript}`; `segments_only` by default to keep the token budget |
+| `set_video_meta` | Write authored fields, conditional on the `rev` you read; the lone `{"scratch": false}` promotes a throwaway drop into a kept video |
+| `mark_published` | Record where a video went live (CapForge uploads nothing); merges over `publish.youtube` and never restamps an existing `publishedAt` |
+| `find_video_moments` | Moments in the *stored* transcript by literal `query` or by `kind` (`numbers`/`cta`/`speaker_change`/`pause`) — chapter hunting without opening the app |
+| `open_video` | Restore a record's saved session in the CapForge window, making it the open project |
+
+**Reading is not editing.** `set_video_meta` cannot touch transcript text, and
+`update_words` / `remove_filler_words` / the caption-track tools / `render` all act on
+the *open* session. To edit a video you found in the library, call `open_video` first.
+
+Two errors are worth telling apart:
+
+- `CapForge is not running — launch it (the window can stay closed) and retry.` — the
+  backend process is down, so nothing here can answer.
+- `CapForge is running but no window is open — click the Dock icon, then retry
+  open_video` — only `open_video` needs a window, because the renderer is what restores
+  a session.
+
+`open_video` also needs the record to *have* a snapshot: until the app has saved a
+session for it (record autosave arrives with the library screen), it answers `Record
+<id> has no session snapshot yet — open it in CapForge once`.
+
 ## Batch runs (a folder of videos, one style)
 
 CapForge must be **open** — the app owns the style, presets and fonts, and the

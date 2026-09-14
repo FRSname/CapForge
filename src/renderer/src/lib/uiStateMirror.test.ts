@@ -32,6 +32,7 @@ const BODY_KEYS = [
   'appliedPreset',
   'render',
   'activeTrackId',
+  'activeVideoId',
   'agent',
   'tracks',
 ]
@@ -56,13 +57,14 @@ function fixture() {
   return { source, polish }
 }
 
-function core(track = fixture().source, screen = 'results') {
+function core(track = fixture().source, screen = 'results', activeVideoId: string | null = null) {
   return buildUiStateCore({
     screen,
     activeTrack: track,
     activeDisplayGroups: displayGroupsFor(track),
     builtinPresets: ['Bold Yellow'],
     userPresetNames: ['My Look'],
+    activeVideoId,
     agent: IDLE_AGENT_ECHO,
   })
 }
@@ -81,14 +83,21 @@ describe('buildUiStateCore', () => {
     expect(c.render.config).toBeTruthy()
   })
 
-  test('the two additive scalars ride alongside', () => {
+  test('the three additive scalars ride alongside', () => {
     const c = core()
     expect(c.activeTrackId).toBe('src')
+    // Nothing was opened from the library this session.
+    expect(c.activeVideoId).toBeNull()
     expect(c.agent).toEqual({
       lastCommandId: null,
       lastCommandStatus: null,
       lastCommandError: null,
     })
+  })
+
+  test('the record open_video installed rides the core (v3 library)', () => {
+    // What the MCP `open_video` tool confirms against, alongside the echo.
+    expect(core(fixture().source, 'results', 'vid_abc').activeVideoId).toBe('vid_abc')
   })
 
   test('the source track sends no output_name_suffix at all', () => {
@@ -222,6 +231,7 @@ describe('the merged body', () => {
       activeDisplayGroups: displayGroupsFor(source),
       builtinPresets: ['Bold Yellow'],
       userPresetNames: ['My Look'],
+      activeVideoId: null,
       agent: IDLE_AGENT_ECHO,
       tracks,
       sourceTrack: source,

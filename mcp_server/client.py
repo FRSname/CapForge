@@ -6,8 +6,9 @@ CapForge is open; the first tool call then surfaces a clear BackendNotFound.
 
 from __future__ import annotations
 
+import os
 from typing import Any, Optional
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 
@@ -16,9 +17,42 @@ from .discovery import BackendNotFound, read_discovery
 #: Header the backend's require_agent_token dependency checks.
 AGENT_TOKEN_HEADER = "X-CapForge-Agent-Token"
 
+#: The conditional-write header every record patch carries (§2.3).
+IF_MATCH_HEADER = "If-Match"
+
+#: Prefix of the library routes (`backend/library/router.py`).
+LIBRARY_PATH = "/api/library"
+
 #: transcription/render can take minutes; reads are quick.
 _LONG_TIMEOUT = httpx.Timeout(None)
 _SHORT_TIMEOUT = httpx.Timeout(30.0)
+
+
+class StaleRecord(RuntimeError):
+    """A record patch lost a race: the stored ``rev`` moved on (HTTP 409).
+
+    Carries the backend's ``detail`` and the ``current`` record, so the caller
+    can show the agent what it would have clobbered instead of retrying blind.
+    """
+
+    def __init__(self, detail: str, current: Any) -> None:
+        super().__init__(detail)
+        self.detail = detail
+        self.current = current
+
+
+def _query(params: dict) -> str:
+    """A query string with unset params dropped and bools written FastAPI-style.
+
+    A ``None`` left in would be sent as the literal string ``"None"`` and read
+    as a real filter by the route; ``True`` would arrive as ``"True"``.
+    """
+    usable = {
+        key: ("true" if value else "false") if isinstance(value, bool) else value
+        for key, value in params.items()
+        if value is not None and value != ""
+    }
+    return urlencode(usable)
 
 
 class CapForgeClient:
@@ -44,29 +78,59 @@ class CapForgeClient:
         self._base = None
         self._token = None
 
-    def _request(
+    def _send(
         self, method: str, path: str, *, json: Any = None,
-        timeout: Any = _SHORT_TIMEOUT, _retry: bool = True,
-    ) -> Any:
-        # The MCP server is long-lived, but CapForge may restart under it with a
-        # new port and/or token. On a connection failure or 401 we drop the
-        # cached connection, re-read the discovery file, and retry once.
+        headers: Optional[dict] = None, timeout: Any = _SHORT_TIMEOUT,
+        _retry: bool = True,
+    ) -> httpx.Response:
+        """The one request path: connect, auth-retry, raw response.
+
+        The MCP server is long-lived, but CapForge may restart under it with a
+        new port and/or token. On a connection failure or 401 we drop the cached
+        connection, re-read the discovery file, and retry once. `headers` is
+        merged *over* the token header, never instead of it.
+        """
         self._ensure()
+        merged = {**self._headers(), **(headers or {})}
         try:
             res = httpx.request(method, f"{self._base}{path}", json=json,
-                                headers=self._headers(), timeout=timeout)
+                                headers=merged, timeout=timeout)
         except httpx.ConnectError as exc:
             self.reset()
             if _retry:
-                return self._request(method, path, json=json, timeout=timeout, _retry=False)
+                return self._send(method, path, json=json, headers=headers,
+                                  timeout=timeout, _retry=False)
             raise BackendNotFound(
                 "Could not reach the CapForge backend. Is the app still open?"
             ) from exc
         if res.status_code == 401 and _retry:
             self.reset()
-            return self._request(method, path, json=json, timeout=timeout, _retry=False)
+            return self._send(method, path, json=json, headers=headers,
+                              timeout=timeout, _retry=False)
+        return res
+
+    def _request(
+        self, method: str, path: str, *, json: Any = None,
+        headers: Optional[dict] = None, timeout: Any = _SHORT_TIMEOUT,
+    ) -> Any:
+        res = self._send(method, path, json=json, headers=headers, timeout=timeout)
         res.raise_for_status()
         return res.json() if res.content else {}
+
+    def _request_status(
+        self, method: str, path: str, *, json: Any = None,
+        headers: Optional[dict] = None, accept: tuple[int, ...] = (),
+        timeout: Any = _SHORT_TIMEOUT,
+    ) -> tuple[int, Any]:
+        """`_request`, but statuses in `accept` come back instead of raising.
+
+        For the handful of error codes that are an *answer* — a 409 carrying the
+        record that beat us — rather than a transport failure.
+        """
+        res = self._send(method, path, json=json, headers=headers, timeout=timeout)
+        if res.status_code not in accept:
+            res.raise_for_status()
+        return res.status_code, (res.json() if res.content else {})
 
     # -- endpoints --------------------------------------------------------
     def get_status(self) -> Any:
@@ -136,6 +200,67 @@ class CapForgeClient:
 
     def get_custom_caption_contract(self) -> Any:
         return self._request("GET", "/api/custom-caption-contract")
+
+    # -- library (the video record) ---------------------------------------
+    def library_list(self, params: dict) -> Any:
+        query = _query(params)
+        return self._request("GET", f"{LIBRARY_PATH}?{query}" if query else LIBRARY_PATH)
+
+    def library_get(self, video_id: str) -> Any:
+        return self._request("GET", f"{LIBRARY_PATH}/{quote(video_id)}")
+
+    def library_find_by_path(self, path: str) -> Optional[dict]:
+        """The record whose media is `path`, or None — a list plus a local match.
+
+        Deliberately client-side: the list route has no `?path=` filter, and the
+        comparison has to be on the *resolved* path anyway (a symlink or a
+        relative path names the same media), which is knowledge the caller's
+        filesystem has and the backend's index does not.
+        """
+        target = os.path.realpath(path)
+        listed = self.library_list({"include_scratch": True}) or {}
+        for video in listed.get("videos") or []:
+            source = video.get("sourcePath")
+            if isinstance(source, str) and source and os.path.realpath(source) == target:
+                return video
+        return None
+
+    def library_create(self, path: str, scratch: bool = False) -> Any:
+        return self._request(
+            "POST", LIBRARY_PATH, json={"source_path": path, "scratch": scratch}
+        )
+
+    def library_transcript(self, video_id: str, segments_only: bool = True) -> Any:
+        query = _query({"segments_only": segments_only})
+        return self._request("GET", f"{LIBRARY_PATH}/{quote(video_id)}/transcript?{query}")
+
+    def library_patch(self, video_id: str, patch: dict, rev: int) -> Any:
+        """Conditional write. A 409 is an *answer* (someone else wrote first),
+        so it is raised as StaleRecord carrying the current record, not as a
+        transport error the tool layer would have to re-parse."""
+        status, body = self._request_status(
+            "PATCH", f"{LIBRARY_PATH}/{quote(video_id)}", json=patch,
+            headers={IF_MATCH_HEADER: str(rev)}, accept=(409,),
+        )
+        if status == 409:
+            detail = body.get("detail") if isinstance(body, dict) else None
+            current = body.get("current") if isinstance(body, dict) else None
+            raise StaleRecord(
+                detail or f"Record {video_id} was written by someone else — re-read it",
+                current,
+            )
+        return body
+
+    def library_promote(self, video_id: str) -> Any:
+        return self._request("POST", f"{LIBRARY_PATH}/{quote(video_id)}/promote")
+
+    def library_moments(
+        self, video_id: str, query: Optional[str] = None, kind: Optional[str] = None
+    ) -> Any:
+        # The route itself refuses both-or-neither; passing them through keeps
+        # that one rule in one place.
+        params = _query({"query": query, "kind": kind})
+        return self._request("GET", f"{LIBRARY_PATH}/{quote(video_id)}/moments?{params}")
 
     # -- co-author workspace ---------------------------------------------
     def get_workspace(self) -> Any:

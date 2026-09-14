@@ -446,6 +446,17 @@ class CapForgeAPI {
     return this.post('/api/coauthor/sync-captions', {})
   }
 
+  /**
+   * v3 library — the stored v2 project JSON of one record (`404` when the
+   * record has no session snapshot yet). The library routes accept either the
+   * agent token or the per-launch local token; the renderer has the latter.
+   * Returned untyped on purpose: `planProjectRestore` is the trust boundary
+   * every `.capforge` payload goes through, whatever opened it.
+   */
+  getLibraryProject(id: string): Promise<unknown> {
+    return this.getWithLocalToken<unknown>(`/api/library/${encodeURIComponent(id)}/project`)
+  }
+
   getVideoInfo(filePath: string) {
     const token = encodeURIComponent(this.localToken)
     return this.get<VideoInfo>(

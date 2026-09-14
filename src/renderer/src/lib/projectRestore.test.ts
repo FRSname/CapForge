@@ -50,6 +50,21 @@ describe('planProjectRestore', () => {
     expect(plan.file.version).toBe(2)
   })
 
+  /**
+   * The library stores a record's project **byte for byte** as it was PUT, so
+   * `open_video` restores a JSON round-trip of the very object an in-session
+   * save would have written. This is the "open_video and a project-file open
+   * install the same store" pin from the creator-hub plan (§2.3).
+   */
+  test('a JSON round-trip of a v2 file with a translated track plans the same store', () => {
+    const file = projectFileFromTracks({ result: RESULT }, [source, polish], 't1')
+    const stored = JSON.parse(JSON.stringify(file))
+
+    expect(planProjectRestore(stored)).toEqual(planProjectRestore(file))
+    // And it really is the two-track file — otherwise this would pin nothing.
+    expect(planProjectRestore(stored).tracks.map((t) => t.id)).toEqual(['src', 't1'])
+  })
+
   test('builds the snake_case backend body, alignment flag defaulted to false', () => {
     const plan = planProjectRestore(v2Raw())
     expect(plan.backendResult).toEqual({

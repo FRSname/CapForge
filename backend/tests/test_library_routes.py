@@ -120,7 +120,9 @@ def create(client, media, **body) -> dict:
     ("get", "/api/library/abc"),
     ("patch", "/api/library/abc"),
     ("put", "/api/library/abc/project"),
+    ("get", "/api/library/abc/project"),
     ("get", "/api/library/abc/transcript"),
+    ("get", "/api/library/abc/moments"),
     ("get", "/api/library/abc/asset/poster.jpg"),
     ("post", "/api/library/abc/renders"),
     ("post", "/api/library/abc/promote"),
@@ -344,3 +346,91 @@ def test_startup_prepares_the_index_without_a_window(main_module, monkeypatch, h
         assert (home / "library" / "library.db").exists()
     finally:
         library_router.reset_store_cache()
+
+
+# --- project GET (the renderer's open_video path) -----------------------------
+
+def test_project_get_returns_what_was_put(client, media):
+    rec = create(client, media)
+    stored = project()
+    client.put(f"/api/library/{rec['id']}/project", json=stored, headers=agent())
+
+    r = client.get(f"/api/library/{rec['id']}/project", headers=agent())
+
+    assert r.status_code == 200
+    # Byte-for-byte what was PUT: open_video and a project-file open must build
+    # the same track store, so the backend may not reshape the snapshot.
+    assert r.json() == stored
+
+
+def test_project_get_404s_before_any_put(client, media):
+    rec = create(client, media)
+    assert client.get(f"/api/library/{rec['id']}/project", headers=agent()).status_code == 404
+
+
+def test_project_get_unknown_id_is_404(client):
+    assert client.get("/api/library/nope/project", headers=agent()).status_code == 404
+
+
+# --- moments -----------------------------------------------------------------
+
+def moments(client, video_id, **params):
+    return client.get(f"/api/library/{video_id}/moments", params=params, headers=agent())
+
+
+@pytest.fixture
+def transcribed(client, media):
+    rec = create(client, media)
+    client.put(
+        f"/api/library/{rec['id']}/project",
+        json=project(words=("Hello", "brave", "world")),
+        headers=agent(),
+    )
+    return rec["id"]
+
+
+def test_moments_by_query(client, transcribed):
+    r = moments(client, transcribed, query="brave")
+
+    assert r.status_code == 200
+    matches = r.json()["matches"]
+    assert [m["text"] for m in matches] == ["brave"]
+    assert matches[0]["start"] == 1.0
+
+
+def test_moments_by_kind(client, transcribed):
+    r = moments(client, transcribed, kind="pause")
+
+    assert r.status_code == 200
+    # Contiguous words, so no pause — the route still answers with an empty list.
+    assert r.json()["matches"] == []
+
+
+def test_moments_requires_exactly_one_of_query_or_kind(client, transcribed):
+    neither = moments(client, transcribed)
+    both = moments(client, transcribed, query="brave", kind="pause")
+
+    assert neither.status_code == 400 and both.status_code == 400
+    assert "query" in neither.json()["detail"] and "kind" in neither.json()["detail"]
+
+
+def test_moments_unknown_kind_is_400_with_the_valueerror_text(client, transcribed):
+    r = moments(client, transcribed, kind="vibes")
+
+    assert r.status_code == 400
+    assert "Unknown semantic kind" in r.json()["detail"]
+
+
+def test_moments_404s_without_a_transcript(client, media):
+    rec = create(client, media)
+    assert moments(client, rec["id"], query="brave").status_code == 404
+
+
+def test_moments_unknown_id_is_404(client):
+    assert moments(client, "nope", query="brave").status_code == 404
+
+
+def test_moments_treats_a_blank_param_as_absent(client, transcribed):
+    """`?query=` is a caller that meant to send nothing, not a match-everything."""
+    assert moments(client, transcribed, query="").status_code == 400
+    assert moments(client, transcribed, query="brave", kind="").status_code == 200

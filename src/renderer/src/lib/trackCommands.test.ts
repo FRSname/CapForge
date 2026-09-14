@@ -12,7 +12,10 @@ import type { AgentCommand } from './api'
 import {
   applyTrackCommand,
   commandIdOf,
+  ECHOED_COMMAND_OPS,
+  isEchoedCommand,
   isTrackCommand,
+  OPEN_VIDEO_OP,
   TRACK_COMMAND_OPS,
 } from './trackCommands'
 import { SOURCE_TRACK_ID, createTrackFromSource, type CaptionTrack } from './tracks'
@@ -33,6 +36,17 @@ describe('isTrackCommand', () => {
     for (const op of TRACK_COMMAND_OPS) expect(isTrackCommand(op)).toBe(true)
     expect(isTrackCommand('set_settings')).toBe(false)
     expect(isTrackCommand('load_video')).toBe(false)
+  })
+})
+
+describe('isEchoedCommand', () => {
+  test('is the track ops plus open_video — the set confirmed by polling', () => {
+    expect(ECHOED_COMMAND_OPS).toEqual([...TRACK_COMMAND_OPS, OPEN_VIDEO_OP])
+    for (const op of ECHOED_COMMAND_OPS) expect(isEchoedCommand(op)).toBe(true)
+    // open_video is echoed but is NOT a track write: it needs no open project.
+    expect(isTrackCommand(OPEN_VIDEO_OP)).toBe(false)
+    expect(isEchoedCommand('set_settings')).toBe(false)
+    expect(isEchoedCommand('load_video')).toBe(false)
   })
 })
 

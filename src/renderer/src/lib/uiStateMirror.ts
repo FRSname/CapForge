@@ -10,8 +10,8 @@
  * into a ref and the pusher sends the merge, so neither can blank the other.
  *
  * The seven legacy keys keep describing the **active** track, unchanged, so
- * every existing agent prompt still works; `activeTrackId`, `agent` and
- * `tracks` are additive.
+ * every existing agent prompt still works; `activeTrackId`, `activeVideoId`,
+ * `agent` and `tracks` are additive.
  *
  * Pure module: no React, no `window`, no I/O.
  */
@@ -68,7 +68,7 @@ export function renderEditedFlag(track: CaptionTrack): boolean {
   return track.groupsEdited || track.segmentsEdited
 }
 
-/** The seven legacy keys + the two additive scalars. */
+/** The seven legacy keys + the three additive scalars. */
 export interface UiStateCore {
   screen: string
   settings: StudioSettings
@@ -78,6 +78,12 @@ export interface UiStateCore {
   appliedPreset: string | null
   render: RenderBody
   activeTrackId: string
+  /**
+   * The v3 library record `open_video` last installed, or null when the open
+   * project did not come from the library. The MCP `open_video` tool confirms
+   * against this as well as the `agent` echo.
+   */
+  activeVideoId: string | null
   agent: AgentCommandEcho
 }
 
@@ -92,6 +98,7 @@ export interface UiStateCoreInput {
   activeDisplayGroups: Segment[]
   builtinPresets: string[]
   userPresetNames: string[]
+  activeVideoId: string | null
   agent: AgentCommandEcho
 }
 
@@ -114,6 +121,7 @@ export function buildUiStateCore(input: UiStateCoreInput): UiStateCore {
       nameSuffixFor(activeTrack)
     ),
     activeTrackId: activeTrack.id,
+    activeVideoId: input.activeVideoId,
     agent: input.agent,
   }
 }
