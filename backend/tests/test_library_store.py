@@ -150,6 +150,25 @@ def test_patch_bumps_rev_and_stamps_history(store, tmp_path):
     assert store.get(rec.id).title == "A talk"
 
 
+def test_patch_with_an_unchanged_value_is_a_no_op(store, tmp_path):
+    """Sending a field back with the value it already holds is not an edit:
+    no rev bump, no history entry — otherwise a debounced insert-then-remove
+    of a chapter stamps "edited" on a list that never changed."""
+    rec = store.create(str(media(tmp_path)))
+    rec = store.patch(rec.id, RecordPatch(title="T", chapters=[]), rev=rec.rev, by="user")
+    assert rec.rev == 2
+    assert [h.field for h in rec.history] == ["title"]  # chapters [] -> [] never happened
+
+    same = store.patch(rec.id, RecordPatch(title="T", chapters=[]), rev=rec.rev, by="user")
+    assert same.rev == 2
+    assert [h.field for h in same.history] == ["title"]
+    assert store.get(rec.id).updatedAt == rec.updatedAt
+
+    mixed = store.patch(rec.id, RecordPatch(title="T", description="D"), rev=rec.rev, by="agent")
+    assert mixed.rev == 3
+    assert [h.field for h in mixed.history] == ["title", "description"]
+
+
 def test_patch_only_touches_fields_that_were_set(store, tmp_path):
     rec = store.create(str(media(tmp_path)))
     rec = store.patch(rec.id, RecordPatch(title="T", description="D"), rev=rec.rev, by="user")

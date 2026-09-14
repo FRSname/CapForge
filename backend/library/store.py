@@ -278,12 +278,20 @@ class LibraryStore(StoreAdminMixin):
         if rev != record.rev:
             raise StaleRevision(record)
 
-        changed = [f for f in RecordPatch.model_fields if f in patch.model_fields_set]
+        # A field sent back with the value it already holds is not an edit —
+        # no rev bump, no history entry. The debounced writer coalesces an
+        # insert-then-remove into exactly such a patch.
+        previous = record.model_dump()
+        sent = patch.model_dump()
+        changed = [
+            f
+            for f in RecordPatch.model_fields
+            if f in patch.model_fields_set and sent[f] != previous[f]
+        ]
         if not changed:
             return record
 
         now = _now_iso()
-        previous = record.model_dump()
         entries = [
             HistoryEntry(field=name, prev=_truncate(previous[name]), by=by, at=now)
             for name in changed
