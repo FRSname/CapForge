@@ -31,6 +31,7 @@ import { ToastRelay } from './components/ui/ToastRelay'
 import { useSettingsUndo } from './hooks/useSettingsUndo'
 import { useAutosave } from './hooks/useAutosave'
 import { useCrashRecovery } from './hooks/useCrashRecovery'
+import { useLibraryOpen } from './hooks/useLibraryOpen'
 import { useUiStateMirror } from './hooks/useUiStateMirror'
 import { useUserPresets } from './hooks/useUserPresets'
 import {
@@ -288,32 +289,14 @@ export function App() {
    * `lib/trackCommands.ts`; failures throw and AgentLiveSync echoes the message
    * back to the agent instead of swallowing it.
    */
-  const handleAgentTrackCommand = useCallback(
-    (cmd: AgentCommand): string => {
-      const next = applyTrackCommand(tracks, activeTrackId, cmd)
-      commitTracks(next.tracks, next.activeTrackId)
-      // The editor owns its own copy of the track it is mounted on, so a write
-      // that lands underneath it only becomes visible on a remount.
-      if (next.remountTrackId) bumpRevision(next.remountTrackId)
-      return next.message
-    },
-    [tracks, activeTrackId, commitTracks, bumpRevision]
-  )
-
-  // ── UI-state mirror ─────────────────────────────────────────────
-  // Everything about the mirror — the two halves, the shared debounce and the
-  // resync-after-reconnect provider — lives in the hook.
-  useUiStateMirror({
-    screen,
-    result,
-    activeTrack,
-    displayGroups,
-    userPresetNames,
-    agentEcho,
-    tracks,
-    sourceTrack,
-    classifications,
-  })
+  const handleAgentTrackCommand = (cmd: AgentCommand): string => {
+    const next = applyTrackCommand(tracks, activeTrackId, cmd)
+    commitTracks(next.tracks, next.activeTrackId)
+    // The editor owns its own copy of the track it is mounted on, so a write
+    // that lands underneath it only becomes visible on a remount.
+    if (next.remountTrackId) bumpRevision(next.remountTrackId)
+    return next.message
+  }
 
   // ── Source-track timing link ────────────────────────────────────
   // Whenever the source's words or grouping move, every translated group that
@@ -398,7 +381,7 @@ export function App() {
 
   // ── Project restore (shared by Open and crash-recovery) ─────────
   const restoreFromProjectFile = useCallback(
-    async (raw: unknown) => {
+    async (raw: unknown): Promise<boolean> => {
       // The trust boundary + every derivation live in `lib/projectRestore.ts`,
       // so a file opened from anywhere else installs an identical store. A file
       // from a newer build (or a damaged one) throws before anything is
@@ -408,7 +391,7 @@ export function App() {
         plan = planProjectRestore(raw)
       } catch (err) {
         setRestoreWarning(restoreErrorMessage(err))
-        return
+        return false
       }
 
       // Push transcription to backend so render/export work.
@@ -427,15 +410,37 @@ export function App() {
       replaceTracks(plan.tracks, plan.activeTrackId)
       setResultsSessionId((n) => n + 1)
       setScreen('results')
+      return true
     },
     [replaceTracks]
   )
 
+  // ── Library open + UI-state mirror ──────────────────────────────
+  // `open_video` installs a stored record through the very same plan an Open
+  // takes and publishes it as the mirror's `activeVideoId`; both are hooks.
+  const { activeVideoId, applyEchoedCommand } = useLibraryOpen({
+    screen,
+    restoreFromProjectFile,
+    applyTrackCommand: handleAgentTrackCommand,
+  })
+
+  useUiStateMirror({
+    screen,
+    result,
+    activeTrack,
+    displayGroups,
+    userPresetNames,
+    activeVideoId,
+    agentEcho,
+    tracks,
+    sourceTrack,
+    classifications,
+  })
+
   // ── Project open ────────────────────────────────────────────────
   const handleOpen = useCallback(async () => {
     const raw = await window.subforge.openProject()
-    if (!raw) return
-    await restoreFromProjectFile(raw)
+    if (raw) await restoreFromProjectFile(raw)
   }, [restoreFromProjectFile])
 
   // ── Crash recovery ──────────────────────────────────────────────
@@ -635,7 +640,7 @@ export function App() {
           applyWordOverrides={handleApplyWordOverrides}
           onPresetApplied={handlePresetApplied}
           loadVideo={handleLoadVideo}
-          applyTrackCommand={handleAgentTrackCommand}
+          applyEchoedCommand={applyEchoedCommand}
           onAgentCommandEcho={setAgentEcho}
         />
       </div>

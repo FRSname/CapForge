@@ -61,6 +61,8 @@ export interface UiStateMirrorInput extends TrackInputs {
   activeTrack: CaptionTrack
   displayGroups: Segment[]
   userPresetNames: string[]
+  /** The library record `open_video` installed, null otherwise (v3 library). */
+  activeVideoId: string | null
   agentEcho: AgentCommandEcho
 }
 
@@ -70,6 +72,7 @@ export function useUiStateMirror({
   activeTrack,
   displayGroups,
   userPresetNames,
+  activeVideoId,
   agentEcho,
   tracks,
   sourceTrack,
@@ -119,11 +122,20 @@ export function useUiStateMirror({
         activeTrack,
         activeDisplayGroups: displayGroups,
         userPresetNames,
+        activeVideoId,
         agent: agentEcho,
       },
     }
     scheduleMirror()
-  }, [screen, activeTrack, displayGroups, userPresetNames, agentEcho, scheduleMirror])
+  }, [
+    screen,
+    activeTrack,
+    displayGroups,
+    userPresetNames,
+    activeVideoId,
+    agentEcho,
+    scheduleMirror,
+  ])
 
   useEffect(() => {
     mirrorRef.current = {
@@ -157,6 +169,7 @@ export function useUiStateMirror({
           activeDisplayGroups: displayGroups,
           builtinPresets: builtinPresetNames(),
           userPresetNames,
+          activeVideoId,
           agent: agentEcho,
           tracks,
           sourceTrack,
@@ -171,6 +184,7 @@ export function useUiStateMirror({
     activeTrack,
     displayGroups,
     userPresetNames,
+    activeVideoId,
     agentEcho,
     tracks,
     sourceTrack,

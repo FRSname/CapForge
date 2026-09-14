@@ -32,6 +32,22 @@ export function isTrackCommand(op: string): op is TrackCommandOp {
   return (TRACK_COMMAND_OPS as readonly string[]).includes(op)
 }
 
+/** The v3 library open command — applied by `lib/libraryOpen.ts`, not here. */
+export const OPEN_VIDEO_OP = 'open_video'
+
+/**
+ * Every agent command the renderer confirms by **echoing** `{id, status,
+ * error}` into the UI-state mirror rather than by a toast alone: the three
+ * track writes plus `open_video`. The dispatch site in `AgentLiveSync` tests
+ * this set, so a new polled command is enrolled in exactly one place.
+ */
+export const ECHOED_COMMAND_OPS = [...TRACK_COMMAND_OPS, OPEN_VIDEO_OP] as const
+export type EchoedCommandOp = (typeof ECHOED_COMMAND_OPS)[number]
+
+export function isEchoedCommand(op: string): op is EchoedCommandOp {
+  return (ECHOED_COMMAND_OPS as readonly string[]).includes(op)
+}
+
 export interface TrackCommandResult {
   tracks: CaptionTrack[]
   activeTrackId: string

@@ -7,7 +7,7 @@
  *   - agent_command   → set_settings / apply_preset (style), set_word_overrides
  *                       (keyword emphasis), load_video (import + transcribe),
  *                       create_track / set_track_text / reflow_track (caption
- *                       tracks), applied live to renderer state.
+ *                       tracks), open_video (library), live on renderer state.
  *
  * The socket is connected on EVERY screen, not just results. `load_video` has to
  * reach the app while it sits on the drop screen with nothing loaded — that is the
@@ -27,7 +27,7 @@ import type { StudioSettings } from './studio/StudioPanel'
 import type { WordOverrideEdit } from '../lib/project'
 import type { UserPreset } from '../hooks/useUserPresets'
 import { applySettingsCommand, resolvePreset, toastMessageForCommand } from '../lib/agentCommands'
-import { commandIdOf, isTrackCommand } from '../lib/trackCommands'
+import { commandIdOf, isEchoedCommand, isTrackCommand } from '../lib/trackCommands'
 import type { AgentCommandEcho } from '../lib/uiStateMirror'
 import { useToast } from '../hooks/useToast'
 
@@ -55,11 +55,11 @@ interface AgentLiveSyncProps {
   /** Load a video and start transcription (op: load_video). Returns a failure reason. */
   loadVideo: (path: string) => string | null
   /**
-   * Apply a track write command (`create_track` / `set_track_text` /
-   * `reflow_track`), returning the toast copy. **Throws** with a human-readable
-   * message on refusal — which is echoed to the agent rather than swallowed.
+   * Apply a polled command — a track write (`create_track` / `set_track_text` /
+   * `reflow_track`) or the library's `open_video` — returning the toast copy.
+   * **Throws** a human-readable message on refusal, echoed to the agent.
    */
-  applyTrackCommand: (cmd: AgentCommand) => string
+  applyEchoedCommand: (cmd: AgentCommand) => string | Promise<string>
   /** Publish how the last agent write command ended, for confirm-by-poll. */
   onAgentCommandEcho: (echo: AgentCommandEcho) => void
 }
@@ -79,7 +79,7 @@ export function AgentLiveSync({
   applyWordOverrides,
   onPresetApplied,
   loadVideo,
-  applyTrackCommand,
+  applyEchoedCommand,
   onAgentCommandEcho,
 }: AgentLiveSyncProps) {
   const { toast } = useToast()
@@ -98,7 +98,7 @@ export function AgentLiveSync({
   const applyWordOverridesRef = useRef(applyWordOverrides)
   const onPresetAppliedRef = useRef(onPresetApplied)
   const loadVideoRef = useRef(loadVideo)
-  const applyTrackCommandRef = useRef(applyTrackCommand)
+  const applyEchoedCommandRef = useRef(applyEchoedCommand)
   const onAgentCommandEchoRef = useRef(onAgentCommandEcho)
   const toastRef = useRef(toast)
   resultsActiveRef.current = resultsActive
@@ -109,7 +109,7 @@ export function AgentLiveSync({
   applyWordOverridesRef.current = applyWordOverrides
   onPresetAppliedRef.current = onPresetApplied
   loadVideoRef.current = loadVideo
-  applyTrackCommandRef.current = applyTrackCommand
+  applyEchoedCommandRef.current = applyEchoedCommand
   onAgentCommandEchoRef.current = onAgentCommandEcho
   toastRef.current = toast
 
@@ -155,15 +155,14 @@ export function AgentLiveSync({
     }
 
     /**
-     * `create_track` / `set_track_text` / `reflow_track`.
-     *
-     * Unlike the style ops these are confirmed by polling: the tool mints a
-     * `command_id`, the renderer echoes `{id, status, error}` into the UI-state
-     * mirror, and the tool waits for its own id. So **every** exit here echoes —
-     * a refusal reports the reason rather than leaving the agent to time out
-     * against an unchanged mirror.
+     * The polled commands — `create_track` / `set_track_text` / `reflow_track`
+     * and `open_video`. Unlike the style ops these are confirmed by polling:
+     * the tool mints a `command_id`, the renderer echoes `{id, status, error}`
+     * into the UI-state mirror, and the tool waits for its own id. So **every**
+     * exit here echoes — a refusal reports the reason rather than leaving the
+     * agent to time out against an unchanged mirror.
      */
-    const handleTrackCommand = (cmd: AgentCommand) => {
+    const handleEchoedCommand = async (cmd: AgentCommand) => {
       const id = commandIdOf(cmd)
       const echo = (status: 'ok' | 'error', error: string | null) => {
         onAgentCommandEchoRef.current({
@@ -173,10 +172,11 @@ export function AgentLiveSync({
         })
       }
       try {
-        if (!resultsActiveRef.current) {
+        // Only the track writes need a project — `open_video` is how one opens.
+        if (isTrackCommand(cmd.op) && !resultsActiveRef.current) {
           throw new Error('No project is open in CapForge — load a video first.')
         }
-        const message = applyTrackCommandRef.current(cmd)
+        const message = await applyEchoedCommandRef.current(cmd)
         echo('ok', null)
         toastRef.current(message, 'info')
       } catch (err) {
@@ -199,11 +199,11 @@ export function AgentLiveSync({
           return
         }
 
-        // The three track write commands answer with an explicit `{id, status,
-        // error}` echo the agent polls for, so they handle their own failures
-        // here — the blanket catch below must never be what swallows one.
-        if (isTrackCommand(cmd.op)) {
-          handleTrackCommand(cmd)
+        // The track writes and `open_video` answer with an explicit `{id,
+        // status, error}` echo the agent polls for, so they handle their own
+        // failures — the blanket catch below must never be what swallows one.
+        if (isEchoedCommand(cmd.op)) {
+          void handleEchoedCommand(cmd)
           return
         }
 
