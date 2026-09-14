@@ -101,6 +101,7 @@ from backend.models.schemas import (
 )
 from backend import workspace_fs
 from backend.library import posters as library_posters
+from backend.library import watch as library_watch
 from backend.library.router import (
     build_router as build_library_router,
     get_store as library_store,
@@ -333,6 +334,11 @@ async def _write_agent_discovery() -> None:
         # Posters for records that predate v3 #6 or whose grab failed: the
         # library's own single-worker pool, never awaited.
         library_posters.start_backfill(store)
+        # The import-only watch folder: a daemon poller whose `library_changed`
+        # events hop back onto this loop (docs/plans/library-folder-import.md).
+        library_watch.get_watcher(
+            store, library_watch.make_notify(asyncio.get_running_loop(), broadcast_event)
+        ).start()
     except Exception:
         # Non-fatal: the library index is a disposable cache and is rebuilt on
         # demand; the app must still start without it.
@@ -365,6 +371,7 @@ def _log_hardware_prewarm(future: "asyncio.Future[Any]") -> None:
 
 @app.on_event("shutdown")
 async def _remove_agent_discovery() -> None:
+    library_watch.stop_watchers()
     remove_discovery()
 
 

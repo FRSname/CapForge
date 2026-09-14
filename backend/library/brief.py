@@ -17,6 +17,7 @@ Two rules this module exists to hold:
 
 from __future__ import annotations
 
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -83,6 +84,11 @@ class BriefPatch(Brief):
     house_rules: Optional[HouseRules] = None
 
 
+#: ``save_brief`` is read-modify-write on one file; two concurrent PATCHes of the
+#: brief must not drop each other's fields. One per process — there is one brief.
+_BRIEF_WRITE_LOCK = threading.Lock()
+
+
 def brief_path(root: Path) -> Path:
     return Path(root) / BRIEF_FILE
 
@@ -111,14 +117,15 @@ def save_brief(root: Path, patch: BriefPatch) -> Brief:
     """Merge ``patch`` into the stored brief, write it atomically, return it.
 
     The stored brief is never mutated: ``model_copy(update=...)`` builds a new
-    one, exactly as ``LibraryStore.patch`` does for a record.
+    one, exactly as ``LibraryStore.patch`` does for a record. The read and the
+    write are one locked sequence.
     """
-    current = load_brief(root)
     update: dict[str, Any] = {
         name: getattr(patch, name)
         for name in Brief.model_fields
         if name in patch.model_fields_set
     }
-    merged = current.model_copy(update=update)
-    fs.write_json_atomic(brief_path(root), merged.model_dump(mode="json"))
+    with _BRIEF_WRITE_LOCK:
+        merged = load_brief(root).model_copy(update=update)
+        fs.write_json_atomic(brief_path(root), merged.model_dump(mode="json"))
     return merged

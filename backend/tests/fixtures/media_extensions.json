@@ -1,0 +1,4 @@
+{
+  "description": "The media file extensions CapForge imports (lower-case, no dot). Three copies must equal this list: backend/library/media_scan.py MEDIA_EXTENSIONS, src/renderer/src/lib/libraryView.ts MEDIA_EXTENSIONS, and the list behind electron/single-instance.js firstMediaArg. Change one, change all three and this file.",
+  "extensions": ["mp3", "wav", "m4a", "flac", "aac", "ogg", "mp4", "mkv", "webm", "mov"]
+}

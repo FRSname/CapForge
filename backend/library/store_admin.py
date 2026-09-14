@@ -1,4 +1,4 @@
-"""Library housekeeping: relocation, project import, first-launch migration.
+"""Library housekeeping: relocation, relink, project import, first-launch migration.
 
 Mixed into :class:`~backend.library.store.LibraryStore` (which is already at its
 size ceiling) rather than imported by it as free functions, so the call sites
@@ -18,15 +18,18 @@ import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
-from backend.library.errors import MediaNotFound
+from backend.library import fs
+from backend.library.errors import MediaInUse, MediaMismatch, MediaNotFound
+from backend.library.locking import writes
 from backend.library.paths import (
     PROJECT_FILE,
     REMOVED_DIR_NAME,
     STUDIO_DIR_NAME,
+    TRANSCRIPT_FILE,
     TRASH_DIR_NAME,
     capforge_home,
 )
-from backend.library.schemas import VideoRecord
+from backend.library.schemas import HISTORY_CAP, Actor, HistoryEntry, VideoRecord
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from backend.library.store import LibraryStore, PathLike
@@ -39,6 +42,11 @@ logger = logging.getLogger(__name__)
 #: small enough that a mistyped path can't be read into memory.
 PROJECT_IMPORT_MAX_BYTES = 64 * 1024 * 1024
 PROJECT_IMPORT_SUFFIX = ".capforge"
+#: The history field a relink is stamped under (``sourcePath`` stays a system
+#: field — ``PATCH`` refuses it; relink is the one way to change it).
+RELINK_HISTORY_FIELD = "sourcePath"
+#: The stored files whose media paths a relink rewrites (decision 4).
+RELINK_REWRITTEN_FILES = (PROJECT_FILE, TRANSCRIPT_FILE)
 
 __all__ = [
     "StoreAdminMixin",
@@ -48,6 +56,7 @@ __all__ = [
     "REMOVED_DIR_NAME",
     "TRASH_DIR_NAME",
     "read_project_file",
+    "replace_path_strings",
 ]
 
 
@@ -111,6 +120,7 @@ def _stamped_target(base: Path, video_id: str, stamp: str) -> Path:
 class StoreAdminMixin:
     """Relocation, import and migration for :class:`LibraryStore`."""
 
+    @writes
     def _relocate(
         self: "LibraryStore", video_id: str, bucket: str
     ) -> tuple[VideoRecord, Path]:
@@ -138,6 +148,98 @@ class StoreAdminMixin:
         """
         return has_project_file(self._folder(record.id, scratch=record.scratch))
 
+    def relink(
+        self: "LibraryStore",
+        video_id: str,
+        path: "PathLike",
+        *,
+        by: Actor,
+        force: bool = False,
+    ) -> VideoRecord:
+        """Point a record at its media's new location ("Locate…", folder import).
+
+        Same media (fingerprint equal) relinks; different media raises
+        ``MediaMismatch`` unless ``force`` (then the new fingerprint is adopted);
+        a file another record — library or scratch — owns raises ``MediaInUse``
+        even with ``force``. The stored snapshot's paths are rewritten **before**
+        the record, so a crash in between leaves a record that is still missing
+        its media and a relink that can simply run again. The current path is a
+        no-op, like a no-op patch.
+
+        The new file is fingerprinted before the write lock is taken (it may sit
+        on a slow drive); everything from the re-read of the record on is locked.
+        """
+        self.get(video_id)  # an unknown record is a 404 before the file is looked at
+        target = _require_media_file(path)
+        new_fingerprint = _fingerprint_of(target)
+        with self.write_lock:
+            return self._relink_locked(video_id, target, new_fingerprint, by=by, force=force)
+
+    def heal_missing(
+        self: "LibraryStore", video_id: str, path: "PathLike", *, by: Actor
+    ) -> Optional[VideoRecord]:
+        """Folder import's relink: same media only, and only while the record's
+        media is **still** missing when the lock is held. ``None`` when another
+        writer healed it first — a healthy record is never repointed at a copy.
+        """
+        target = _require_media_file(path)
+        new_fingerprint = _fingerprint_of(target)
+        with self.write_lock:
+            if not self.get(video_id).missing_media:
+                return None
+            return self._relink_locked(video_id, target, new_fingerprint, by=by, force=False)
+
+    def _relink_locked(
+        self: "LibraryStore",
+        video_id: str,
+        target: Path,
+        new_fingerprint: str,
+        *,
+        by: Actor,
+        force: bool,
+    ) -> VideoRecord:
+        """``relink``'s read-modify-write; the caller holds ``write_lock``."""
+        from backend.library.store import _now_iso, _truncate  # local: avoids a cycle
+
+        record = self.get(video_id)
+        new_path = str(target)
+        if new_path == record.sourcePath:
+            return record
+        owner = self._owner_of(new_fingerprint, new_path, excluding=video_id)
+        if owner is not None:
+            raise MediaInUse(owner)
+        if new_fingerprint != record.fingerprint and not force:
+            raise MediaMismatch(
+                f"{target.name} is different media from the file record {video_id} was made from"
+            )
+
+        _rewrite_snapshot(self._locate(video_id), record.sourcePath, new_path)
+        now = _now_iso()
+        entry = HistoryEntry(
+            field=RELINK_HISTORY_FIELD, prev=_truncate(record.sourcePath), by=by, at=now
+        )
+        logger.info("Relinked record %s: %s -> %s", video_id, record.sourcePath, new_path)
+        return self._persist(record.model_copy(update={
+            "sourcePath": new_path,
+            "sourceTag": fs.source_tag(new_path),
+            "fingerprint": new_fingerprint,
+            "missing_media": False,
+            "rev": record.rev + 1,
+            "updatedAt": now,
+            "history": [*record.history, entry][-HISTORY_CAP:],
+        }))
+
+    def _owner_of(
+        self: "LibraryStore", fingerprint: str, source_path: str, *, excluding: str
+    ) -> Optional[str]:
+        """The id of another record holding this media (by content or by path)."""
+        for other in self._iter_records():
+            if other.id == excluding:
+                continue
+            if other.fingerprint == fingerprint or other.sourcePath == source_path:
+                return other.id
+        return None
+
     def remove(self: "LibraryStore", video_id: str) -> VideoRecord:
         """Hide a record from the library, keeping every file under ``.removed``."""
         record, _ = self._relocate(video_id, REMOVED_DIR_NAME)
@@ -156,11 +258,18 @@ class StoreAdminMixin:
 
         The bool is ``create_or_get``'s: True when this media was new. A missing
         media file raises ``MediaNotFound`` — the project describes a video the
-        record would be unable to open.
+        record would be unable to open. Creating the record and storing the
+        snapshot are one locked sequence; ``on_created`` is told after it.
         """
         data = read_project_file(path)
-        record, created = self.create_or_get(data["selectedFilePath"])
-        return self.put_project(record.id, data), created
+        source = data["selectedFilePath"]
+        media_fingerprint = self._media_fingerprint(source)
+        with self.write_lock:
+            record, created = self._create_or_get_locked(source, media_fingerprint)
+            stored = self.put_project(record.id, data)
+        if created:
+            self._announce_created(record)
+        return stored, created
 
     def migrate_studio_workspaces(self: "LibraryStore") -> dict:
         """Adopt every pre-v3 studio workspace whose co-author marker still names
@@ -169,6 +278,10 @@ class StoreAdminMixin:
         A failure on one workspace lands in ``skipped`` and the scan continues —
         the only place this module swallows an error, because first launch must
         not be blocked by one stale folder.
+
+        Deliberately **not** ``@writes`` as a whole: its only write is
+        ``create_or_get``, which locks itself, and holding the lock across the
+        loop would put every ``on_created`` hook (the poster grab) under it.
         """
         base = capforge_home() / STUDIO_DIR_NAME
         imported: list[str] = []
@@ -209,6 +322,60 @@ def _adopt_workspace(
         logger.warning("Studio workspace %s was not imported: %s", folder.name, exc)
         return None, str(exc)
     return record.id, None
+
+
+def _require_media_file(path: "PathLike") -> Path:
+    """The resolved relink target, or ``MediaNotFound`` (absolute regular file only)."""
+    target = Path(path).expanduser()
+    if not target.is_absolute():
+        raise MediaNotFound(f"Media path must be absolute: {path}")
+    if not target.is_file():
+        raise MediaNotFound(f"Media file not found: {target}")
+    return target.resolve()
+
+
+def _fingerprint_of(target: Path) -> str:
+    try:
+        return fs.fingerprint(target)
+    except OSError as exc:
+        raise MediaNotFound(f"Media file not readable: {target}") from exc
+
+
+def _names_path(value: str, old: str) -> bool:
+    """``value`` is ``old``: byte-equal, or an absolute spelling of it through a
+    symlinked parent (``/var/…`` for ``/private/var/…``) — never a substring."""
+    if value == old:
+        return True
+    return os.path.isabs(value) and os.path.realpath(value) == old
+
+
+def replace_path_strings(value: Any, old: str, new: str) -> Any:
+    """A copy of ``value`` with every string that names ``old`` replaced by ``new``.
+
+    Deep over dicts and lists (values, not keys); the input is never mutated.
+    """
+    if isinstance(value, str):
+        return new if _names_path(value, old) else value
+    if isinstance(value, dict):
+        return {key: replace_path_strings(item, old, new) for key, item in value.items()}
+    if isinstance(value, list):
+        return [replace_path_strings(item, old, new) for item in value]
+    return value
+
+
+def _rewrite_snapshot(folder: Path, old: str, new: str) -> None:
+    """Repoint the stored snapshot: ``projectRestore`` opens the media named in
+    ``project.capforge``, not the record, so repointing only ``sourcePath``
+    would still open the missing file. Each file is written atomically, and
+    only when something changed."""
+    for name in RELINK_REWRITTEN_FILES:
+        path = folder / name
+        if not path.is_file():
+            continue
+        data = fs.read_json(path)
+        rewritten = replace_path_strings(data, old, new)
+        if rewritten != data:
+            fs.write_json_atomic(path, rewritten)
 
 
 def has_project_file(folder: Path) -> bool:
