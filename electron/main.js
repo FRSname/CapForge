@@ -18,11 +18,68 @@ const { checkForUpdates } = require('./update-check')
 const presetIO = require('./preset-io')
 const { resolveExistingFile, resolveExistingDir, isUnderDir } = require('./path-validate')
 const { isBoundsVisibleOnAnyDisplay } = require('./window-bounds')
+const { firstMediaArg } = require('./single-instance')
+const { assertTrashable, libraryRoot } = require('./library-fs')
 
 let mainWindow = null
 let setupWindow = null
 let pythonBackend = null
 let hyperframesStudio = null
+/** A media path that arrived before the renderer could receive it. */
+let pendingOpenPath = null
+
+/** Channel the main process pushes "open this media file" on (see preload). */
+const OPEN_PATH_CHANNEL = 'file:open-path'
+
+// ---------------------------------------------------------------------------
+// Single instance — CapForge owns one backend, one library folder and one
+// autosave file, so a second copy would race all three. The second launch
+// quits itself and hands its argv to the first, which focuses and picks up the
+// media path it was launched with (docs/plans/library-home-screen.md).
+// ---------------------------------------------------------------------------
+const gotSingleInstanceLock = app.requestSingleInstanceLock()
+if (!gotSingleInstanceLock) {
+  // Before any window exists — `app.whenReady()` below also bails out.
+  app.quit()
+} else {
+  app.on('second-instance', (_event, argv) => {
+    focusMainWindow()
+    const mediaPath = firstMediaArg(argv)
+    if (mediaPath) sendOpenPath(mediaPath)
+  })
+
+  // macOS hands a double-clicked file over as an event, not as argv. This can
+  // fire before the window exists, hence the pending buffer.
+  app.on('open-file', (event, filePath) => {
+    event.preventDefault()
+    focusMainWindow()
+    sendOpenPath(filePath)
+  })
+}
+
+/** Restore + focus the main window, if there is one. */
+function focusMainWindow() {
+  if (!mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  if (!mainWindow.isVisible()) mainWindow.show()
+  mainWindow.focus()
+}
+
+/**
+ * Push a media path to the renderer. Buffered until the renderer has loaded —
+ * a file-launch on macOS arrives before the window exists, and a send into a
+ * still-loading webContents is dropped silently.
+ *
+ * @param {string} filePath
+ */
+function sendOpenPath(filePath) {
+  if (typeof filePath !== 'string' || filePath === '') return
+  if (mainWindow && !mainWindow.isDestroyed() && !mainWindow.webContents.isLoading()) {
+    mainWindow.webContents.send(OPEN_PATH_CHANNEL, filePath)
+    return
+  }
+  pendingOpenPath = filePath
+}
 
 // ---------------------------------------------------------------------------
 // Crash logs — write uncaught main-process exceptions to <logs>/crash.log
@@ -111,6 +168,17 @@ function createWindow() {
 
   mainWindow.once('ready-to-show', () => {
     mainWindow.show()
+  })
+
+  // Deliver a file-launch path the renderer was not alive to receive yet.
+  // `webContents` is captured here rather than read off `mainWindow`, which a
+  // 'closed' handler nulls out.
+  const webContents = mainWindow.webContents
+  webContents.on('did-finish-load', () => {
+    if (!pendingOpenPath) return
+    const filePath = pendingOpenPath
+    pendingOpenPath = null
+    webContents.send(OPEN_PATH_CHANNEL, filePath)
   })
 
   // Safety net: if ready-to-show never fires, show the window after 3s anyway
@@ -356,6 +424,10 @@ async function runFirstTimeSetup() {
 }
 
 app.whenReady().then(async () => {
+  // A second copy already quit itself above — never build a window or spawn a
+  // backend on the way out.
+  if (!gotSingleInstanceLock) return
+
   // First-run: install embedded Python + whisperx + torch before touching the backend.
   try {
     await runFirstTimeSetup()
@@ -445,6 +517,26 @@ function registerIpcHandlers() {
     const result = resolveExistingFile(filePath, { fs, path })
     if (!result.ok) return { error: result.error }
     shell.showItemInFolder(result.resolved)
+    return { ok: true }
+  })
+
+  // IPC: v3 library — the backend detaches a record by moving its folder aside
+  // and never deletes user files, so Electron is what trashes the folder it
+  // hands back. `assertTrashable` throws for anything outside the library root,
+  // and that rejection is what the renderer sees (never swallowed here).
+  ipcMain.handle('library:trash-folder', async (_event, folderPath) => {
+    const resolved = assertTrashable(folderPath)
+    await shell.trashItem(resolved)
+    return { ok: true }
+  })
+
+  // IPC: v3 library — reveal the library folder (Settings -> General).
+  ipcMain.handle('library:reveal', async () => {
+    const root = libraryRoot()
+    fs.mkdirSync(root, { recursive: true })
+    // openPath resolves to an error STRING ('' on success) instead of rejecting.
+    const failure = await shell.openPath(root)
+    if (failure) throw new Error(failure)
     return { ok: true }
   })
 
@@ -900,6 +992,20 @@ function registerIpcHandlers() {
     data._filePath = filePath
     appState.set('lastProjectPath', filePath)
     return data
+  })
+
+  // IPC: multi-select .capforge picker for the library's "Import project
+  // files...". Paths only — the backend reads and validates the files.
+  ipcMain.handle('dialog:open-projects', async () => {
+    const lastProject = appState.get('lastProjectPath')
+    const result = await dialog.showOpenDialog(mainWindow, {
+      title: 'Import CapForge Projects',
+      defaultPath: lastProject ? path.dirname(lastProject) : undefined,
+      filters: [{ name: 'CapForge project', extensions: ['capforge'] }],
+      properties: ['openFile', 'multiSelections'],
+    })
+    if (result.canceled) return []
+    return result.filePaths
   })
 }
 

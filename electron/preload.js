@@ -14,6 +14,15 @@ contextBridge.exposeInMainWorld('subforge', {
   /** Open native file picker for audio files. Returns path or null. */
   pickAudioFile: () => ipcRenderer.invoke('dialog:openFile'),
 
+  /** Subscribe to "open this media file" pushes from the main process: a second
+   *  launch that carried a media argument, or macOS' `open-file`. Returns an
+   *  unsubscribe fn. */
+  onOpenPath: (cb) => {
+    const listener = (_event, filePath) => cb(filePath)
+    ipcRenderer.on('file:open-path', listener)
+    return () => ipcRenderer.removeListener('file:open-path', listener)
+  },
+
   /** Open native directory picker. Returns path or null. */
   pickOutputDir: () => ipcRenderer.invoke('dialog:openDir'),
 
@@ -80,6 +89,16 @@ contextBridge.exposeInMainWorld('subforge', {
 
   /** Clear all autosave data (on explicit Save / New). */
   autosaveClear: () => ipcRenderer.invoke('autosave:clear'),
+
+  /** v3 library: move a record folder to the OS Trash. The main process refuses
+   *  any path not strictly under `<CAPFORGE_HOME>/library/`. */
+  trashLibraryFolder: (folderPath) => ipcRenderer.invoke('library:trash-folder', folderPath),
+
+  /** Open `<CAPFORGE_HOME>/library` in the OS file manager, creating it if missing. */
+  revealLibraryFolder: () => ipcRenderer.invoke('library:reveal'),
+
+  /** Multi-select .capforge picker. Returns the chosen paths ([] when cancelled). */
+  openProjectFiles: () => ipcRenderer.invoke('dialog:open-projects'),
 
   /** Open the folder containing backend logs in the OS file manager. */
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),

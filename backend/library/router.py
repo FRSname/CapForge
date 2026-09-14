@@ -30,6 +30,7 @@ from backend.library.errors import (
     StaleRevision,
 )
 from backend.library.paths import library_root, record_dir, resolve_asset
+from backend.library.router_admin import register_admin_routes
 from backend.library.schemas import RecordPatch, RenderEntry, VideoRecord
 from backend.library.store import LibraryStore
 from backend.models.schemas import TranscriptionResult
@@ -127,8 +128,16 @@ def _library_errors() -> Iterator[None]:
 
 
 def _view(store: LibraryStore, record: VideoRecord) -> dict:
-    """The wire shape: the dossier plus its read-time derived status."""
-    return {**record.model_dump(), "status": store.status_of(record)}
+    """The wire shape: the dossier plus its read-time derived status.
+
+    ``hasProject`` rides along for the same reason ``status`` does — the card
+    needs it and neither is ever stored on the record.
+    """
+    return {
+        **record.model_dump(),
+        "status": store.status_of(record),
+        "hasProject": store.has_project(record),
+    }
 
 
 def _require_rev(if_match: Optional[str]) -> int:
@@ -157,6 +166,9 @@ def build_router(actor_dep: Callable) -> APIRouter:
         prefix=ROUTER_PREFIX, tags=["library"], dependencies=[Depends(actor_dep)]
     )
     _register_collection_routes(router)
+    register_admin_routes(
+        router, get_store=get_store, view=_view, library_errors=_library_errors
+    )
     _register_record_routes(router, actor_dep)
     _register_project_routes(router)
     _register_derived_routes(router)

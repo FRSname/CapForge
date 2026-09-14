@@ -700,3 +700,38 @@ def test_docstrings_carry_the_translation_loop() -> None:
 
     read = tracks.get_track.__doc__ or ""
     assert "reflow_track" in read and "stale" in read
+
+
+# --- confirm_hint: which screen the app is stuck on -----------------------
+
+LIBRARY_HINT = (
+    "The app is on the library screen — call open_video (a stored record) "
+    "or load_video (a file) first."
+)
+
+
+def test_confirm_hint_on_the_library_screen_names_the_two_ways_in() -> None:
+    """The library screen has its own way forward, so the generic "load a video
+    first" would send the agent past the record it should be opening."""
+    assert tracks.confirm_hint({"screen": "library"}) == LIBRARY_HINT
+
+
+def test_confirm_hint_on_another_non_results_screen_is_unchanged() -> None:
+    hint = tracks.confirm_hint({"screen": "progress"})
+
+    assert "'progress' screen" in hint
+    assert "Load a video first" in hint
+
+
+def test_confirm_hint_on_the_results_screen_falls_back_to_the_timeout() -> None:
+    hint = tracks.confirm_hint({"screen": "results"}, subject="the reflow")
+
+    assert "did not confirm the reflow" in hint
+
+
+def test_confirm_hint_still_reports_an_unknown_preset_first() -> None:
+    hint = tracks.confirm_hint(
+        {"screen": "library"}, preset="Nope", known_presets=("Bold", "Clean")
+    )
+
+    assert "No preset named 'Nope'" in hint

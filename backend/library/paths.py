@@ -15,6 +15,14 @@ from typing import Optional
 CAPFORGE_HOME_ENV = "CAPFORGE_HOME"
 LIBRARY_DIR_NAME = "library"
 SCRATCH_DIR_NAME = ".scratch"
+#: Where a removed / detached record folder is parked. Both are dot-folders so
+#: they hold no ``record.json`` of their own and record iteration skips them —
+#: the backend hides records, it never deletes their files (vision §9.1).
+REMOVED_DIR_NAME = ".removed"
+TRASH_DIR_NAME = ".trash"
+#: Pre-v3 per-source HyperFrames workspaces, the input of the first-launch
+#: migration (``hyperframes_workspace`` writes ``<home>/studio/<tag>``).
+STUDIO_DIR_NAME = "studio"
 INDEX_DB_NAME = "library.db"
 RECORD_FILE = "record.json"
 PROJECT_FILE = "project.capforge"

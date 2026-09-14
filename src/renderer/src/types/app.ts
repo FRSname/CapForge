@@ -1,5 +1,10 @@
-/** The three top-level screens of CapForge. */
-export type Screen = 'file' | 'progress' | 'results'
+/**
+ * The four top-level screens of CapForge.
+ *
+ * `'library'` is where the app starts (v3): the home screen listing every
+ * stored record. `'file'` is the drop zone for a video that has no record yet.
+ */
+export type Screen = 'library' | 'file' | 'progress' | 'results'
 
 /**
  * Per-word style overrides that take precedence over studio defaults.

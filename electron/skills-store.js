@@ -26,6 +26,7 @@ const os = require('os')
 const path = require('path')
 
 const { getProjectDir } = require('./claude-connect')
+const { capforgeHome } = require('./library-fs')
 
 /** The one file every skill must have; also the file the editor edits. */
 const SKILL_FILE = 'SKILL.md'
@@ -250,8 +251,7 @@ function bundleRoot() {
 
 /** The user's editable copies, in CapForge's data home. */
 function userRoot() {
-  const home = process.env.CAPFORGE_HOME || path.join(os.homedir(), '.capforge')
-  return path.join(home, 'skills')
+  return path.join(capforgeHome(), 'skills')
 }
 
 /** Where Claude Code looks for skills. */

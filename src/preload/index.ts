@@ -26,6 +26,9 @@ export interface SubforgeApi {
   /** Electron 32+ replacement for File.path (sync). */
   getPathForFile: (file: File) => string
   pickAudioFile: () => Promise<string | null>
+  /** Subscribe to "open this media file" pushes from the main process (a second
+   *  launch with a media argument, or macOS `open-file`). Returns an unsubscribe fn. */
+  onOpenPath: (cb: (filePath: string) => void) => () => void
   pickOutputDir: () => Promise<string | null>
   pickImageFile: () => Promise<string | null>
   getBackendPort: () => Promise<number>
@@ -48,6 +51,13 @@ export interface SubforgeApi {
   autosaveWrite: (data: unknown) => Promise<void>
   autosaveRead: () => Promise<unknown | null>
   autosaveClear: () => Promise<void>
+  /** v3 library (docs/plans/library-home-screen.md): the record folder to Trash — the main
+   *  process refuses any path not strictly under `<CAPFORGE_HOME>/library/`. */
+  trashLibraryFolder: (folderPath: string) => Promise<void>
+  /** Open `<CAPFORGE_HOME>/library` in the file manager (created if missing). */
+  revealLibraryFolder: () => Promise<void>
+  /** Multi-select `.capforge` picker; resolves to the chosen paths (empty when cancelled). */
+  openProjectFiles: () => Promise<string[]>
   openLogsFolder: () => Promise<void>
   openLogFile: () => Promise<void>
   showInFolder: (filePath: string) => Promise<void>
@@ -159,6 +169,11 @@ declare global {
 contextBridge.exposeInMainWorld('subforge', {
   getPathForFile: (file: File) => webUtils.getPathForFile(file),
   pickAudioFile: () => ipcRenderer.invoke('dialog:openFile'),
+  onOpenPath: (cb: (filePath: string) => void) => {
+    const listener = (_e: unknown, filePath: string) => cb(filePath)
+    ipcRenderer.on('file:open-path', listener)
+    return () => ipcRenderer.removeListener('file:open-path', listener)
+  },
   pickOutputDir: () => ipcRenderer.invoke('dialog:openDir'),
   pickImageFile: () => ipcRenderer.invoke('dialog:openImageFile'),
   getBackendPort: () => ipcRenderer.invoke('backend:port'),
@@ -183,6 +198,10 @@ contextBridge.exposeInMainWorld('subforge', {
   autosaveWrite: (data: unknown) => ipcRenderer.invoke('autosave:write', data),
   autosaveRead: () => ipcRenderer.invoke('autosave:read'),
   autosaveClear: () => ipcRenderer.invoke('autosave:clear'),
+  trashLibraryFolder: (folderPath: string) =>
+    ipcRenderer.invoke('library:trash-folder', folderPath),
+  revealLibraryFolder: () => ipcRenderer.invoke('library:reveal'),
+  openProjectFiles: () => ipcRenderer.invoke('dialog:open-projects'),
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),
   showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),

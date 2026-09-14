@@ -81,6 +81,12 @@
   --color-error-bg:       #3b1c1c;
   --color-error-border:   #5c2a2a;
 
+  /* ── Elevation ─────────────────────────────────────── */
+  /* Theme-aware shadows: a raw black shadow is wrong in light mode.
+     --shadow-2 = popovers/menus, --shadow-3 = a lifted hero surface. */
+  --shadow-2:         0 12px 32px rgb(0 0 0 / 0.35);
+  --shadow-3:         0 18px 48px rgb(0 0 0 / 0.28);
+
   /* ── Layout ────────────────────────────────────────── */
   --titlebar-h:       38px;
 
@@ -162,6 +168,9 @@
   --color-warning:    #9a6700;
   --color-danger:     #d1242f;
   --color-danger-subtle: rgba(209 36 47 / 0.08);
+
+  --shadow-2:         0 12px 32px rgb(31 35 40 / 0.14);
+  --shadow-3:         0 18px 48px rgb(31 35 40 / 0.10);
 
   /* Light tints so dark --color-text stays legible on status toasts. */
   --color-success-bg:     #dafbe1;

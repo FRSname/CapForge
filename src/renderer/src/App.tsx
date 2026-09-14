@@ -8,7 +8,7 @@ import {
   restoreErrorMessage,
 } from './lib/projectRestore'
 import type { ProjectRestorePlan } from './lib/projectRestore'
-import { api, type AgentCommand, type VideoInfo } from './lib/api'
+import { api, type AgentCommand } from './lib/api'
 import { ensureWordIds } from './lib/wordIds'
 import { SOURCE_TRACK_ID, syncSegmentsIntoTrack, withSentenceSegments } from './lib/tracks'
 import type { TrackEditorState } from './lib/tracks'
@@ -19,19 +19,22 @@ import type { AgentCommandEcho } from './lib/uiStateMirror'
 import { TitleBar } from './components/TitleBar/TitleBar'
 import { TrackTabs } from './components/tracks/TrackTabs'
 import { DropZoneScreen } from './components/screens/DropZoneScreen'
+import { LibraryHome } from './components/library/LibraryHome'
+import { RecoveryBanner } from './components/screens/RecoveryBanner'
 import { ProgressScreen } from './components/screens/ProgressScreen'
 import { ResultsScreen } from './components/screens/ResultsScreen'
 import { SettingsDialog } from './components/settings/SettingsDialog'
 import { ShortcutOverlay } from './components/ShortcutOverlay'
-import { StudioPanel, snapFps, type StudioSettings } from './components/studio/StudioPanel'
-import { Button } from './components/ui/Button'
+import { StudioPanel, type StudioSettings } from './components/studio/StudioPanel'
 import { AgentLiveSync } from './components/AgentLiveSync'
 import { ToastProvider } from './hooks/useToast'
 import { ToastRelay } from './components/ui/ToastRelay'
 import { useSettingsUndo } from './hooks/useSettingsUndo'
 import { useAutosave } from './hooks/useAutosave'
+import { useSourceVideoInfo } from './hooks/useSourceVideoInfo'
+import { useGlobalShortcuts } from './hooks/useGlobalShortcuts'
 import { useCrashRecovery } from './hooks/useCrashRecovery'
-import { useLibraryOpen } from './hooks/useLibraryOpen'
+import { useLibrarySession } from './hooks/useLibrarySession'
 import { useUiStateMirror } from './hooks/useUiStateMirror'
 import { useUserPresets } from './hooks/useUserPresets'
 import {
@@ -43,7 +46,7 @@ import {
 import { useTrackActions } from './hooks/useTrackActions'
 
 export function App() {
-  const [screen, setScreen] = useState<Screen>('file')
+  const [screen, setScreen] = useState<Screen>('library')
   const [filePath, setFilePath] = useState<string | null>(null)
   // Project metadata only — language, duration, audio path, the alignment flag.
   // The transcript itself is the source track's `segments` (see useTrackStore).
@@ -51,13 +54,16 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const settingsTo = (open: boolean) => () => setSettingsOpen(open)
   const [shortcutsOpen, setShortcutsOpen] = useState(false)
+  const toggleShortcuts = useCallback(() => setShortcutsOpen((o) => !o), [])
   // App sits above ToastProvider, so failures raised here are relayed into the
   // toast system by <ToastRelay> below rather than reported directly.
   const [restoreWarning, setRestoreWarning] = useState<string | null>(null)
 
-  const [sourceVideoInfo, setSourceVideoInfo] = useState<VideoInfo | null>(null)
-
   const projectIORef = useRef<ProjectIOHandle | null>(null)
+  // The library session is created further down (it needs `restoreFromProjectFile`),
+  // so the handlers declared above it reach it through these two refs.
+  const ensureRecordRef = useRef<((path: string) => Promise<string | null>) | null>(null)
+  const clearActiveRef = useRef<(() => void) | null>(null)
 
   // ── The caption-track store ─────────────────────────────────────
   // Everything the editor, the sidebar, the render path and the agent mirror
@@ -156,13 +162,31 @@ export function App() {
     [updateTrack, activeTrackId]
   )
 
+  // ── Source video info probe ─────────────────────────────────────
+  // Runs once per result.audioPath — auto-sets resolution + fps on every track.
+  const { sourceVideoInfo, resetSourceVideoInfo } = useSourceVideoInfo(
+    result?.audioPath,
+    updateAllTracks
+  )
+
   // ── File handling ───────────────────────────────────────────────
   function handleFileSelected(path: string) {
     setFilePath(path || null)
   }
 
-  function handleStart() {
-    if (filePath) setScreen('progress')
+  /** A file dropped on the library, or a card with no session yet: pick it up on
+   *  the drop screen so the user can review it and start the transcription. */
+  function handleOpenFromLibrary(path: string) {
+    handleFileSelected(path)
+    setScreen('file')
+  }
+
+  // Create-on-drop: the record is minted before the job starts, so the very
+  // first autosave already lands in the library instead of the fallback file.
+  async function handleStart() {
+    if (!filePath) return
+    await ensureRecordRef.current?.(filePath)
+    setScreen('progress')
   }
 
   function handleTranscribeDone(data: TranscriptionResult) {
@@ -178,9 +202,11 @@ export function App() {
   function handleNew() {
     setFilePath(null)
     setResult(null)
-    setScreen('file')
+    // New ends this session's claim on its record and goes home.
+    clearActiveRef.current?.()
+    setScreen('library')
     replaceTracks([emptySourceTrack()], SOURCE_TRACK_ID)
-    setSourceVideoInfo(null)
+    resetSourceVideoInfo()
     window.subforge.autosaveClear()
   }
 
@@ -205,12 +231,15 @@ export function App() {
       }
       setResult(null)
       replaceTracks([emptySourceTrack()], SOURCE_TRACK_ID)
-      setSourceVideoInfo(null)
+      resetSourceVideoInfo()
       setFilePath(path)
       setScreen('progress')
+      // Fire-and-forget: the agent's contract is a synchronous refusal string,
+      // and a record that fails to mint only costs the fallback autosave.
+      void ensureRecordRef.current?.(path)
       return null
     },
-    [screen, replaceTracks]
+    [screen, replaceTracks, resetSourceVideoInfo]
   )
 
   // ── Editor state published from ResultsScreen ───────────────────
@@ -327,40 +356,6 @@ export function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceTrack.segments, sourceTrack.groups])
 
-  // ── Source video info probe ─────────────────────────────────────
-  // Runs once per result.audioPath — auto-sets resolution + fps.
-  useEffect(() => {
-    if (!result?.audioPath) return
-    let cancelled = false
-    api
-      .getVideoInfo(result.audioPath)
-      .then((info) => {
-        if (cancelled) return
-        setSourceVideoInfo(info)
-        // Output geometry is a fact about the source media, not a per-track
-        // style choice, so it lands on every track.
-        updateAllTracks((track) => {
-          const next = { ...track.settings }
-          let changed = false
-          if (info.width && info.height) {
-            next.resolution = [info.width, info.height]
-            next.resolutionIsSource = true
-            changed = true
-          }
-          if (info.fps) {
-            next.fps = snapFps(info.fps)
-            changed = true
-          }
-          return changed ? { ...track, settings: next } : track
-        })
-      })
-      .catch(() => {
-        /* ignore — likely audio-only */
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [result?.audioPath, updateAllTracks])
 
   // ── Project save ────────────────────────────────────────────────
   const projectFile = useCallback((): ProjectFile | null => {
@@ -402,6 +397,9 @@ export function App() {
       })
 
       setFilePath(plan.file.selectedFilePath)
+      // Opening a project adopts (or mints) its record, so editing it from here
+      // autosaves into the library like any other session.
+      if (plan.file.selectedFilePath) await ensureRecordRef.current?.(plan.file.selectedFilePath)
       setResult(plan.file.transcriptionResult)
       // The plan has already merged each track's settings over the defaults (an
       // older file has no value for fields added since, and buildRenderBody
@@ -415,14 +413,21 @@ export function App() {
     [replaceTracks]
   )
 
-  // ── Library open + UI-state mirror ──────────────────────────────
-  // `open_video` installs a stored record through the very same plan an Open
-  // takes and publishes it as the mirror's `activeVideoId`; both are hooks.
-  const { activeVideoId, applyEchoedCommand } = useLibraryOpen({
+  // ── Library session + UI-state mirror ───────────────────────────
+  // The record this session belongs to (`activeVideoId`), the autosave writer
+  // that keeps it primary, the export folder, and `open_video` — which installs
+  // a stored record through the very same plan an Open takes.
+  const session = useLibrarySession({
     screen,
     restoreFromProjectFile,
     applyTrackCommand: handleAgentTrackCommand,
+    onChooseFile: handleOpenFromLibrary,
+    notify: setRestoreWarning,
   })
+  // The session needs `restoreFromProjectFile` and the handlers above need its
+  // `ensureRecordFor`/`clearActive`; refs break the cycle without reordering.
+  ensureRecordRef.current = session.ensureRecordFor
+  clearActiveRef.current = session.clearActive
 
   useUiStateMirror({
     screen,
@@ -430,7 +435,7 @@ export function App() {
     activeTrack,
     displayGroups,
     userPresetNames,
-    activeVideoId,
+    activeVideoId: session.activeVideoId,
     agentEcho,
     tracks,
     sourceTrack,
@@ -453,39 +458,24 @@ export function App() {
     discard: handleDiscardRecovery,
   } = useCrashRecovery(restoreFromProjectFile)
 
-  // ── Autosave (crash recovery) ───────────────────────────────────
-  // Snapshot the live session ~2s after any edit; cleared on Save / New.
-  const lastSavedAt = useAutosave(projectFile, [screen, tracks, activeTrackId, result])
+  // ── Autosave ────────────────────────────────────────────────────
+  // Snapshot the live session ~2s after any edit; the writer stores it in the
+  // active library record and only falls back to `autosave.json` when that
+  // fails (docs/plans/library-home-screen.md §9.1).
+  const lastSavedAt = useAutosave(
+    projectFile,
+    [screen, tracks, activeTrackId, result],
+    session.writeSnapshot
+  )
 
   // ── Global keyboard shortcuts ───────────────────────────────────
-  useEffect(() => {
-    function onKeyDown(e: KeyboardEvent) {
-      const mod = e.metaKey || e.ctrlKey
-      const tag = (e.target as HTMLElement).tagName
-      const editable =
-        tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement).isContentEditable
-      if (editable && !mod) return
-
-      if (mod && e.key === 's') {
-        e.preventDefault()
-        handleSave()
-      } else if (mod && e.key === 'o') {
-        e.preventDefault()
-        handleOpen()
-      } else if (mod && e.key === 'z' && !editable) {
-        e.preventDefault()
-        if (e.shiftKey) settingsUndo.redo()
-        else settingsUndo.undo()
-      } else if (e.key === '?' && !mod) {
-        // The editable guard above already swallowed `?` typed into inputs/
-        // textareas/contentEditables (editable && !mod returns early).
-        e.preventDefault()
-        setShortcutsOpen((o) => !o)
-      }
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [handleSave, handleOpen, settingsUndo])
+  useGlobalShortcuts({
+    onSave: handleSave,
+    onOpen: handleOpen,
+    onUndo: settingsUndo.undo,
+    onRedo: settingsUndo.redo,
+    onToggleShortcutOverlay: toggleShortcuts,
+  })
 
   // The transcript the active tab edits: project metadata with that track's own
   // segments (the source track's are the transcript; a translated track's are
@@ -523,33 +513,22 @@ export function App() {
           }
         />
 
-        {recoverySnapshot && (
-          <div
-            className="app-no-drag flex items-center gap-3 px-4 py-2 text-xs border-b border-[var(--color-border)]"
-            style={{ background: 'var(--color-surface-2)' }}
-          >
-            <span style={{ color: 'var(--color-text-2)' }}>
-              Unsaved session recovered
-              {recoverySnapshot.savedAt
-                ? ` from ${new Date(recoverySnapshot.savedAt).toLocaleString()}`
-                : ''}
-              .
-            </span>
-            <Button variant="titlebar" onClick={handleRecover}>
-              Restore
-            </Button>
-            <Button
-              variant="titlebar"
-              style={{ color: 'var(--color-text-3)' }}
-              onClick={handleDiscardRecovery}
-            >
-              Discard
-            </Button>
-          </div>
-        )}
+        <RecoveryBanner
+          snapshot={recoverySnapshot}
+          onRestore={handleRecover}
+          onDiscard={handleDiscardRecovery}
+        />
 
         <main className="flex-1 flex min-h-0 overflow-hidden">
           {/* ── Main content (left column) ────────────────────────── */}
+          {screen === 'library' && (
+            <LibraryHome
+              onOpen={session.openRecord}
+              onAddVideo={() => setScreen('file')}
+              onFileDropped={handleOpenFromLibrary}
+              notify={setRestoreWarning}
+            />
+          )}
           {screen === 'file' && (
             <div className="screen-in flex-1 flex flex-col items-center justify-center overflow-hidden min-w-0">
               <DropZoneScreen
@@ -608,25 +587,31 @@ export function App() {
             </div>
           )}
 
-          {/* ── Studio sidebar (always visible) ──────────────────── */}
-          <StudioPanel
-            settings={settings}
-            onChange={handleSettingsChange}
-            groups={displayGroups}
-            groupsEdited={renderEditedFlag(activeTrack)}
-            nameSuffix={nameSuffixFor(activeTrack)}
-            exportTrack={
-              activeTrack.isSource
-                ? null
-                : { id: activeTrack.id, lang: activeTrack.lang, segments: displayGroups }
-            }
-            audioPath={result?.audioPath ?? filePath ?? ''}
-            sourceVideoInfo={sourceVideoInfo}
-            userPresets={userPresets}
-            onPresetsChanged={refreshUserPresets}
-            onPresetApplied={handlePresetApplied}
-            activeTrackIsSource={activeTrack.isSource}
-          />
+          {/* ── Studio sidebar ───────────────────────────────────
+              Hidden rather than unmounted on the library screen (§4), so its
+              render state survives a trip home. `contents` keeps the layout. */}
+          <div className={screen === 'library' ? 'hidden' : 'contents'}>
+            <StudioPanel
+              settings={settings}
+              onChange={handleSettingsChange}
+              groups={displayGroups}
+              groupsEdited={renderEditedFlag(activeTrack)}
+              nameSuffix={nameSuffixFor(activeTrack)}
+              exportTrack={
+                activeTrack.isSource
+                  ? null
+                  : { id: activeTrack.id, lang: activeTrack.lang, segments: displayGroups }
+              }
+              audioPath={result?.audioPath ?? filePath ?? ''}
+              sourceVideoInfo={sourceVideoInfo}
+              userPresets={userPresets}
+              onPresetsChanged={refreshUserPresets}
+              onPresetApplied={handlePresetApplied}
+              activeTrackIsSource={activeTrack.isSource}
+              outputDir={session.outputDir}
+              onOutputDirChange={session.setOutputDir}
+            />
+          </div>
         </main>
 
         <SettingsDialog open={settingsOpen} onClose={settingsTo(false)} onOpen={settingsTo(true)} />
@@ -640,7 +625,7 @@ export function App() {
           applyWordOverrides={handleApplyWordOverrides}
           onPresetApplied={handlePresetApplied}
           loadVideo={handleLoadVideo}
-          applyEchoedCommand={applyEchoedCommand}
+          applyEchoedCommand={session.applyEchoedCommand}
           onAgentCommandEcho={setAgentEcho}
         />
       </div>
