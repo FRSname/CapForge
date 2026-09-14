@@ -11,9 +11,11 @@ from __future__ import annotations
 import logging
 from typing import Awaitable, Callable, ContextManager, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from starlette import status as http_status
 from pydantic import BaseModel
+
+from backend.library import posters
 
 logger = logging.getLogger(__name__)
 
@@ -63,6 +65,7 @@ def _register_import_routes(
     async def import_project(
         body: ImportProjectRequest,
         response: Response,
+        background: BackgroundTasks,
         actor: str = Depends(actor_dep),
     ) -> dict:
         """Adopt an outside project file: 201 for new media, 200 for a hit.
@@ -81,6 +84,8 @@ def _register_import_routes(
         )
         if on_record_changed is not None:
             await on_record_changed(record.id, record.rev, actor)
+        if not store.has_poster(record):
+            background.add_task(posters.ensure_poster_for, store, record)
         return view(store, record)
 
     @router.post("/migrate-studio")

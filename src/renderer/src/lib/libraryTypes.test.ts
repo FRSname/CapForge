@@ -26,6 +26,7 @@ const ROW = {
   updatedAt: '2026-09-02T10:00:00Z',
   missing_media: false,
   hasProject: true,
+  poster: false,
 }
 
 describe('parseLibraryList', () => {
@@ -63,6 +64,7 @@ describe('parseLibraryList', () => {
       updatedAt: '',
       missing_media: false,
       hasProject: false,
+      poster: false,
     })
   })
 

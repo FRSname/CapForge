@@ -347,6 +347,8 @@ def test_list_summary_shape(store, tmp_path):
         # Derived at read time like status, so the card knows whether opening
         # the record restores a session or starts a transcription (#3).
         "hasProject",
+        # Also derived: a poster.jpg exists in the record folder (#6).
+        "poster",
     }
     assert summary["title"] == "Ship it"
     assert summary["hasProject"] is False

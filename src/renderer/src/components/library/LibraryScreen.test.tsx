@@ -29,6 +29,7 @@ function video(overrides: Partial<LibraryVideo> = {}): LibraryVideo {
     updatedAt: '2026-09-01T10:00:00Z',
     missing_media: false,
     hasProject: false,
+    poster: false,
     ...overrides,
   }
 }

@@ -19,13 +19,14 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Awaitable, Callable, Iterator, Optional
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Response
 from starlette import status as http_status
 from starlette.concurrency import run_in_threadpool
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from backend.library import posters
 from backend.library.errors import (
     MediaNotFound,
     RecordNotFound,
@@ -141,6 +142,7 @@ def _view(store: LibraryStore, record: VideoRecord) -> dict:
         **record.model_dump(),
         "status": store.status_of(record),
         "hasProject": store.has_project(record),
+        "poster": store.has_poster(record),
     }
 
 
@@ -234,14 +236,21 @@ def _register_collection_routes(router: APIRouter) -> None:
         }
 
     @router.post("")
-    def create_video(body: CreateVideoRequest, response: Response) -> dict:
-        """Create-or-return: 201 for a new record, 200 for a fingerprint hit."""
+    def create_video(
+        body: CreateVideoRequest, response: Response, background: BackgroundTasks
+    ) -> dict:
+        """Create-or-return: 201 for a new record, 200 for a fingerprint hit.
+
+        The poster is grabbed after the response (a background task, off the
+        event loop) — the card shows a placeholder until the next list."""
         store = get_store()
         with _library_errors():
             record, created = store.create_or_get(body.source_path, scratch=body.scratch)
         response.status_code = (
             http_status.HTTP_201_CREATED if created else http_status.HTTP_200_OK
         )
+        if not store.has_poster(record):
+            background.add_task(posters.ensure_poster_for, store, record)
         return _view(store, record)
 
 

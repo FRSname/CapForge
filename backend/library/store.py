@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Iterator, Optional, Union
 from uuid import uuid4
 
-from backend.library import fs
+from backend.library import fs, posters
 from backend.library.errors import (  # re-exported: callers import them from here
     LibraryError,
     MediaNotFound,
@@ -218,7 +218,15 @@ class LibraryStore(StoreAdminMixin):
     def _summary(self, record: VideoRecord, status: str) -> dict:
         dumped = {**record.model_dump(), "status": status}
         summary = {name: dumped[name] for name in SUMMARY_FIELDS}
-        return {**summary, "hasProject": self.has_project(record)}  # derived
+        return {  # both derived at read time, never stored
+            **summary,
+            "hasProject": self.has_project(record),
+            "poster": self.has_poster(record),
+        }
+
+    def has_poster(self, record: VideoRecord) -> bool:
+        """A ``poster.jpg`` sits in the record folder (``posters.py`` grabs it)."""
+        return posters.has_poster(self._folder(record.id, scratch=record.scratch))
 
     # --- writing -------------------------------------------------------------
 
