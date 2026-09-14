@@ -5,8 +5,11 @@ past its size ceiling and importing its dependency from here would be circular.
 The dependency returns the actor (``"agent"`` / ``"user"``) so every write can
 stamp *who* wrote it, which is the whole point of the history field (§2.3).
 
-Nothing here reaches into the session: these routes answer with the app sitting
-on the drop screen (``current_result is None``) — the deliverable's exit test.
+Nothing here *imports* the session, and every route still answers with the app
+sitting on the drop screen (``current_result is None``) — #1's exit test. The
+two places the session does show through are injected the same way the guard is:
+``live_session`` (the open window's transcript, read by ``router_derived``) and
+``on_record_changed`` (awaited after each successful write).
 """
 
 from __future__ import annotations
@@ -14,15 +17,15 @@ from __future__ import annotations
 import logging
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Callable, Iterator, Optional
+from typing import Awaitable, Callable, Iterator, Optional
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Response
 from starlette import status as http_status
+from starlette.concurrency import run_in_threadpool
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
-from backend.engine.moments import find_semantic_moments, find_transcript_moments
 from backend.library.errors import (
     MediaNotFound,
     RecordNotFound,
@@ -31,11 +34,16 @@ from backend.library.errors import (
 )
 from backend.library.paths import library_root, record_dir, resolve_asset
 from backend.library.router_admin import register_admin_routes
+from backend.library.router_derived import LiveSession, register_derived_routes
+from backend.library.router_publish import register_publish_routes, violation_refusal
 from backend.library.schemas import RecordPatch, RenderEntry, VideoRecord
 from backend.library.store import LibraryStore
-from backend.models.schemas import TranscriptionResult
 
 logger = logging.getLogger(__name__)
+
+#: ``on_record_changed(video_id, rev, by)`` — awaited after every successful
+#: record write so the open window can refresh the dossier it is showing.
+RecordChanged = Callable[[str, int, str], Awaitable[None]]
 
 ROUTER_PREFIX = "/api/library"
 IF_MATCH_HEADER = "If-Match"
@@ -48,10 +56,6 @@ NO_SNAPSHOT_DETAIL = (
     "Record {id} has no session snapshot yet — open it in CapForge once "
     "(autosave lands with the library screen)"
 )
-NO_TRANSCRIPT_DETAIL = "Record {id} has no stored transcript yet"
-#: The 400 for a moments call that asked for both detectors, or for neither.
-MOMENTS_ARG_DETAIL = "Pass exactly one of 'query' (literal text) or 'kind' (a semantic category)"
-
 #: One store per resolved library root. Keyed by path (not a singleton) so a
 #: test that relocates CAPFORGE_HOME gets a fresh store instead of a stale one
 #: pointing at the previous tmp dir.
@@ -156,22 +160,53 @@ def _require_rev(if_match: Optional[str]) -> int:
         ) from exc
 
 
-def build_router(actor_dep: Callable) -> APIRouter:
+async def _announce(
+    on_record_changed: Optional[RecordChanged],
+    record: VideoRecord,
+    by: str,
+    *,
+    unchanged_rev: Optional[int] = None,
+) -> None:
+    """Report a successful write. ``unchanged_rev`` suppresses a no-op patch."""
+    if on_record_changed is None or record.rev == unchanged_rev:
+        return
+    await on_record_changed(record.id, record.rev, by)
+
+
+def build_router(
+    actor_dep: Callable,
+    *,
+    live_session: Optional[LiveSession] = None,
+    on_record_changed: Optional[RecordChanged] = None,
+) -> APIRouter:
     """The library router, gated by ``actor_dep`` (agent token or local token).
 
-    Registration order matters: ``/rebuild-index`` must be declared before the
-    ``/{video_id}`` routes it would otherwise be captured by.
+    Both optional arguments are seams onto the session ``main.py`` owns and this
+    package must not import: ``live_session()`` is the open window's transcript,
+    and ``on_record_changed`` is awaited after every successful record write.
+
+    Registration order matters: ``/rebuild-index``, ``/brief`` and ``/validate``
+    must be declared before the ``/{video_id}`` routes they would otherwise be
+    captured by.
     """
     router = APIRouter(
         prefix=ROUTER_PREFIX, tags=["library"], dependencies=[Depends(actor_dep)]
     )
     _register_collection_routes(router)
     register_admin_routes(
-        router, get_store=get_store, view=_view, library_errors=_library_errors
+        router, get_store=get_store, view=_view, library_errors=_library_errors,
+        actor_dep=actor_dep, on_record_changed=on_record_changed,
     )
-    _register_record_routes(router, actor_dep)
-    _register_project_routes(router)
-    _register_derived_routes(router)
+    register_publish_routes(
+        router, get_store=get_store, library_errors=_library_errors
+    )
+    _register_record_routes(router, actor_dep, on_record_changed)
+    _register_record_write_routes(router, actor_dep, on_record_changed)
+    _register_project_routes(router, on_record_changed)
+    register_derived_routes(
+        router, get_store=get_store, library_errors=_library_errors,
+        live_session=live_session,
+    )
     _register_asset_routes(router)
     return router
 
@@ -210,7 +245,9 @@ def _register_collection_routes(router: APIRouter) -> None:
         return _view(store, record)
 
 
-def _register_record_routes(router: APIRouter, actor_dep: Callable) -> None:
+def _register_record_routes(
+    router: APIRouter, actor_dep: Callable, on_changed: Optional[RecordChanged]
+) -> None:
     """Routes over one record's dossier."""
 
     @router.get("/{video_id}")
@@ -220,17 +257,25 @@ def _register_record_routes(router: APIRouter, actor_dep: Callable) -> None:
             return _view(store, store.get(video_id))
 
     @router.patch("/{video_id}")
-    def patch_video(
+    async def patch_video(
         video_id: str,
         patch: RecordPatch,
         if_match: Optional[str] = Header(None, alias=IF_MATCH_HEADER),
         actor: str = Depends(actor_dep),
     ):
         """``actor`` is the same value the router-level guard resolved, re-declared
-        here because the *body* of a write has to record who wrote it."""
+        here because the *body* of a write has to record who wrote it.
+
+        The hard rules run over the merged result **before** anything is written,
+        so a 422 leaves the stored record exactly as it was.
+        """
         store = get_store()
         rev = _require_rev(if_match)
         with _library_errors():
+            current = store.get(video_id)
+            refusal = violation_refusal(store, current, patch)
+            if refusal is not None:
+                return refusal
             try:
                 record = store.patch(video_id, patch, rev=rev, by=actor)
             except StaleRevision as exc:
@@ -240,32 +285,51 @@ def _register_record_routes(router: APIRouter, actor_dep: Callable) -> None:
                         {"detail": str(exc), "current": _view(store, exc.current)}
                     ),
                 )
+        await _announce(on_changed, record, actor, unchanged_rev=current.rev)
         return _view(store, record)
 
+
+def _register_record_write_routes(
+    router: APIRouter, actor_dep: Callable, on_changed: Optional[RecordChanged]
+) -> None:
+    """The two writes that are not a dossier patch; both always bump ``rev``."""
+
     @router.post("/{video_id}/promote")
-    def promote_video(video_id: str) -> dict:
+    async def promote_video(video_id: str, actor: str = Depends(actor_dep)) -> dict:
         store = get_store()
         with _library_errors():
-            return _view(store, store.promote(video_id))
+            record = store.promote(video_id)
+        await _announce(on_changed, record, actor)
+        return _view(store, record)
 
     @router.post("/{video_id}/renders")
-    def add_render(video_id: str, entry: RenderEntry) -> dict:
+    async def add_render(
+        video_id: str, entry: RenderEntry, actor: str = Depends(actor_dep)
+    ) -> dict:
         store = get_store()
         with _library_errors():
-            return _view(store, store.add_render(video_id, entry))
+            record = store.add_render(video_id, entry)
+        await _announce(on_changed, record, actor)
+        return _view(store, record)
 
 
-def _register_project_routes(router: APIRouter) -> None:
+def _register_project_routes(
+    router: APIRouter, on_changed: Optional[RecordChanged]
+) -> None:
     """The session snapshot itself: written by the app, read by `open_video`."""
 
     @router.put("/{video_id}/project")
-    def put_project(video_id: str, project: dict = Body(...)) -> dict:
+    async def put_project(video_id: str, project: dict = Body(...)) -> dict:
+        """``by`` is always "user": only the renderer's autosave writes this."""
         store = get_store()
         with _library_errors():
             try:
-                record = store.put_project(video_id, project)
+                # Autosave writes a multi-MB snapshot every couple of seconds
+                # during editing; off the event loop so /ws/progress keeps up.
+                record = await run_in_threadpool(store.put_project, video_id, project)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+        await _announce(on_changed, record, "user")
         return {"rev": record.rev}
 
     @router.get("/{video_id}/project")
@@ -284,55 +348,6 @@ def _register_project_routes(router: APIRouter) -> None:
                 status_code=404, detail=NO_PROJECT_DETAIL.format(id=video_id)
             )
         return project
-
-
-def _register_derived_routes(router: APIRouter) -> None:
-    """Routes over what the backend *derived* from a stored snapshot."""
-
-    @router.get("/{video_id}/moments")
-    def get_moments(
-        video_id: str, query: Optional[str] = None, kind: Optional[str] = None
-    ) -> dict:
-        """Find moments in the *stored* transcript — no session required.
-
-        Exactly one of `query` (literal text) or `kind` (a semantic category) —
-        the two detectors answer different questions and mixing them would hide
-        which one produced a match.
-        """
-        # Blank is absent: `?query=` is a caller that meant to send nothing.
-        wanted_query = query.strip() if query else ""
-        wanted_kind = kind.strip() if kind else ""
-        if bool(wanted_query) == bool(wanted_kind):
-            raise HTTPException(status_code=400, detail=MOMENTS_ARG_DETAIL)
-        store = get_store()
-        with _library_errors():
-            # Words are the unit of a moment, so this read is never segments-only.
-            transcript = store.get_transcript(video_id, segments_only=False)
-        if transcript is None:
-            raise HTTPException(
-                status_code=404, detail=NO_TRANSCRIPT_DETAIL.format(id=video_id)
-            )
-        result = TranscriptionResult.model_validate(transcript)
-        if wanted_query:
-            return {"matches": find_transcript_moments(result, wanted_query)}
-        try:
-            return {"matches": find_semantic_moments(result, wanted_kind)}
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    @router.get("/{video_id}/transcript")
-    def get_transcript(video_id: str, segments_only: bool = True) -> dict:
-        store = get_store()
-        with _library_errors():
-            record = store.get(video_id)
-            transcript = store.get_transcript(video_id, segments_only=segments_only)
-        if transcript is None:
-            raise HTTPException(
-                status_code=404, detail=NO_TRANSCRIPT_DETAIL.format(id=video_id)
-            )
-        # `source` tells the agent whether it read the record or the live
-        # session; the "session" proxy for the active record lands with #3.
-        return {"rev": record.rev, "source": "record", "transcript": transcript}
 
 
 def _register_asset_routes(router: APIRouter) -> None:

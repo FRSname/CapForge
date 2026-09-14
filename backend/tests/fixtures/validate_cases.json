@@ -1,0 +1,305 @@
+[
+  {
+    "name": "clean_fields_pass",
+    "fields": {
+      "title": "Shipping captions without a render farm",
+      "description": "A short talk about the pipeline.",
+      "tags": ["captions", "whisper"],
+      "chapters": [
+        {"start_s": 0, "title": "Intro"},
+        {"start_s": 60, "title": "The pipeline"},
+        {"start_s": 180, "title": "Wrap up"}
+      ]
+    },
+    "duration": 600,
+    "brief": null,
+    "expect": []
+  },
+  {
+    "name": "empty_fields_pass",
+    "fields": {},
+    "duration": 600,
+    "brief": null,
+    "expect": []
+  },
+  {
+    "name": "title_over_100_chars",
+    "fields": {"title": "<repeat:101:T>"},
+    "duration": null,
+    "brief": null,
+    "expect": ["title_max_chars"]
+  },
+  {
+    "name": "title_exactly_100_chars_passes",
+    "fields": {"title": "<repeat:100:T>"},
+    "duration": null,
+    "brief": null,
+    "expect": []
+  },
+  {
+    "name": "title_option_over_100_chars",
+    "fields": {"title_options": ["Fine", "<repeat:101:T>"]},
+    "duration": null,
+    "brief": null,
+    "expect": ["title_max_chars"]
+  },
+  {
+    "name": "description_over_5000_bytes_in_multibyte_text",
+    "fields": {"description": "<repeat:1700:日>"},
+    "duration": null,
+    "brief": null,
+    "expect": ["description_max_bytes"]
+  },
+  {
+    "name": "description_exactly_5000_bytes_passes",
+    "fields": {"description": "<repeat:5000:a>"},
+    "duration": null,
+    "brief": null,
+    "expect": []
+  },
+  {
+    "name": "angle_brackets_in_the_title",
+    "fields": {"title": "Why <script> breaks a description"},
+    "duration": null,
+    "brief": null,
+    "expect": ["no_angle_brackets"]
+  },
+  {
+    "name": "angle_brackets_in_the_description",
+    "fields": {"description": "Run the tool > output.txt"},
+    "duration": null,
+    "brief": null,
+    "expect": ["no_angle_brackets"]
+  },
+  {
+    "name": "angle_brackets_in_a_tag",
+    "fields": {"tags": ["fine", "<broken>"]},
+    "duration": null,
+    "brief": null,
+    "expect": ["no_angle_brackets"]
+  },
+  {
+    "name": "tags_line_over_500_chars",
+    "fields": {
+      "tags": [
+        "<repeat:30:a>", "<repeat:30:b>", "<repeat:30:c>", "<repeat:30:d>",
+        "<repeat:30:e>", "<repeat:30:f>", "<repeat:30:g>", "<repeat:30:h>",
+        "<repeat:30:i>", "<repeat:30:j>", "<repeat:30:k>", "<repeat:30:l>",
+        "<repeat:30:m>", "<repeat:30:n>", "<repeat:30:o>", "<repeat:30:p>",
+        "<repeat:30:q>"
+      ]
+    },
+    "duration": null,
+    "brief": null,
+    "expect": ["tags_max_chars"]
+  },
+  {
+    "name": "chapters_must_start_at_zero",
+    "fields": {
+      "chapters": [
+        {"start_s": 12, "title": "Intro"},
+        {"start_s": 60, "title": "Middle"},
+        {"start_s": 180, "title": "End"}
+      ]
+    },
+    "duration": 600,
+    "brief": null,
+    "expect": ["chapters_start_at_zero"]
+  },
+  {
+    "name": "fewer_than_three_chapters",
+    "fields": {
+      "chapters": [
+        {"start_s": 0, "title": "Intro"},
+        {"start_s": 60, "title": "End"}
+      ]
+    },
+    "duration": 600,
+    "brief": null,
+    "expect": ["chapters_min"]
+  },
+  {
+    "name": "chapters_must_ascend",
+    "fields": {
+      "chapters": [
+        {"start_s": 0, "title": "Intro"},
+        {"start_s": 60, "title": "Middle"},
+        {"start_s": 30, "title": "Back in time"}
+      ]
+    },
+    "duration": 600,
+    "brief": null,
+    "expect": ["chapters_ascending"]
+  },
+  {
+    "name": "chapters_closer_than_the_minimum_gap",
+    "fields": {
+      "chapters": [
+        {"start_s": 0, "title": "Intro"},
+        {"start_s": 5, "title": "Too soon"},
+        {"start_s": 60, "title": "End"}
+      ]
+    },
+    "duration": 600,
+    "brief": null,
+    "expect": ["chapter_min_gap"]
+  },
+  {
+    "name": "a_gap_of_exactly_ten_seconds_passes",
+    "fields": {
+      "chapters": [
+        {"start_s": 0, "title": "Intro"},
+        {"start_s": 10, "title": "Middle"},
+        {"start_s": 20, "title": "End"}
+      ]
+    },
+    "duration": 600,
+    "brief": null,
+    "expect": []
+  },
+  {
+    "name": "a_chapter_past_the_duration",
+    "fields": {
+      "chapters": [
+        {"start_s": 0, "title": "Intro"},
+        {"start_s": 60, "title": "Middle"},
+        {"start_s": 900, "title": "After the end"}
+      ]
+    },
+    "duration": 600,
+    "brief": null,
+    "expect": ["chapter_within_duration"]
+  },
+  {
+    "name": "a_chapter_exactly_at_the_duration",
+    "fields": {
+      "chapters": [
+        {"start_s": 0, "title": "Intro"},
+        {"start_s": 60, "title": "Middle"},
+        {"start_s": 600, "title": "On the last frame"}
+      ]
+    },
+    "duration": 600,
+    "brief": null,
+    "expect": ["chapter_within_duration"]
+  },
+  {
+    "name": "without_a_duration_no_chapter_is_out_of_range",
+    "fields": {
+      "chapters": [
+        {"start_s": 0, "title": "Intro"},
+        {"start_s": 60, "title": "Middle"},
+        {"start_s": 99999, "title": "Whenever"}
+      ]
+    },
+    "duration": null,
+    "brief": null,
+    "expect": []
+  },
+  {
+    "name": "an_empty_chapter_list_is_not_a_thin_chapter_list",
+    "fields": {"chapters": []},
+    "duration": 600,
+    "brief": null,
+    "expect": []
+  },
+  {
+    "name": "style_rules_stay_quiet_without_a_brief",
+    "fields": {
+      "description": "A talk — with an em dash.",
+      "keywords": ["one"]
+    },
+    "duration": null,
+    "brief": null,
+    "expect": []
+  },
+  {
+    "name": "em_dash_flagged_when_the_brief_asks",
+    "fields": {"description": "A talk — with an em dash."},
+    "duration": null,
+    "brief": {"house_rules": {"no_em_dashes": true, "hook_first_150": false}},
+    "expect": ["no_em_dashes"]
+  },
+  {
+    "name": "an_en_dash_between_digits_is_a_range_not_a_dash",
+    "fields": {"description": "Recorded 2024–2025, 10–12 minutes."},
+    "duration": null,
+    "brief": {"house_rules": {"no_em_dashes": true, "hook_first_150": false}},
+    "expect": []
+  },
+  {
+    "name": "em_dash_in_the_title_is_flagged_too",
+    "fields": {"title": "Captions — done right"},
+    "duration": null,
+    "brief": {"house_rules": {"no_em_dashes": true, "hook_first_150": false}},
+    "expect": ["no_em_dashes"]
+  },
+  {
+    "name": "description_shorter_than_the_window",
+    "fields": {"description": "Too short."},
+    "duration": null,
+    "brief": {"house_rules": {"description_chars": [1800, 2200], "hook_first_150": false}},
+    "expect": ["description_chars"]
+  },
+  {
+    "name": "description_inside_the_window",
+    "fields": {"description": "<repeat:1900:a>"},
+    "duration": null,
+    "brief": {"house_rules": {"description_chars": [1800, 2200], "hook_first_150": false}},
+    "expect": []
+  },
+  {
+    "name": "description_longer_than_the_window",
+    "fields": {"description": "<repeat:2400:a>"},
+    "duration": null,
+    "brief": {"house_rules": {"description_chars": [1800, 2200], "hook_first_150": false}},
+    "expect": ["description_chars"]
+  },
+  {
+    "name": "too_few_keyword_terms",
+    "fields": {"keywords": ["captions", "whisper", "ffmpeg"]},
+    "duration": null,
+    "brief": {"house_rules": {"keywords_terms": [12, 20], "hook_first_150": false}},
+    "expect": ["keywords_terms"]
+  },
+  {
+    "name": "keyword_count_inside_the_window",
+    "fields": {
+      "keywords": ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l"]
+    },
+    "duration": null,
+    "brief": {"house_rules": {"keywords_terms": [12, 20], "hook_first_150": false}},
+    "expect": []
+  },
+  {
+    "name": "a_line_break_inside_the_first_150_characters",
+    "fields": {"description": "The hook.\nAnd the rest of the description."},
+    "duration": null,
+    "brief": {"house_rules": {"hook_first_150": true}},
+    "expect": ["hook_first_150"]
+  },
+  {
+    "name": "a_line_break_after_the_first_150_characters",
+    "fields": {"description": "<repeat:160:a>\nSecond paragraph."},
+    "duration": null,
+    "brief": {"house_rules": {"hook_first_150": true}},
+    "expect": []
+  },
+  {
+    "name": "the_hook_rule_can_be_switched_off",
+    "fields": {"description": "The hook.\nAnd the rest."},
+    "duration": null,
+    "brief": {"house_rules": {"hook_first_150": false}},
+    "expect": []
+  },
+  {
+    "name": "hard_and_style_rules_report_together",
+    "fields": {
+      "title": "<repeat:101:T>",
+      "description": "A talk — with an em dash."
+    },
+    "duration": null,
+    "brief": {"house_rules": {"no_em_dashes": true, "hook_first_150": false}},
+    "expect": ["title_max_chars", "no_em_dashes"]
+  }
+]

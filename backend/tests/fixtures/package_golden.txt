@@ -1,0 +1,73 @@
+TITLE OPTIONS
+1. Captions without a render farm
+2. How we ship captions in minutes
+
+=====================================================================
+DESCRIPTION
+=====================================================================
+
+The render farm was the bottleneck.
+
+Here is the pipeline we run instead.
+
+Recorded at PyCon 2026, 14 September.
+
+WHAT YOU'LL LEARN
+- Why a render farm is the wrong tool
+- How word alignment survives an edit
+
+CHAPTERS
+00:00 Intro
+01:01 The pipeline
+1:01:01 Wrap up
+
+LINKS
+Repo: https://github.com/capforge/capforge
+CapForge: https://capforge.app
+
+Speaker: Ada Lovelace (@ada)
+https://ada.example
+
+Subscribe for more.
+Made with CapForge.
+
+#CapForge #captions #Whisper
+
+=====================================================================
+TAGS
+=====================================================================
+captions, whisper, ffmpeg
+
+=====================================================================
+SHORT DESCRIPTION
+=====================================================================
+How CapForge renders captions locally.
+
+=====================================================================
+SHORTS
+=====================================================================
+CAPTION
+The render farm was the bottleneck.
+One laptop, one pass.
+
+Full video: https://youtu.be/abc123
+
+#Shorts #CapForge #captions #Whisper
+
+CLIP CANDIDATES
+01:01-01:35 A self-contained claim
+1:01:01-1:01:40 The demo that failed
+
+=====================================================================
+THUMBNAIL IDEAS
+=====================================================================
+One laptop — Speaker at a laptop, captions on screen
+No render farm — A dark server rack, crossed out
+
+=====================================================================
+NOTES
+=====================================================================
+Source: CapForge transcript, talk.mp4, 1:02:04
+Description: 73 characters, 73 bytes
+Shorts caption: 57 characters
+Chapters: 3, first 00:00, minimum gap 61.25s

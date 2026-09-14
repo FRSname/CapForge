@@ -9,9 +9,9 @@ import edge back to ``router`` — the same reason the auth guard is injected.
 from __future__ import annotations
 
 import logging
-from typing import Callable, ContextManager, Literal
+from typing import Awaitable, Callable, ContextManager, Literal, Optional
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Response
 from starlette import status as http_status
 from pydantic import BaseModel
 
@@ -35,13 +35,17 @@ def register_admin_routes(
     get_store: Callable,
     view: Callable,
     library_errors: Callable[[], ContextManager[None]],
+    actor_dep: Callable,
+    on_record_changed: Optional[Callable[[str, int, str], Awaitable[None]]] = None,
 ) -> None:
     """Register the delete/import/migrate routes on the library router.
 
     Declared before ``/{video_id}`` so the two fixed POST paths can never be
     captured by a record-id route.
     """
-    _register_import_routes(router, get_store, view, library_errors)
+    _register_import_routes(
+        router, get_store, view, library_errors, actor_dep, on_record_changed
+    )
     _register_delete_route(router, get_store, library_errors)
 
 
@@ -50,11 +54,17 @@ def _register_import_routes(
     get_store: Callable,
     view: Callable,
     library_errors: Callable[[], ContextManager[None]],
+    actor_dep: Callable,
+    on_record_changed: Optional[Callable[[str, int, str], Awaitable[None]]],
 ) -> None:
     """Getting records *in*: one project file, or every studio workspace."""
 
     @router.post("/import-project")
-    def import_project(body: ImportProjectRequest, response: Response) -> dict:
+    async def import_project(
+        body: ImportProjectRequest,
+        response: Response,
+        actor: str = Depends(actor_dep),
+    ) -> dict:
         """Adopt an outside project file: 201 for new media, 200 for a hit.
 
         A 404 (``MediaNotFound``) means the project names a video that is gone;
@@ -69,6 +79,8 @@ def _register_import_routes(
         response.status_code = (
             http_status.HTTP_201_CREATED if created else http_status.HTTP_200_OK
         )
+        if on_record_changed is not None:
+            await on_record_changed(record.id, record.rev, actor)
         return view(store, record)
 
     @router.post("/migrate-studio")

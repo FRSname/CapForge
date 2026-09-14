@@ -410,9 +410,22 @@ async def require_library_actor(
     raise HTTPException(status_code=401, detail="Invalid or missing token")
 
 
-# The library owns its own module (backend/library/); the guard is injected so
-# that package never imports this one. See docs/plans/backend-library.md.
-app.include_router(build_library_router(require_library_actor))
+def _live_session() -> tuple[Optional[str], Optional[TranscriptionResult]]:
+    """The open window's record and its transcript, read at **call** time."""
+    return (current_ui_state or {}).get("activeVideoId"), current_result
+
+
+async def _record_changed(video_id: str, rev: int, by: str) -> None:
+    """Push a dossier write to the window (the Publish panel merges it)."""
+    await broadcast_event({"type": "record_updated", "video_id": video_id, "rev": rev, "by": by})
+
+
+# The library owns its own module (backend/library/); the guard and the two
+# session seams are injected so that package never imports this one. See
+# docs/plans/backend-library.md and docs/plans/publish-workspace.md.
+app.include_router(build_library_router(
+    require_library_actor, live_session=_live_session, on_record_changed=_record_changed
+))
 
 
 def _resolve_real(path) -> Optional[Path]:

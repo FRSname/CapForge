@@ -1,0 +1,21 @@
+[
+  {"seconds": 0, "expected": "00:00"},
+  {"seconds": 0.4, "expected": "00:00"},
+  {"seconds": 1, "expected": "00:01"},
+  {"seconds": 9.999, "expected": "00:09"},
+  {"seconds": 59.9, "expected": "00:59"},
+  {"seconds": 60, "expected": "01:00"},
+  {"seconds": 61.25, "expected": "01:01"},
+  {"seconds": 599, "expected": "09:59"},
+  {"seconds": 600, "expected": "10:00"},
+  {"seconds": 3599, "expected": "59:59"},
+  {"seconds": 3599.999, "expected": "59:59"},
+  {"seconds": 3600, "expected": "1:00:00"},
+  {"seconds": 3661, "expected": "1:01:01"},
+  {"seconds": 3723.5, "expected": "1:02:03"},
+  {"seconds": 36000, "expected": "10:00:00"},
+  {"seconds": 359999, "expected": "99:59:59"},
+  {"seconds": -0.5, "expected": "00:00"},
+  {"seconds": -1, "expected": "00:00"},
+  {"seconds": -3600, "expected": "00:00"}
+]

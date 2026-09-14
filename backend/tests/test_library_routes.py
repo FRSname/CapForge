@@ -86,7 +86,7 @@ def agent(**kw):
     return {AGENT_HEADER: AGENT_TOKEN, **kw}
 
 
-def project(words=("Hello", "brave", "world")) -> dict:
+def project(words=("Hello", "brave", "world"), duration=3.0) -> dict:
     return {
         "version": 2,
         "transcriptionResult": {
@@ -103,7 +103,7 @@ def project(words=("Hello", "brave", "world")) -> dict:
             ],
             "language": "en",
             "audio_path": "/tmp/a.wav",
-            "duration": 3.0,
+            "duration": duration,
         },
     }
 
@@ -132,6 +132,10 @@ def create(client, media, **body) -> dict:
     ("delete", "/api/library/abc"),
     ("post", "/api/library/import-project"),
     ("post", "/api/library/migrate-studio"),
+    ("get", "/api/library/brief"),
+    ("patch", "/api/library/brief"),
+    ("post", "/api/library/validate"),
+    ("get", "/api/library/abc/package"),
 ])
 def test_every_route_401s_without_a_token(client, method, path):
     # httpx's delete() takes no body, so the bodyless methods are grouped.
@@ -211,13 +215,20 @@ def test_patch_stale_rev_409s_with_the_current_record(client, media):
 
 def test_patch_records_the_actor_agent_or_user(client, media):
     rec = create(client, media)
+    # A legal chapter list: first at 00:00, three of them, 10s apart (#4's hard
+    # rules run on every patch, so a lone chapter would now be refused).
+    chapters = [
+        {"start_s": 0.0, "title": "Intro"},
+        {"start_s": CHAPTER_START_S, "title": "Deep dive"},
+        {"start_s": 180.0, "title": "Wrap up"},
+    ]
     by_agent = client.patch(
         f"/api/library/{rec['id']}",
-        json={"title": "Agent wrote this", "chapters": [{"start_s": CHAPTER_START_S, "title": "Deep dive"}]},
+        json={"title": "Agent wrote this", "chapters": chapters},
         headers=agent(**{"If-Match": "1"}),
     ).json()
     assert by_agent["title"] == "Agent wrote this"
-    assert by_agent["chapters"][0]["start_s"] == CHAPTER_START_S
+    assert by_agent["chapters"][1]["start_s"] == CHAPTER_START_S
     assert [h["by"] for h in by_agent["history"]] == ["agent", "agent"]
 
     by_user = client.patch(
@@ -567,3 +578,435 @@ def test_record_view_and_list_summary_carry_has_project(client, media):
 
     assert client.get(f"/api/library/{rec['id']}", headers=agent()).json()["hasProject"] is True
     assert client.get("/api/library", headers=agent()).json()["videos"][0]["hasProject"] is True
+
+
+# --- validate ----------------------------------------------------------------
+
+LEGAL_CHAPTERS = [
+    {"start_s": 0, "title": "Intro"},
+    {"start_s": 60, "title": "Middle"},
+    {"start_s": 180, "title": "End"},
+]
+LONG_VIDEO_S = 600.0
+EM_DASH_DESCRIPTION = "A talk — with an em dash."
+
+
+def validate(client, **body):
+    return client.post("/api/library/validate", json=body, headers=agent())
+
+
+def transcribed_record(client, media, duration=LONG_VIDEO_S) -> str:
+    rec = create(client, media)
+    client.put(
+        f"/api/library/{rec['id']}/project",
+        json=project(duration=duration),
+        headers=agent(),
+    )
+    return rec["id"]
+
+
+def test_validate_with_explicit_fields_needs_no_record(client):
+    r = validate(client, fields={"title": "T" * 101}, duration=None)
+
+    assert r.status_code == 200
+    violations = r.json()["violations"]
+    assert [v["rule"] for v in violations] == ["title_max_chars"]
+    assert violations[0]["field"] == "title"
+    assert violations[0]["severity"] == "hard"
+
+
+def test_validate_with_no_fields_at_all_is_an_empty_answer(client):
+    assert validate(client).json() == {"violations": []}
+
+
+def test_validate_takes_the_duration_from_the_record_when_given_a_video_id(client, media):
+    video_id = transcribed_record(client, media, duration=LONG_VIDEO_S)
+    late = [*LEGAL_CHAPTERS[:2], {"start_s": 900, "title": "After the end"}]
+
+    r = validate(client, video_id=video_id, fields={"chapters": late})
+
+    assert [v["rule"] for v in r.json()["violations"]] == ["chapter_within_duration"]
+
+
+def test_validate_takes_the_fields_and_the_brief_from_storage(client, media):
+    """No ``fields`` in the body: the stored dossier and the stored brief."""
+    video_id = transcribed_record(client, media)
+    client.patch("/api/library/brief", json={"house_rules": {"no_em_dashes": True}},
+                 headers=agent())
+    client.patch(f"/api/library/{video_id}", json={"description": EM_DASH_DESCRIPTION},
+                 headers=agent(**{"If-Match": "2"}))
+
+    violations = validate(client, video_id=video_id).json()["violations"]
+
+    assert [v["rule"] for v in violations] == ["no_em_dashes"]
+    assert violations[0]["severity"] == "style"
+
+
+def test_validate_refuses_a_field_that_is_not_authored(client):
+    assert validate(client, fields={"nope": 1}).status_code == 422
+    assert validate(client, fields={"rev": 2}).status_code == 422
+
+
+def test_validate_refuses_an_unknown_body_key(client):
+    r = client.post("/api/library/validate", json={"fieldz": {}}, headers=agent())
+
+    assert r.status_code == 422
+
+
+def test_validate_unknown_video_id_is_404(client):
+    assert validate(client, video_id="nope").status_code == 404
+
+
+# --- package -----------------------------------------------------------------
+
+def package(client, video_id, **params):
+    return client.get(f"/api/library/{video_id}/package", params=params, headers=agent())
+
+
+def test_package_renders_the_record_with_its_violations(client, media):
+    video_id = transcribed_record(client, media)
+    client.patch(
+        f"/api/library/{video_id}",
+        json={"title": "Captions without a render farm", "chapters": LEGAL_CHAPTERS},
+        headers=agent(**{"If-Match": "2"}),
+    )
+
+    r = package(client, video_id)
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["platform"] == "youtube"
+    assert body["violations"] == []
+    assert body["text"].startswith("TITLE OPTIONS\n1. Captions without a render farm")
+    assert "00:00 Intro" in body["text"] and "01:00 Middle" in body["text"]
+    # The duration came from the stored transcript.
+    assert "Source: CapForge transcript, talk.mp4, 10:00" in body["text"]
+
+
+def test_package_is_rendered_even_when_violations_ride_along(client, media):
+    video_id = transcribed_record(client, media)
+    client.patch("/api/library/brief", json={"house_rules": {"no_em_dashes": True}},
+                 headers=agent())
+    client.patch(f"/api/library/{video_id}", json={"description": EM_DASH_DESCRIPTION},
+                 headers=agent(**{"If-Match": "2"}))
+
+    body = package(client, video_id).json()
+
+    assert EM_DASH_DESCRIPTION in body["text"]
+    assert [v["rule"] for v in body["violations"]] == ["no_em_dashes"]
+
+
+def test_package_uses_the_stored_brief(client, media):
+    video_id = transcribed_record(client, media)
+    client.patch("/api/library/brief", json={"footer": "Made with CapForge."},
+                 headers=agent())
+    client.patch(f"/api/library/{video_id}", json={"title": "A talk"},
+                 headers=agent(**{"If-Match": "2"}))
+
+    assert "Made with CapForge." in package(client, video_id).json()["text"]
+
+
+def test_package_refuses_any_platform_but_youtube(client, media):
+    video_id = transcribed_record(client, media)
+
+    r = package(client, video_id, platform="tiktok")
+
+    assert r.status_code == 400
+    assert "youtube" in r.json()["detail"]
+
+
+def test_package_without_a_transcript_still_renders(client, media):
+    """No duration known yet — the Source line simply omits it."""
+    rec = create(client, media)
+
+    body = package(client, rec["id"]).json()
+
+    assert body["text"].endswith("Chapters: none\n")
+    assert "Source: CapForge transcript, talk.mp4\n" in body["text"]
+
+
+def test_package_unknown_id_is_404(client):
+    assert package(client, "nope").status_code == 404
+
+
+# --- PATCH refuses a hard violation ------------------------------------------
+
+def test_patch_refuses_a_hard_violation_and_writes_nothing(client, media):
+    rec = create(client, media)
+
+    r = client.patch(
+        f"/api/library/{rec['id']}",
+        json={"title": "T" * 101, "description": "fine"},
+        headers=agent(**{"If-Match": "1"}),
+    )
+
+    assert r.status_code == 422
+    body = r.json()
+    assert body["detail"] == "1 rule(s) violated"
+    assert [v["rule"] for v in body["violations"]] == ["title_max_chars"]
+
+    after = client.get(f"/api/library/{rec['id']}", headers=agent()).json()
+    assert after["rev"] == 1
+    assert after["title"] == "" and after["description"] == ""
+    assert after["history"] == []
+
+
+def test_patch_refuses_chapters_that_fall_outside_the_stored_duration(client, media):
+    video_id = transcribed_record(client, media, duration=30.0)
+
+    r = client.patch(
+        f"/api/library/{video_id}",
+        json={"chapters": LEGAL_CHAPTERS},
+        headers=agent(**{"If-Match": "2"}),
+    )
+
+    assert r.status_code == 422
+    rules = {v["rule"] for v in r.json()["violations"]}
+    assert rules == {"chapter_within_duration"}
+
+
+def test_patch_validates_the_merged_record_not_only_the_patch(client, media, home):
+    """A record written by an older build carries its violation into the merge."""
+    rec = create(client, media)
+    path = home / "library" / rec["id"] / "record.json"
+    stored = json.loads(path.read_text(encoding="utf-8"))
+    path.write_text(json.dumps({**stored, "title": "T" * 101}), encoding="utf-8")
+
+    refused = client.patch(
+        f"/api/library/{rec['id']}", json={"tags": ["a"]}, headers=agent(**{"If-Match": "1"})
+    )
+    assert refused.status_code == 422
+    assert [v["rule"] for v in refused.json()["violations"]] == ["title_max_chars"]
+
+    fixed = client.patch(
+        f"/api/library/{rec['id']}",
+        json={"tags": ["a"], "title": "Short enough"},
+        headers=agent(**{"If-Match": "1"}),
+    )
+    assert fixed.status_code == 200 and fixed.json()["title"] == "Short enough"
+
+
+def test_patch_is_not_blocked_by_a_style_violation(client, media):
+    client.patch("/api/library/brief", json={"house_rules": {"no_em_dashes": True}},
+                 headers=agent())
+    rec = create(client, media)
+
+    r = client.patch(
+        f"/api/library/{rec['id']}",
+        json={"description": EM_DASH_DESCRIPTION},
+        headers=agent(**{"If-Match": "1"}),
+    )
+
+    assert r.status_code == 200
+    assert r.json()["description"] == EM_DASH_DESCRIPTION
+
+
+# --- the live session proxy (wired in main.py) -------------------------------
+
+def session_result(text="Live words here"):
+    from backend.models.schemas import Segment, TranscriptionResult, WordSegment
+
+    return TranscriptionResult(
+        segments=[Segment(
+            start=0.0, end=2.0, text=text,
+            words=[WordSegment(word=w, start=float(i), end=float(i + 1))
+                   for i, w in enumerate(text.split())],
+        )],
+        language="en",
+        audio_path="/tmp/live.wav",
+        duration=2.0,
+    )
+
+
+def test_transcript_answers_from_the_session_for_the_active_record(
+    client, main_module, monkeypatch, media
+):
+    video_id = transcribed_record(client, media)
+    monkeypatch.setattr(main_module, "current_result", session_result())
+    monkeypatch.setattr(main_module, "current_ui_state", {"activeVideoId": video_id})
+
+    body = client.get(f"/api/library/{video_id}/transcript", headers=agent()).json()
+
+    assert body["source"] == "session"
+    assert body["rev"] == 2  # the record's rev, not the session's
+    segment = body["transcript"]["segments"][0]
+    assert segment["text"] == "Live words here"
+    assert "words" not in segment  # segments_only is honoured on the session too
+
+
+def test_the_session_transcript_can_be_asked_for_its_words(
+    client, main_module, monkeypatch, media
+):
+    video_id = transcribed_record(client, media)
+    monkeypatch.setattr(main_module, "current_result", session_result())
+    monkeypatch.setattr(main_module, "current_ui_state", {"activeVideoId": video_id})
+
+    body = client.get(
+        f"/api/library/{video_id}/transcript",
+        params={"segments_only": "false"}, headers=agent(),
+    ).json()
+
+    words = body["transcript"]["segments"][0]["words"]
+    assert [w["word"] for w in words] == ["Live", "words", "here"]
+
+
+def test_transcript_falls_back_to_the_record_when_another_video_is_open(
+    client, main_module, monkeypatch, media
+):
+    video_id = transcribed_record(client, media)
+    monkeypatch.setattr(main_module, "current_result", session_result())
+    monkeypatch.setattr(main_module, "current_ui_state", {"activeVideoId": "b" * 32})
+
+    body = client.get(f"/api/library/{video_id}/transcript", headers=agent()).json()
+
+    assert body["source"] == "record"
+    assert body["transcript"]["segments"][0]["text"] == "Hello brave world"
+
+
+def test_transcript_falls_back_to_the_record_with_no_session_loaded(
+    client, main_module, monkeypatch, media
+):
+    video_id = transcribed_record(client, media)
+    monkeypatch.setattr(main_module, "current_result", None)
+    monkeypatch.setattr(main_module, "current_ui_state", {"activeVideoId": video_id})
+
+    body = client.get(f"/api/library/{video_id}/transcript", headers=agent()).json()
+
+    assert body["source"] == "record"
+
+
+def test_a_record_write_broadcasts_record_updated(client, main_module, monkeypatch, media):
+    """main.py's ``on_record_changed`` is the ``/ws/progress`` push."""
+    sent = []
+
+    async def capture(payload):
+        sent.append(payload)
+
+    monkeypatch.setattr(main_module, "broadcast_event", capture)
+    rec = create(client, media)
+
+    client.patch(f"/api/library/{rec['id']}", json={"title": "Pushed"},
+                 headers=agent(**{"If-Match": "1"}))
+
+    assert sent == [
+        {"type": "record_updated", "video_id": rec["id"], "rev": 2, "by": "agent"}
+    ]
+
+
+# --- the two injected seams, without main.py in the way ----------------------
+
+@pytest.fixture
+def wired(home):
+    """A bare app holding the library router, so ``build_router``'s two optional
+    arguments can be driven directly."""
+    from fastapi import FastAPI
+
+    from backend.library.router import build_router, reset_store_cache
+
+    live = {"id": None, "result": None}
+    changes: list[tuple] = []
+
+    async def on_record_changed(video_id, rev, by):
+        changes.append((video_id, rev, by))
+
+    app = FastAPI()
+    app.include_router(build_router(
+        lambda: "agent",
+        live_session=lambda: (live["id"], live["result"]),
+        on_record_changed=on_record_changed,
+    ))
+    try:
+        yield types.SimpleNamespace(
+            client=TestClient(app), live=live, changes=changes
+        )
+    finally:
+        reset_store_cache()
+
+
+def test_the_router_works_without_either_optional_argument(home, media):
+    """``build_router(actor_dep)`` alone is still the #1 contract."""
+    from fastapi import FastAPI
+
+    from backend.library.router import build_router, reset_store_cache
+
+    app = FastAPI()
+    app.include_router(build_router(lambda: "agent"))
+    try:
+        with TestClient(app) as c:
+            rec = c.post("/api/library", json={"source_path": str(media)}).json()
+            assert c.put(f"/api/library/{rec['id']}/project", json=project()).status_code == 200
+            body = c.get(f"/api/library/{rec['id']}/transcript").json()
+            assert body["source"] == "record"
+    finally:
+        reset_store_cache()
+
+
+def test_every_record_write_is_reported_to_on_record_changed(wired, media, tmp_path):
+    c = wired.client
+    rec = c.post("/api/library", json={"source_path": str(media), "scratch": True}).json()
+    video_id = rec["id"]
+
+    c.post(f"/api/library/{video_id}/promote")
+    c.put(f"/api/library/{video_id}/project", json=project())
+    c.patch(f"/api/library/{video_id}", json={"title": "T"}, headers={"If-Match": "3"})
+    c.post(f"/api/library/{video_id}/renders",
+           json={"path": "/out/a.mp4", "kind": "video", "at": "2026-09-14T10:00:00Z"})
+
+    assert wired.changes == [
+        (video_id, 2, "agent"),   # promote
+        (video_id, 3, "user"),    # PUT project — only the renderer writes it
+        (video_id, 4, "agent"),   # patch
+        (video_id, 5, "agent"),   # renders
+    ]
+
+
+def test_importing_a_project_file_is_reported_too(wired, media, tmp_path):
+    path = capforge_file(tmp_path, media)
+
+    rec = wired.client.post("/api/library/import-project", json={"path": str(path)}).json()
+
+    assert wired.changes == [(rec["id"], rec["rev"], "agent")]
+
+
+def test_a_refused_write_reports_nothing(wired, media):
+    c = wired.client
+    rec = c.post("/api/library", json={"source_path": str(media)}).json()
+
+    c.patch(f"/api/library/{rec['id']}", json={"title": "T" * 101}, headers={"If-Match": "1"})
+    c.patch(f"/api/library/{rec['id']}", json={"title": "T"}, headers={"If-Match": "99"})
+
+    assert wired.changes == []
+
+
+def test_a_patch_that_changes_nothing_reports_nothing(wired, media):
+    c = wired.client
+    rec = c.post("/api/library", json={"source_path": str(media)}).json()
+
+    assert c.patch(f"/api/library/{rec['id']}", json={}, headers={"If-Match": "1"}).status_code == 200
+
+    assert wired.changes == []
+
+
+def test_the_session_proxy_is_driven_by_live_session(wired, media):
+    c = wired.client
+    rec = c.post("/api/library", json={"source_path": str(media)}).json()
+    c.put(f"/api/library/{rec['id']}/project", json=project())
+
+    assert c.get(f"/api/library/{rec['id']}/transcript").json()["source"] == "record"
+
+    wired.live["id"] = rec["id"]
+    wired.live["result"] = session_result()
+
+    assert c.get(f"/api/library/{rec['id']}/transcript").json()["source"] == "session"
+
+
+def test_the_session_proxy_answers_before_any_project_was_stored(wired, media):
+    """The open video has a transcript even when nothing was autosaved yet."""
+    c = wired.client
+    rec = c.post("/api/library", json={"source_path": str(media)}).json()
+    wired.live["id"] = rec["id"]
+    wired.live["result"] = session_result()
+
+    r = c.get(f"/api/library/{rec['id']}/transcript")
+
+    assert r.status_code == 200 and r.json()["source"] == "session"
