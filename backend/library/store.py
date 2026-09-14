@@ -46,6 +46,7 @@ from backend.library.schemas import (
     VideoRecord,
     derive_status,
 )
+from backend.library.store_admin import StoreAdminMixin
 from backend.library.transcript import derive_transcript, plain_text
 from backend.library.transcript import segments_only as strip_word_arrays
 
@@ -95,8 +96,12 @@ def _truncate(value: Any) -> Any:
     return value
 
 
-class LibraryStore:
-    """Every record under ``root`` (``$CAPFORGE_HOME/library`` in production)."""
+class LibraryStore(StoreAdminMixin):
+    """Every record under ``root`` (``$CAPFORGE_HOME/library`` in production).
+
+    Housekeeping (remove/detach/import/migrate) lives in ``store_admin``'s
+    mixin — this file is at its size ceiling.
+    """
 
     def __init__(self, root: PathLike) -> None:
         self.root = Path(root)
@@ -210,10 +215,10 @@ class LibraryStore:
             summaries.append(self._summary(record, record_status))
         return summaries
 
-    @staticmethod
-    def _summary(record: VideoRecord, status: str) -> dict:
+    def _summary(self, record: VideoRecord, status: str) -> dict:
         dumped = {**record.model_dump(), "status": status}
-        return {name: dumped[name] for name in SUMMARY_FIELDS}
+        summary = {name: dumped[name] for name in SUMMARY_FIELDS}
+        return {**summary, "hasProject": self.has_project(record)}  # derived
 
     # --- writing -------------------------------------------------------------
 

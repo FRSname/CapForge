@@ -4,8 +4,10 @@ token-gated HTTP boundary with the app sitting on the drop screen
 
 from __future__ import annotations
 
+import json
 import sys
 import types
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -127,9 +129,13 @@ def create(client, media, **body) -> dict:
     ("post", "/api/library/abc/renders"),
     ("post", "/api/library/abc/promote"),
     ("post", "/api/library/rebuild-index"),
+    ("delete", "/api/library/abc"),
+    ("post", "/api/library/import-project"),
+    ("post", "/api/library/migrate-studio"),
 ])
 def test_every_route_401s_without_a_token(client, method, path):
-    kwargs = {} if method == "get" else {"json": {}}
+    # httpx's delete() takes no body, so the bodyless methods are grouped.
+    kwargs = {} if method in ("get", "delete") else {"json": {}}
     assert getattr(client, method)(path, **kwargs).status_code == 401
 
 
@@ -434,3 +440,130 @@ def test_moments_treats_a_blank_param_as_absent(client, transcribed):
     """`?query=` is a caller that meant to send nothing, not a match-everything."""
     assert moments(client, transcribed, query="").status_code == 400
     assert moments(client, transcribed, query="brave", kind="").status_code == 200
+
+
+# --- delete: remove / detach (the backend never deletes files) ----------------
+
+def test_delete_defaults_to_remove_and_keeps_every_file(client, media, home):
+    rec = create(client, media)
+    client.put(f"/api/library/{rec['id']}/project", json=project(), headers=agent())
+
+    r = client.delete(f"/api/library/{rec['id']}", headers=agent())
+
+    assert r.status_code == 200
+    assert r.json() == {"status": "ok", "mode": "remove"}
+    assert client.get(f"/api/library/{rec['id']}", headers=agent()).status_code == 404
+    assert client.get("/api/library", headers=agent()).json()["videos"] == []
+    hidden = home / "library" / ".removed" / rec["id"]
+    assert (hidden / "record.json").is_file()
+    assert (hidden / "project.capforge").is_file()
+    assert media.exists()
+
+
+def test_delete_detach_returns_the_folder_for_electron_to_trash(client, media, home):
+    rec = create(client, media)
+
+    r = client.delete(f"/api/library/{rec['id']}", params={"mode": "detach"}, headers=agent())
+
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok" and body["mode"] == "detach"
+    folder = Path(body["folder"])
+    assert folder == home / "library" / ".trash" / rec["id"]
+    assert (folder / "record.json").is_file()  # handed over, not deleted
+    assert client.get(f"/api/library/{rec['id']}", headers=agent()).status_code == 404
+
+
+def test_delete_unknown_id_is_404(client):
+    assert client.delete("/api/library/nope", headers=agent()).status_code == 404
+
+
+def test_delete_rejects_an_unknown_mode(client, media):
+    rec = create(client, media)
+    r = client.delete(f"/api/library/{rec['id']}", params={"mode": "shred"}, headers=agent())
+    assert r.status_code == 422
+    assert client.get(f"/api/library/{rec['id']}", headers=agent()).status_code == 200
+
+
+# --- import-project ----------------------------------------------------------
+
+def capforge_file(tmp_path, media_path, name="session.capforge") -> Path:
+    path = tmp_path / name
+    body = {**project(), "selectedFilePath": str(media_path)}
+    path.write_text(json.dumps(body), encoding="utf-8")
+    return path
+
+
+def test_import_project_creates_then_matches(client, media, tmp_path):
+    path = capforge_file(tmp_path, media)
+
+    created = client.post("/api/library/import-project", json={"path": str(path)}, headers=agent())
+
+    assert created.status_code == 201
+    rec = created.json()
+    assert rec["sourcePath"] == str(media.resolve())
+    assert rec["status"] == "transcribed"
+    assert rec["hasProject"] is True
+
+    again = client.post("/api/library/import-project", json={"path": str(path)}, headers=agent())
+
+    assert again.status_code == 200
+    assert again.json()["id"] == rec["id"]
+
+
+def test_import_project_404s_when_the_media_is_gone(client, tmp_path):
+    path = capforge_file(tmp_path, tmp_path / "gone.mp4")
+
+    r = client.post("/api/library/import-project", json={"path": str(path)}, headers=agent())
+
+    assert r.status_code == 404
+    assert "gone.mp4" in r.json()["detail"]
+
+
+@pytest.mark.parametrize("name,body", [
+    ("session.json", '{"transcriptionResult": {}, "selectedFilePath": "/tmp/a.mp4"}'),
+    ("session.capforge", "not json"),
+    ("session.capforge", '{"transcriptionResult": {}}'),
+])
+def test_import_project_422s_on_a_bad_file_with_the_reason(client, tmp_path, name, body):
+    path = tmp_path / name
+    path.write_text(body, encoding="utf-8")
+
+    r = client.post("/api/library/import-project", json={"path": str(path)}, headers=agent())
+
+    assert r.status_code == 422
+    assert r.json()["detail"]
+
+
+# --- migrate-studio ----------------------------------------------------------
+
+def test_migrate_studio_imports_live_workspaces_and_reports_the_rest(client, media, home):
+    from backend.exporters.hyperframes_project import write_coauthor_marker
+
+    live = home / "studio" / "aaaa1111"
+    live.mkdir(parents=True)
+    write_coauthor_marker(live, True, source=str(media))
+    (home / "studio" / "bbbb2222").mkdir(parents=True)  # no marker
+
+    r = client.post("/api/library/migrate-studio", headers=agent())
+
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body["imported"]) == 1
+    assert [entry["folder"] for entry in body["skipped"]] == ["bbbb2222"]
+    listed = client.get("/api/library", headers=agent()).json()["videos"]
+    assert [v["id"] for v in listed] == body["imported"]
+
+
+# --- hasProject --------------------------------------------------------------
+
+def test_record_view_and_list_summary_carry_has_project(client, media):
+    rec = create(client, media)
+
+    assert client.get(f"/api/library/{rec['id']}", headers=agent()).json()["hasProject"] is False
+    assert client.get("/api/library", headers=agent()).json()["videos"][0]["hasProject"] is False
+
+    client.put(f"/api/library/{rec['id']}/project", json=project(), headers=agent())
+
+    assert client.get(f"/api/library/{rec['id']}", headers=agent()).json()["hasProject"] is True
+    assert client.get("/api/library", headers=agent()).json()["videos"][0]["hasProject"] is True

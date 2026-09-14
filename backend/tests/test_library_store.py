@@ -325,8 +325,12 @@ def test_list_summary_shape(store, tmp_path):
     assert set(summary) == {
         "id", "title", "sourcePath", "duration", "language", "status",
         "collection_id", "scratch", "createdAt", "updatedAt", "missing_media",
+        # Derived at read time like status, so the card knows whether opening
+        # the record restores a session or starts a transcription (#3).
+        "hasProject",
     }
     assert summary["title"] == "Ship it"
+    assert summary["hasProject"] is False
 
 
 def test_list_filters_by_status_collection_and_query(store, tmp_path):
