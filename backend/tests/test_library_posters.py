@@ -75,7 +75,9 @@ def test_grab_writes_the_poster_atomically(tmp_path, monkeypatch) -> None:
     cmd = calls[0]
     assert cmd[0] == FAKE_FFMPEG
     assert cmd[cmd.index("-ss") + 1] == "2.900"
-    assert f"scale=min({posters.POSTER_WIDTH},iw):-2" in cmd  # capped, never upscaled
+    # Capped, never upscaled; the quotes keep min()'s comma from splitting the
+    # filtergraph. That ffmpeg accepts it is pinned by test_library_posters_ffmpeg.py.
+    assert cmd[cmd.index("-vf") + 1] == f"scale=w='min({posters.POSTER_WIDTH},iw)':h=-2"
     assert cmd[-1].startswith(str(tmp_path / ".poster-"))
 
 
