@@ -16,10 +16,10 @@ import re
 import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Callable, Iterator, Optional, Union
 from uuid import uuid4
 
-from backend.library import fs
+from backend.library import fs, posters
 from backend.library.errors import (  # re-exported: callers import them from here
     LibraryError,
     MediaNotFound,
@@ -103,8 +103,17 @@ class LibraryStore(StoreAdminMixin):
     mixin — this file is at its size ceiling.
     """
 
-    def __init__(self, root: PathLike) -> None:
+    def __init__(
+        self,
+        root: PathLike,
+        *,
+        on_created: Optional[Callable[["LibraryStore", VideoRecord], None]] = None,
+    ) -> None:
         self.root = Path(root)
+        # Told once per record *minted* (never on a fingerprint hit) — how the
+        # poster grab reaches every creation path; a failing observer never
+        # fails the write.
+        self._on_created = on_created
         self._index: Optional[SearchIndex] = None
         # transcript path -> ((mtime_ns, size), has_segments); see _has_segments.
         self._segments_cache: dict[str, tuple[tuple[int, int], bool]] = {}
@@ -218,7 +227,15 @@ class LibraryStore(StoreAdminMixin):
     def _summary(self, record: VideoRecord, status: str) -> dict:
         dumped = {**record.model_dump(), "status": status}
         summary = {name: dumped[name] for name in SUMMARY_FIELDS}
-        return {**summary, "hasProject": self.has_project(record)}  # derived
+        return {  # both derived at read time, never stored
+            **summary,
+            "hasProject": self.has_project(record),
+            "poster": self.has_poster(record),
+        }
+
+    def has_poster(self, record: VideoRecord) -> bool:
+        """A ``poster.jpg`` sits in the record folder (``posters.py`` grabs it)."""
+        return posters.has_poster(self._folder(record.id, scratch=record.scratch))
 
     # --- writing -------------------------------------------------------------
 
@@ -264,7 +281,17 @@ class LibraryStore(StoreAdminMixin):
             updatedAt=now,
             scratch=scratch,
         )
-        return self._persist(record), True
+        record = self._persist(record)
+        self._announce_created(record)
+        return record, True
+
+    def _announce_created(self, record: VideoRecord) -> None:
+        if self._on_created is None:
+            return
+        try:
+            self._on_created(self, record)
+        except Exception:
+            logger.warning("on_created hook failed for record %s", record.id, exc_info=True)
 
     def patch(
         self, video_id: str, patch: RecordPatch, *, rev: int, by: str

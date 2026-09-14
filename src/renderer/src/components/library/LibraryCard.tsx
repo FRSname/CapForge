@@ -1,9 +1,11 @@
 /**
  * One library record, as a card.
  *
- * The poster is a deliberate placeholder block (posters land in v3 #6) — it
- * carries the mono duration badge and, when the source file is gone, the
- * missing-media chip, so the card still reads as a *video* rather than a row.
+ * The poster block shows the frame the backend grabbed at import (fetched
+ * into a `blob:` URL by `usePosterUrl`, because the CSP refuses `127.0.0.1`
+ * images) and falls back to a gradient placeholder; either way it carries the
+ * mono duration badge and, when the source file is gone, the missing-media
+ * chip, so the card still reads as a *video* rather than a row.
  *
  * The `…` menu is local state and the destructive item confirms **inline**:
  * no native dialog, because the renderer's tests have no DOM and a
@@ -13,6 +15,7 @@
 import { useState } from 'react'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import { displayTitle, formatDuration, statusPips } from '../../lib/libraryView'
+import { usePosterUrl } from '../../hooks/usePosterUrl'
 
 /** The status rail, in ladder order — also used by the Continue hero. */
 const PIP_LABELS = ['Transcribed', 'Captioned', 'Drafted', 'Published'] as const
@@ -68,20 +71,29 @@ function formatUpdated(iso: string): string {
 
 export interface PosterProps {
   video: LibraryVideo
+  /** An object URL for the grabbed frame; null draws the placeholder. */
+  posterUrl: string | null
 }
 
-/** 16:9 placeholder block — real posters arrive in v3 #6. The caller sizes it. */
-export function Poster({ video }: PosterProps) {
+/** The 16:9 poster block: the frame when there is one, a gradient when not. The caller sizes it. */
+export function Poster({ video, posterUrl }: PosterProps) {
   return (
     <div
       className="relative w-full overflow-hidden rounded-lg"
       style={{
         aspectRatio: '16 / 9',
-        background:
-          'linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface) 100%)',
+        background: 'linear-gradient(135deg, var(--color-surface-3) 0%, var(--color-surface) 100%)',
         border: '1px solid var(--color-border)',
       }}
     >
+      {posterUrl && (
+        <img
+          src={posterUrl}
+          alt=""
+          draggable={false}
+          className="absolute inset-0 h-full w-full object-cover"
+        />
+      )}
       {video.missing_media && (
         <span
           className="absolute left-2 top-2 rounded px-1.5 py-0.5 text-2xs"
@@ -103,6 +115,12 @@ export function Poster({ video }: PosterProps) {
       </span>
     </div>
   )
+}
+
+/** `Poster` bound to the record's fetched frame — what the card and the hero mount. */
+export function LibraryPoster({ video }: { video: LibraryVideo }) {
+  const posterUrl = usePosterUrl(video)
+  return <Poster video={video} posterUrl={posterUrl} />
 }
 
 export interface LibraryCardProps {
@@ -134,7 +152,7 @@ export function LibraryCard({ video, onOpen, onRemove, onDelete }: LibraryCardPr
         aria-label={`Open ${title}`}
         onClick={() => onOpen(video)}
       >
-        <Poster video={video} />
+        <LibraryPoster video={video} />
         <div className="flex flex-col gap-1.5 px-0.5 pb-0.5">
           <span
             className="truncate text-sm"

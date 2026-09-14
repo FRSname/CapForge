@@ -41,6 +41,8 @@ export interface LibraryVideo {
   missing_media: boolean
   /** A session snapshot has been stored for this record (`project.capforge`). */
   hasProject: boolean
+  /** A poster frame was grabbed at import (`asset/poster.jpg`); false shows the placeholder. */
+  poster: boolean
 }
 
 /**
@@ -116,6 +118,7 @@ export function parseLibraryVideo(value: unknown, index: number): LibraryVideo {
     updatedAt: str(row.updatedAt),
     missing_media: row.missing_media === true,
     hasProject: row.hasProject === true,
+    poster: row.poster === true,
   }
 }
 

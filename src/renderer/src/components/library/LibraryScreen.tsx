@@ -15,7 +15,7 @@ import { useState } from 'react'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import { continueCandidate, displayTitle, isMediaPath, sortByUpdated } from '../../lib/libraryView'
 import { Button } from '../ui/Button'
-import { LanguageChip, LibraryCard, Poster, StatusRail } from './LibraryCard'
+import { LanguageChip, LibraryCard, LibraryPoster, StatusRail } from './LibraryCard'
 import { LibraryEmptyState } from './LibraryEmptyState'
 
 /** Reported when something that is not media is dropped on the library. */
@@ -170,7 +170,7 @@ function ContinueHero({ video, onOpen }: ContinueHeroProps) {
       onClick={() => onOpen(video)}
     >
       <div className="w-[260px] shrink-0">
-        <Poster video={video} />
+        <LibraryPoster video={video} />
       </div>
       <div className="flex min-w-0 flex-col gap-2">
         <span

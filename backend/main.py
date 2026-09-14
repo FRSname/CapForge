@@ -100,6 +100,7 @@ from backend.models.schemas import (
     WarmRequest,
 )
 from backend import workspace_fs
+from backend.library import posters as library_posters
 from backend.library.router import (
     build_router as build_library_router,
     get_store as library_store,
@@ -329,6 +330,9 @@ async def _write_agent_discovery() -> None:
         store.ensure_index()
         pruned = store.prune_scratch()
         logger.info("Library ready at %s (%d scratch record(s) pruned)", store.root, pruned)
+        # Posters for records that predate v3 #6 or whose grab failed: the
+        # library's own single-worker pool, never awaited.
+        library_posters.start_backfill(store)
     except Exception:
         # Non-fatal: the library index is a disposable cache and is rebuilt on
         # demand; the app must still start without it.

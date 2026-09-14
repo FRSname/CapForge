@@ -26,6 +26,7 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 
+from backend.library import posters
 from backend.library.errors import (
     MediaNotFound,
     RecordNotFound,
@@ -66,7 +67,7 @@ def get_store() -> LibraryStore:
     key = str(library_root())
     store = _STORES.get(key)
     if store is None:
-        store = LibraryStore(library_root())
+        store = LibraryStore(library_root(), on_created=posters.start_grab)
         _STORES[key] = store
     return store
 
@@ -141,6 +142,7 @@ def _view(store: LibraryStore, record: VideoRecord) -> dict:
         **record.model_dump(),
         "status": store.status_of(record),
         "hasProject": store.has_project(record),
+        "poster": store.has_poster(record),
     }
 
 
@@ -235,7 +237,10 @@ def _register_collection_routes(router: APIRouter) -> None:
 
     @router.post("")
     def create_video(body: CreateVideoRequest, response: Response) -> dict:
-        """Create-or-return: 201 for a new record, 200 for a fingerprint hit."""
+        """Create-or-return: 201 for a new record, 200 for a fingerprint hit.
+
+        A new record's poster is grabbed by the store's ``on_created`` hook
+        (off this thread) — the card shows a placeholder until the next list."""
         store = get_store()
         with _library_errors():
             record, created = store.create_or_get(body.source_path, scratch=body.scratch)
