@@ -225,7 +225,7 @@ def _builtin_blocks(
         "highlights": _labelled("WHAT YOU'LL LEARN", [
             f"- {h.text.strip()}" for h in record.highlights if h.text.strip()
         ]),
-        "chapters": _labelled("CHAPTERS", _chapter_lines(record.chapters)),
+        "chapters": _labelled("CHAPTERS", chapter_lines(record.chapters)),
         "links": _labelled("LINKS", _link_lines([*record.links, *brief.link_rows])),
         "speakers": speakers,
         "hashtags": " ".join(hashtags(brief.default_hashtags, record.hashtags)),
@@ -234,7 +234,7 @@ def _builtin_blocks(
     }
 
 
-def _chapter_lines(chapters: Sequence[Chapter]) -> list[str]:
+def chapter_lines(chapters: Sequence[Chapter]) -> list[str]:
     return [
         f"{format_timestamp(c.start_s)} {c.title.strip()}"
         for c in chapters

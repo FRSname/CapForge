@@ -40,6 +40,9 @@ from backend.library.localized import (
 )
 from backend.library.package import assemble_description, render_youtube_package
 from backend.library.paths import record_dir
+from backend.library.platform_package import (
+    PACKAGE_PLATFORMS, YOUTUBE, platform_package, unsupported_platform_detail,
+)
 from backend.library.schemas import RecordPatch, VideoRecord
 from backend.library.validate import (
     Violation,
@@ -58,11 +61,6 @@ from backend.library.validate_media import (
 )
 from backend.library.validate_localized import view_findings
 
-#: The only package format v3.0 renders; anything else is a 400, never a guess.
-YOUTUBE = "youtube"
-UNSUPPORTED_PLATFORM = (
-    "Unsupported platform {platform!r}; CapForge renders 'youtube' packages"
-)
 #: The ``detail`` a refused write answers with; the findings ride beside it.
 VIOLATION_DETAIL = "{count} rule(s) violated"
 BRIEF_UNREADABLE_STATUS = 500
@@ -351,12 +349,11 @@ def _register_package_route(
 
         ``lang`` renders the localized view (Part B, decision 4): an unknown one is
         a 404, and no ``lang`` or the source language is the source package.
+        ``linkedin``/``x``/``instagram`` answer one clipboard post from the same
+        view, with ``description: null`` (``platform_package.py``, C1).
         """
-        if platform != YOUTUBE:
-            raise HTTPException(
-                status_code=400,
-                detail=UNSUPPORTED_PLATFORM.format(platform=platform),
-            )
+        if platform not in PACKAGE_PLATFORMS:
+            raise HTTPException(status_code=400, detail=unsupported_platform_detail(platform))
         store = get_store()
         with library_errors():
             record = store.get(video_id)
@@ -364,8 +361,11 @@ def _register_package_route(
         view = record if code is None else localize_record(record, code)
         brief = read_brief(store)
         collection = read_collection(store, record.collection_id)
-        effective = effective_brief(brief, collection)
         duration = record_duration(store, record)
+        if platform != YOUTUBE:
+            return platform_package(record, view, code, brief, collection=collection,
+                                    duration=duration, platform=platform)
+        effective = effective_brief(brief, collection)
         speakers = diarized_speakers(store, record)
         text = render_youtube_package(
             view, brief, duration=duration,
