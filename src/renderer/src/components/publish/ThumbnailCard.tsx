@@ -4,8 +4,10 @@
  * Frames are stills the backend grabbed from the video, or images the user
  * uploaded ("Upload image…", `POST …/frames/upload`, which also makes the
  * upload the cover), kept in the record folder (`thumbnails/<name>.jpg`). They
- * load as `blob:` URLs (the CSP forbids `127.0.0.1` images). Clicking a frame
- * makes it the cover (the ring); × asks inline, then deletes it through
+ * load as `blob:` URLs (the CSP forbids `127.0.0.1` images). With
+ * `coverPicking`, clicking a frame makes it the cover (the ring); the Publish
+ * panel turns that off, because each channel picks its own cover on its tab
+ * (`PostCoverPicker`). × asks inline, then deletes it through
  * `DELETE …/frames/{name}`. The strip's list is `thumbnail.candidates` —
  * managed by the frames routes alone, which is why every thumbnail write
  * composes it from the latest record (`lib/publishThumbnail.ts`).
@@ -52,6 +54,7 @@ export function ThumbnailCard({ publish, getPlayhead }: ThumbnailCardProps) {
   return (
     <ThumbnailCardView
       publish={publish}
+      coverPicking={false}
       busy={frames.busy}
       confirming={confirming}
       onConfirm={setConfirming}
@@ -69,6 +72,8 @@ export function ThumbnailCard({ publish, getPlayhead }: ThumbnailCardProps) {
 
 export interface ThumbnailCardViewProps {
   publish: PublishController
+  /** Clicking a tile picks the root cover (default). Off under This video: covers are per channel. */
+  coverPicking?: boolean
   busy: boolean
   /** The frame whose × was clicked and awaits a yes/no, if any. */
   confirming: string | null
@@ -138,6 +143,7 @@ function FrameActions({ busy, hasCover, onGrab, onUpload, onSaveCover }: FrameAc
 interface FrameTileProps {
   videoId: string
   name: string
+  pickable: boolean
   isCover: boolean
   confirming: boolean
   onPick: () => void
@@ -147,27 +153,55 @@ interface FrameTileProps {
 }
 
 function FrameTile(props: FrameTileProps) {
-  const { videoId, name, isCover, confirming, onPick, onConfirm, onDelete, onAssetError } = props
+  const {
+    videoId,
+    name,
+    pickable,
+    isCover,
+    confirming,
+    onPick,
+    onConfirm,
+    onDelete,
+    onAssetError,
+  } = props
   const url = useLibraryAssetUrl(videoId, frameAssetPath(name), onAssetError)
+  const image = url && (
+    <img src={url} alt="" className="w-full h-full" style={{ objectFit: 'contain' }} />
+  )
 
   return (
     <li className="relative flex flex-col gap-1">
-      <button
-        type="button"
-        aria-pressed={isCover}
-        aria-label={isCover ? 'The cover — click to unset' : 'Use this frame as the cover'}
-        onClick={onPick}
-        className="block w-full rounded overflow-hidden"
-        style={{
-          aspectRatio: TILE_ASPECT,
-          background: 'var(--color-surface-2)',
-          outline: isCover ? '2px solid var(--color-brand)' : '1px solid var(--color-border)',
-          outlineOffset: isCover ? '1px' : '-1px',
-        }}
-      >
-        {url && <img src={url} alt="" className="w-full h-full" style={{ objectFit: 'contain' }} />}
-      </button>
-      {isCover && (
+      {!pickable && (
+        <div
+          className="block w-full rounded overflow-hidden"
+          style={{
+            aspectRatio: TILE_ASPECT,
+            background: 'var(--color-surface-2)',
+            outline: '1px solid var(--color-border)',
+            outlineOffset: '-1px',
+          }}
+        >
+          {image}
+        </div>
+      )}
+      {pickable && (
+        <button
+          type="button"
+          aria-pressed={isCover}
+          aria-label={isCover ? 'The cover — click to unset' : 'Use this frame as the cover'}
+          onClick={onPick}
+          className="block w-full rounded overflow-hidden"
+          style={{
+            aspectRatio: TILE_ASPECT,
+            background: 'var(--color-surface-2)',
+            outline: isCover ? '2px solid var(--color-brand)' : '1px solid var(--color-border)',
+            outlineOffset: isCover ? '1px' : '-1px',
+          }}
+        >
+          {image}
+        </button>
+      )}
+      {pickable && isCover && (
         <span
           className="absolute left-1 top-1 text-2xs px-1 rounded"
           style={{ background: 'var(--color-brand)', color: 'var(--color-bg)' }}
@@ -208,6 +242,7 @@ function FrameTile(props: FrameTileProps) {
 
 export function ThumbnailCardView(props: ThumbnailCardViewProps) {
   const { publish, busy, confirming, onConfirm, onDelete, onAssetError } = props
+  const coverPicking = props.coverPicking ?? true
   const thumbnail = publish.fields.thumbnail
   const videoId = publish.record?.id ?? ''
   const {
@@ -226,8 +261,10 @@ export function ThumbnailCardView(props: ThumbnailCardViewProps) {
       {thumbnail.candidates.length === 0 ? (
         <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
           No frames yet. Move the player to a moment worth a thumbnail and grab it, or upload an
-          image you made — frames are kept with this record, and the one you click becomes the
-          cover.
+          image you made — frames are kept with this record,{' '}
+          {coverPicking
+            ? 'and the one you click becomes the cover.'
+            : 'and each channel picks its cover from them on its tab.'}
         </p>
       ) : (
         <ul className="grid grid-cols-3 gap-1.5" aria-label="Thumbnail frames">
@@ -236,6 +273,7 @@ export function ThumbnailCardView(props: ThumbnailCardViewProps) {
               key={name}
               videoId={videoId}
               name={name}
+              pickable={coverPicking}
               isCover={thumbnail.cover === name}
               confirming={confirming === name}
               onPick={() => pick(name)}

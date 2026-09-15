@@ -16,6 +16,8 @@
 import type { LocalizedMap, Shorts, Thumbnail } from './publishMediaTypes'
 import { parseLocalized, parseShorts, parseThumbnail } from './publishMediaTypes'
 import { bool, nonEmptyString, nullableNumber, num, obj, str, strings } from './wireReaders'
+import type { PostsMap } from './publishPosts'
+import { parsePosts } from './publishPosts'
 
 export type {
   ClipSuggestion,
@@ -98,6 +100,8 @@ export interface PublishAuthored {
   thumbnail: Thumbnail
   /** Per-language title/description/…; a draft of it is a delta (`lib/publishLocalized.ts`). */
   localized: LocalizedMap
+  /** One post per channel (`lib/publishPosts.ts`); a draft of it is a delta. */
+  posts: PostsMap
 }
 
 /** The record view: the authored fields plus the system ones the panel reads. */
@@ -298,6 +302,7 @@ export function parsePublishRecord(value: unknown): PublishRecord {
     shorts: parseShorts(row.shorts),
     thumbnail: parseThumbnail(row.thumbnail),
     localized: parseLocalized(row.localized),
+    posts: parsePosts(row.posts),
     language: str(row.language),
     languages: strings(row.languages),
     history: history(row.history),

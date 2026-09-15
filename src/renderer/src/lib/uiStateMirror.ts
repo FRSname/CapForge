@@ -11,7 +11,7 @@
  *
  * The seven legacy keys keep describing the **active** track, unchanged, so
  * every existing agent prompt still works; `activeTrackId`, `activeVideoId`,
- * `agent` and `tracks` are additive.
+ * `activeChannelId`, `agent` and `tracks` are additive.
  *
  * Pure module: no React, no `window`, no I/O.
  */
@@ -77,6 +77,12 @@ export interface UiStateCore {
    * to know whether the user is looking at the caption studio or the dossier.
    */
   workspace: Workspace
+  /**
+   * The Publish workspace's active channel tab (a channels.json id), or null
+   * when the open record has no visible post — which channel's text the user
+   * is looking at.
+   */
+  activeChannelId: string | null
   settings: StudioSettings
   groups: Segment[]
   presets: string[]
@@ -100,6 +106,7 @@ export interface UiStateBody extends UiStateCore {
 export interface UiStateCoreInput {
   screen: string
   workspace: Workspace
+  activeChannelId: string | null
   activeTrack: CaptionTrack
   /** `displayGroupsFor(activeTrack)` — passed in so App's memo is reused. */
   activeDisplayGroups: Segment[]
@@ -114,6 +121,7 @@ export function buildUiStateCore(input: UiStateCoreInput): UiStateCore {
   return {
     screen: input.screen,
     workspace: input.workspace,
+    activeChannelId: input.activeChannelId,
     settings: activeTrack.settings,
     groups: activeDisplayGroups,
     // Kept for back-compat: existing agent prompts read `presets`.

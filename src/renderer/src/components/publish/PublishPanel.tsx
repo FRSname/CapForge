@@ -3,30 +3,33 @@
  * built from the same `StudioCard` shells so the two workspaces feel like one
  * app rather than two.
  *
- * It owns no state. Everything it draws comes from `usePublishRecord`, and
- * every rule it appears to enforce (limits, chapter legality, house style) is
- * the backend's answer rendered under a field.
+ * Top to bottom: the header, the channel tabs (or, for a video on no channel
+ * yet, the "Publish to:" checklist), the active channel's cards, the fields the
+ * whole video shares ("This video"), and the pinned footer, which copies the
+ * active tab's package.
+ *
+ * It owns no record state. Everything it draws comes from `usePublishRecord`
+ * and `usePublishChannels`, and every rule it appears to enforce (limits,
+ * chapter legality, house style) is the backend's answer rendered under a field.
  */
 
 import type { CaptionTrack } from '../../lib/tracks'
-import type { Segment } from '../../types/app'
+import type { Segment, Workspace } from '../../types/app'
 import type { PublishController } from '../../hooks/usePublishRecord'
+import type { PublishChannels } from '../../hooks/usePublishChannels'
+import { usePublishChannels } from '../../hooks/usePublishChannels'
+import type { ChannelTab } from '../../lib/channelPublishView'
 import { packageLanguages } from '../../lib/publishLocalized'
+import type { PublishRecord } from '../../lib/publishTypes'
 import { AgentUpdateBanner } from './AgentUpdateBanner'
-import { ChaptersCard } from './ChaptersCard'
-import { CollectionCard } from './CollectionCard'
-import { DescriptionCard } from './DescriptionCard'
-import { LocalizedCard } from './LocalizedCard'
+import { ChannelSection } from './ChannelSection'
+import { ChannelTabs } from './ChannelTabs'
+import type { FooterChannel } from './PublishFooter'
 import { PublishFooter } from './PublishFooter'
-import { PublishStateCard } from './PublishStateCard'
-import { ShortsCard } from './ShortsCard'
-import { SpeakersCard } from './SpeakersCard'
-import { SummaryCard } from './SummaryCard'
-import { TagsCard } from './TagsCard'
-import { ThumbnailCard } from './ThumbnailCard'
-import { TitleCard } from './TitleCard'
+import { PublishToChecklist } from './PublishToChecklist'
+import { PublishVideoSection } from './PublishVideoSection'
 
-interface PublishPanelProps {
+interface PublishPanelBaseProps {
   publish: PublishController
   /** The source transcript — speaker rows, snapping, the plain-transcript copy. */
   segments: readonly Segment[]
@@ -39,14 +42,41 @@ interface PublishPanelProps {
   getPlayhead: () => number
 }
 
-export function PublishPanel({
-  publish,
-  segments,
-  tracks,
-  outputDir,
-  onSeek,
-  getPlayhead,
-}: PublishPanelProps) {
+interface PublishPanelProps extends PublishPanelBaseProps {
+  /** Entering the Publish workspace re-reads the channels. */
+  workspace: Workspace
+  /** Told the active channel tab, for the UI-state mirror. */
+  onActiveChannel: (channelId: string | null) => void
+}
+
+export function PublishPanel({ workspace, onActiveChannel, ...props }: PublishPanelProps) {
+  const channels = usePublishChannels({ publish: props.publish, workspace, onActiveChannel })
+  return <PublishPanelView {...props} channels={channels} />
+}
+
+export interface PublishPanelViewProps extends PublishPanelBaseProps {
+  channels: PublishChannels
+}
+
+function footerChannel(tab: ChannelTab | null): FooterChannel | null {
+  return tab?.platform ? { id: tab.id, platform: tab.platform } : null
+}
+
+/** A YouTube tab's package languages: the source, then that post's stored translations. */
+function footerLanguages(record: PublishRecord | null, tab: ChannelTab | null) {
+  if (!record || tab?.platform !== 'youtube') return []
+  return packageLanguages({
+    language: record.language,
+    localized: record.posts[tab.id]?.localized ?? {},
+  })
+}
+
+export function PublishPanelView(props: PublishPanelViewProps) {
+  const { publish, segments, tracks, outputDir, onSeek, getPlayhead, channels } = props
+  const record = publish.record
+  const active = channels.active
+  const hasTabs = record !== null && channels.tabs.length > 0
+
   return (
     <aside className="w-[380px] shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]">
       {/* Header */}
@@ -57,6 +87,18 @@ export function PublishPanel({
         </span>
       </div>
 
+      {hasTabs && (
+        <ChannelTabs
+          tabs={channels.tabs}
+          activeId={active?.id ?? null}
+          menu={channels.menu}
+          platforms={channels.platforms}
+          onSelect={channels.select}
+          onAdd={(channelId) => channels.addChannels([channelId])}
+          onHide={channels.hideChannel}
+        />
+      )}
+
       {/* Scrollable body */}
       <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-2.5 flex flex-col gap-2 [&>*]:shrink-0">
         <AgentUpdateBanner
@@ -65,7 +107,7 @@ export function PublishPanel({
           onKeepMine={publish.keepMine}
         />
 
-        {!publish.record ? (
+        {!record ? (
           <p className="text-xs px-1 py-2" style={{ color: 'var(--color-text-3)' }}>
             {publish.loading
               ? 'Opening this video’s record…'
@@ -73,31 +115,32 @@ export function PublishPanel({
           </p>
         ) : (
           <>
-            <TitleCard publish={publish} />
-            <DescriptionCard publish={publish} />
-            <LocalizedCard publish={publish} />
-            <CollectionCard publish={publish} />
-            <ChaptersCard publish={publish} onSeek={onSeek} getPlayhead={getPlayhead} />
-            <ShortsCard
+            {hasTabs && active ? (
+              <ChannelSection key={active.id} publish={publish} tab={active} channels={channels} />
+            ) : (
+              <PublishToChecklist
+                key={record.id}
+                channels={channels.channels}
+                platforms={channels.platforms}
+                onAdd={channels.addChannels}
+              />
+            )}
+            <PublishVideoSection
               publish={publish}
               segments={segments}
               onSeek={onSeek}
               getPlayhead={getPlayhead}
             />
-            <ThumbnailCard publish={publish} getPlayhead={getPlayhead} />
-            <TagsCard publish={publish} />
-            <SpeakersCard publish={publish} />
-            <SummaryCard publish={publish} />
-            <PublishStateCard publish={publish} />
           </>
         )}
       </div>
 
-      {/* Pinned actions — the package and the subtitle files. */}
+      {/* Pinned actions — the active tab's package and the subtitle files. */}
       <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-2.5">
         <PublishFooter
-          videoId={publish.record?.id ?? null}
-          languages={publish.record ? packageLanguages(publish.record) : []}
+          videoId={record?.id ?? null}
+          channel={footerChannel(active)}
+          languages={footerLanguages(record, active)}
           segments={segments}
           tracks={tracks}
           outputDir={outputDir}

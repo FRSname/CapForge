@@ -1,52 +1,62 @@
 /**
  * The pinned actions under the Publish panel.
  *
- * "Copy upload package" asks the backend to render the bundled skill's text
- * layout from the record + the brief — the renderer never assembles that text,
- * it only copies it. A platform choice beside it (YouTube first) turns it into
- * "Copy for LinkedIn / X / Instagram": clipboard posts rendered from the same
- * record, nothing is posted. With localized languages stored a language choice
- * joins it, applying to every platform (`?lang=`). "Copy plain transcript" is
- * the paragraph form YouTube Studio's caption auto-sync wants. The SRT/VTT row
- * is the export route that already exists, one pair per caption track, through
- * the same `buildExportParams` the Studio panel uses.
+ * The copy button copies the **active channel tab's** package, rendered by the
+ * backend from that channel's post (`GET …/package?channel=`) — the renderer
+ * never assembles that text, it only copies it. Its label follows the tab's
+ * platform ("Copy YouTube package", "Copy Instagram caption", …). A YouTube tab
+ * with stored translations adds a language choice (`&lang=`). A video on no
+ * channel has nothing to copy, so the button waits with a hint.
+ *
+ * "Copy plain transcript" is the paragraph form YouTube Studio's caption
+ * auto-sync wants. The SRT/VTT row is the export route that already exists, one
+ * pair per caption track, through the same `buildExportParams` the Studio
+ * panel uses.
  */
 
+import { useState } from 'react'
 import { api } from '../../lib/api'
+import type { Platform } from '../../lib/channelTypes'
 import { buildExportParams } from '../../lib/exportParams'
 import type { ExportTrack } from '../../lib/exportParams'
+import { getChannelPackage } from '../../lib/postsApi'
+import {
+  channelCopiedWhat,
+  channelCopyText,
+  channelCopyTitle,
+  channelPackageCopiedToast,
+} from '../../lib/publishPlatforms'
+import type { PackageLanguage } from '../../lib/publishLocalized'
 import { displayGroupsFor } from '../../lib/tracks'
 import type { CaptionTrack } from '../../lib/tracks'
 import { plainTranscript } from '../../lib/youtubeRules'
-import type { PublishPlatform } from '../../lib/publishTypes'
-import {
-  DEFAULT_PUBLISH_PLATFORM,
-  PUBLISH_PLATFORMS,
-  copiedWhat,
-  copyButtonText,
-  copyButtonTitle,
-  isPublishPlatform,
-  packageCopiedToast,
-  platformLabel,
-} from '../../lib/publishPlatforms'
 import type { Segment } from '../../types/app'
-import { useState } from 'react'
-import type { PackageLanguage } from '../../lib/publishLocalized'
 import { useToast } from '../../hooks/useToast'
 import { Button } from '../ui/Button'
 
 /** No clipboard (an old webview, a denied permission) — say so, never swallow. */
 const NO_CLIPBOARD_MESSAGE = 'This window has no clipboard access.'
-/** Each choice's width beside the package button (`.field-input` would take 100%). */
+/** The language choice's width beside the package button (`.field-input` would take 100%). */
 const CHOICE_SELECT_WIDTH = '30%'
 /** The `<select>` value standing for the source package. */
 const SOURCE_VALUE = ''
 /** No localized language stored: the source package only, no choice drawn. */
 const NO_LANGUAGES: readonly PackageLanguage[] = []
 
+const NO_CHANNEL_LABEL = 'Copy package'
+export const NO_CHANNEL_HINT = 'Add this video to a channel above to copy its post.'
+
+/** The active tab, as far as the copy button needs it. */
+export interface FooterChannel {
+  id: string
+  platform: Platform
+}
+
 interface PublishFooterProps {
-  /** The open record — null disables the two package actions. */
+  /** The open record — null disables the package action. */
   videoId: string | null
+  /** The active channel tab; null (no post, or a channel not in Settings) disables the copy. */
+  channel: FooterChannel | null
   /** The package languages, source first (`packageLanguages`); one or none hides the choice. */
   languages?: readonly PackageLanguage[]
   /** The source transcript, for the plain-transcript copy. */
@@ -82,32 +92,6 @@ function PackageLanguageSelect({ languages, value, onChange }: PackageLanguageSe
   )
 }
 
-interface PackagePlatformSelectProps {
-  value: PublishPlatform
-  onChange: (value: PublishPlatform) => void
-}
-
-/** Where the copied text is going: the YouTube package or a platform post. */
-function PackagePlatformSelect({ value, onChange }: PackagePlatformSelectProps) {
-  return (
-    <select
-      className="field-input text-[11px]"
-      style={{ width: CHOICE_SELECT_WIDTH }}
-      aria-label="Copy for platform"
-      value={value}
-      onChange={(e) => {
-        if (isPublishPlatform(e.target.value)) onChange(e.target.value)
-      }}
-    >
-      {PUBLISH_PLATFORMS.map((p) => (
-        <option key={p} value={p}>
-          {platformLabel(p)}
-        </option>
-      ))}
-    </select>
-  )
-}
-
 function exportTrackFor(track: CaptionTrack): ExportTrack | null {
   if (track.isSource) return null
   return { id: track.id, lang: track.lang, segments: displayGroupsFor(track) }
@@ -115,6 +99,7 @@ function exportTrackFor(track: CaptionTrack): ExportTrack | null {
 
 export function PublishFooter({
   videoId,
+  channel,
   languages = NO_LANGUAGES,
   segments,
   tracks,
@@ -122,11 +107,10 @@ export function PublishFooter({
 }: PublishFooterProps) {
   const { toast } = useToast()
   const [picked, setPicked] = useState(SOURCE_VALUE)
-  // Remembered for the session only (component state), never persisted.
-  const [platform, setPlatform] = useState<PublishPlatform>(DEFAULT_PUBLISH_PLATFORM)
+  const youtube = channel?.platform === 'youtube'
   // A language removed since it was picked falls back to the source package.
-  const lang = languages.some((l) => l.lang === picked) ? picked : SOURCE_VALUE
-  const choosing = languages.length > 1
+  const lang = youtube && languages.some((l) => l.lang === picked) ? picked : SOURCE_VALUE
+  const choosing = youtube && languages.length > 1
 
   /** True once the text is on the clipboard; every failure is toasted here. */
   async function writeClipboard(text: string, what: string): Promise<boolean> {
@@ -148,15 +132,14 @@ export function PublishFooter({
   }
 
   function copyPackage() {
-    if (!videoId) return
-    const chosen = platform
+    if (!videoId || !channel) return
+    const { id, platform } = channel
     const label = lang ? (languages.find((l) => l.lang === lang)?.label ?? null) : null
-    const what = copiedWhat(chosen, label)
-    api
-      .getUploadPackage(videoId, chosen, lang || undefined)
+    const what = channelCopiedWhat(platform, label)
+    getChannelPackage(videoId, id, lang || undefined)
       .then(async (pkg) => {
         if (!(await writeClipboard(pkg.text, what))) return
-        const done = packageCopiedToast(chosen, pkg.violations, what)
+        const done = channelPackageCopiedToast(id, pkg.violations, what)
         toast(done.message, done.type)
       })
       .catch((err) => toast(err.message || `Could not build ${what}`, 'error'))
@@ -177,16 +160,20 @@ export function PublishFooter({
             variant="primary"
             className="flex-1 min-w-0 text-[11px] py-1 justify-center"
             onClick={copyPackage}
-            disabled={!videoId}
-            title={copyButtonTitle(platform)}
+            disabled={!videoId || !channel}
+            title={channel ? channelCopyTitle(channel.platform) : NO_CHANNEL_HINT}
           >
-            {copyButtonText(platform)}
+            {channel ? channelCopyText(channel.platform) : NO_CHANNEL_LABEL}
           </Button>
-          <PackagePlatformSelect value={platform} onChange={setPlatform} />
           {choosing && (
             <PackageLanguageSelect languages={languages} value={lang} onChange={setPicked} />
           )}
         </div>
+        {videoId && !channel && (
+          <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
+            {NO_CHANNEL_HINT}
+          </p>
+        )}
         <Button
           variant="ghost"
           className="flex-1 text-[11px] py-1 justify-center"

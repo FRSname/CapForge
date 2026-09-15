@@ -27,6 +27,7 @@ import {
 const BODY_KEYS = [
   'screen',
   'workspace',
+  'activeChannelId',
   'settings',
   'groups',
   'presets',
@@ -63,11 +64,13 @@ function core(
   track = fixture().source,
   screen = 'results',
   activeVideoId: string | null = null,
-  workspace: Workspace = 'captions'
+  workspace: Workspace = 'captions',
+  activeChannelId: string | null = null
 ) {
   return buildUiStateCore({
     screen,
     workspace,
+    activeChannelId,
     activeTrack: track,
     activeDisplayGroups: displayGroupsFor(track),
     builtinPresets: ['Bold Yellow'],
@@ -95,6 +98,13 @@ describe('buildUiStateCore', () => {
     // Default and switched: the agent reads which aside the user is looking at.
     expect(core().workspace).toBe('captions')
     expect(core(fixture().source, 'results', 'vid_abc', 'publish').workspace).toBe('publish')
+  })
+
+  test('the active channel tab rides the core (Publish tabs)', () => {
+    // No record, or no visible post: no tab.
+    expect(core().activeChannelId).toBeNull()
+    const onInstagram = core(fixture().source, 'results', 'vid_abc', 'publish', 'filip-ig')
+    expect(onInstagram.activeChannelId).toBe('filip-ig')
   })
 
   test('the three additive scalars ride alongside', () => {
@@ -242,6 +252,7 @@ describe('the merged body', () => {
     const oneShot = buildUiStateBody({
       screen: 'results',
       workspace: 'captions',
+      activeChannelId: null,
       activeTrack: source,
       activeDisplayGroups: displayGroupsFor(source),
       builtinPresets: ['Bold Yellow'],

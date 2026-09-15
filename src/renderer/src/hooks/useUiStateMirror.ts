@@ -58,6 +58,8 @@ export interface UiStateMirrorInput extends TrackInputs {
   screen: Screen
   /** Which aside the results screen is showing — the mirror's only new key. */
   workspace: Workspace
+  /** The Publish panel's active channel tab (null: none). */
+  activeChannelId: string | null
   /** Project metadata — the resync half's `result`, absent off the results screen. */
   result: TranscriptionResult | null
   activeTrack: CaptionTrack
@@ -71,6 +73,7 @@ export interface UiStateMirrorInput extends TrackInputs {
 export function useUiStateMirror({
   screen,
   workspace,
+  activeChannelId,
   result,
   activeTrack,
   displayGroups,
@@ -123,6 +126,7 @@ export function useUiStateMirror({
       core: {
         screen,
         workspace,
+        activeChannelId,
         activeTrack,
         activeDisplayGroups: displayGroups,
         userPresetNames,
@@ -134,6 +138,7 @@ export function useUiStateMirror({
   }, [
     screen,
     workspace,
+    activeChannelId,
     activeTrack,
     displayGroups,
     userPresetNames,
@@ -171,6 +176,7 @@ export function useUiStateMirror({
         uiState: buildUiStateBody({
           screen,
           workspace,
+          activeChannelId,
           activeTrack,
           activeDisplayGroups: displayGroups,
           builtinPresets: builtinPresetNames(),
@@ -187,6 +193,7 @@ export function useUiStateMirror({
   }, [
     screen,
     workspace,
+    activeChannelId,
     result,
     activeTrack,
     displayGroups,

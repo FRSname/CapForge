@@ -4,18 +4,29 @@
  * What matters per card: the meter counts what YouTube counts, the backend's
  * findings land under the field they name, the provenance chip says who wrote
  * it, and Revert only appears when there is something recorded to go back to.
+ *
+ * And, for the panel itself (multi-channel PR 3): a video on no channel gets
+ * the "Publish to:" checklist, a video on one gets its tabs, each tab shows
+ * only its platform's fields, and the footer copies that tab's package.
  */
 
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
+import type { Post } from '../../lib/publishPosts'
 import type { PublishRecord, Violation } from '../../lib/publishTypes'
 import type { PublishController } from '../../hooks/usePublishRecord'
+import type { PublishChannels } from '../../hooks/usePublishChannels'
 import type { CaptionTrack } from '../../lib/tracks'
 import type { Segment } from '../../types/app'
-import { PublishPanel } from './PublishPanel'
+import { parseChannel } from '../../lib/channelTypes'
+import { channelTabs } from '../../lib/channelPublishView'
+import { EMPTY_POST, addableChannels, resolveActiveChannel } from '../../lib/publishPosts'
+import { PublishPanelView } from './PublishPanel'
+import { NO_CHANNEL_HINT } from './PublishFooter'
 import { TitleCard } from './TitleCard'
 import { DescriptionCard } from './DescriptionCard'
 import { ChaptersCard } from './ChaptersCard'
+import { KeywordsCard } from './KeywordsCard'
 import { TagsCard } from './TagsCard'
 import { SpeakersCard } from './SpeakersCard'
 import { SummaryCard } from './SummaryCard'
@@ -26,8 +37,27 @@ import { provenanceOf, revertPatchFor } from '../../lib/publishFields'
 const MINUTES = 60 * 1000
 const THREE_MINUTES_AGO = new Date(Date.now() - 3 * MINUTES).toISOString()
 
-function record(over: Partial<PublishRecord> = {}): PublishRecord {
+const noop = () => {}
+
+/**
+ * The backend keeps the per-video text in `posts` and serves the root fields as
+ * the **primary** channel's post (PR 2's projection), so a record fixture
+ * mirrors them the same way unless a test says otherwise.
+ */
+function projectedPost(base: PublishRecord): Post {
   return {
+    ...EMPTY_POST,
+    title: base.title,
+    description: base.description,
+    tags: base.tags,
+    hashtags: base.hashtags,
+    localized: base.localized,
+    cover: base.thumbnail.cover,
+  }
+}
+
+function record(over: Partial<PublishRecord> = {}): PublishRecord {
+  const base: PublishRecord = {
     id: 'vid_1',
     rev: 4,
     duration: 1800,
@@ -51,6 +81,7 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     shorts: { caption: '', clip_suggestions: [] },
     thumbnail: { ideas: [], candidates: [], cover: null },
     localized: {},
+    posts: {},
     language: 'en',
     languages: ['en'],
     history: [
@@ -59,6 +90,7 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     ],
     ...over,
   }
+  return over.posts ? base : { ...base, posts: { uck: projectedPost(base) } }
 }
 
 /** A controller over a fixed record — the cards hold no state of their own. */
@@ -67,7 +99,6 @@ function controller(
   base: PublishRecord = record(),
   violations: Violation[] = []
 ): PublishController {
-  const noop = () => {}
   return {
     record: base,
     fields: base,
@@ -81,6 +112,7 @@ function controller(
     setField: noop,
     setCollection: noop,
     flushDrafts: () => Promise.resolve(),
+    patchNow: () => Promise.resolve(),
     beginEdit: noop,
     endEdit: noop,
     pendingAgentUpdate: null,
@@ -93,6 +125,35 @@ function controller(
     renameChapter: noop,
     speakerIds: ['SPEAKER_00'],
     ...over,
+  }
+}
+
+const UCK = parseChannel({ id: 'uck', platform: 'youtube', name: 'UCK', language: 'en' })
+const INSTAGRAM = parseChannel({ id: 'filip-ig', platform: 'instagram', name: 'Filip IG' })
+const CHANNELS = [UCK, INSTAGRAM]
+
+/** The channels hook's answer for a record, as the panel reads it. */
+function channelsFor(publish: PublishController, activeId?: string): PublishChannels {
+  const posts = publish.record?.posts ?? {}
+  const tabs = channelTabs(posts, CHANNELS, UCK.id)
+  const chosen =
+    activeId ??
+    resolveActiveChannel(
+      tabs.map((t) => t.id),
+      undefined,
+      UCK.id
+    )
+  return {
+    channels: CHANNELS,
+    platforms: null,
+    tabs,
+    active: tabs.find((t) => t.id === chosen) ?? null,
+    menu: addableChannels(posts, CHANNELS),
+    select: noop,
+    addChannels: noop,
+    hideChannel: noop,
+    channelViolations: [],
+    notify: noop,
   }
 }
 
@@ -203,10 +264,12 @@ describe('TagsCard', () => {
     // "whisper, captions" is 17 characters of the 500 YouTube counts.
     expect(markup).toContain('17/500 chars')
   })
+})
 
+describe('KeywordsCard', () => {
   test('files a style finding under the field it names', () => {
     const markup = html(
-      <TagsCard
+      <KeywordsCard
         publish={controller({}, record(), [
           violation('keywords', 'The keyword line has 1 term, the brief asks for 12–20', 'style'),
         ])}
@@ -276,11 +339,17 @@ describe('PublishPanel', () => {
     getPlayhead: () => 0,
   }
 
-  test('stacks every card and pins the package actions', () => {
-    const markup = html(<PublishPanel publish={controller()} {...props} />)
+  function panel(publish: PublishController, activeId?: string): string {
+    return html(
+      <PublishPanelView publish={publish} channels={channelsFor(publish, activeId)} {...props} />
+    )
+  }
 
-    // Shorts and Thumbnail come straight after Chapters.
-    const order = ['Chapters', 'Shorts', 'Thumbnail', 'Tags &amp; keywords'].map((t) =>
+  test('stacks every card and pins the package actions', () => {
+    const markup = panel(controller())
+
+    // Under "This video", Shorts and Thumbnail come straight after Chapters.
+    const order = ['Chapters', 'Shorts', 'Thumbnail', 'Keywords'].map((t) =>
       markup.indexOf(`>${t}<`)
     )
     expect(order.every((index) => index >= 0)).toBe(true)
@@ -289,23 +358,25 @@ describe('PublishPanel', () => {
     for (const title of [
       'Title',
       'Description',
+      'Tags &amp; hashtags',
       'Collection',
       'Chapters',
       'Shorts',
       'Thumbnail',
-      'Tags &amp; keywords',
+      'Keywords',
       'Speakers',
       'Summary',
       'Publish state',
+      'This video',
     ]) {
       expect(markup).toContain(title)
     }
-    expect(markup).toContain('Copy upload package')
+    expect(markup).toContain('Copy YouTube package')
     expect(markup).toContain('Copy plain transcript')
   })
 
   test('the Localized card sits right after Description', () => {
-    const markup = html(<PublishPanel publish={controller()} {...props} />)
+    const markup = panel(controller())
     const description = markup.indexOf('>Description<')
     const localized = markup.indexOf('>Localized<')
     const collection = markup.indexOf('>Collection<')
@@ -316,9 +387,7 @@ describe('PublishPanel', () => {
 
   test('the package gets a language choice once a localized language is stored, source first', () => {
     // Only the source: no choice to make.
-    expect(html(<PublishPanel publish={controller()} {...props} />)).not.toContain(
-      'Upload package language'
-    )
+    expect(panel(controller())).not.toContain('Upload package language')
 
     const base = record({
       languages: ['en', 'pl', 'de'],
@@ -334,7 +403,7 @@ describe('PublishPanel', () => {
         },
       },
     })
-    const markup = html(<PublishPanel publish={controller({}, base)} {...props} />)
+    const markup = panel(controller({}, base))
 
     expect(markup).toContain('aria-label="Upload package language"')
     const source = markup.indexOf('<option value="" selected="">English (source)</option>')
@@ -346,21 +415,64 @@ describe('PublishPanel', () => {
   })
 
   test('says so instead of drawing empty cards when there is no record', () => {
-    const markup = html(
-      <PublishPanel publish={controller({ record: null, loading: false })} {...props} />
-    )
+    const markup = panel(controller({ record: null, loading: false }))
 
     expect(markup).toContain('no library record yet')
     expect(markup).not.toContain('Above the fold')
   })
 
   test('reports whether the drafts have landed', () => {
-    expect(html(<PublishPanel publish={controller({ dirty: true })} {...props} />)).toContain(
-      'Unsaved'
-    )
-    expect(html(<PublishPanel publish={controller({ saving: true })} {...props} />)).toContain(
-      'Saving'
-    )
+    expect(panel(controller({ dirty: true }))).toContain('Unsaved')
+    expect(panel(controller({ saving: true }))).toContain('Saving')
+  })
+
+  test('a video on no channel gets the checklist instead of tabs, and cannot copy', () => {
+    const markup = panel(controller({}, record({ posts: {} })))
+
+    expect(markup).toContain('Publish to:')
+    expect(markup).toContain('Filip IG')
+    expect(markup).not.toContain('role="tablist"')
+    // No channel, so no channel fields — but the video's own stay.
+    expect(markup).not.toContain('Above the fold')
+    expect(markup).toContain('>Chapters<')
+    expect(markup).toContain(NO_CHANNEL_HINT)
+  })
+
+  test('a video on a channel gets the tab strip instead of the checklist', () => {
+    const markup = panel(controller())
+
+    expect(markup).toContain('aria-label="Channels"')
+    expect(markup).toContain('>UCK<')
+    expect(markup).not.toContain('Publish to:')
+  })
+
+  test('an Instagram tab shows the post text, not the YouTube fields', () => {
+    const base = record()
+    const withInstagram = {
+      ...base,
+      posts: { ...base.posts, 'filip-ig': { ...EMPTY_POST, caption: 'Hello from Instagram' } },
+    }
+    const markup = panel(controller({}, withInstagram), 'filip-ig')
+
+    expect(markup).toContain('>Caption<')
+    expect(markup).toContain('Hello from Instagram')
+    expect(markup).toContain('>Published link<')
+    expect(markup).not.toContain('>Description<')
+    expect(markup).not.toContain('>Tags &amp; hashtags<')
+    expect(markup).not.toContain('>Localized<')
+    // The shared fields stay below the tabs.
+    expect(markup).toContain('>Chapters<')
+  })
+
+  test('the copy button follows the active tab’s platform', () => {
+    const base = record()
+    const withInstagram = {
+      ...base,
+      posts: { ...base.posts, 'filip-ig': { ...EMPTY_POST } },
+    }
+
+    expect(panel(controller({}, withInstagram), 'uck')).toContain('Copy YouTube package')
+    expect(panel(controller({}, withInstagram), 'filip-ig')).toContain('Copy Instagram caption')
   })
 })
 

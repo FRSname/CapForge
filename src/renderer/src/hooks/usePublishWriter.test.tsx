@@ -122,7 +122,9 @@ describe('usePublishWriter — thumbnail send composition', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const { body, ifMatch } = sent(0)
-    expect(body.thumbnail).toEqual({ ideas: [], candidates: [A, B, C], cover: B })
+    // The root cover is never sent: it is the primary channel's post, written
+    // as `posts.<id>.cover` from its tab (multi-channel PR 3).
+    expect(body.thumbnail).toEqual({ ideas: [], candidates: [A, B, C] })
     expect(ifMatch).toBe('5')
     // What settles the draft is the draft object itself, so it is dropped on success.
     expect(h.saved[0].sent.thumbnail).toBe(draft)
@@ -137,7 +139,7 @@ describe('usePublishWriter — thumbnail send composition', () => {
       .mockResolvedValueOnce(response(record(8, [A, C], A)))
 
     await h.writer.flushNow()
-    expect(sent(0).body.thumbnail).toEqual({ ideas: [], candidates: [A], cover: A })
+    expect(sent(0).body.thumbnail).toEqual({ ideas: [], candidates: [A] })
     expect(h.notices).toHaveLength(1)
 
     await vi.advanceTimersByTimeAsync(PUBLISH_PATCH_DEBOUNCE_MS)
@@ -145,7 +147,7 @@ describe('usePublishWriter — thumbnail send composition', () => {
     expect(fetchMock).toHaveBeenCalledTimes(2)
     const resend = sent(1)
     expect(resend.ifMatch).toBe('7')
-    expect(resend.body.thumbnail).toEqual({ ideas: [], candidates: [A, C], cover: A })
+    expect(resend.body.thumbnail).toEqual({ ideas: [], candidates: [A, C] })
     expect(resend.body.title).toBe('Mine')
   })
 
@@ -155,7 +157,17 @@ describe('usePublishWriter — thumbnail send composition', () => {
 
     await h.writer.patchNow({ thumbnail: { ideas: [], candidates: [A], cover: A } })
 
-    expect(sent(0).body.thumbnail).toEqual({ ideas: [], candidates: [A, B, C], cover: A })
+    expect(sent(0).body.thumbnail).toEqual({ ideas: [], candidates: [A, B, C] })
+  })
+
+  test('a cover is never written at the root — it belongs to a channel’s post', async () => {
+    const h = harness(record(9, [A, B]), { thumbnail: { ideas: [], candidates: [A, B], cover: B } })
+    fetchMock.mockResolvedValue(response(record(10, [A, B])))
+
+    await h.writer.flushNow()
+
+    const thumbnail = sent(0).body.thumbnail as Record<string, unknown>
+    expect(thumbnail).not.toHaveProperty('cover')
   })
 
   test('flushNow cancels the pending debounce and resolves once the write has landed', async () => {

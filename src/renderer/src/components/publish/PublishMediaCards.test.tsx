@@ -53,6 +53,7 @@ function controller(base: PublishRecord, violations: Violation[] = []): PublishC
     setField: noop,
     setCollection: noop,
     flushDrafts: () => Promise.resolve(),
+    patchNow: () => Promise.resolve(),
     beginEdit: noop,
     endEdit: noop,
     pendingAgentUpdate: null,
