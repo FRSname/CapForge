@@ -144,7 +144,7 @@ class StoreAdminMixin:
         source = self._locate(video_id)
         target = _stamped_target(self.root / bucket, video_id, _now_iso())
         target.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(source, target)
+        fs.replace_with_retry(source, target)
         self.index.delete(video_id)
         logger.info("Moved record %s to %s", video_id, target)
         return record, target

@@ -372,7 +372,7 @@ class LibraryStore(StoreAdminMixin, CollectionStoreMixin, ThumbnailStoreMixin):
         if target.exists():
             raise LibraryError(f"Cannot promote {video_id}: {target} already exists")
         target.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(source, target)
+        fs.replace_with_retry(source, target)
         promoted = record.model_copy(
             update={"scratch": False, "rev": record.rev + 1, "updatedAt": _now_iso()}
         )
