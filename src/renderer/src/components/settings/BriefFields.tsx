@@ -1,7 +1,8 @@
 /**
- * The brief's field editors, shared by Settings → Channel (`BriefSettings`)
- * and a collection's overrides (`CollectionOverrides`) — one control per brief
- * field, so an override is edited exactly like the channel value it replaces.
+ * The brief's field editors, shared by Settings → Channels (a channel's
+ * profile, `ChannelProfileSection`) and a collection's overrides
+ * (`CollectionOverrides`) — one control per brief field, so an override is
+ * edited exactly like the channel value it replaces.
  *
  * Every control is controlled and stateless about saving: `onDraft` is a
  * keystroke (local only), `onCommit` is a write (blur for text, change for

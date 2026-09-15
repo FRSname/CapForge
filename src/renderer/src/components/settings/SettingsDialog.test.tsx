@@ -64,6 +64,11 @@ describe('SettingsDialog', () => {
     expect(html).toContain('Search settings…')
   })
 
+  test('names the channels category Channels', () => {
+    const html = render()
+    expect(html).toContain('>Channels</button>')
+  })
+
   test('shows the General pane by default', () => {
     const html = render()
     expect(html).toContain('Appearance')

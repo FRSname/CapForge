@@ -754,7 +754,7 @@ class CapForgeAPI {
     )
   }
 
-  /** The global channel brief (Settings → Channel). One small file, no If-Match. */
+  /** The channel brief — a view of the primary channel (Settings → Channels). No If-Match. */
   getBrief(): Promise<Brief> {
     return this.getWithLocalToken<unknown>('/api/library/brief').then(parseBrief)
   }

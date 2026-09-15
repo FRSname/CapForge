@@ -4,7 +4,7 @@
  *
  * Inheriting shows what the channel currently says; switching the toggle off
  * starts the override from that value and opens the same editor Settings →
- * Channel uses (`BriefFields.tsx`). A list or block override **replaces** the
+ * Channels uses (`BriefFields.tsx`). A list or block override **replaces** the
  * channel's value — it is never appended to it.
  */
 

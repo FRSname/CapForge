@@ -27,7 +27,7 @@ import {
 } from '../../lib/appSettingsIndex'
 import { onSettingsCategoryRequested } from '../../lib/settingsNavigation'
 import { IconButton } from '../ui/IconButton'
-import { BriefSettings } from './BriefSettings'
+import { ChannelsSettings } from './ChannelsSettings'
 import { ClaudeSettings } from './ClaudeSettings'
 import { CollectionsSettings } from './CollectionsSettings'
 import { GeneralSettings } from './GeneralSettings'
@@ -190,7 +190,7 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
             {category === 'general' && (
               <GeneralSettings lightMode={lightMode} onLightModeChange={setLightMode} />
             )}
-            {category === 'channel' && <BriefSettings />}
+            {category === 'channels' && <ChannelsSettings />}
             {category === 'collections' && <CollectionsSettings />}
             {category === 'transcription' && <TranscriptionSettings />}
             {category === 'claude' && <ClaudeSettings />}
