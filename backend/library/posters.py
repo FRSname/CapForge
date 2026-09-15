@@ -31,13 +31,13 @@ injectable so the tests never need a real binary.
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from backend.library import fs
 from backend.library.errors import RecordNotFound
 
 logger = logging.getLogger(__name__)
@@ -139,7 +139,7 @@ def grab_poster(source: Path, dest: Path, at_s: float, *, ffmpeg: str) -> bool:
         logger.info("No poster frame at %.1fs for %s: %s", at_s, source, stderr[:200])
         _discard(tmp)
         return False
-    os.replace(tmp, dest)
+    fs.replace_with_retry(tmp, dest)
     return True
 
 
