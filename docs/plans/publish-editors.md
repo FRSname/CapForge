@@ -110,12 +110,102 @@ The agent already writes `shorts` (caption + clip suggestions) and `thumbnail.id
   - 9 times or a 25th frame → 422 with a sentence.
   - A 90 s clip → `shorts_clip_length` style finding.
 
-## Part B — Localized editor + per-language packages (outline)
+## Part B — Localized editor + per-language packages
 
-- **Languages:** read from the stored `project.capforge` `tracks[].lang` (the record autosave already PUTs it), plus the source `language`. Exposed as a derived `languages: []` on the record view.
-- **Routes:** `GET /{id}/package?lang=xx` and `POST /validate` with `lang` substitute `localized[lang]`: title, description, short_description, tags, hashtags, `chapter_titles` by index, and `shorts_caption`. A root field fills in wherever a localized one is empty. Validators run over the substituted fields, including 5000 bytes per language.
-- **MCP:** `lang?` on `get_upload_package` and `validate_video`.
-- **Renderer:** a Localized card (a language picker of the track languages, the fields per language, chapter titles aligned to the root chapters), plus a per-language "Copy upload package" in the footer.
+**Status:** building on `feat/v3-localized` (stacked on Part A).
+
+### Why
+`localized: {lang: LocalizedFields}` has existed since #1. Its fields are title, description, short_description, tags, hashtags, `chapter_titles` and `shorts_caption`, and a translated caption track already exists per language. But nothing edits the field, nothing validates it (an agent can store a 9000-byte Polish description today), the package ignores it, and **a `PATCH` of `localized` replaces the whole dict**. So an agent writing `pl` silently erases `de`, and so would a renderer draft taken before the agent's write.
+
+### Decisions
+1. **`localized` merges per language on `PATCH`.**
+   - Languages the patch omits are inherited.
+   - A language set to `null` is removed.
+   - A language sent as an object replaces that language's fields.
+
+   `RecordPatch.localized` becomes `Optional[dict[str, Optional[LocalizedFields]]]`, and the stored model stays `dict[str, LocalizedFields]`. The merge happens under `write_lock` against the fresh read, like the thumbnail inheritance. The `history` entry names `localized`. The record contract partition is unchanged (no new field).
+2. **Language keys** match `^[a-z]{2,3}(-[A-Za-z0-9]{2,8})*$` (the codes `create_track` and `lib/languages.ts` use: `pl`, `de`, `pt-BR`). A bad key is a hard `localized_lang_code` violation. A key equal to the record's source `language` is refused (`localized_is_source`), because the root fields already are that language.
+3. **Per-language rules** reuse the root rules, under field names `localized.<lang>.<field>`:
+   - **Hard:** title ≤ 100 chars, description ≤ 5000 bytes, tags line ≤ 500 chars, and no angle brackets in any of them.
+   - **Style:** more `chapter_titles` than root `chapters` (`localized_chapter_count`), and the brief's style rules applied to the localized title and description.
+4. **`GET /{id}/package?lang=xx`** renders the package from a *localized view of the record*: a pure `localize_record(record, lang) -> VideoRecord`.
+   - **Substituted:** title, description, short_description, tags and hashtags (a non-empty localized list replaces), `chapters[i].title` from `chapter_titles[i]` (non-empty entries only, by index; extras ignored), and `shorts.caption`.
+   - **Dropped:** `title_options` and `highlights` (the "WHAT YOU'LL LEARN" block), which are source-language prose with no localized counterpart. A localized package that silently mixes languages is worse than a shorter one.
+   - **NOTES** gains `Not translated (source text used): …` listing every substituted field that fell back to the root, and `Omitted (source language only): title options, highlights`.
+   - **Brief and collection boilerplate** (footer, recorded-at, speaker block, slots) stays as written: there is no per-language brief in v3.0, and the NOTES line says so when a footer exists.
+   - **Errors:** an unknown `lang` (not a key of `localized`) is a 404 `{detail}`; `lang` equal to the source language, or omitted, is today's package. With no `lang`, the output is **byte-identical**.
+   - `violations` are the localized view's findings. `description` is the localized assembled body.
+5. **`POST /validate`** accepts `lang` and validates the localized view the same way, merging draft `fields.localized` per language before substituting.
+6. **Derived `languages` on the single-record view** (`GET /{id}`, not the list summary, which must stay cheap):
+   - The source `language` comes first.
+   - Then every `tracks[].lang` in the stored `project.capforge`, read only when the file exists; a corrupt file is logged and skipped.
+   - Then every `localized` key.
+   - Deduplicated in that order, and never stored.
+7. **MCP:** `lang` on `get_upload_package(video_id, platform, lang=None)` and `validate_video(video_id, lang=None)`. The `set_video_meta` docstring gains the per-language merge (send only the languages you change, `null` removes). There is a new guide topic `localized`: read the tracks with `get_ui_state` / `get_track` for their `lang`, translate from the source fields, write `localized[lang]` one language per call, validate with `lang`, then read the package with `lang`. The tool count is unchanged (57).
+8. **Renderer:** a **Localized card**, plus a language choice on "Copy upload package". The whole-field draft must not re-send stale languages, so `composeLocalizedPatch(draft, latest)` sends **only the languages whose draft differs from the latest record**, plus `null` for languages the user removed. It is applied at send time in the writer, beside `withManagedCandidates`.
+
+### Backend
+- **`backend/library/localized.py` (new, pure):** `LANG_CODE_RE`, `localize_record`, `untranslated_fields`, and `merge_localized(stored, patch_value) -> dict` (returns a new dict, never mutates).
+- **The `PATCH` path:** it applies `merge_localized` under the lock (in `locked_refusal`'s completed patch, like the thumbnail). Pre-lock hard rules judge the merged value. This lives in `router_publish.py` / `validate_media.py` or a new `validate_localized.py`, keeping every file ≤ 400 lines; `router.py` (422) must not grow.
+- **Routes:**
+  - The package route takes `lang: Optional[str] = None`.
+  - `ValidateRequest` gains `lang: Optional[str]`.
+  - `languages` on the record view goes wherever `status`/`hasProject`/`poster` are derived.
+- **Tests first:**
+  - the merge (inherit, remove with `null`, replace one language), non-mutation, and lock interleaving against a concurrent `PATCH` of another language
+  - key and source-language refusals, and every per-language rule
+  - `localize_record` substitution and fallbacks (chapter titles by index, shorter or longer lists)
+  - the NOTES lines, the dropped sections, byte-identity without `lang`, and 404 for an unknown `lang`
+  - validate with `lang`; `languages` derivation (no project, a project with tracks, a corrupt project, localized-only languages)
+  - the MCP `lang` parameters
+
+### Renderer
+- **`lib/publishTypes.ts`:** add `LocalizedFields` + a guard (or put them in `publishMediaTypes.ts` if `publishTypes.ts` would pass 400 lines); `PublishAuthored.localized`; `languages: string[]` on the record (guard defaults to `[]`).
+- **`lib/publishLocalized.ts` (pure):**
+  - `editableLanguages(record)`: record `languages` + `localized` keys, minus the source language
+  - `setLocalizedField` / `removeLanguage` / `addLanguage` (all immutable)
+  - `alignedChapterTitles(chapters, chapterTitles)`: rows of `{start_s, sourceTitle, title}`
+  - `composeLocalizedPatch(draft, latest)`
+- **`LocalizedCard.tsx`:**
+  - language chips: the editable languages, a chip showing a translated track without localized fields as "not started", and "Add language" from `lib/languages.ts`
+  - for the selected language: title (100-char meter), description (5000-byte meter, reusing `FieldMeter`), short description, tags line, hashtags, chapter titles aligned to the root chapters (timestamp + the source title as placeholder), shorts caption
+  - findings for `localized.<lang>.*` via `violationsForField`
+  - "Remove language" with an inline confirm
+  - The card goes after Description in `PublishPanel`. Keep `usePublishRecord.ts` (399) from growing: new logic goes in helpers or the writer.
+- **`PublishFooter`:** "Copy upload package" becomes a split control with the source language first, then each localized language (`getUploadPackage(id, 'youtube', lang)`); the plain transcript and SRT/VTT are unchanged.
+- **Tests (node env):** the guard, every pure helper (especially `composeLocalizedPatch` against a record where an agent added another language meanwhile), and the card markup (empty, one language, a not-started track language, findings).
+
+### Verification
+- Backend library tests + the full suite, MCP tests, renderer gates, and the Electron and preload tests (unchanged).
+- **Live, on a temp `CAPFORGE_HOME`:**
+  - `PATCH localized {pl: {...}}`, then `PATCH localized {de: {...}}`: both stored.
+  - `{pl: null}` removes `pl`.
+  - A 6000-byte `pl` description → 422 `localized.pl.description`.
+  - A key equal to the source language → 422.
+  - `GET package?lang=de`: localized title and chapters, source title options and highlights absent, the NOTES lines present.
+  - `?lang=xx` → 404. No `lang` → byte-identical to before.
+  - `languages` on a record whose stored project has a `pl` track.
+
+### As built (Part B)
+- **Modules:**
+  - Backend: `localized.py` (pure merge, localized view, NOTES lines, `derive_languages`), `validate_localized.py`, and `store_localized.py` (`languages_of`: a missing project contributes nothing, a corrupt one is logged and skipped).
+  - Renderer: `lib/publishLocalized.ts`, plus `LocalizedCard.tsx` and `LocalizedLanguageForm.tsx`.
+- **Findings with `lang`:** the package and `/validate` name a translated field's finding `localized.<lang>.<field>`; a field that fell back keeps its root name, because the fix belongs there. Without `lang`, `/validate` and the package also report every language's `localized.*` findings.
+- **Extra refusals and notes:** `/validate` with `lang` needs a `video_id` (422). "footer" joins the *Not translated* NOTES line when the effective brief has one, and the *Omitted* line always prints in a localized package.
+- **`languages` placement:** it rides every single-record response (GET, PATCH, the 409 `current`, create, promote), never the list summary.
+- **Stored bad translations block saves:** because a PATCH is judged on the *merged* record, a translation stored before this change that breaks a hard limit blocks every PATCH until it is fixed. The root fields already behave this way.
+- **The renderer draft is a delta** of changed languages, with `null` for removed ones. `localizedDraft(record.localized, onScreen)` diffs at edit time; `withLocalizedDraft` recomposes against the latest record at send time; `withLocalizedRestore` turns a Revert's whole-dict `prev` into a delta. `survivingDrafts` judges `localized` per language, so an agent rewriting or removing the drafted language drops only that language from the draft.
+- **Known gap:** validation still sends the merged `localized`, so a language removed but not yet saved can show findings until the save lands.
+
+**Verification (Part B):**
+- **Backend:** 2037 passed (only the 15 known golden-frame failures). MCP: 265 passed.
+- **Renderer:** vitest 2077, typecheck clean, lint 0 errors.
+- **Live, temp `CAPFORGE_HOME`:**
+  - `pl` then `de` written separately: both kept.
+  - A 6000-byte `pl` description → 422 `localized.pl.description`.
+  - `?lang=pl` package uses the Polish title, drops the source description, and prints the NOTES lines.
+  - `?lang=xx` → 404.
+  - `{pl: null}` removes only `pl`.
 
 ## Part C — Copy for platform + Transcript tab (outline)
 

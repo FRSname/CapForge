@@ -33,6 +33,7 @@ TOPICS: dict[str, tuple[str, str]] = {
     "shorts": ("shorts.md", "The Shorts caption and 2–3 clip candidates as timestamps, and the rules a clip is checked against; CapForge cuts nothing."),
     "batch": ("batch.md", "Publishing a set of videos: list by status, one record per call, revs, what to report, scratch runs."),
     "collections": ("collections.md", "An event's shared boilerplate: slots, brief overrides, the description template, assigning videos, adopting orphan ids."),
+    "localized": ("localized.md", "Per-language title, description, tags, chapter titles and Shorts caption: which languages, one language per call, the merge, validating and packaging with lang."),
 }
 
 GUIDE = TopicSet(_GUIDE_DIR, TOPICS)
@@ -50,7 +51,7 @@ def publish_guide(topic: Optional[str] = None) -> str:
     source, the package is a rendering; the brief is binding; every write
     carries a rev) and the topic index. Then call with a `topic` id
     ("workflow", "breakdown", "description", "chapters", "thumbnails",
-    "shorts", "batch", "collections") to pull that reference on demand. Consult this BEFORE
+    "shorts", "batch", "collections", "localized") to pull that reference on demand. Consult this BEFORE
     writing publish fields with set_video_meta.
     """
     return GUIDE.guide(topic)

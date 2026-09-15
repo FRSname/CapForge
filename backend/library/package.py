@@ -103,6 +103,7 @@ def render_youtube_package(
     diarized_ids: Sequence[str] = (),
     collection: Optional[Collection] = None,
     record_folder: Optional[Path] = None,
+    extra_notes: Sequence[str] = (),
 ) -> str:
     """The full package text. ``duration`` may be None (no transcript yet).
 
@@ -112,6 +113,7 @@ def render_youtube_package(
     ``brief`` is the channel brief; ``collection``'s overrides are applied here.
     ``record_folder`` is the record's folder: with a cover chosen, THUMBNAIL IDEAS
     ends with that frame's file (without either, the output is unchanged).
+    ``extra_notes`` follow the chapters line in NOTES (a localized package's).
     """
     description = assemble_description(
         record, brief, collection=collection, diarized_ids=diarized_ids
@@ -123,6 +125,7 @@ def render_youtube_package(
         source_name=source_name,
         placeholders=(*description.placeholders, *shorts.placeholders),
         unknown_slots=description.unknown_slots,
+        extra_notes=extra_notes,
     )
     sections = [
         _title_options_section(record),
@@ -348,6 +351,7 @@ def _notes_section(
     source_name: str,
     placeholders: tuple[str, ...],
     unknown_slots: tuple[str, ...] = (),
+    extra_notes: Sequence[str] = (),
 ) -> str:
     source = f"Source: CapForge transcript, {source_name}"
     if duration is not None:
@@ -359,6 +363,7 @@ def _notes_section(
         f"{len(description.encode('utf-8'))} bytes",
         f"Shorts caption: {len(record.shorts.caption)} characters",
         _chapters_note(record.chapters),
+        *extra_notes,
     ]
     if unknown_slots:
         lines += [UNKNOWN_SLOTS_HEADER, *(f"- {{{{{name}}}}}" for name in unknown_slots)]

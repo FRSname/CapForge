@@ -114,6 +114,12 @@ The bridge to the HyperFrames Node CLI subprocess is hardened separately from ca
     - An explicitly sent, *different* list is a 422 `candidates_managed`.
     - The renderer always composes `candidates` from the latest record at send time (`lib/publishThumbnail.ts` `composeThumbnailPatch`, applied in `usePublishWriter`). A whole-object thumbnail draft must never carry its own copy, or a frame grabbed meanwhile is dropped.
   - **Saving a frame out:** Electron's `library:save-frame(videoId, name, title)` builds the path itself under the library guard; the renderer never passes a path.
+- **Translated metadata (`localized`)** (4s part B, [docs/plans/publish-editors.md](docs/plans/publish-editors.md), `backend/library/{localized,validate_localized,store_localized}.py`):
+  - **`PATCH` merges `localized` per language** under the lock: an omitted language is kept, `{lang: null}` removes it, an object replaces that language, and `localized: null` clears all. Before this, a write of `pl` erased `de`.
+  - **The renderer's `localized` draft is a *delta*** of the changed languages (`lib/publishLocalized.ts`), composed at send time in `usePublishWriter` beside the thumbnail composition. Never send the whole dict from a draft.
+  - **Rules:** every language gets the root hard limits under `localized.<lang>.<field>`. `localized_lang_code` and `localized_is_source` are hard; `localized_chapter_count` is style.
+  - **`?lang=` package and validate** render a never-stored localized view: substituted fields, chapter titles by index, source-only title options and highlights dropped, and the fallbacks listed in NOTES. With no `lang`, the output is byte-identical.
+  - **`languages` on the single-record view** is derived at read time: the source language, then the stored project's `tracks[].lang`, then the `localized` keys.
 - **Scratch records** (`scratch: true`) hide under `.scratch/`, are read-only until `POST …/promote`, and are pruned after `SCRATCH_LIFESPAN_DAYS` at startup — agent QA runs must not pollute the library.
 - **Folder import, relink and the watch folder** (3s, [docs/plans/library-folder-import.md](docs/plans/library-folder-import.md), `backend/library/{media_scan,folder_import,watch,router_import}.py`):
   - **A fingerprint hit on a record whose media is missing is a relink**, not a skip, so importing the folder a drive was moved to heals its cards.

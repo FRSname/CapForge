@@ -6,6 +6,7 @@
  * so anything with a decision in it has to be testable without one.
  */
 
+import { EMPTY_LOCALIZED } from './publishMediaTypes'
 import { describe, expect, test } from 'vitest'
 import type { PublishRecord } from './publishTypes'
 import type { Segment } from '../types/app'
@@ -48,6 +49,9 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     publish: { youtube: null, pushes: [] },
     shorts: { caption: '', clip_suggestions: [] },
     thumbnail: { ideas: [], candidates: [], cover: null },
+    localized: {},
+    language: 'en',
+    languages: ['en'],
     history: [],
     ...over,
   }
@@ -65,6 +69,7 @@ describe('PUBLISH_FIELDS', () => {
       'title_options',
       'title',
       'description',
+      'localized',
       'collection_id',
       'chapters',
       'shorts',
@@ -195,6 +200,27 @@ describe('mergeAgentUpdate (the soft lock)', () => {
     // Neither side was mutated.
     expect(local.title).toBe('What I am typing')
     expect(remote.title).toBe('Claude wrote this')
+  })
+
+  test('a locked localized field takes the agent’s languages; the user’s delta stays a draft', () => {
+    const pl = { ...EMPTY_LOCALIZED, title: 'Tytuł' }
+    const de = { ...EMPTY_LOCALIZED, title: 'Titel' }
+    // The call site spreads the drafts over the local record, so `localized` here is a delta.
+    const local = record({ localized: { pl: { ...pl, title: 'Mój' } } })
+    const remote = record({ rev: 6, localized: { pl, de } })
+
+    const merged = mergeAgentUpdate(local, remote, 'localized')
+
+    // The record must stay the backend's truth, or the send would compare the
+    // user's delta against itself and drop it.
+    expect(merged.localized).toEqual({ pl, de })
+    expect(merged.rev).toBe(6)
+  })
+
+  test('the Localized card owns its field, right after Description', () => {
+    const cards = PUBLISH_FIELDS.map((f) => f.card)
+    expect(PUBLISH_FIELDS.find((f) => f.id === 'localized')?.card).toBe('localized')
+    expect(cards.indexOf('localized')).toBe(cards.indexOf('description') + 1)
   })
 
   test('a locked thumbnail keeps the user’s ideas and cover but takes the new frames', () => {

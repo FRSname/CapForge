@@ -50,6 +50,8 @@ function controller(collectionId: string | null, violations: Violation[] = []): 
     hasProject: true,
     links: [],
     history: [],
+    language: 'en',
+    languages: ['en'],
     collection_id: collectionId,
   }
   return {

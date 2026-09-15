@@ -16,6 +16,7 @@ import type { PublishAuthored, PublishRecord } from './publishTypes'
 import type { PublishFieldId } from './publishFields'
 import { EMPTY_SHORTS, EMPTY_THUMBNAIL } from './publishMediaTypes'
 import { authoredThumbnail, composeThumbnailPatch } from './publishThumbnail'
+import { applyLocalizedDraft, survivingLocalized } from './publishLocalized'
 
 /** The drafts map: every authored field, optional. */
 export type PublishDrafts = Partial<PublishAuthored>
@@ -35,20 +36,26 @@ export const EMPTY_FIELDS: PublishAuthored = {
   publish: { youtube: null, pushes: [] },
   shorts: EMPTY_SHORTS,
   thumbnail: EMPTY_THUMBNAIL,
+  localized: {},
 }
 
 /**
  * What the cards render: the record, with the unsaved drafts on top. A
  * thumbnail draft keeps its ideas and cover but shows the record's frames —
  * the draft's `candidates` is whatever the list was when the user typed, and
- * only the frames routes may change it.
+ * only the frames routes may change it. A `localized` draft is a delta, laid
+ * over the record's languages rather than replacing them.
  */
 export function mergeDrafts(record: PublishRecord | null, drafts: PublishDrafts): PublishAuthored {
   const base = record ?? EMPTY_FIELDS
   const merged = { ...base, ...drafts }
-  return drafts.thumbnail
-    ? { ...merged, thumbnail: composeThumbnailPatch(drafts.thumbnail, base) }
-    : merged
+  const thumbnail = drafts.thumbnail
+    ? { thumbnail: composeThumbnailPatch(drafts.thumbnail, base) }
+    : {}
+  const localized = drafts.localized
+    ? { localized: applyLocalizedDraft(base.localized, drafts.localized) }
+    : {}
+  return { ...merged, ...thumbnail, ...localized }
 }
 
 /** A field's value as the soft lock compares it: a thumbnail without its backend-managed frames. */
@@ -78,6 +85,9 @@ export function remainingDrafts(drafts: PublishDrafts, sent: PublishDrafts): Pub
  * user's unsaved text and stays — a Suggest result the validator refused must
  * not vanish because the agent wrote the tags. A draft the agent wrote over is
  * dropped, except the locked field, which the banner offers to apply or keep.
+ *
+ * `localized` is judged per language (`survivingLocalized`): the agent writing
+ * `de` must neither throw away the user's `pl` nor let a stale `de` go back out.
  */
 export function survivingDrafts(
   drafts: PublishDrafts,
@@ -88,6 +98,11 @@ export function survivingDrafts(
   const keep: Record<string, unknown> = {}
   for (const [field, value] of Object.entries(drafts)) {
     const id = field as PublishFieldId
+    if (id === 'localized' && id !== locked) {
+      const kept = survivingLocalized(drafts.localized ?? {}, local.localized, remote.localized)
+      if (kept) keep[field] = kept
+      continue
+    }
     const untouched =
       JSON.stringify(comparable(id, local)) === JSON.stringify(comparable(id, remote))
     if (id === locked || untouched) keep[field] = value

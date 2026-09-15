@@ -30,6 +30,12 @@ from backend.library.package import (
     format_timestamp,
 )
 from backend.library.schemas import AUTHORED_FIELDS, Chapter, RecordPatch, VideoRecord
+from backend.library.validate_localized import (
+    chapter_count_findings,
+    key_findings,
+    language_views,
+    readdress,
+)
 from backend.library.validate_media import media_hard_rules, media_style_rules
 from backend.library.violation import Severity, Violation  # noqa: F401 - re-exported
 from backend.library.violation import hard as _hard
@@ -61,8 +67,10 @@ def validate_fields(
     *,
     duration: Optional[float],
     brief: Optional[Brief],
+    source_language: Optional[str] = None,
 ) -> list[Violation]:
     """Every violation in ``fields``; style rules only when ``brief`` asks.
+    ``source_language`` is the record's, for ``localized_is_source``.
 
     ``fields`` is external data (a draft from the panel, a patch from the
     agent), so it is validated at this boundary: an unknown key or a malformed
@@ -73,9 +81,10 @@ def validate_fields(
         patch = RecordPatch.model_validate(dict(fields))
     except ValidationError as exc:
         raise ValueError(f"Not a set of authored fields: {exc}") from exc
-    found = _hard_rules(patch, duration)
+    found = _hard_rules(patch, duration, source_language)
     if brief is not None:
-        found += [*_style_rules(patch, brief.house_rules), *media_style_rules(patch)]
+        found += [*_style_rules(patch, brief.house_rules), *media_style_rules(patch),
+                  *_localized_style_rules(patch, brief.house_rules)]
     return found
 
 
@@ -84,10 +93,13 @@ def hard_violations(
     *,
     duration: Optional[float],
     brief: Optional[Brief] = None,
+    source_language: Optional[str] = None,
 ) -> list[Violation]:
     """Only the findings that must block a write."""
-    return [v for v in validate_fields(fields, duration=duration, brief=brief)
-            if v.severity == "hard"]
+    found = validate_fields(
+        fields, duration=duration, brief=brief, source_language=source_language
+    )
+    return [v for v in found if v.severity == "hard"]
 
 
 def authored_fields(record: VideoRecord) -> dict[str, Any]:
@@ -104,7 +116,10 @@ def validate_record(
     brief: Optional[Brief],
 ) -> list[Violation]:
     """The same rules over the stored dossier's **authored** half."""
-    return validate_fields(authored_fields(record), duration=duration, brief=brief)
+    return validate_fields(
+        authored_fields(record), duration=duration, brief=brief,
+        source_language=record.language,
+    )
 
 
 # --- the assembled package and membership ------------------------------------
@@ -157,14 +172,29 @@ def unknown_collection_violation(collection_id: str) -> Violation:
 
 # --- hard rules --------------------------------------------------------------
 
-def _hard_rules(patch: RecordPatch, duration: Optional[float]) -> list[Violation]:
+def _hard_rules(
+    patch: RecordPatch, duration: Optional[float], source_language: Optional[str]
+) -> list[Violation]:
     return [
         *_title_rules(patch),
         *_description_rules(patch),
         *_tag_rules(patch),
         *_chapter_rules(patch.chapters, duration),
         *media_hard_rules(patch, duration),
+        *_localized_hard_rules(patch, source_language),
     ]
+
+
+def _localized_hard_rules(
+    patch: RecordPatch, source_language: Optional[str]
+) -> list[Violation]:
+    """The key rules, then the root's title/description/tag rules per language."""
+    found = key_findings(patch.localized, source_language)
+    for lang, view in language_views(patch.localized):
+        found += readdress(lang, [
+            *_title_rules(view), *_description_rules(view), *_tag_rules(view)
+        ])
+    return found
 
 
 def _title_rules(patch: RecordPatch) -> list[Violation]:
@@ -273,6 +303,13 @@ def _style_rules(patch: RecordPatch, rules: HouseRules) -> list[Violation]:
         found += _keyword_window(patch, rules.keywords_terms)
     if rules.hook_first_150:
         found += _hook_rule(patch)
+    return found
+
+
+def _localized_style_rules(patch: RecordPatch, rules: HouseRules) -> list[Violation]:
+    found = chapter_count_findings(patch.localized, patch.chapters)
+    for lang, view in language_views(patch.localized):
+        found += readdress(lang, _style_rules(view, rules))
     return found
 
 

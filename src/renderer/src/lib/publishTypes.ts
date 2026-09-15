@@ -13,11 +13,18 @@
  * Pure module: no React, no `window`, no I/O.
  */
 
-import type { Shorts, Thumbnail } from './publishMediaTypes'
-import { parseShorts, parseThumbnail } from './publishMediaTypes'
+import type { LocalizedMap, Shorts, Thumbnail } from './publishMediaTypes'
+import { parseLocalized, parseShorts, parseThumbnail } from './publishMediaTypes'
 import { bool, nonEmptyString, nullableNumber, num, obj, str, strings } from './wireReaders'
 
-export type { ClipSuggestion, Shorts, Thumbnail, ThumbnailIdea } from './publishMediaTypes'
+export type {
+  ClipSuggestion,
+  LocalizedFields,
+  LocalizedMap,
+  Shorts,
+  Thumbnail,
+  ThumbnailIdea,
+} from './publishMediaTypes'
 
 /** One authored chapter. Seconds, not a formatted string (`lib/youtubeRules.ts` formats). */
 export interface Chapter {
@@ -89,6 +96,8 @@ export interface PublishAuthored {
   shorts: Shorts
   /** Thumbnail ideas, the grabbed frames and the cover. `candidates` is backend-managed. */
   thumbnail: Thumbnail
+  /** Per-language title/description/…; a draft of it is a delta (`lib/publishLocalized.ts`). */
+  localized: LocalizedMap
 }
 
 /** The record view: the authored fields plus the system ones the panel reads. */
@@ -100,6 +109,10 @@ export interface PublishRecord extends PublishAuthored {
   hasProject: boolean
   links: LinkRow[]
   history: HistoryEntry[]
+  /** The transcript's language code; `''` when unknown. The root fields are this language. */
+  language: string
+  /** Derived, never stored: the source language, the project's track languages, the localized keys. */
+  languages: string[]
 }
 
 /** House-style rules — only enforced when the brief asks for them. */
@@ -277,6 +290,9 @@ export function parsePublishRecord(value: unknown): PublishRecord {
     publish: publishBlock(row.publish),
     shorts: parseShorts(row.shorts),
     thumbnail: parseThumbnail(row.thumbnail),
+    localized: parseLocalized(row.localized),
+    language: str(row.language),
+    languages: strings(row.languages),
     history: history(row.history),
   }
 }

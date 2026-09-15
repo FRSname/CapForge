@@ -175,6 +175,12 @@ def set_video_meta(video_id: str, patch: dict, rev: int) -> dict:
     leave them unchanged; `grab_frames` adds frames and only an explicit changed
     list is refused (`candidates_managed`).
 
+    `localized` merges **per language**: send only the languages you change.
+    `{"localized": {"pl": {...}}}` leaves every other language as stored; an
+    object replaces that language's fields wholesale (send all of them); and
+    `{"localized": {"pl": null}}` removes `pl`. Keys are language codes ("pl",
+    "pt-BR"), never the source language. See `publish_guide("localized")`.
+
     This CANNOT fix transcript text — the transcript is derived from the session
     and is read-only here. Use `open_video(video_id)` and then `update_words`.
 

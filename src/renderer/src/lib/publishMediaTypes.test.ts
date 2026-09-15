@@ -6,7 +6,14 @@
  */
 
 import { describe, expect, test } from 'vitest'
-import { EMPTY_SHORTS, EMPTY_THUMBNAIL, parseShorts, parseThumbnail } from './publishMediaTypes'
+import {
+  EMPTY_LOCALIZED,
+  EMPTY_SHORTS,
+  EMPTY_THUMBNAIL,
+  parseLocalized,
+  parseShorts,
+  parseThumbnail,
+} from './publishMediaTypes'
 
 describe('parseShorts', () => {
   test('defaults a missing or malformed block to nothing written', () => {
@@ -77,5 +84,41 @@ describe('parseThumbnail', () => {
     })
     expect(parseThumbnail({ cover: '' }).cover).toBeNull()
     expect(parseThumbnail({ cover: 3 }).cover).toBeNull()
+  })
+})
+
+describe('parseLocalized', () => {
+  test('a missing or malformed block is no languages at all', () => {
+    for (const value of [undefined, null, 'x', 7, []]) {
+      expect(parseLocalized(value)).toEqual({})
+    }
+  })
+
+  test('reads each language, the backend’s nulls reading as nothing written', () => {
+    const localized = parseLocalized({
+      pl: {
+        title: 'Tytuł',
+        description: null,
+        tags: ['napisy', 3],
+        chapter_titles: ['Wstęp', ''],
+        shorts_caption: 'Zobacz',
+      },
+      de: {},
+    })
+
+    expect(localized.pl).toEqual({
+      ...EMPTY_LOCALIZED,
+      title: 'Tytuł',
+      tags: ['napisy'],
+      chapter_titles: ['Wstęp', ''],
+      shorts_caption: 'Zobacz',
+    })
+    expect(localized.de).toEqual(EMPTY_LOCALIZED)
+  })
+
+  test('drops a language whose value is not an object (a null is a removal, not a language)', () => {
+    expect(Object.keys(parseLocalized({ pl: null, de: 'x', fr: { title: 'Titre' } }))).toEqual([
+      'fr',
+    ])
   })
 })

@@ -766,10 +766,14 @@ class CapForgeAPI {
     return this.post<unknown>('/api/library/validate', request).then(parseViolations)
   }
 
-  /** The rendered upload package — returned even when it violates something. */
-  getUploadPackage(id: string, platform = 'youtube'): Promise<UploadPackage> {
+  /**
+   * The rendered upload package — returned even when it violates something.
+   * `lang` renders a stored localized language (404 for one with no entry).
+   */
+  getUploadPackage(id: string, platform = 'youtube', lang?: string): Promise<UploadPackage> {
+    const langQuery = lang ? `&lang=${encodeURIComponent(lang)}` : ''
     return this.getWithLocalToken<unknown>(
-      `/api/library/${encodeURIComponent(id)}/package?platform=${encodeURIComponent(platform)}`
+      `/api/library/${encodeURIComponent(id)}/package?platform=${encodeURIComponent(platform)}${langQuery}`
     ).then(parseUploadPackage)
   }
 

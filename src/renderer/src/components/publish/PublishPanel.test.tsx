@@ -50,6 +50,9 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     publish: { youtube: null, pushes: [] },
     shorts: { caption: '', clip_suggestions: [] },
     thumbnail: { ideas: [], candidates: [], cover: null },
+    localized: {},
+    language: 'en',
+    languages: ['en'],
     history: [
       { field: 'title', prev: 'The first draft', by: 'agent', at: THREE_MINUTES_AGO },
       { field: 'description', prev: undefined, by: 'user', at: THREE_MINUTES_AGO },
@@ -299,6 +302,47 @@ describe('PublishPanel', () => {
     }
     expect(markup).toContain('Copy upload package')
     expect(markup).toContain('Copy plain transcript')
+  })
+
+  test('the Localized card sits right after Description', () => {
+    const markup = html(<PublishPanel publish={controller()} {...props} />)
+    const description = markup.indexOf('>Description<')
+    const localized = markup.indexOf('>Localized<')
+    const collection = markup.indexOf('>Collection<')
+    expect(description).toBeGreaterThan(-1)
+    expect(description).toBeLessThan(localized)
+    expect(localized).toBeLessThan(collection)
+  })
+
+  test('the package gets a language choice once a localized language is stored, source first', () => {
+    // Only the source: no choice to make.
+    expect(html(<PublishPanel publish={controller()} {...props} />)).not.toContain(
+      'Upload package language'
+    )
+
+    const base = record({
+      languages: ['en', 'pl', 'de'],
+      localized: {
+        pl: {
+          title: 'Tytuł',
+          description: '',
+          short_description: '',
+          tags: [],
+          hashtags: [],
+          chapter_titles: [],
+          shorts_caption: '',
+        },
+      },
+    })
+    const markup = html(<PublishPanel publish={controller({}, base)} {...props} />)
+
+    expect(markup).toContain('aria-label="Upload package language"')
+    const source = markup.indexOf('<option value="" selected="">English (source)</option>')
+    const polish = markup.indexOf('<option value="pl">Polish</option>')
+    expect(source).toBeGreaterThan(-1)
+    expect(source).toBeLessThan(polish)
+    // A track language with no stored fields has no package (the route 404s).
+    expect(markup).not.toContain('<option value="de">')
   })
 
   test('says so instead of drawing empty cards when there is no record', () => {
