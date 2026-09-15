@@ -53,6 +53,7 @@ from backend.library.schemas import (
     derive_status,
 )
 from backend.library.store_admin import StoreAdminMixin
+from backend.library.store_frames import ThumbnailStoreMixin
 from backend.library.transcript import derive_transcript, plain_text
 from backend.library.transcript import segments_only as strip_word_arrays
 
@@ -102,11 +103,12 @@ def _truncate(value: Any) -> Any:
     return value
 
 
-class LibraryStore(StoreAdminMixin, CollectionStoreMixin):
+class LibraryStore(StoreAdminMixin, CollectionStoreMixin, ThumbnailStoreMixin):
     """Every record under ``root`` (``$CAPFORGE_HOME/library`` in production).
 
     Housekeeping (remove/detach/import/migrate) lives in ``store_admin``'s
-    mixin and collections in ``collection_store``'s — this file is at its ceiling.
+    mixin, collections in ``collection_store``'s and thumbnail candidates in
+    ``store_frames``'s — this file is at its ceiling.
     """
 
     def __init__(

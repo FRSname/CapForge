@@ -17,9 +17,11 @@ import { CollectionCard } from './CollectionCard'
 import { DescriptionCard } from './DescriptionCard'
 import { PublishFooter } from './PublishFooter'
 import { PublishStateCard } from './PublishStateCard'
+import { ShortsCard } from './ShortsCard'
 import { SpeakersCard } from './SpeakersCard'
 import { SummaryCard } from './SummaryCard'
 import { TagsCard } from './TagsCard'
+import { ThumbnailCard } from './ThumbnailCard'
 import { TitleCard } from './TitleCard'
 
 interface PublishPanelProps {
@@ -73,6 +75,13 @@ export function PublishPanel({
             <DescriptionCard publish={publish} />
             <CollectionCard publish={publish} />
             <ChaptersCard publish={publish} onSeek={onSeek} getPlayhead={getPlayhead} />
+            <ShortsCard
+              publish={publish}
+              segments={segments}
+              onSeek={onSeek}
+              getPlayhead={getPlayhead}
+            />
+            <ThumbnailCard publish={publish} getPlayhead={getPlayhead} />
             <TagsCard publish={publish} />
             <SpeakersCard publish={publish} />
             <SummaryCard publish={publish} />

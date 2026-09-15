@@ -32,12 +32,11 @@ from __future__ import annotations
 
 import logging
 import subprocess
-import uuid
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Callable, Optional
 
-from backend.library import fs
+from backend.library import frame_grab
 from backend.library.errors import RecordNotFound
 
 logger = logging.getLogger(__name__)
@@ -57,7 +56,7 @@ POSTER_MAX_AT_S = 30.0
 #: With no duration on the record yet (a fresh import), one second in.
 POSTER_UNKNOWN_DURATION_AT_S = 1.0
 #: A single-frame decode should be near-instant; a stuck ffmpeg is killed.
-GRAB_TIMEOUT_S = 30.0
+GRAB_TIMEOUT_S = frame_grab.GRAB_TIMEOUT_S
 #: The startup backfill is bounded so a huge library cannot pin ffmpeg for long.
 BACKFILL_MAX_RECORDS = 200
 
@@ -84,10 +83,8 @@ def poster_time(duration: Optional[float]) -> float:
 
 
 def _default_ffmpeg() -> str:
-    # Lazy: keeps ``backend.library`` importable without Pillow and the exporters.
-    from backend.exporters.video_render import _find_ffmpeg
-
-    return _find_ffmpeg()
+    # Lazy (inside frame_grab): keeps ``backend.library`` importable without Pillow.
+    return frame_grab.default_ffmpeg()
 
 
 def _default_probe(source: str) -> Optional[float]:
@@ -102,45 +99,18 @@ def _run(cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, capture_output=True, timeout=timeout)
 
 
-def _discard(tmp: Path) -> None:
-    try:
-        tmp.unlink()
-    except FileNotFoundError:
-        pass
-    except OSError:
-        logger.warning("Could not remove a poster temp file: %s", tmp, exc_info=True)
-
-
 def grab_poster(source: Path, dest: Path, at_s: float, *, ffmpeg: str) -> bool:
-    """One frame at ``at_s`` from ``source`` → ``dest``, atomically.
+    """One frame at ``at_s`` from ``source`` → ``dest``, atomically (``frame_grab``).
 
     False when ffmpeg produced nothing — an audio-only source, an unreadable
-    file, a seek past the end — so the caller can retry at 0 or give up.
+    file, a seek past the end — so the caller can retry at 0 or give up. Capped
+    at ``POSTER_WIDTH`` without upscaling. ``_run`` is looked up here, per call,
+    so a test that replaces it on this module still reaches the grab.
     """
-    dest = Path(dest)
-    tmp = dest.with_name(f".{dest.stem}-{uuid.uuid4().hex}.jpg")
-    cmd = [
-        ffmpeg, "-hide_banner", "-loglevel", "error", "-y",
-        "-ss", f"{at_s:.3f}", "-i", str(source),
-        # Cap at POSTER_WIDTH without upscaling a narrower source. The quotes
-        # are for ffmpeg's filtergraph parser, not a shell: a bare comma inside
-        # min() would split the chain ("No such filter: 'iw):-2'").
-        "-frames:v", "1", "-vf", f"scale=w='min({POSTER_WIDTH},iw)':h=-2",
-        "-q:v", str(POSTER_JPEG_QUALITY), "-f", "image2", str(tmp),
-    ]
-    try:
-        proc = _run(cmd, GRAB_TIMEOUT_S)
-    except (OSError, subprocess.SubprocessError) as exc:
-        logger.warning("Poster grab failed for %s: %s", source, exc)
-        _discard(tmp)
-        return False
-    if proc.returncode != 0 or not tmp.is_file() or tmp.stat().st_size == 0:
-        stderr = (proc.stderr or b"").decode("utf-8", errors="replace").strip()
-        logger.info("No poster frame at %.1fs for %s: %s", at_s, source, stderr[:200])
-        _discard(tmp)
-        return False
-    fs.replace_with_retry(tmp, dest)
-    return True
+    return frame_grab.grab_frame(
+        source, dest, at_s, ffmpeg=ffmpeg,
+        max_width=POSTER_WIDTH, quality=POSTER_JPEG_QUALITY, run=_run,
+    )
 
 
 def ensure_poster(

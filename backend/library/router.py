@@ -37,9 +37,10 @@ from backend.library.paths import library_root, record_dir, resolve_asset
 from backend.library.router_admin import register_admin_routes
 from backend.library.router_collections import register_collection_routes
 from backend.library.router_derived import LiveSession, register_derived_routes
+from backend.library.router_frames import register_frame_routes
 from backend.library.router_import import register_import_routes
 from backend.library.router_publish import (
-    collection_refusal,
+    locked_refusal,
     register_publish_routes,
     violation_refusal,
 )
@@ -235,6 +236,10 @@ def build_router(
     register_publish_routes(
         router, get_store=get_store, library_errors=_library_errors
     )
+    register_frame_routes(
+        router, get_store=get_store, library_errors=_library_errors,
+        actor_dep=actor_dep, on_record_changed=on_record_changed,
+    )
     _register_record_routes(router, actor_dep, on_record_changed)
     _register_record_write_routes(router, actor_dep, on_record_changed)
     _register_project_routes(router, on_record_changed)
@@ -317,11 +322,12 @@ def _register_record_routes(
             try:
                 with store.write_lock:
                     # Re-checked under the lock: a collection deleted since the
-                    # check above must not gain a member (collections plan, 8).
-                    refusal = collection_refusal(store, current, patch)
+                    # check above must not gain a member (collections plan, 8), and
+                    # a partial thumbnail inherits the record as it is now (4s, A).
+                    refusal, completed = locked_refusal(store, current, patch)
                     if refusal is not None:
                         return refusal
-                    record = store.patch(video_id, patch, rev=rev, by=actor)
+                    record = store.patch(video_id, completed, rev=rev, by=actor)
             except StaleRevision as exc:
                 return JSONResponse(
                     status_code=http_status.HTTP_409_CONFLICT,

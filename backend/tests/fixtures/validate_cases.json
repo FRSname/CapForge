@@ -301,5 +301,40 @@
     "duration": null,
     "brief": {"house_rules": {"no_em_dashes": true, "hook_first_150": false}},
     "expect": ["title_max_chars", "no_em_dashes"]
+  },
+  {
+    "name": "cover_that_is_not_a_candidate",
+    "fields": {"thumbnail": {"candidates": ["bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.jpg"], "cover": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.jpg"}},
+    "duration": null,
+    "brief": null,
+    "expect": ["cover_not_a_candidate"]
+  },
+  {
+    "name": "clip_ending_before_it_starts",
+    "fields": {"shorts": {"clip_suggestions": [{"start_s": 20, "end_s": 10, "why": "x"}]}},
+    "duration": 600,
+    "brief": null,
+    "expect": ["clip_order"]
+  },
+  {
+    "name": "clip_past_the_end_of_the_video",
+    "fields": {"shorts": {"clip_suggestions": [{"start_s": 590, "end_s": 610, "why": "x"}]}},
+    "duration": 600,
+    "brief": null,
+    "expect": ["clip_past_end"]
+  },
+  {
+    "name": "clip_longer_than_a_short",
+    "fields": {"shorts": {"clip_suggestions": [{"start_s": 0, "end_s": 75, "why": "x"}]}},
+    "duration": 600,
+    "brief": {},
+    "expect": ["shorts_clip_length"]
+  },
+  {
+    "name": "thumbnail_ideas_with_no_recommendation",
+    "fields": {"thumbnail": {"ideas": [{"label": "A", "type": "face", "headline": "One"}]}},
+    "duration": null,
+    "brief": {},
+    "expect": ["thumbnail_recommended"]
   }
 ]

@@ -11,6 +11,10 @@ The publish loop CapForge is built around has three steps and one direction:
 The package is *rendered from* the record, so it is an output, never an input:
 pasting its text back into a field would duplicate the record inside itself.
 
+`grab_frames` is the one tool here that writes: it adds thumbnail frames (files)
+to the record's `thumbnail.candidates`; omit `candidates` from a `set_video_meta`
+patch to leave them unchanged.
+
 The rules live in Python once (`backend/library/validate.py`) — hard ones are
 YouTube's own limits and are refused by `PATCH /api/library/{id}` before a write
 lands; style ones come from the channel brief and are advice.
@@ -35,6 +39,9 @@ OTHER = "other"
 #: The platforms `get_upload_package` can render. Non-YouTube formatters are a
 #: later deliverable, so an unknown one is refused here instead of 422-ing.
 SUPPORTED_PLATFORMS = ("youtube",)
+
+#: What `grab_frames` expects: seconds, from the transcript.
+_TIMES_SHAPE = "[61.25, 184.0]"
 
 #: The shape every chapter has to have before it is worth a round trip.
 _CHAPTER_SHAPE = '[{"start_s": 0, "title": "Cold open"}, …]'
@@ -196,13 +203,53 @@ def get_upload_package(video_id: str, platform: str = "youtube") -> dict:
     return _library_call(_call)
 
 
-#: The five tools this module contributes, in the order they are registered.
+def grab_frames(video_id: str, times: list[float]) -> dict:
+    """Grab still frames from a video as thumbnail candidates (JPEG files on the record).
+
+    Pick the times from the transcript, never a guess:
+    `find_video_moments(video_id, query=…)` for the moment a thumbnail idea is
+    about, or a highlight's `start_s`. Times are **seconds**, inside the video;
+    at most 8 per call and 24 frames per record. A frame is at most 1280 px on
+    its long edge (a vertical video gives a vertical frame) and at most 2 MB.
+
+    Returns `{frames: [{time_s, name}], failed: [{time_s, reason}], rev}`: each
+    kept frame is appended to the record's `thumbnail.candidates`, and `rev` is
+    the record's new revision. A time ffmpeg could not use is under `failed`;
+    the rest still land.
+
+    To choose the cover, call `set_video_meta` with that `rev` and
+    `{"thumbnail": {"cover": "<name>"}}`. Omit `candidates` (and `cover`) to
+    leave them unchanged; this tool adds frames, and only an explicit changed
+    `candidates` list is refused (`candidates_managed`). A cover that is not one
+    of the candidates is refused too. The upload package then prints the cover's
+    file path.
+    """
+    if not isinstance(times, list) or not times:
+        return _fail(f"Pass a non-empty 'times' list of seconds, e.g. {_TIMES_SHAPE}.")
+    if any(isinstance(t, bool) or not isinstance(t, (int, float)) for t in times):
+        return _fail(f"Every entry in 'times' must be a number of seconds, e.g. {_TIMES_SHAPE}.")
+    requested = [float(t) for t in times]
+
+    def _call() -> dict:
+        answer = _capforge().library_grab_frames(video_id, requested) or {}
+        return {
+            "status": _OK,
+            "frames": answer.get("frames") or [],
+            "failed": answer.get("failed") or [],
+            "rev": answer.get("rev"),
+        }
+
+    return _library_call(_call)
+
+
+#: The six tools this module contributes, in the order they are registered.
 TOOLS = (
     get_brief,
     set_brief,
     validate_video,
     check_chapters,
     get_upload_package,
+    grab_frames,
 )
 
 

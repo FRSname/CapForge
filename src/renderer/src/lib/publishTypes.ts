@@ -13,6 +13,12 @@
  * Pure module: no React, no `window`, no I/O.
  */
 
+import type { Shorts, Thumbnail } from './publishMediaTypes'
+import { parseShorts, parseThumbnail } from './publishMediaTypes'
+import { bool, nonEmptyString, nullableNumber, num, obj, str, strings } from './wireReaders'
+
+export type { ClipSuggestion, Shorts, Thumbnail, ThumbnailIdea } from './publishMediaTypes'
+
 /** One authored chapter. Seconds, not a formatted string (`lib/youtubeRules.ts` formats). */
 export interface Chapter {
   start_s: number
@@ -79,6 +85,10 @@ export interface PublishAuthored {
   /** The collection this video belongs to (`GET /api/library/collections`), or null. */
   collection_id: string | null
   publish: PublishBlock
+  /** Shorts caption + clip suggestions (`lib/publishMediaTypes.ts`). */
+  shorts: Shorts
+  /** Thumbnail ideas, the grabbed frames and the cover. `candidates` is backend-managed. */
+  thumbnail: Thumbnail
 }
 
 /** The record view: the authored fields plus the system ones the panel reads. */
@@ -154,36 +164,6 @@ export const BRIEF_SHAPE_MESSAGE =
 
 export const PACKAGE_SHAPE_MESSAGE =
   'The upload package came back in an unexpected shape — the backend may be out of date.'
-
-function obj(value: unknown): Record<string, unknown> | null {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null
-}
-
-function str(value: unknown, fallback = ''): string {
-  return typeof value === 'string' ? value : fallback
-}
-
-function num(value: unknown, fallback = 0): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
-}
-
-function nonEmptyString(value: unknown): string | null {
-  return typeof value === 'string' && value !== '' ? value : null
-}
-
-function nullableNumber(value: unknown): number | null {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null
-}
-
-function bool(value: unknown, fallback = false): boolean {
-  return typeof value === 'boolean' ? value : fallback
-}
-
-function strings(value: unknown): string[] {
-  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : []
-}
 
 function linkRows(value: unknown): LinkRow[] {
   if (!Array.isArray(value)) return []
@@ -295,6 +275,8 @@ export function parsePublishRecord(value: unknown): PublishRecord {
     collection_id: nonEmptyString(row.collection_id),
     links: linkRows(row.links),
     publish: publishBlock(row.publish),
+    shorts: parseShorts(row.shorts),
+    thumbnail: parseThumbnail(row.thumbnail),
     history: history(row.history),
   }
 }

@@ -34,7 +34,7 @@ and renders one plain-text package the user pastes into YouTube Studio.
 - **One video per call.** A batch is you looping, each step visible in the app.
 - **CapForge uploads nothing, cuts nothing, draws nothing.** `mark_published`
   records the URL the user pasted; Shorts are candidate timestamps; thumbnails are
-  text ideas.
+  text ideas plus frames grabbed from the video.
 
 ## Where things are
 
@@ -47,6 +47,7 @@ and renders one plain-text package the user pastes into YouTube Studio.
 | timestamps | `find_video_moments(video_id, query=…)` or `kind="pause" \| "speaker_change" \| "numbers" \| "cta"`; `find_moments`, `find_semantic_moments` against the open session |
 | write | `set_video_meta(video_id, patch, rev)` |
 | check | `validate_video(video_id)`; `check_chapters(video_id, chapters)` before a chapter list |
+| a thumbnail frame | `grab_frames(video_id, times)`; the cover is then set with `set_video_meta` |
 | the text | `get_upload_package(video_id)` |
 | after upload | `mark_published(video_id, url)` |
 
@@ -58,8 +59,8 @@ and renders one plain-text package the user pastes into YouTube Studio.
 | `breakdown` | `summary_md`, timed `highlights` and `quotes`, `tools_mentioned`, `speakers` — the fields every other topic draws on. |
 | `description` | `title`, `title_options`, `description`, `short_description`, `tags`, `hashtags`, `keywords`: the limits and the house rules. |
 | `chapters` | Chapters as seconds from real moments: the hard rules, the candidates, the dry run, the short-video exception. |
-| `thumbnails` | Thumbnail ideas as text; what a good headline is; CapForge generates no images. |
-| `shorts` | The Shorts caption and 2–3 clip candidates; the under-60-seconds rule. |
+| `thumbnails` | Thumbnail ideas as text; what a good headline is; frames and the cover; CapForge draws no images. |
+| `shorts` | The Shorts caption and 2–3 clip candidates; the under-60-seconds rule; what a clip is checked against. |
 | `batch` | A set of videos: list by status, one record per call, what to report, scratch runs. |
 | `collections` | An event's shared boilerplate: slots, brief overrides, the description template, assigning videos, adopting orphan ids. |
 

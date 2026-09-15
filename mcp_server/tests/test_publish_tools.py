@@ -20,8 +20,8 @@ from mcp_server.discovery import BackendNotFound
 
 VIDEO_ID = "6f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f"
 
-#: 46 tools, plus the five in `publish.py`, plus the four in `collection_tools.py`.
-EXPECTED_TOOL_COUNT = 56
+#: 46 tools, plus the six in `publish.py`, plus the four in `collection_tools.py`.
+EXPECTED_TOOL_COUNT = 57
 
 PACKAGE_TEXT = "TITLE OPTIONS\n1. Kubernetes on a budget\n"
 
@@ -300,10 +300,10 @@ def test_every_publish_tool_is_registered_on_the_server() -> None:
     assert {fn.__name__ for fn in publish.TOOLS} <= names
 
 
-def test_the_tool_group_is_the_five_the_plan_lists() -> None:
+def test_the_tool_group_is_the_six_the_plans_list() -> None:
     assert [fn.__name__ for fn in publish.TOOLS] == [
         "get_brief", "set_brief", "validate_video", "check_chapters",
-        "get_upload_package",
+        "get_upload_package", "grab_frames",
     ]
 
 
@@ -329,3 +329,84 @@ def test_publish_never_imports_the_server_module() -> None:
     with open(source, encoding="utf-8") as handle:
         text = handle.read()
     assert "import server" not in text and "from .server" not in text
+
+
+# --- grab_frames (publish-editors Part A) ------------------------------------
+
+FRAME_NAME = "0123456789abcdef0123456789abcdef.jpg"
+
+
+class FramesStub(StubClient):
+    """`StubClient` plus the frames route."""
+
+    def __init__(self, answer: Optional[dict] = None) -> None:
+        super().__init__()
+        self.frame_calls: list[dict] = []
+        self.answer = answer if answer is not None else {
+            "frames": [{"time_s": 61.25, "name": FRAME_NAME}],
+            "failed": [{"time_s": 9000.0, "reason": "ffmpeg produced no frame"}],
+            "rev": 7,
+        }
+
+    def library_grab_frames(self, video_id: str, times: list) -> dict:
+        self._check()
+        self.frame_calls.append({"video_id": video_id, "times": copy.deepcopy(times)})
+        return copy.deepcopy(self.answer)
+
+
+def test_grab_frames_posts_the_times_and_answers_frames_failures_and_rev(monkeypatch) -> None:
+    stub = _use(monkeypatch, FramesStub())
+    times = [61.25, 9000.0]
+
+    out = publish.grab_frames(VIDEO_ID, times)
+
+    assert stub.frame_calls == [{"video_id": VIDEO_ID, "times": [61.25, 9000.0]}]
+    assert out == {
+        "status": "ok",
+        "frames": [{"time_s": 61.25, "name": FRAME_NAME}],
+        "failed": [{"time_s": 9000.0, "reason": "ffmpeg produced no frame"}],
+        "rev": 7,
+    }
+
+
+def test_grab_frames_never_hands_the_callers_list_to_the_client(monkeypatch) -> None:
+    stub = _use(monkeypatch, FramesStub())
+    times = [1.0]
+
+    publish.grab_frames(VIDEO_ID, times)
+    stub.frame_calls[0]["times"].append(2.0)
+
+    assert times == [1.0]
+
+
+@pytest.mark.parametrize("times", [[], None, "61", [True], ["1.0"], [1.0, None]])
+def test_grab_frames_refuses_unusable_times_without_a_call(monkeypatch, times) -> None:
+    stub = _use(monkeypatch, FramesStub())
+
+    out = publish.grab_frames(VIDEO_ID, times)
+
+    assert out["status"] == "error"
+    assert "times" in out["error"]
+    assert stub.frame_calls == []
+
+
+def test_grab_frames_passes_the_backends_refusal_sentence_through(monkeypatch) -> None:
+    stub = _use(monkeypatch, FramesStub())
+    sentence = "Record has 24 of 24 thumbnail candidates; delete a frame first."
+    stub.raises = http_error(422, sentence)
+
+    assert publish.grab_frames(VIDEO_ID, [1.0]) == {"status": "error", "error": sentence}
+
+
+def test_grab_frames_reports_a_closed_app(monkeypatch) -> None:
+    stub = _use(monkeypatch, FramesStub())
+    stub.raises = BackendNotFound("gone")
+
+    assert publish.grab_frames(VIDEO_ID, [1.0])["error"] == library.NOT_RUNNING
+
+
+def test_grab_frames_docstring_names_the_workflow() -> None:
+    doc = publish.grab_frames.__doc__ or ""
+    assert "find_video_moments" in doc
+    assert "set_video_meta" in doc
+    assert "candidates" in doc and "cover" in doc

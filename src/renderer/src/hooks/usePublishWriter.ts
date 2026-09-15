@@ -17,6 +17,7 @@ import type { MutableRefObject } from 'react'
 import { StaleRecordError, ValidationRefusedError, api } from '../lib/api'
 import type { PublishRecord, Violation } from '../lib/publishTypes'
 import type { PublishDrafts } from '../lib/publishDrafts'
+import { withManagedCandidates } from '../lib/publishThumbnail'
 
 /**
  * Trailing debounce before a `PATCH`. Longer than the mirror's 300 ms: this is
@@ -47,8 +48,15 @@ export interface PublishWriterInput {
 export interface PublishWriter {
   /** Arm (or re-arm) the debounced write of whatever drafts are outstanding. */
   schedule: () => void
+  /**
+   * Send the outstanding drafts now instead of on the debounce — before an
+   * action that bumps `rev` itself (grabbing or deleting a frame), so the
+   * user's own edit does not come back as a 409. Resolves once it has settled;
+   * failures are reported through `notifyRef`, never thrown.
+   */
+  flushNow: () => Promise<void>
   /** A write that must not wait for a debounce (Revert, Publish state). */
-  patchNow: (patch: Record<string, unknown>) => void
+  patchNow: (patch: Record<string, unknown>) => Promise<void>
 }
 
 export function usePublishWriter({
@@ -73,13 +81,16 @@ export function usePublishWriter({
     []
   )
 
-  const flush = useCallback(() => {
+  const flush = useCallback((): Promise<void> => {
     const { record: current, drafts: pending } = stateRef.current
-    if (!current || Object.keys(pending).length === 0) return
+    if (!current || Object.keys(pending).length === 0) return Promise.resolve()
+    // `sent` keeps the draft values by identity (that is how `remainingDrafts`
+    // settles them); the wire copy takes `thumbnail.candidates` from the record
+    // as it is *now*, never from the draft — see `lib/publishThumbnail.ts`.
     const sent = { ...pending }
     onSaving(true)
-    api
-      .patchLibraryRecord(current.id, sent as Record<string, unknown>, current.rev)
+    return api
+      .patchLibraryRecord(current.id, withManagedCandidates(sent, current), current.rev)
       .then((next) => {
         retriedRef.current = false
         onSaved(next, sent)
@@ -92,7 +103,7 @@ export function usePublishWriter({
           const reloaded = err.current
             ? Promise.resolve(err.current)
             : api.getLibraryRecord(current.id)
-          reloaded
+          return reloaded
             .then((next) => {
               onRecord(next)
               if (retriedRef.current) return
@@ -100,7 +111,6 @@ export function usePublishWriter({
               scheduleRef.current()
             })
             .catch((e) => notifyRef.current(`Could not reload this record: ${reasonOf(e)}`))
-          return
         }
         if (err instanceof ValidationRefusedError) {
           onViolations(err.violations)
@@ -121,13 +131,19 @@ export function usePublishWriter({
   }, [flush])
   scheduleRef.current = schedule
 
+  const flushNow = useCallback((): Promise<void> => {
+    if (timerRef.current) clearTimeout(timerRef.current)
+    timerRef.current = null
+    return flush()
+  }, [flush])
+
   const patchNow = useCallback(
-    (patch: Record<string, unknown>) => {
+    (patch: Record<string, unknown>): Promise<void> => {
       const current = stateRef.current.record
-      if (!current) return
+      if (!current) return Promise.resolve()
       onSaving(true)
-      api
-        .patchLibraryRecord(current.id, patch, current.rev)
+      return api
+        .patchLibraryRecord(current.id, withManagedCandidates(patch, current), current.rev)
         .then((next) => {
           onRecord(next)
           onViolations([])
@@ -150,5 +166,5 @@ export function usePublishWriter({
     [stateRef, notifyRef, onRecord, onViolations, onSaving]
   )
 
-  return { schedule, patchNow }
+  return { schedule, flushNow, patchNow }
 }

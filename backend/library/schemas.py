@@ -77,7 +77,9 @@ class ThumbnailIdea(BaseModel):
 
 class Thumbnail(BaseModel):
     ideas: list[ThumbnailIdea] = Field(default_factory=list)
-    #: Asset names under the record folder (``thumbnails/<hex>.jpg``).
+    #: Frame names (``<32-hex>.jpg``) in the record's ``thumbnails/`` folder. Only
+    #: the frame routes change this list (``frames.py``); a PATCH that changes it
+    #: is refused (``candidates_managed``), and ``cover`` is null or one of them.
     candidates: list[str] = Field(default_factory=list)
     cover: Optional[str] = None
 

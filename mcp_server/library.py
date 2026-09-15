@@ -171,7 +171,9 @@ def set_video_meta(video_id: str, patch: dict, rev: int) -> dict:
     `summary_md`, `highlights`, `quotes`, `tools_mentioned`, `links`, `shorts`,
     `thumbnail`, `speakers`, `collection_id`, `localized`, `publish`,
     `external_refs`). Chapter times are **seconds** and are never re-timed by a
-    transcript edit.
+    transcript edit. In a `thumbnail` patch, omit `candidates` (and `cover`) to
+    leave them unchanged; `grab_frames` adds frames and only an explicit changed
+    list is refused (`candidates_managed`).
 
     This CANNOT fix transcript text — the transcript is derived from the session
     and is read-only here. Use `open_video(video_id)` and then `update_words`.

@@ -40,8 +40,21 @@ describe('parsePublishRecord', () => {
       collection_id: null,
       links: [],
       publish: { youtube: null, pushes: [] },
+      shorts: { caption: '', clip_suggestions: [] },
+      thumbnail: { ideas: [], candidates: [], cover: null },
       history: [],
     })
+  })
+
+  test('reads the shorts and thumbnail blocks through their guards', () => {
+    const frame = `${'a'.repeat(32)}.jpg`
+    const record = parsePublishRecord({
+      id: 'v',
+      shorts: { caption: 'Hook', clip_suggestions: [{ start_s: 1, end_s: 31, why: 'w' }] },
+      thumbnail: { ideas: [], candidates: [frame], cover: frame },
+    })
+    expect(record.shorts.clip_suggestions).toEqual([{ start_s: 1, end_s: 31, why: 'w' }])
+    expect(record.thumbnail).toEqual({ ideas: [], candidates: [frame], cover: frame })
   })
 
   test('reads the collection a record belongs to, empty meaning none', () => {
@@ -169,8 +182,14 @@ describe('parseUploadPackage and parseMoments', () => {
 describe('publish block pushes', () => {
   test('keeps recorded pushes verbatim so a publish-state patch cannot clobber them', () => {
     const parsed = parsePublishRecord({
-      id: 'vid_1', rev: 1, duration: 10, status: 'drafted',
-      publish: { youtube: { videoId: null, url: null, publishedAt: null }, pushes: [{ system: 'update-conf', at: 'x' }] },
+      id: 'vid_1',
+      rev: 1,
+      duration: 10,
+      status: 'drafted',
+      publish: {
+        youtube: { videoId: null, url: null, publishedAt: null },
+        pushes: [{ system: 'update-conf', at: 'x' }],
+      },
     })
     expect(parsed.publish.youtube).toBeNull()
     expect(parsed.publish.pushes).toEqual([{ system: 'update-conf', at: 'x' }])

@@ -86,3 +86,11 @@ class CollectionsUnreadable(LibraryError, ValueError):
 
     A ``ValueError`` too, like a corrupt brief: the file is reported, never reset.
     """
+
+
+class FrameNotFound(LibraryError):
+    """No thumbnail frame with that name on the record (404)."""
+
+
+class FramesRefused(LibraryError, ValueError):
+    """Frame times or the candidate limit refused (422); the message is a sentence."""

@@ -81,3 +81,37 @@ def test_probe_duration_reads_a_real_clip(tmp_path: Path) -> None:
 
     seconds = media_probe.probe_duration(clip(tmp_path, NARROW), find_ffprobe=lambda: FFPROBE)
     assert seconds == pytest.approx(float(CLIP_SECONDS), abs=0.1)
+
+
+# --- thumbnail frames (publish-editors Part A) -----------------------------------
+
+FULL_HD = (1920, 1080)
+VERTICAL = (1080, 1920)
+
+
+def grab_thumbnail(tmp_path: Path, size: tuple[int, int]) -> Path:
+    from backend.library import frames
+
+    folder = tmp_path / "thumbnails"
+    outcome = frames.grab_frame_file(clip(tmp_path, size), folder, 0.5, ffmpeg=FFMPEG)
+    assert isinstance(outcome, frames.GrabbedFrame), outcome
+    written = folder / outcome.name
+    assert [p.name for p in folder.iterdir()] == [outcome.name]
+    assert written.stat().st_size <= frames.THUMBNAIL_MAX_BYTES
+    return written
+
+
+def test_a_16_9_source_yields_a_1280_wide_frame(tmp_path: Path) -> None:
+    with Image.open(grab_thumbnail(tmp_path, FULL_HD)) as img:
+        assert img.format == "JPEG"
+        assert img.size == (1280, 720)
+
+
+def test_a_9_16_source_yields_a_720_wide_vertical_frame(tmp_path: Path) -> None:
+    with Image.open(grab_thumbnail(tmp_path, VERTICAL)) as img:
+        assert img.size == (720, 1280)
+
+
+def test_a_small_source_frame_is_never_upscaled(tmp_path: Path) -> None:
+    with Image.open(grab_thumbnail(tmp_path, NARROW)) as img:
+        assert img.size == NARROW

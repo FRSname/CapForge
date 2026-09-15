@@ -30,6 +30,7 @@ from backend.library.brief import Brief, BriefPatch, load_brief, save_brief
 from backend.library.collection_store import Collection, effective_brief
 from backend.library.errors import CollectionNotFound, CollectionsUnreadable
 from backend.library.package import assemble_description, render_youtube_package
+from backend.library.paths import record_dir
 from backend.library.schemas import RecordPatch, VideoRecord
 from backend.library.validate import (
     Violation,
@@ -39,6 +40,12 @@ from backend.library.validate import (
     unknown_collection_violation,
     validate_fields,
     validate_record,
+)
+from backend.library.validate_media import (
+    candidates_findings,
+    cover_findings,
+    inherit_thumbnail,
+    merge_thumbnail_fields,
 )
 
 #: The only package format v3.0 renders; anything else is a 400, never a guess.
@@ -131,11 +138,15 @@ def violation_refusal(
 
     Merged, not patched: a record is refused on the state it would end up in,
     so a violation can never hide behind a write that did not repeat it. An
-    unknown ``collection_id`` rides in the same ``violations`` list.
+    unknown ``collection_id`` rides in the same ``violations`` list. A partial
+    ``thumbnail`` object is first completed from ``record`` (an omitted key means
+    unchanged), so it is never judged against empty defaults.
     """
-    merged = {**authored_fields(record), **patch.model_dump(exclude_unset=True)}
+    completed = inherit_thumbnail(record.thumbnail, patch)
+    merged = {**authored_fields(record), **completed.model_dump(exclude_unset=True)}
     found = [
         *hard_violations(merged, duration=record_duration(store, record)),
+        *candidates_findings(record.thumbnail.candidates, patch),
         *_collection_findings(store, record, patch),
     ]
     if not found:
@@ -143,14 +154,26 @@ def violation_refusal(
     return _violations_response(found)
 
 
-def collection_refusal(
-    store: Any, record: VideoRecord, patch: RecordPatch
-) -> Optional[JSONResponse]:
-    """Only the unknown-collection check. The PATCH route re-runs it under the
-    store's write lock, so a collection deleted after :func:`violation_refusal`
-    cannot gain a member."""
-    found = _collection_findings(store, record, patch)
-    return _violations_response(found) if found else None
+def locked_refusal(
+    store: Any, current: VideoRecord, patch: RecordPatch
+) -> tuple[Optional[JSONResponse], RecordPatch]:
+    """The checks the PATCH route repeats under the store's write lock.
+
+    The record is re-read here, so a frame grabbed or deleted after
+    :func:`violation_refusal` is what a partial ``thumbnail`` inherits and what
+    ``candidates_managed`` and ``cover_not_a_candidate`` judge (publish-editors
+    Part A). Returns the refusal, or ``None`` and the patch to write — its
+    thumbnail completed from that fresh read.
+    """
+    fresh = store.get(current.id)
+    completed = inherit_thumbnail(fresh.thumbnail, patch)
+    found = [
+        *_collection_findings(store, current, patch),
+        *candidates_findings(fresh.thumbnail.candidates, patch),
+    ]
+    if "thumbnail" in patch.model_fields_set:
+        found += cover_findings(completed.thumbnail)
+    return (_violations_response(found) if found else None), completed
 
 
 def _collection_findings(
@@ -240,6 +263,8 @@ def _register_validate_route(
                 record = store.get(body.video_id)
             if fields is None:
                 fields = authored_fields(record)
+            else:
+                fields = merge_thumbnail_fields(record.thumbnail, fields)
             if duration is None:
                 duration = record_duration(store, record)
         brief = effective_brief(
@@ -284,6 +309,7 @@ def _register_package_route(
             record, brief, duration=duration,
             source_name=Path(record.sourcePath).name,
             diarized_ids=speakers, collection=collection,
+            record_folder=record_dir(record.id, scratch=record.scratch, root=store.root).absolute(),
         )
         assembled = assemble_description(
             record, brief, collection=collection, diarized_ids=speakers

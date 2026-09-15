@@ -10,9 +10,12 @@
  * Pure module: no React, no `window`, no I/O.
  */
 
-import type { HistoryEntry, PublishAuthored, PublishRecord, Violation } from './publishTypes'
+import type { HistoryEntry, PublishAuthored, PublishRecord } from './publishTypes'
 import type { Segment } from '../types/app'
 import { HOOK_CHARS } from './youtubeRules'
+import { composeThumbnailPatch } from './publishThumbnail'
+
+export { violationsForField } from './publishViolations'
 
 /** Every authored field the panel can write. Keys of `PublishAuthored`. */
 export type PublishFieldId = keyof PublishAuthored
@@ -23,6 +26,8 @@ export type PublishCardId =
   | 'description'
   | 'collection'
   | 'chapters'
+  | 'shorts'
+  | 'thumbnail'
   | 'tags'
   | 'speakers'
   | 'summary'
@@ -45,6 +50,8 @@ export const PUBLISH_FIELDS: ReadonlyArray<PublishFieldSpec> = [
   { id: 'description', label: 'Description', card: 'description' },
   { id: 'collection_id', label: 'Collection', card: 'collection' },
   { id: 'chapters', label: 'Chapters', card: 'chapters' },
+  { id: 'shorts', label: 'Shorts', card: 'shorts' },
+  { id: 'thumbnail', label: 'Thumbnail', card: 'thumbnail' },
   { id: 'tags', label: 'Tags', card: 'tags' },
   { id: 'keywords', label: 'Keywords', card: 'tags' },
   { id: 'hashtags', label: 'Hashtags', card: 'tags' },
@@ -179,6 +186,10 @@ export function parseHashtags(line: string): string[] {
  * typing: take the agent's record wholesale, except for the one field under the
  * cursor, which stays as the user left it until they choose.
  *
+ * A locked `thumbnail` keeps the user's ideas and cover but takes the remote
+ * frames: `candidates` belongs to the frames routes, and a record holding a
+ * stale list would make the next write a `candidates_managed` refusal.
+ *
  * Never mutates either side — the result is a fresh record.
  */
 export function mergeAgentUpdate(
@@ -187,16 +198,10 @@ export function mergeAgentUpdate(
   editingField: PublishFieldId | null
 ): PublishRecord {
   if (!editingField) return remote
+  if (editingField === 'thumbnail') {
+    return { ...remote, thumbnail: composeThumbnailPatch(local.thumbnail, remote) }
+  }
   return { ...remote, [editingField]: local[editingField] }
-}
-
-/**
- * The findings a card draws under `field`: the field itself and any row of
- * it — the backend reports a bad first chapter as `chapters[0]`, and that
- * belongs under the chapter list, not nowhere.
- */
-export function violationsForField(violations: readonly Violation[], field: string): Violation[] {
-  return violations.filter((v) => v.field === field || v.field.startsWith(`${field}[`))
 }
 
 /**

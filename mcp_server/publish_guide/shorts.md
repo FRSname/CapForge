@@ -30,6 +30,18 @@ breath. Each needs `start_s`, `end_s` and one line of `why`. Time them with
 `kind="cta"`; the `end_s` is the end of the sentence that completes the thought,
 which is usually one or two segments past the match. Keep them under 60 seconds.
 
+## What a clip is checked against
+
+- **Hard — the write is refused:** a clip starts at 0 or later and before it ends
+  (`clip_order`), and it does not end past the end of the video (`clip_past_end`).
+  Fix the named clip and write again.
+- **Style — advice:** a clip longer than 60 seconds (`shorts_clip_length`). YouTube
+  allows longer Shorts; the guide does not.
+
+The user edits the caption and the clips in the app's Shorts card, so read
+`get_video` before writing and send the whole `shorts` block back: a patch replaces
+it, and a clip you leave out is gone.
+
 ## When the whole video is the Short
 
 Under 60 seconds the video *is* the clip: write the caption, one description

@@ -69,6 +69,9 @@ export interface SubforgeApi {
   pickLibraryFolder: () => Promise<string | null>
   /** The library's Import… picker; resolves to the stat'ed picks, [] when cancelled. */
   pickImport: (mode: ImportPickMode) => Promise<PickedImportEntry[]>
+  /** "Save cover…": copy `<library>/<videoId>/thumbnails/<name>` (resolved and guarded in
+   *  main) to a file the user picks; `title` only names it. Null when cancelled. */
+  saveLibraryFrame: (videoId: string, name: string, title: string) => Promise<string | null>
   /** Multi-select `.capforge` picker; resolves to the chosen paths (empty when cancelled). */
   openProjectFiles: () => Promise<string[]>
   openLogsFolder: () => Promise<void>
@@ -216,6 +219,8 @@ contextBridge.exposeInMainWorld('subforge', {
   revealLibraryFolder: () => ipcRenderer.invoke('library:reveal'),
   pickLibraryFolder: () => ipcRenderer.invoke('library:pick-folder'),
   pickImport: (mode: ImportPickMode) => ipcRenderer.invoke('library:pick-import', mode),
+  saveLibraryFrame: (videoId: string, name: string, title: string) =>
+    ipcRenderer.invoke('library:save-frame', videoId, name, title),
   openProjectFiles: () => ipcRenderer.invoke('dialog:open-projects'),
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),

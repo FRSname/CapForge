@@ -961,8 +961,8 @@ library.register(mcp, lambda: _client)
 
 # --- Publish -------------------------------------------------------------
 
-# `get_brief`, `set_brief`, `validate_video`, `check_chapters` and
-# `get_upload_package` live in publish.py — the write/validate/render loop over
+# `get_brief`, `set_brief`, `validate_video`, `check_chapters`,
+# `get_upload_package` and `grab_frames` live in publish.py — the write/validate/render loop over
 # a library record (docs/plans/publish-workspace.md).
 publish.register(mcp, lambda: _client)
 

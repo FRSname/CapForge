@@ -46,6 +46,8 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     collection_id: null,
     links: [],
     publish: { youtube: null, pushes: [] },
+    shorts: { caption: '', clip_suggestions: [] },
+    thumbnail: { ideas: [], candidates: [], cover: null },
     history: [],
     ...over,
   }
@@ -65,6 +67,8 @@ describe('PUBLISH_FIELDS', () => {
       'description',
       'collection_id',
       'chapters',
+      'shorts',
+      'thumbnail',
       'tags',
       'keywords',
       'hashtags',
@@ -72,6 +76,14 @@ describe('PUBLISH_FIELDS', () => {
       'summary_md',
       'publish',
     ])
+  })
+
+  test('the Shorts and Thumbnail cards each own their field, right after Chapters', () => {
+    const cards = PUBLISH_FIELDS.map((f) => f.card)
+    expect(PUBLISH_FIELDS.find((f) => f.id === 'shorts')?.card).toBe('shorts')
+    expect(PUBLISH_FIELDS.find((f) => f.id === 'thumbnail')?.card).toBe('thumbnail')
+    expect(cards.indexOf('shorts')).toBe(cards.indexOf('chapters') + 1)
+    expect(cards.indexOf('thumbnail')).toBe(cards.indexOf('shorts') + 1)
   })
 
   test('authoredFields sends the authored half and nothing else', () => {
@@ -183,6 +195,19 @@ describe('mergeAgentUpdate (the soft lock)', () => {
     // Neither side was mutated.
     expect(local.title).toBe('What I am typing')
     expect(remote.title).toBe('Claude wrote this')
+  })
+
+  test('a locked thumbnail keeps the user’s ideas and cover but takes the new frames', () => {
+    const [a, b] = [`${'a'.repeat(32)}.jpg`, `${'b'.repeat(32)}.jpg`]
+    const idea = { label: 'mine', type: 'face', headline: 'H', recommended: true }
+    const local = record({ thumbnail: { ideas: [idea], candidates: [a], cover: a } })
+    const remote = record({ rev: 6, thumbnail: { ideas: [], candidates: [a, b], cover: null } })
+
+    const merged = mergeAgentUpdate(local, remote, 'thumbnail')
+
+    // A grab landed while the user typed an idea: the frame list must be the
+    // backend's, or the next write would carry a stale one (candidates_managed).
+    expect(merged.thumbnail).toEqual({ ideas: [idea], candidates: [a, b], cover: a })
   })
 
   test('takes the whole remote record when nothing is being edited', () => {
