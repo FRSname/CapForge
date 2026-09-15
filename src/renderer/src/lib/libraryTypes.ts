@@ -90,9 +90,12 @@ function nullableString(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null
 }
 
-/** `thumbnail.cover` when it is a frame name; anything else (no thumbnail included) is null. */
-function coverName(thumbnail: unknown): string | null {
-  const cover = asRecordObject(thumbnail)?.cover
+/**
+ * The derived `cover` key (the backend sends it only when the frame file
+ * exists) when it is a frame name; anything else is null. The list summary
+ * carries no `thumbnail`, so this never reads `thumbnail.cover`.
+ */
+function coverName(cover: unknown): string | null {
   return typeof cover === 'string' && FRAME_NAME_RE.test(cover) ? cover : null
 }
 
@@ -134,7 +137,7 @@ export function parseLibraryVideo(value: unknown, index: number): LibraryVideo {
     missing_media: row.missing_media === true,
     hasProject: row.hasProject === true,
     poster: row.poster === true,
-    cover: coverName(row.thumbnail),
+    cover: coverName(row.cover),
   }
 }
 

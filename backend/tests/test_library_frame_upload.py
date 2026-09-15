@@ -280,6 +280,10 @@ def test_uploading_sets_the_candidates_and_the_cover_and_announces(
     stored = client.get(f"/api/library/{rec['id']}", headers=agent()).json()
     assert stored["thumbnail"]["candidates"] == [name]
     assert stored["thumbnail"]["cover"] == name
+    # The card reads the derived key: the list summary carries no `thumbnail`.
+    assert stored["cover"] == name
+    listed = client.get("/api/library", headers=agent()).json()["videos"]
+    assert [video["cover"] for video in listed if video["id"] == rec["id"]] == [name]
     asset = client.get(f"/api/library/{rec['id']}/asset/thumbnails/{name}", headers=agent())
     assert asset.status_code == 200
     by = "agent" if headers == agent() else "user"
