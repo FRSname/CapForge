@@ -849,6 +849,19 @@ describe('publish routes', () => {
     )
   })
 
+  test('getUploadPackage asks for another platform, with a language', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ platform: 'linkedin', text: 'Hook', violations: [], description: null })
+    )
+
+    const pkg = await api.getUploadPackage('vid_1', 'linkedin', 'de')
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://127.0.0.1:53421/api/library/vid_1/package?platform=linkedin&lang=de'
+    )
+    expect(pkg.description).toBeNull()
+  })
+
   test('getLibraryMoments returns the usable matches only', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({

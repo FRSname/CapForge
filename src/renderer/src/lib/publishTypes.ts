@@ -156,13 +156,20 @@ export interface Moment {
   speaker?: string
 }
 
+/**
+ * Where a package is pasted. `youtube` is the upload package; the other three
+ * are clipboard posts rendered from the same record and brief — nothing is
+ * ever posted. Labels and copy live in `lib/publishPlatforms.ts`.
+ */
+export type PublishPlatform = 'youtube' | 'linkedin' | 'x' | 'instagram'
+
 /** `GET /api/library/{id}/package` — rendered text plus whatever it violates. */
 export interface UploadPackage {
   platform: string
   text: string
   /**
    * The pasteable DESCRIPTION body — the rendered template, no header or rule
-   * lines. Null from a backend that predates the field.
+   * lines. Null for the non-YouTube posts, and from a backend that predates it.
    */
   description: string | null
   violations: Violation[]

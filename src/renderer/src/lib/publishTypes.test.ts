@@ -177,6 +177,24 @@ describe('parseUploadPackage and parseMoments', () => {
     expect(parseUploadPackage({ text: 'full', description: '' }).description).toBe('')
   })
 
+  test('a non-YouTube post has a null description and keeps its package.<platform> findings', () => {
+    const pkg = parseUploadPackage({
+      platform: 'x',
+      text: 'Title https://youtu.be/abc',
+      description: null,
+      violations: [
+        { field: 'package.x', rule: 'x_max_chars', message: 'too long', severity: 'hard' },
+        { field: 'package.x', rule: 'video_url_missing', message: 'no url', severity: 'style' },
+      ],
+    })
+    expect(pkg.platform).toBe('x')
+    expect(pkg.description).toBeNull()
+    expect(pkg.violations.map((v) => [v.field, v.rule, v.severity])).toEqual([
+      ['package.x', 'x_max_chars', 'hard'],
+      ['package.x', 'video_url_missing', 'style'],
+    ])
+  })
+
   test('an older backend without description reads as null, never a throw', () => {
     expect(parseUploadPackage({ text: 'full', violations: [] }).description).toBeNull()
     expect(parseUploadPackage({ text: 'full', description: 7 }).description).toBeNull()

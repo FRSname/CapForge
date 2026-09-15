@@ -3,9 +3,10 @@
  * Layout: main editor content (player + tabs + editor).
  * The StudioPanel sidebar is rendered by App.tsx, always visible.
  *
- * Bottom editor has two views:
- *   - Text view   → SubtitleEditor (per-sentence segments, edits source)
- *   - Groups view → GroupEditor    (display groups, merge/split/drag words)
+ * Bottom editor has three views:
+ *   - Text view       → SubtitleEditor (per-sentence segments, edits source)
+ *   - Groups view     → GroupEditor    (display groups, merge/split/drag words)
+ *   - Transcript view → TranscriptView (read-only rows + the chapter gutter)
  *
  * Groups are derived from `segments` + `wordsPerGroup` but held as state so
  * manual merge/split edits persist until the source segments or wpg change.
@@ -29,6 +30,8 @@ import { AudioPlayer, type AudioPlayerHandle } from '../player/AudioPlayer'
 import { AlignmentNotice } from './AlignmentNotice'
 import { SubtitleEditor } from '../editor/SubtitleEditor'
 import { GroupEditor } from '../editor/GroupEditor'
+import { TranscriptView } from '../editor/TranscriptView'
+import { nextEditorView, type EditorView, type TabStep } from '../../lib/editorViews'
 import { WordStylePopup, type WordStyleDefaults } from '../editor/WordStylePopup'
 import { GroupPositionPopup } from '../editor/GroupPositionPopup'
 import type { StudioSettings } from '../studio/StudioPanel'
@@ -107,8 +110,6 @@ interface ResultsScreenProps {
     canRedo: boolean
   }) => void
 }
-
-type EditorView = 'text' | 'groups'
 
 /** A stable empty map, so the default prop cannot churn the derive effect. */
 const NO_SENTENCES: ReadonlyMap<string, number> = new Map()
@@ -405,15 +406,16 @@ export function ResultsScreen({
     }
   })
 
-  // Arrow-key tab switching — with exactly two tabs both directions toggle.
+  // Arrow-key tab switching, wrapping at both ends (`lib/editorViews.ts`).
   // Focus follows the selection (roving tabIndex pattern, cf. SegmentedControl).
-  const switchTab = useCallback(() => {
-    const next = view === 'text' ? 'groups' : 'text'
-    setView(next)
-    requestAnimationFrame(() => {
-      document.getElementById(`editor-tab-${next}`)?.focus()
-    })
-  }, [view])
+  const switchTab = useCallback(
+    (step: TabStep) => {
+      const next = nextEditorView(view, step)
+      setView(next)
+      requestAnimationFrame(() => document.getElementById(`editor-tab-${next}`)?.focus())
+    },
+    [view]
+  )
 
   const handleTimeUpdate = useCallback(
     (t: number) => {
@@ -636,6 +638,14 @@ export function ResultsScreen({
           >
             Groups
           </TabButton>
+          <TabButton
+            id="editor-tab-transcript"
+            active={view === 'transcript'}
+            onClick={() => setView('transcript')}
+            onArrow={switchTab}
+          >
+            Transcript
+          </TabButton>
           {view === 'groups' && (
             <button
               className="text-2xs ml-auto px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-surface-3)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
@@ -657,9 +667,9 @@ export function ResultsScreen({
             className={`text-2xs ${view === 'groups' ? 'ml-2' : 'ml-auto'}`}
             style={{ color: 'var(--color-text-3)' }}
           >
-            {view === 'text'
-              ? `${segments.length} segment${segments.length === 1 ? '' : 's'}`
-              : `${groups.length} group${groups.length === 1 ? '' : 's'}`}
+            {view === 'groups'
+              ? `${groups.length} group${groups.length === 1 ? '' : 's'}`
+              : `${segments.length} segment${segments.length === 1 ? '' : 's'}`}
           </span>
         </div>
 
@@ -669,7 +679,9 @@ export function ResultsScreen({
           <ReflowBanner staleCount={staleCount} onReflow={handleReflow} />
         )}
 
-        {view === 'text' ? (
+        {view === 'transcript' ? (
+          <TranscriptView segments={segments} currentTime={currentTime} onSeek={handleSeek} />
+        ) : view === 'text' ? (
           <SubtitleEditor
             segments={segments}
             currentTime={currentTime}

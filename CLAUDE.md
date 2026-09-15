@@ -120,6 +120,15 @@ The bridge to the HyperFrames Node CLI subprocess is hardened separately from ca
   - **Rules:** every language gets the root hard limits under `localized.<lang>.<field>`. `localized_lang_code` and `localized_is_source` are hard; `localized_chapter_count` is style.
   - **`?lang=` package and validate** render a never-stored localized view: substituted fields, chapter titles by index, source-only title options and highlights dropped, and the fallbacks listed in NOTES. With no `lang`, the output is byte-identical.
   - **`languages` on the single-record view** is derived at read time: the source language, then the stored project's `tracks[].lang`, then the `localized` keys.
+- **Copy for platform** (4s part C1, `backend/library/{platform_posts,platform_package}.py`): `GET …/package?platform=linkedin|x|instagram[&lang=]` renders clipboard text only, from the same record, effective brief and `lang` view as the YouTube package; `description` is `null` for these platforms.
+  - **LinkedIn:** ≤ 3000 chars, ≤ 5 hashtags, a "Watch:" line.
+  - **X:** weighted ≤ 280, where a URL counts 23. Only hashtags are dropped to fit; prose is never cut.
+  - **Instagram:** ≤ 2200 chars, "Link in bio", ≤ 30 hashtags.
+  - **Findings** go under `package.<platform>`: the over-limit rules are hard, and `video_url_missing` / hashtag counts are style. They are reported, never enforced by truncation.
+  - **The YouTube package is byte-identical.**
+- **Transcript tab** (4s part C2): `components/editor/TranscriptView.tsx` is the read-only third editor tab (segments, speaker ids, active-row highlight, a chapter gutter via `lib/transcriptChapters.ts`, and "Insert chapter here").
+  - **Where its chapters come from:** the Publish controller lives in `App.tsx`, so the tab reads chapters and the insert action through `hooks/usePublishRecordContext.ts` (`PublishRecordProvider` wraps only `ResultsScreen`). Without a provider it has no chapters and no insert.
+  - **Rendering:** rows are memoised and receive only `isActive`, so a playback tick re-renders no rows inside a segment.
 - **Scratch records** (`scratch: true`) hide under `.scratch/`, are read-only until `POST …/promote`, and are pruned after `SCRATCH_LIFESPAN_DAYS` at startup — agent QA runs must not pollute the library.
 - **Folder import, relink and the watch folder** (3s, [docs/plans/library-folder-import.md](docs/plans/library-folder-import.md), `backend/library/{media_scan,folder_import,watch,router_import}.py`):
   - **A fingerprint hit on a record whose media is missing is a relink**, not a skip, so importing the folder a drive was moved to heals its cards.

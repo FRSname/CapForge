@@ -9,13 +9,14 @@
  */
 
 import { useState } from 'react'
+import type { TabStep } from '../../lib/editorViews'
 
 interface TabButtonProps {
   id: string
   active: boolean
   onClick: () => void
-  /** ArrowLeft/ArrowRight pressed while the tab has focus. */
-  onArrow: () => void
+  /** ArrowLeft (-1) / ArrowRight (+1) pressed while the tab has focus. */
+  onArrow: (step: TabStep) => void
   children: React.ReactNode
 }
 
@@ -44,7 +45,7 @@ export function TabButton({ id, active, onClick, onArrow, children }: TabButtonP
           // Stop the event reaching the window-level playback handler,
           // which maps ←/→ to frame stepping.
           e.stopPropagation()
-          onArrow()
+          onArrow(e.key === 'ArrowLeft' ? -1 : 1)
         }
       }}
     >

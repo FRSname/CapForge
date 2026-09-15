@@ -36,9 +36,9 @@ HARD = "hard"
 STYLE = "style"
 OTHER = "other"
 
-#: The platforms `get_upload_package` can render. Non-YouTube formatters are a
-#: later deliverable, so an unknown one is refused here instead of 422-ing.
-SUPPORTED_PLATFORMS = ("youtube",)
+#: The platforms `get_upload_package` can render: YouTube's upload package, then
+#: the three clipboard posts. An unknown one is refused here, before a round trip.
+SUPPORTED_PLATFORMS = ("youtube", "linkedin", "x", "instagram")
 
 #: What `grab_frames` expects: seconds, from the transcript.
 _TIMES_SHAPE = "[61.25, 184.0]"
@@ -198,8 +198,9 @@ def get_upload_package(
 ) -> dict:
     """Render the record into one copy-ready block of text for the user.
 
-    The last step: CapForge assembles the stored fields and the channel brief
-    into the layout the user pastes into YouTube Studio (title options,
+    The last step: by default (`platform="youtube"`) CapForge assembles the
+    stored fields and the channel brief into the layout the user pastes into
+    YouTube Studio (title options,
     description with chapters and links, tags, short description, Shorts,
     thumbnail ideas, notes). Show the `text` as-is — it is plain text on
     purpose.
@@ -218,6 +219,31 @@ def get_upload_package(
     options and highlights are left out, and NOTES lists every field still in
     the source language. No `lang`, or the source language, is the source
     package; a language with no localized fields is an error.
+
+    The other platforms render one post each from the same fields and brief
+    (and `lang`). They are clipboard text: nothing is posted, CapForge holds no
+    account access, and the user pastes the text themselves.
+
+    - **LinkedIn** (`"linkedin"`): the hook (the short description, else the
+      description's first paragraph), the rest of the description, up to 5
+      chapters under "In this video:", `Watch: <url>` on its own line, then the
+      first 5 hashtags. Limit 3000 characters; fewer than 3 hashtags is a style
+      finding.
+    - **X** (`"x"`): the title (else the short description), the URL, then as
+      many whole hashtags as still fit, dropped from the end. Limit 280, with
+      every URL counted as 23. The prose is never cut, so a long title is a
+      hard finding rather than a shorter post. X's heavier weighting of emoji
+      and CJK characters is not modelled, so leave headroom when using them.
+    - **Instagram** (`"instagram"`): the short description (else the first
+      paragraph), "Link in bio" (captions don't link), then at most 30 hashtags
+      in one block. Limit 2200 characters.
+
+    The posts read `publish.youtube.url`; until it is recorded they print
+    [FULL VIDEO URL] with a `video_url_missing` finding. The brief's footer is
+    YouTube-only and never printed. A post's `violations` are the record's own
+    findings, then the post's (field `package.<platform>`); a hard
+    `<platform>_max_chars` means the text won't paste as-is, so shorten the
+    field it came from and read the post again.
     """
     if platform not in SUPPORTED_PLATFORMS:
         supported = ", ".join(SUPPORTED_PLATFORMS)
