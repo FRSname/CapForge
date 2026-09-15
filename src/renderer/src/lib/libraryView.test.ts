@@ -5,6 +5,8 @@
  * list is shared state the screen re-renders from.
  */
 
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import type { LibraryVideo } from './libraryTypes'
 import {
@@ -132,6 +134,22 @@ describe('continueCandidate', () => {
   test('skips a record whose media is gone, and returns null when there is none', () => {
     expect(continueCandidate([video({ missing_media: true })])).toBeNull()
     expect(continueCandidate([])).toBeNull()
+  })
+})
+
+/** One list, three copies (backend, renderer, Electron) — pinned to one fixture. */
+const MEDIA_EXTENSIONS_FIXTURE = join(
+  process.cwd(),
+  'backend/tests/fixtures/media_extensions.json'
+)
+
+describe('MEDIA_EXTENSIONS', () => {
+  test('equals the shared fixture', () => {
+    const fixture = JSON.parse(readFileSync(MEDIA_EXTENSIONS_FIXTURE, 'utf-8')) as {
+      extensions: string[]
+    }
+    expect([...MEDIA_EXTENSIONS].sort()).toEqual([...fixture.extensions].sort())
+    expect(new Set(MEDIA_EXTENSIONS).size).toBe(MEDIA_EXTENSIONS.length)
   })
 })
 

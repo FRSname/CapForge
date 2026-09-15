@@ -13,8 +13,10 @@
  */
 
 /**
- * Media extensions CapForge accepts, mirroring the renderer's DropZone list.
- * Lowercase and dotless.
+ * Media extensions CapForge accepts. Lowercase and dotless. One of three
+ * copies (backend `media_scan.py`, renderer `lib/libraryView.ts`) pinned to
+ * `backend/tests/fixtures/media_extensions.json` by each side's tests — kept
+ * inline because the packaged app does not ship the fixture.
  */
 const MEDIA_EXTENSIONS = ['mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'mp4', 'mkv', 'webm', 'mov']
 

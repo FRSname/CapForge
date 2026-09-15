@@ -5,6 +5,9 @@ record is **never mutated in place**: each write builds a new ``VideoRecord``
 with ``model_copy(update=...)`` and hands it to :meth:`LibraryStore._persist`,
 the single seam that writes the file and re-indexes it.
 
+Every read-modify-write holds the store's one ``write_lock`` (``locking.py``);
+the watch-folder thread and the request threads share this store.
+
 See docs/plans/backend-library.md and creator-hub-vision.md §2.
 """
 
@@ -14,6 +17,7 @@ import logging
 import os
 import re
 import shutil
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Optional, Union
@@ -28,6 +32,7 @@ from backend.library.errors import (  # re-exported: callers import them from he
     StaleRevision,
 )
 from backend.library.index import SearchIndex, open_index
+from backend.library.locking import writes
 from backend.library.paths import (
     INDEX_DB_NAME,
     PROJECT_FILE,
@@ -114,9 +119,16 @@ class LibraryStore(StoreAdminMixin):
         # poster grab reaches every creation path; a failing observer never
         # fails the write.
         self._on_created = on_created
+        # One per store, re-entrant: writers call writers (create_or_get → promote).
+        self._write_lock = threading.RLock()
         self._index: Optional[SearchIndex] = None
         # transcript path -> ((mtime_ns, size), has_segments); see _has_segments.
         self._segments_cache: dict[str, tuple[tuple[int, int], bool]] = {}
+
+    @property
+    def write_lock(self) -> "threading.RLock":
+        """Held by every read-modify-write; see ``backend/library/locking.py``."""
+        return self._write_lock
 
     # --- index ---------------------------------------------------------------
 
@@ -131,6 +143,7 @@ class LibraryStore(StoreAdminMixin):
         if self.index.needs_rebuild():
             self.rebuild_index()
 
+    @writes
     def rebuild_index(self) -> int:
         """Drop the index and refill it from the folders; returns the count."""
         self.index.reset()
@@ -257,13 +270,28 @@ class LibraryStore(StoreAdminMixin):
         The bool is True only when a record was minted — the route answers 201
         for that and 200 for a hit. A scratch request on a known real record
         returns the real one; a real request on a known scratch record promotes
-        it (§2.3).
+        it (§2.3). The media is read before the lock and ``on_created`` is told
+        after it is released.
         """
+        media_fingerprint = self._media_fingerprint(source_path)
+        with self._write_lock:
+            record, minted = self._create_or_get_locked(
+                source_path, media_fingerprint, scratch=scratch
+            )
+        if minted:
+            self._announce_created(record)
+        return record, minted
+
+    def _media_fingerprint(self, source_path: PathLike) -> str:
         try:
-            media_fingerprint = fs.fingerprint(source_path)
+            return fs.fingerprint(source_path)
         except OSError as exc:
             raise MediaNotFound(f"Media file not found: {source_path}") from exc
 
+    def _create_or_get_locked(
+        self, source_path: PathLike, media_fingerprint: str, *, scratch: bool = False
+    ) -> tuple[VideoRecord, bool]:
+        """``create_or_get``'s body; the caller holds the lock and announces."""
         existing = self._find_by_fingerprint(media_fingerprint)
         if existing is not None:
             if existing.scratch and not scratch:
@@ -281,9 +309,7 @@ class LibraryStore(StoreAdminMixin):
             updatedAt=now,
             scratch=scratch,
         )
-        record = self._persist(record)
-        self._announce_created(record)
-        return record, True
+        return self._persist(record), True
 
     def _announce_created(self, record: VideoRecord) -> None:
         if self._on_created is None:
@@ -293,6 +319,7 @@ class LibraryStore(StoreAdminMixin):
         except Exception:
             logger.warning("on_created hook failed for record %s", record.id, exc_info=True)
 
+    @writes
     def patch(
         self, video_id: str, patch: RecordPatch, *, rev: int, by: str
     ) -> VideoRecord:
@@ -331,6 +358,7 @@ class LibraryStore(StoreAdminMixin):
             update["publishedAt"] = patch.publish.youtube.publishedAt
         return self._persist(record.model_copy(update=update))
 
+    @writes
     def promote(self, video_id: str) -> VideoRecord:
         """Move ``.scratch/<id>`` into the library and clear the flag."""
         record = self.get(video_id)
@@ -347,6 +375,7 @@ class LibraryStore(StoreAdminMixin):
         )
         return self._persist(promoted)
 
+    @writes
     def add_render(self, video_id: str, entry: RenderEntry) -> VideoRecord:
         """Append a produced output — this is what "captioned" is derived from."""
         record = self.get(video_id)
@@ -358,6 +387,7 @@ class LibraryStore(StoreAdminMixin):
 
     # --- project + transcript ------------------------------------------------
 
+    @writes
     def put_project(self, video_id: str, project: dict) -> VideoRecord:
         """Store the renderer's session snapshot and derive ``transcript.json``.
 
@@ -418,6 +448,7 @@ class LibraryStore(StoreAdminMixin):
         self._segments_cache = {**self._segments_cache, str(path): (key, has_segments)}
         return has_segments
 
+    @writes
     def prune_scratch(self, *, max_age_days: int = SCRATCH_LIFESPAN_DAYS) -> int:
         """Drop scratch records untouched for ``max_age_days``; returns the count."""
         cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)

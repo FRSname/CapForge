@@ -6,22 +6,25 @@
  * library as a grid of cards. The hero is deliberately *not* repeated in the
  * grid: it is the same record promoted, not a second one.
  *
- * The whole screen is a drop target — dropping a video anywhere starts a
- * record for it. Nothing here loads a `127.0.0.1` image (§9.4 CSP): the poster
- * block is a placeholder until v3 #6.
+ * The whole screen is a drop target, and what a drop means is decided by
+ * `droppedImport` (lib/libraryImport.ts): one video opens in the editor as
+ * before, several import without opening, a folder imports the folder.
+ * The handler runs in the **capture** phase and stops the event there, so the
+ * empty state's own DropZoneScreen never also handles it (it would open a
+ * dropped folder as if it were a media file, and open a file twice).
  */
 
 import { useState } from 'react'
+import type { DropPlan, LocateOutcome } from '../../lib/libraryImport'
+import { droppedImport, droppedItemsOf, droppedSkippedMessage } from '../../lib/libraryImport'
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { continueCandidate, displayTitle, isMediaPath, sortByUpdated } from '../../lib/libraryView'
+import { continueCandidate, displayTitle, sortByUpdated } from '../../lib/libraryView'
+import { warmForFile } from '../screens/DropZoneScreen'
 import { Button } from '../ui/Button'
 import { LanguageChip, LibraryCard, LibraryPoster, StatusRail } from './LibraryCard'
 import { LibraryEmptyState } from './LibraryEmptyState'
 
-/** Reported when something that is not media is dropped on the library. */
-export function droppedNotMediaMessage(name: string): string {
-  return `${name} is not a video or audio file CapForge can open.`
-}
+export { droppedNotMediaMessage } from '../../lib/libraryImport'
 
 export interface LibraryScreenProps {
   videos: LibraryVideo[]
@@ -32,12 +35,20 @@ export interface LibraryScreenProps {
   onAddVideo: () => void
   /** Toolbar: pick `.capforge` files and adopt them as records. */
   onImportProjects: () => void
+  /** Import a folder of media — the picker when no path, the dropped folder otherwise. */
+  onImportFolder: (path?: string) => void
+  /** Several media files were dropped: import them without opening any. */
+  onImportFiles: (paths: string[]) => void
   /** A media file was dropped (or browsed for, from the empty state). */
   onFileDropped: (path: string) => void
   /** A dropped file CapForge cannot open — reported, never ignored. */
   onDropRejected: (message: string) => void
   onRemove: (video: LibraryVideo) => void
   onDelete: (video: LibraryVideo) => void
+  /** Card: pick a file for missing media and relink it. */
+  onLocate: (video: LibraryVideo) => Promise<LocateOutcome>
+  /** Card: link a different file anyway, after the inline confirm. */
+  onForceLocate: (video: LibraryVideo, path: string) => void
 }
 
 export function LibraryScreen({
@@ -46,29 +57,51 @@ export function LibraryScreen({
   onOpen,
   onAddVideo,
   onImportProjects,
+  onImportFolder,
+  onImportFiles,
   onFileDropped,
   onDropRejected,
   onRemove,
   onDelete,
+  onLocate,
+  onForceLocate,
 }: LibraryScreenProps) {
   const [dragging, setDragging] = useState(false)
+  // Bumped per drop to remount the empty state's DropZoneScreen: the capture
+  // handler stops the event before that zone can clear its own highlight.
+  const [dropCount, setDropCount] = useState(0)
 
   const hero = continueCandidate(videos)
   const rest = sortByUpdated(videos).filter((v) => v.id !== hero?.id)
 
-  function handleDrop(e: React.DragEvent) {
-    e.preventDefault()
-    setDragging(false)
-    const file = e.dataTransfer.files[0]
-    if (!file) return
-    // Electron 32+ removed File.path → use the preload bridge (DropZoneScreen).
-    const path = window.subforge?.getPathForFile(file)
-    if (!path) return
-    if (!isMediaPath(path)) {
-      onDropRejected(droppedNotMediaMessage(file.name))
+  function runDropPlan(plan: DropPlan) {
+    if (plan.kind === 'none') return
+    if (plan.kind === 'rejected') {
+      onDropRejected(plan.message)
       return
     }
-    onFileDropped(path)
+    if (plan.kind === 'folder') {
+      onImportFolder(plan.path)
+      return
+    }
+    if (plan.skipped.length > 0) onDropRejected(droppedSkippedMessage(plan.skipped))
+    if (plan.kind === 'open') {
+      onFileDropped(plan.path)
+      warmForFile()
+      return
+    }
+    onImportFiles(plan.paths)
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragging(false)
+    setDropCount((n) => n + 1)
+    // Read synchronously — the DataTransfer is emptied once the handler returns.
+    // Electron 32+ removed File.path → the preload bridge resolves files and folders.
+    const items = droppedItemsOf(e.dataTransfer, (file) => window.subforge?.getPathForFile(file))
+    runDropPlan(droppedImport(items))
   }
 
   return (
@@ -84,7 +117,7 @@ export function LibraryScreen({
         setDragging(true)
       }}
       onDragLeave={() => setDragging(false)}
-      onDrop={handleDrop}
+      onDropCapture={handleDrop}
     >
       <header className="flex items-end justify-between gap-4 px-8 pb-4 pt-7">
         <div className="flex items-baseline gap-3">
@@ -106,6 +139,9 @@ export function LibraryScreen({
           </span>
         </div>
         <div className="app-no-drag flex items-center gap-2">
+          <Button variant="ghost" className="text-xs" onClick={() => onImportFolder()}>
+            Import folder…
+          </Button>
           <Button variant="ghost" className="text-xs" onClick={onImportProjects}>
             Import project files…
           </Button>
@@ -116,7 +152,12 @@ export function LibraryScreen({
       </header>
 
       {videos.length === 0 ? (
-        <LibraryEmptyState onFileSelected={onFileDropped} onStart={onAddVideo} />
+        <LibraryEmptyState
+          dropZoneKey={dropCount}
+          onFileSelected={onFileDropped}
+          onStart={onAddVideo}
+          onImportFolder={() => onImportFolder()}
+        />
       ) : (
         <div className="flex flex-col gap-8 px-8 pb-10">
           {hero && <ContinueHero video={hero} onOpen={onOpen} />}
@@ -136,6 +177,8 @@ export function LibraryScreen({
                     onOpen={onOpen}
                     onRemove={onRemove}
                     onDelete={onDelete}
+                    onLocate={onLocate}
+                    onForceLocate={onForceLocate}
                   />
                 ))}
               </div>

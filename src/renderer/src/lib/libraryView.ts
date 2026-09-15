@@ -13,9 +13,11 @@
 import type { LibraryStatus, LibraryVideo } from './libraryTypes'
 
 /**
- * Media extensions CapForge accepts — the single list, shared by the drop zone
- * (`components/screens/DropZoneScreen.tsx`) and the library's drop-anywhere
- * handler. Electron's `firstMediaArg` helper mirrors it on the main side.
+ * Media extensions CapForge accepts — the renderer's single list, shared by the
+ * drop zone (`components/screens/DropZoneScreen.tsx`) and the library's
+ * drop-anywhere handler. One of three copies (backend `media_scan.py`,
+ * Electron `single-instance.js`), all pinned to
+ * `backend/tests/fixtures/media_extensions.json` — change one, change all.
  */
 export const MEDIA_EXTENSIONS = [
   'mp3',

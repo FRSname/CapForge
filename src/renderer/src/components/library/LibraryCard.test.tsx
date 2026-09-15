@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { Poster } from './LibraryCard'
+import { LibraryCardMenu, Poster } from './LibraryCard'
 
 const video: LibraryVideo = {
   id: 'vid_1',
@@ -39,5 +39,50 @@ describe('Poster', () => {
     )
     expect(html).not.toContain('<img')
     expect(html).toContain('Media missing')
+  })
+})
+
+describe('LibraryCardMenu', () => {
+  const noop = () => {}
+  function menu(overrides: Partial<React.ComponentProps<typeof LibraryCardMenu>> = {}): string {
+    return renderToStaticMarkup(
+      <LibraryCardMenu
+        video={video}
+        confirmingDelete={false}
+        pendingLinkPath={null}
+        onRemove={noop}
+        onAskDelete={noop}
+        onDelete={noop}
+        onCancelDelete={noop}
+        onLocate={noop}
+        onLink={noop}
+        onCancelLink={noop}
+        {...overrides}
+      />
+    )
+  }
+
+  test('offers Locate… only when the media is missing', () => {
+    expect(menu()).not.toContain('Locate…')
+    expect(menu({ video: { ...video, missing_media: true } })).toContain('Locate…')
+  })
+
+  test('a different-media answer confirms inline, naming the file', () => {
+    const html = menu({
+      video: { ...video, missing_media: true },
+      pendingLinkPath: '/Volumes/New/Other take.mov',
+    })
+    expect(html).toContain('Different file — link anyway?')
+    expect(html).toContain('>Link<')
+    expect(html).toContain('>Cancel<')
+    expect(html).toContain('Other take.mov')
+    // The confirm replaces the Locate item rather than sitting beside it.
+    expect(html).not.toContain('Locate…')
+  })
+
+  test('the delete confirm still renders', () => {
+    const html = menu({ confirmingDelete: true })
+    expect(html).toContain('Delete?')
+    expect(html).not.toContain('Delete record…')
   })
 })

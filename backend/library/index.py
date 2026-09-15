@@ -8,11 +8,18 @@ itself cannot be imported, ``NullIndex`` keeps search working in pure Python.
 
 Errors are never swallowed: a broken DB raises ``sqlite3.Error`` at the caller,
 which is the signal to rebuild.
+
+``LibraryIndex`` holds ONE connection shared by every thread that touches the
+store (request threads, the poster pool, the watch-folder thread), so each
+method that uses it takes the index's own ``RLock``: a shared
+``sqlite3.Connection`` used concurrently can raise "recursive use of cursors"
+or interleave two transactions.
 """
 
 from __future__ import annotations
 
 import re
+import threading
 from pathlib import Path
 from typing import Optional, Protocol, Union
 
@@ -64,6 +71,7 @@ class LibraryIndex:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.fts = has_fts5()
+        self._lock = threading.RLock()
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._stored_version = int(self._conn.execute("PRAGMA user_version").fetchone()[0])
@@ -74,6 +82,10 @@ class LibraryIndex:
         return FTS_TABLE if self.fts else LIKE_TABLE
 
     def _create_table(self) -> None:
+        with self._lock:
+            self._create_table_locked()
+
+    def _create_table_locked(self) -> None:
         if self.fts:
             columns = ", ".join(["id UNINDEXED", *_SEARCH_COLUMNS])
             self._conn.execute(
@@ -86,16 +98,18 @@ class LibraryIndex:
 
     def needs_rebuild(self) -> bool:
         """True on a fresh DB (``user_version`` 0) or a schema mismatch."""
-        return self._stored_version != SCHEMA_VERSION
+        with self._lock:
+            return self._stored_version != SCHEMA_VERSION
 
     def reset(self) -> None:
         """Drop every row and stamp the current schema version."""
-        self._conn.execute(f"DROP TABLE IF EXISTS {FTS_TABLE}")
-        self._conn.execute(f"DROP TABLE IF EXISTS {LIKE_TABLE}")
-        self._create_table()
-        self._conn.execute(f"PRAGMA user_version = {int(SCHEMA_VERSION)}")
-        self._conn.commit()
-        self._stored_version = SCHEMA_VERSION
+        with self._lock:
+            self._conn.execute(f"DROP TABLE IF EXISTS {FTS_TABLE}")
+            self._conn.execute(f"DROP TABLE IF EXISTS {LIKE_TABLE}")
+            self._create_table_locked()
+            self._conn.execute(f"PRAGMA user_version = {int(SCHEMA_VERSION)}")
+            self._conn.commit()
+            self._stored_version = SCHEMA_VERSION
 
     def upsert(
         self,
@@ -106,16 +120,18 @@ class LibraryIndex:
         transcript_text: str,
     ) -> None:
         placeholders = ", ".join("?" * len(COLUMNS))
-        self._conn.execute(f"DELETE FROM {self.table} WHERE id = ?", (video_id,))
-        self._conn.execute(
-            f"INSERT INTO {self.table} ({', '.join(COLUMNS)}) VALUES ({placeholders})",
-            (video_id, title, description, tags_text, transcript_text),
-        )
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(f"DELETE FROM {self.table} WHERE id = ?", (video_id,))
+            self._conn.execute(
+                f"INSERT INTO {self.table} ({', '.join(COLUMNS)}) VALUES ({placeholders})",
+                (video_id, title, description, tags_text, transcript_text),
+            )
+            self._conn.commit()
 
     def delete(self, video_id: str) -> None:
-        self._conn.execute(f"DELETE FROM {self.table} WHERE id = ?", (video_id,))
-        self._conn.commit()
+        with self._lock:
+            self._conn.execute(f"DELETE FROM {self.table} WHERE id = ?", (video_id,))
+            self._conn.commit()
 
     def search(self, q: str) -> list[str]:
         if not q or not q.strip():
@@ -124,20 +140,20 @@ class LibraryIndex:
             match = _fts_match_expression(q)
             if match is None:
                 return []
-            rows = self._conn.execute(
-                f"SELECT id FROM {FTS_TABLE} WHERE {FTS_TABLE} MATCH ? ORDER BY rank", (match,)
-            ).fetchall()
+            sql = f"SELECT id FROM {FTS_TABLE} WHERE {FTS_TABLE} MATCH ? ORDER BY rank"
+            params: tuple[str, ...] = (match,)
         else:
             pattern = f"%{_escape_like(q)}%"
             where = " OR ".join(f"{c} LIKE ? ESCAPE '{_LIKE_ESCAPE}'" for c in _SEARCH_COLUMNS)
-            rows = self._conn.execute(
-                f"SELECT id FROM {LIKE_TABLE} WHERE {where} ORDER BY rowid",
-                tuple([pattern] * len(_SEARCH_COLUMNS)),
-            ).fetchall()
+            sql = f"SELECT id FROM {LIKE_TABLE} WHERE {where} ORDER BY rowid"
+            params = tuple([pattern] * len(_SEARCH_COLUMNS))
+        with self._lock:
+            rows = self._conn.execute(sql, params).fetchall()
         return [row[0] for row in rows]
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
 
 class NullIndex:

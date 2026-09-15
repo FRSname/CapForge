@@ -36,6 +36,7 @@ from backend.library.errors import (
 from backend.library.paths import library_root, record_dir, resolve_asset
 from backend.library.router_admin import register_admin_routes
 from backend.library.router_derived import LiveSession, register_derived_routes
+from backend.library.router_import import register_import_routes
 from backend.library.router_publish import register_publish_routes, violation_refusal
 from backend.library.schemas import RecordPatch, RenderEntry, VideoRecord
 from backend.library.store import LibraryStore
@@ -187,8 +188,8 @@ def build_router(
     package must not import: ``live_session()`` is the open window's transcript,
     and ``on_record_changed`` is awaited after every successful record write.
 
-    Registration order matters: ``/rebuild-index``, ``/brief`` and ``/validate``
-    must be declared before the ``/{video_id}`` routes they would otherwise be
+    Registration order matters: ``/rebuild-index``, ``/brief``, ``/validate`` and
+    ``/watch`` must be declared before the ``/{video_id}`` routes they would otherwise be
     captured by.
     """
     router = APIRouter(
@@ -196,6 +197,10 @@ def build_router(
     )
     _register_collection_routes(router)
     register_admin_routes(
+        router, get_store=get_store, view=_view, library_errors=_library_errors,
+        actor_dep=actor_dep, on_record_changed=on_record_changed,
+    )
+    register_import_routes(
         router, get_store=get_store, view=_view, library_errors=_library_errors,
         actor_dep=actor_dep, on_record_changed=on_record_changed,
     )

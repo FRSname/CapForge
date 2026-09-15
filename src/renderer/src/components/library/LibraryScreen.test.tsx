@@ -43,10 +43,14 @@ function render(props: Partial<React.ComponentProps<typeof LibraryScreen>> = {})
       onOpen={noop}
       onAddVideo={noop}
       onImportProjects={noop}
+      onImportFolder={noop}
+      onImportFiles={noop}
       onFileDropped={noop}
       onDropRejected={noop}
       onRemove={noop}
       onDelete={noop}
+      onLocate={() => Promise.resolve({ kind: 'cancelled' as const })}
+      onForceLocate={noop}
       {...props}
     />
   )
@@ -145,6 +149,15 @@ describe('LibraryScreen', () => {
     // Assert
     expect(html).toContain('--:--')
     expect(html).not.toContain('NaN')
+  })
+
+  test('Import folder… is reachable with and without records', () => {
+    expect(render()).toContain('Import folder…')
+    expect(render({ videos: [video()] })).toContain('Import folder…')
+  })
+
+  test('the empty state offers a whole folder of recordings too', () => {
+    expect(render()).toContain('Import a folder of recordings…')
   })
 
   test('the loading count replaces the total while the list is in flight', () => {

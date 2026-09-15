@@ -898,6 +898,35 @@ describe('record_updated dispatch', () => {
     off()
   })
 
+  test('a library_changed frame reaches every subscriber with its ids', () => {
+    const socket = openControlSocket()
+    const seen: unknown[] = []
+    const off = api.onLibraryChanged((e) => seen.push(e))
+
+    socket.onmessage?.({
+      data: JSON.stringify({ type: 'library_changed', created: ['a', 'b'], relinked: ['c'] }),
+    })
+    off()
+    socket.onmessage?.({
+      data: JSON.stringify({ type: 'library_changed', created: ['late'], relinked: [] }),
+    })
+
+    expect(seen).toEqual([{ created: ['a', 'b'], relinked: ['c'] }])
+  })
+
+  test('a library_changed frame is not mistaken for a record update', () => {
+    const socket = openControlSocket()
+    const updates: unknown[] = []
+    const off = api.onRecordUpdated((e) => updates.push(e))
+
+    socket.onmessage?.({
+      data: JSON.stringify({ type: 'library_changed', created: ['a'], relinked: [] }),
+    })
+
+    expect(updates).toEqual([])
+    off()
+  })
+
   test('unsubscribing stops the dispatch', () => {
     const socket = openControlSocket()
     const seen: unknown[] = []

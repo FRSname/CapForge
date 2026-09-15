@@ -36,3 +36,18 @@ class StaleRevision(LibraryError):
 
 class ScratchReadOnly(LibraryError):
     """A scratch record's dossier cannot be patched until it is promoted (409)."""
+
+
+class MediaInUse(LibraryError):
+    """Relink target already belongs to another record, library or scratch (409).
+
+    Carries that record's id so the UI can point at the card that owns the file.
+    """
+
+    def __init__(self, video_id: str) -> None:
+        super().__init__(f"That file already belongs to library record {video_id}")
+        self.video_id = video_id
+
+
+class MediaMismatch(LibraryError):
+    """Relink target is different media from the record's; needs ``force`` (409)."""

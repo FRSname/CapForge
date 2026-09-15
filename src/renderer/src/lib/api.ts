@@ -4,8 +4,8 @@
  */
 
 import type { TranscriptionResult as AppTranscriptionResult } from '../types/app'
-import type { LibraryRecord, LibraryVideo } from './libraryTypes'
-import { parseLibraryList, parseLibraryRecord } from './libraryTypes'
+import type { LibraryChangedEvent, LibraryRecord, LibraryVideo } from './libraryTypes'
+import { parseLibraryChangedEvent, parseLibraryList, parseLibraryRecord } from './libraryTypes'
 import type {
   Brief,
   Moment,
@@ -312,6 +312,8 @@ class CapForgeAPI {
   // `record_updated` listeners (the Publish workspace). Kept off ControlHandlers
   // so the control socket's owner (AgentLiveSync) is untouched by publish work.
   private _recordUpdatedSubs = new Set<(event: RecordUpdatedEvent) => void>()
+  // `library_changed` listeners (the library list): the watcher's imports.
+  private _libraryChangedSubs = new Set<(event: LibraryChangedEvent) => void>()
 
   // Per-launch token that gates the local media endpoints (serve-audio,
   // video-info). Sent as a query param because <audio>/<video> src loads and
@@ -400,6 +402,30 @@ class CapForgeAPI {
       err.message = typeof detail === 'string' ? detail : res.statusText
     }
     return err
+  }
+
+  /** Format a refused response's parsed body the way every transport here does. */
+  apiError(res: Response, body: unknown): ApiError {
+    const shaped = body && typeof body === 'object' ? (body as { detail?: unknown }) : {}
+    return this.errorFromBody(res, shaped)
+  }
+
+  /**
+   * The raw authenticated request for sibling client modules (`libraryApi.ts`)
+   * that must read a refused body themselves. Awaits the bridge and attaches
+   * the local token like every other transport; the caller checks `res.ok`.
+   */
+  async sendWithLocalToken(
+    method: 'GET' | 'POST' | 'PUT',
+    path: string,
+    body?: unknown
+  ): Promise<Response> {
+    await this.ensureBridge()
+    const headers: Record<string, string> = {}
+    if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
+    if (body === undefined) return fetch(`${this.base}${path}`, { method, headers })
+    headers['Content-Type'] = 'application/json'
+    return fetch(`${this.base}${path}`, { method, headers, body: JSON.stringify(body) })
   }
 
   private async get<T>(path: string): Promise<T> {
@@ -781,6 +807,14 @@ class CapForgeAPI {
     }
   }
 
+  /** Subscribe to `library_changed` pushes (the watch folder imported). Returns the unsubscribe. */
+  onLibraryChanged(cb: (event: LibraryChangedEvent) => void): () => void {
+    this._libraryChangedSubs.add(cb)
+    return () => {
+      this._libraryChangedSubs.delete(cb)
+    }
+  }
+
   getVideoInfo(filePath: string) {
     const token = encodeURIComponent(this.localToken)
     return this.get<VideoInfo>(
@@ -913,6 +947,9 @@ class CapForgeAPI {
             by: String(raw.by ?? ''),
           }
           for (const sub of this._recordUpdatedSubs) sub(event)
+        } else if (raw.type === 'library_changed') {
+          const event = parseLibraryChangedEvent(raw)
+          for (const sub of this._libraryChangedSubs) sub(event)
         }
       } catch {
         /* ignore malformed */
