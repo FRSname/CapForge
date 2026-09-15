@@ -37,6 +37,10 @@ NOT_TOOLS = KINDS | PROMPT_NAMES | {
     # shorts and thumbnail rules (backend/library/validate_media.py)
     "candidates_managed", "cover_not_a_candidate", "thumbnail_recommended",
     "clip_order", "clip_past_end", "shorts_clip_length",
+    # localized fields and their rules (backend/library/validate_localized.py)
+    "chapter_titles", "shorts_caption", "localized_lang_code", "localized_is_source",
+    "localized_chapter_count", "title_max_chars", "description_max_bytes",
+    "tags_max_chars", "no_angle_brackets",
 }
 
 #: The built-in template slots, shared with the backend and the renderer.
@@ -60,13 +64,22 @@ def test_every_manifest_topic_has_a_shipped_file() -> None:
         assert len(path.read_text(encoding="utf-8")) > 300, f"topic '{tid}' is a stub"
 
 
-def test_the_eight_topics_of_the_plan() -> None:
-    """vision §3.4 names the set, library-collections adds `collections`; a topic
-    added or dropped is a plan change."""
+def test_the_topics_of_the_plan() -> None:
+    """vision §3.4 names the set, library-collections adds `collections` and
+    publish-editors Part B adds `localized`; a topic added or dropped is a plan change."""
     assert list(publish_guide.TOPICS) == [
         "workflow", "breakdown", "description", "chapters", "thumbnails", "shorts", "batch",
-        "collections",
+        "collections", "localized",
     ]
+
+
+def test_the_localized_topic_states_the_merge_and_the_language_loop() -> None:
+    topic = " ".join(publish_guide.GUIDE.read_topic("localized").split())
+    for name in ("get_ui_state", "get_track", "set_video_meta", "validate_video",
+                 "get_upload_package", "localized_is_source", "localized_lang_code"):
+        assert name in topic, name
+    assert "null" in topic and "one language per call" in topic.lower()
+    assert topic.index("set_video_meta") < topic.index("get_upload_package")
 
 
 def test_index_lists_every_topic_and_the_operating_model() -> None:

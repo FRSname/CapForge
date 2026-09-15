@@ -90,9 +90,11 @@ class StubClient:
         self.validate_bodies.append(copy.deepcopy(body))
         return {"violations": copy.deepcopy(self.violations)}
 
-    def library_package(self, video_id: str, platform: str = "youtube") -> dict:
+    def library_package(self, video_id: str, platform: str = "youtube",
+                        lang: Optional[str] = None) -> dict:
         self._check()
-        self.package_calls.append({"video_id": video_id, "platform": platform})
+        call = {"video_id": video_id, "platform": platform}
+        self.package_calls.append(call if lang is None else {**call, "lang": lang})
         return {
             "platform": platform,
             "text": PACKAGE_TEXT,
@@ -263,6 +265,38 @@ def test_get_upload_package_rejects_an_unknown_platform_without_a_call(
     assert out["status"] == "error"
     assert "tiktok" in out["error"] and "youtube" in out["error"]
     assert stub.package_calls == []
+
+
+def test_get_upload_package_passes_a_language_through(stub: StubClient) -> None:
+    out = publish.get_upload_package(VIDEO_ID, lang="pl")
+
+    assert out["status"] == "ok"
+    assert stub.package_calls == [{"video_id": VIDEO_ID, "platform": "youtube", "lang": "pl"}]
+
+
+def test_validate_video_sends_lang_only_when_given(stub: StubClient) -> None:
+    publish.validate_video(VIDEO_ID)
+    publish.validate_video(VIDEO_ID, lang="de")
+
+    assert stub.validate_bodies == [{"video_id": VIDEO_ID}, {"video_id": VIDEO_ID, "lang": "de"}]
+
+
+@pytest.mark.parametrize("lang", ["", "  ", 7])
+def test_an_unusable_lang_is_refused_without_a_call(stub: StubClient, lang: Any) -> None:
+    for call in (
+        lambda: publish.validate_video(VIDEO_ID, lang=lang),
+        lambda: publish.get_upload_package(VIDEO_ID, lang=lang),
+    ):
+        out = call()
+        assert out["status"] == "error" and "lang" in out["error"]
+    assert stub.validate_bodies == [] and stub.package_calls == []
+
+
+def test_the_language_docstrings_name_the_localized_workflow() -> None:
+    assert "lang" in (publish.validate_video.__doc__ or "")
+    assert "lang" in (publish.get_upload_package.__doc__ or "")
+    doc = " ".join((library.set_video_meta.__doc__ or "").split())
+    assert "null" in doc and "only the languages" in doc
 
 
 # --- error mapping ---------------------------------------------------------

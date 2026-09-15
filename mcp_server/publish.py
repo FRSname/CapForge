@@ -43,6 +43,9 @@ SUPPORTED_PLATFORMS = ("youtube",)
 #: What `grab_frames` expects: seconds, from the transcript.
 _TIMES_SHAPE = "[61.25, 184.0]"
 
+#: What a usable `lang` looks like, for the refusal sentence.
+_LANG_SHAPE = '"pl", "de" or "pt-BR"'
+
 #: The shape every chapter has to have before it is worth a round trip.
 _CHAPTER_SHAPE = '[{"start_s": 0, "title": "Cold open"}, …]'
 
@@ -74,6 +77,16 @@ def _grouped(violations: list) -> dict:
     # `other` only appears when there is something in it — an empty key would
     # read as "there is a third kind of rule", and there is not.
     return {**grouped, OTHER: buckets[OTHER]} if buckets[OTHER] else grouped
+
+
+def _lang_refusal(lang: Any) -> Optional[dict]:
+    """An error dict for a `lang` that cannot be a language code, else None."""
+    if lang is None or (isinstance(lang, str) and lang.strip()):
+        return None
+    return _fail(
+        f"Pass 'lang' as a language code like {_LANG_SHAPE}, or leave it out for "
+        "the source language."
+    )
 
 
 def _validate(body: dict) -> dict:
@@ -125,7 +138,7 @@ def set_brief(patch: dict) -> dict:
     )
 
 
-def validate_video(video_id: str) -> dict:
+def validate_video(video_id: str, lang: Optional[str] = None) -> dict:
     """Check a record's authored fields against the publish rules.
 
     Run it after writing fields with `set_video_meta` and before reading the
@@ -141,8 +154,20 @@ def validate_video(video_id: str) -> dict:
 
     `ok` is true when there is no hard finding left. Fields and duration are
     read from the record, so nothing needs to be open in the app.
+
+    Without `lang`, every language under `localized` is checked too (findings
+    name `localized.<lang>.<field>`). Pass `lang` (e.g. "pl", a key of the
+    record's `localized`) to check that language's package view: its translated
+    fields are judged by the same rules under `localized.<lang>.<field>`, and a
+    field still in the source language keeps its root name. The source
+    language, or no `lang`, checks the record as written. See
+    `publish_guide("localized")`.
     """
-    return _validate({"video_id": video_id})
+    refusal = _lang_refusal(lang)
+    if refusal is not None:
+        return refusal
+    body = {"video_id": video_id}
+    return _validate(body if lang is None else {**body, "lang": lang})
 
 
 def check_chapters(video_id: str, chapters: list[dict]) -> dict:
@@ -168,7 +193,9 @@ def check_chapters(video_id: str, chapters: list[dict]) -> dict:
     return _validate({"video_id": video_id, "fields": {"chapters": list(chapters)}})
 
 
-def get_upload_package(video_id: str, platform: str = "youtube") -> dict:
+def get_upload_package(
+    video_id: str, platform: str = "youtube", lang: Optional[str] = None
+) -> dict:
     """Render the record into one copy-ready block of text for the user.
 
     The last step: CapForge assembles the stored fields and the channel brief
@@ -184,15 +211,26 @@ def get_upload_package(video_id: str, platform: str = "youtube") -> dict:
     It renders even when rules are unmet and the findings ride along in
     `violations`, so run `validate_video` first and fix the hard ones —
     otherwise you are handing the user text YouTube will reject.
+
+    Pass `lang` (a key of the record's `localized`, e.g. "pl") for the package in
+    that language: the translated title, description, short description, tags,
+    hashtags, chapter titles and Shorts caption replace the source ones, title
+    options and highlights are left out, and NOTES lists every field still in
+    the source language. No `lang`, or the source language, is the source
+    package; a language with no localized fields is an error.
     """
     if platform not in SUPPORTED_PLATFORMS:
         supported = ", ".join(SUPPORTED_PLATFORMS)
         return _fail(
             f"CapForge has no {platform!r} package layout — supported: {supported}."
         )
+    refusal = _lang_refusal(lang)
+    if refusal is not None:
+        return refusal
+    extra = {} if lang is None else {"lang": lang}
 
     def _call() -> dict:
-        rendered = _capforge().library_package(video_id, platform=platform) or {}
+        rendered = _capforge().library_package(video_id, platform=platform, **extra) or {}
         return {
             "status": _OK,
             "platform": rendered.get("platform", platform),

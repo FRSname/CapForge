@@ -250,6 +250,9 @@ def test_library_package_defaults_to_youtube(capforge, monkeypatch):
     capforge.library_package("abc123", platform="youtube")
     assert rec.last["url"] == f"{BASE}/api/library/abc123/package?platform=youtube"
 
+    capforge.library_package("abc123", lang="pt-BR")
+    assert rec.last["url"] == f"{BASE}/api/library/abc123/package?platform=youtube&lang=pt-BR"
+
 
 # --- collections ------------------------------------------------------------
 

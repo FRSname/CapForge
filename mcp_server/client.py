@@ -280,12 +280,15 @@ class CapForgeClient:
         return self._request("PATCH", BRIEF_PATH, json=patch)
 
     def library_validate(self, body: dict) -> Any:
-        """Run the publish rules. Body: `{fields?, duration?, video_id?}` — with
-        a `video_id`, whatever is missing is read from the record."""
+        """Run the publish rules. Body: `{fields?, duration?, video_id?, lang?}` —
+        with a `video_id`, whatever is missing is read from the record."""
         return self._request("POST", f"{LIBRARY_PATH}/validate", json=body)
 
-    def library_package(self, video_id: str, platform: str = "youtube") -> Any:
-        query = _query({"platform": platform})
+    def library_package(
+        self, video_id: str, platform: str = "youtube", lang: Optional[str] = None
+    ) -> Any:
+        """The upload package; `lang` renders one localized language's view."""
+        query = _query({"platform": platform, "lang": lang})
         return self._request(
             "GET", f"{LIBRARY_PATH}/{quote(video_id)}/package?{query}"
         )
