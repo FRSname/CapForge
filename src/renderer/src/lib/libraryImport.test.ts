@@ -2,34 +2,33 @@
  * The folder-import copy and decisions — pure, so every branch is pinned here
  * rather than behind a DOM the vitest node environment does not have.
  *
- * What matters: the summary never lies about what happened (nothing imported
- * is not "Imported 0 videos"), a truncated scan says so, the relink refusal is
- * read wherever FastAPI put it, and a drop does exactly one legible thing.
+ * What matters: a pick and a drop are sorted the same way (`importPlan`), the
+ * picker's answer is checked at the boundary, the relink refusal is read
+ * wherever FastAPI put it, and a drop does exactly one legible thing. The
+ * combined summary is pinned in `libraryImportSummary.test.ts`.
  */
 
 import { describe, expect, test } from 'vitest'
-import type { FolderImportResult, WatchStatus } from './libraryTypes'
+import type { WatchStatus } from './libraryTypes'
 import {
   IMPORT_PATHS_MAX,
   WATCH_FOLDER_UNAVAILABLE,
   NOT_WATCHING,
   droppedImport,
   droppedItemsOf,
-  folderImportSummary,
-  folderImportTone,
   importPathsBatch,
+  importPlan,
+  isEmptyPlan,
+  isProjectPath,
   pathBaseName,
+  pickedEntriesOf,
   relinkRefusal,
   relinkRefusalMessage,
   watchFolderView,
   type DroppedItem,
+  type ImportPlan,
+  type PickedEntry,
 } from './libraryImport'
-
-function result(overrides: Partial<FolderImportResult> = {}): FolderImportResult {
-  return { created: [], existing: [], relinked: [], failed: [], truncated: false, ...overrides }
-}
-
-const ids = (n: number): string[] => Array.from({ length: n }, (_, i) => `id${i}`)
 
 describe('pathBaseName', () => {
   test.each([
@@ -43,72 +42,73 @@ describe('pathBaseName', () => {
   })
 })
 
-describe('folderImportSummary', () => {
-  test('names every non-empty bucket, in order', () => {
-    const summary = folderImportSummary(
-      result({
-        created: ids(12),
-        existing: ids(3),
-        relinked: ids(1),
-        failed: [{ path: '/rec/bad.mp4', reason: 'unreadable' }],
-      }),
-      'Rec'
-    )
-    expect(summary).toBe(
-      'Imported 12 videos · 3 already in the library · 1 relinked · 1 could not be read (bad.mp4)'
-    )
+function plan(overrides: Partial<ImportPlan> = {}): ImportPlan {
+  return { folders: [], media: [], mediaTruncated: false, projects: [], skipped: [], ...overrides }
+}
+
+describe('importPlan', () => {
+  const pick = (path: string, kind: PickedEntry['kind'] = 'file'): PickedEntry => ({ path, kind })
+
+  test('sorts folders, media, projects and everything else', () => {
+    expect(
+      importPlan([
+        pick('/r/Day 1', 'directory'),
+        pick('/r/a.mp4'),
+        pick('/r/Talk.capforge'),
+        pick('/r/b.MOV'),
+        pick('/r/notes.pdf'),
+        pick('/r/Day 2.mp4', 'directory'),
+        pick('/r/OLD.CAPFORGE'),
+      ])
+    ).toEqual({
+      // A directory is a folder whatever its name looks like.
+      folders: ['/r/Day 1', '/r/Day 2.mp4'],
+      media: ['/r/a.mp4', '/r/b.MOV'],
+      mediaTruncated: false,
+      projects: ['/r/Talk.capforge', '/r/OLD.CAPFORGE'],
+      skipped: ['notes.pdf'],
+    })
   })
 
-  test('singular for one video', () => {
-    expect(folderImportSummary(result({ created: ids(1) }), 'Rec')).toBe('Imported 1 video')
+  test('media past the route limit is cut and marked', () => {
+    const picked = Array.from({ length: IMPORT_PATHS_MAX + 2 }, (_, i) => pick(`/r/${i}.mp4`))
+    const planned = importPlan(picked)
+    expect(planned.media).toHaveLength(IMPORT_PATHS_MAX)
+    expect(planned.mediaTruncated).toBe(true)
   })
 
-  test('an empty scan says no media was found, naming the folder', () => {
-    expect(folderImportSummary(result(), 'Session 1')).toBe('No media found in Session 1')
+  test('nothing picked is an empty plan', () => {
+    expect(importPlan([])).toEqual(plan())
+    expect(isEmptyPlan(importPlan([]))).toBe(true)
+    expect(isEmptyPlan(plan({ skipped: ['a.pdf'] }))).toBe(false)
   })
 
-  test('nothing new names the folder instead of "Imported 0"', () => {
-    const summary = folderImportSummary(result({ existing: ids(2) }), 'Rec')
-    expect(summary).toBe('Rec: 2 already in the library')
-    expect(summary).not.toContain('Imported')
-  })
-
-  test('names at most two failed files, then counts the rest', () => {
-    const failed = ['a.mp4', 'b.mov', 'c.wav'].map((f) => ({ path: `/r/${f}`, reason: 'x' }))
-    expect(folderImportSummary(result({ failed }), 'r')).toBe(
-      'r: 3 could not be read (a.mp4, b.mov, +1 more)'
-    )
-  })
-
-  test('a truncated scan says it stopped early, without naming the backend caps', () => {
-    const summary = folderImportSummary(result({ created: ids(500), truncated: true }), 'Rec')
-    expect(summary).toContain('Imported 500 videos')
-    expect(summary).toContain('stopped early')
-    expect(summary).toContain('on their own')
-    expect(summary).not.toMatch(/\d+ files|\d+ folder/)
+  test('isProjectPath needs the dot', () => {
+    expect(isProjectPath('/r/a.capforge')).toBe(true)
+    expect(isProjectPath('/r/acapforge')).toBe(false)
   })
 })
 
-describe('folderImportTone', () => {
-  const failure = [{ path: '/r/bad.mp4', reason: 'media_not_found' }]
-
-  test('info when nothing was found at all', () => {
-    expect(folderImportTone(result())).toBe('info')
-    expect(folderImportTone(result({ truncated: true }))).toBe('info')
-  })
-
-  test('error when every file found failed', () => {
-    expect(folderImportTone(result({ failed: failure }))).toBe('error')
+describe('pickedEntriesOf', () => {
+  test('passes a well-formed picker answer through, as new objects', () => {
+    const answer = [
+      { path: '/r/a.mp4', kind: 'file' },
+      { path: '/r/A', kind: 'directory' },
+    ]
+    const entries = pickedEntriesOf(answer)
+    expect(entries).toEqual(answer)
+    expect(entries[0]).not.toBe(answer[0])
   })
 
   test.each([
-    ['created', { created: ids(1) }],
-    ['existing', { existing: ids(1) }],
-    ['relinked', { relinked: ids(1) }],
-    ['created with some failures', { created: ids(2), failed: failure }],
-    ['only existing with some failures', { existing: ids(1), failed: failure }],
-  ])('success when anything landed (%s)', (_label, overrides) => {
-    expect(folderImportTone(result(overrides))).toBe('success')
+    null,
+    'nope',
+    [{ path: '', kind: 'file' }],
+    [{ path: '/a', kind: 'symlink' }],
+    [{ path: 42, kind: 'file' }],
+    [null],
+  ])('refuses a malformed answer (%j) rather than dropping entries', (answer) => {
+    expect(() => pickedEntriesOf(answer)).toThrow(/import picker/)
   })
 })
 
@@ -197,19 +197,7 @@ describe('droppedImport', () => {
     })
   })
 
-  test('several media files import without opening', () => {
-    expect(droppedImport([file('/r/a.mp4'), file('/r/b.MOV')])).toEqual({
-      kind: 'files',
-      paths: ['/r/a.mp4', '/r/b.MOV'],
-      skipped: [],
-    })
-  })
-
-  test('a directory imports the folder', () => {
-    expect(droppedImport([dir('/Volumes/Rec')])).toEqual({ kind: 'folder', path: '/Volumes/Rec' })
-  })
-
-  test('non-media files ride along as skipped names', () => {
+  test('one media file beside non-media still opens, naming the skipped', () => {
     expect(droppedImport([file('/r/a.mp4'), file('/r/notes.pdf')])).toEqual({
       kind: 'open',
       path: '/r/a.mp4',
@@ -217,20 +205,56 @@ describe('droppedImport', () => {
     })
   })
 
+  test('several media files import without opening', () => {
+    expect(droppedImport([file('/r/a.mp4'), file('/r/b.MOV')])).toEqual({
+      kind: 'import',
+      plan: plan({ media: ['/r/a.mp4', '/r/b.MOV'] }),
+    })
+  })
+
+  test('a directory imports the folder', () => {
+    expect(droppedImport([dir('/Volumes/Rec')])).toEqual({
+      kind: 'import',
+      plan: plan({ folders: ['/Volumes/Rec'] }),
+    })
+  })
+
+  test('a project file imports, even alone', () => {
+    expect(droppedImport([file('/r/Talk.capforge')])).toEqual({
+      kind: 'import',
+      plan: plan({ projects: ['/r/Talk.capforge'] }),
+    })
+  })
+
+  test('a mixed drop is imported, not refused', () => {
+    expect(
+      droppedImport([
+        dir('/r/A'),
+        dir('/r/B'),
+        file('/r/a.mp4'),
+        file('/r/p.capforge'),
+        file('/r/x.txt'),
+      ])
+    ).toEqual({
+      kind: 'import',
+      plan: plan({
+        folders: ['/r/A', '/r/B'],
+        media: ['/r/a.mp4'],
+        projects: ['/r/p.capforge'],
+        skipped: ['x.txt'],
+      }),
+    })
+  })
+
   test('only non-media is rejected with a message naming it', () => {
-    const plan = droppedImport([file('/r/notes.pdf')])
-    expect(plan.kind).toBe('rejected')
-    expect(plan.kind === 'rejected' && plan.message).toContain('notes.pdf')
+    const planned = droppedImport([file('/r/notes.pdf')])
+    expect(planned.kind).toBe('rejected')
+    expect(planned.kind === 'rejected' && planned.message).toContain('notes.pdf')
   })
 
   test('several non-media files are rejected with a count', () => {
-    const plan = droppedImport([file('/r/a.pdf'), file('/r/b.txt')])
-    expect(plan.kind === 'rejected' && plan.message).toContain('2 dropped files')
-  })
-
-  test('a folder mixed with anything else is rejected, not half-done', () => {
-    expect(droppedImport([dir('/r/A'), dir('/r/B')]).kind).toBe('rejected')
-    expect(droppedImport([dir('/r/A'), file('/r/a.mp4')]).kind).toBe('rejected')
+    const planned = droppedImport([file('/r/a.pdf'), file('/r/b.txt')])
+    expect(planned.kind === 'rejected' && planned.message).toContain('2 dropped files')
   })
 
   test('nothing with a path is a no-op, not an error', () => {

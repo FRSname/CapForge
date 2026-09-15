@@ -105,8 +105,10 @@ from backend.library import watch as library_watch
 from backend.library.router import (
     build_router as build_library_router,
     get_store as library_store,
+    notify_media_changed as notify_library_media_changed,
     record_id_for_media,
     require_openable_record,
+    set_media_changed_listener as set_library_media_listener,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -331,13 +333,17 @@ async def _write_agent_discovery() -> None:
         store.ensure_index()
         pruned = store.prune_scratch()
         logger.info("Library ready at %s (%d scratch record(s) pruned)", store.root, pruned)
-        # Posters for records that predate v3 #6 or whose grab failed: the
-        # library's own single-worker pool, never awaited.
-        library_posters.start_backfill(store)
+        loop = asyncio.get_running_loop()
+        # A record's probed duration or poster landing on the poster pool is a
+        # `library_changed` with `updated: [id]`, hopped back onto this loop.
+        set_library_media_listener(library_watch.make_updated_notify(loop, broadcast_event))
+        # Durations and posters for records that predate them or whose probe or
+        # grab failed: the library's own single-worker pool, never awaited.
+        library_posters.start_backfill(store, on_changed=notify_library_media_changed)
         # The import-only watch folder: a daemon poller whose `library_changed`
         # events hop back onto this loop (docs/plans/library-folder-import.md).
         library_watch.get_watcher(
-            store, library_watch.make_notify(asyncio.get_running_loop(), broadcast_event)
+            store, library_watch.make_notify(loop, broadcast_event)
         ).start()
     except Exception:
         # Non-fatal: the library index is a disposable cache and is rebuilt on
@@ -371,6 +377,7 @@ def _log_hardware_prewarm(future: "asyncio.Future[Any]") -> None:
 
 @app.on_event("shutdown")
 async def _remove_agent_discovery() -> None:
+    set_library_media_listener(None)  # the loop the listener hops onto is going away
     library_watch.stop_watchers()
     remove_discovery()
 

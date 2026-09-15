@@ -1,12 +1,12 @@
 /**
- * The poster block — rendered to static markup (the vitest environment is
- * node), so this checks what is drawn, not the fetch.
+ * The card's `…` menu — rendered to static markup (the vitest environment is
+ * node). The poster block's tests live in `LibraryPoster.test.tsx`.
  */
 
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { LibraryCardMenu, Poster } from './LibraryCard'
+import { LibraryCardMenu } from './LibraryCard'
 
 const video: LibraryVideo = {
   id: 'vid_1',
@@ -23,24 +23,6 @@ const video: LibraryVideo = {
   hasProject: true,
   poster: true,
 }
-
-describe('Poster', () => {
-  test('draws the grabbed frame over the block when a URL is given', () => {
-    const html = renderToStaticMarkup(<Poster video={video} posterUrl="blob:capforge/abc" />)
-    expect(html).toContain('<img src="blob:capforge/abc"')
-    expect(html).toContain('object-cover')
-    // The duration badge stays on top of the picture.
-    expect(html).toContain('1:02')
-  })
-
-  test('falls back to the placeholder with no URL, and still flags missing media', () => {
-    const html = renderToStaticMarkup(
-      <Poster video={{ ...video, missing_media: true }} posterUrl={null} />
-    )
-    expect(html).not.toContain('<img')
-    expect(html).toContain('Media missing')
-  })
-})
 
 describe('LibraryCardMenu', () => {
   const noop = () => {}

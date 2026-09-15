@@ -27,6 +27,14 @@ FAKE_FFMPEG = "/fake/ffmpeg"
 JPEG_BYTES = b"\xff\xd8\xff\xe0" * 4
 
 
+@pytest.fixture(autouse=True)
+def no_real_ffprobe(monkeypatch):
+    """The pool task probes the duration before it grabs; these tests are about
+    the grab, so the probe answers "unknown" instead of running a binary
+    (``test_library_media_facts.py`` covers the probe's part)."""
+    monkeypatch.setattr(posters, "_default_probe", lambda source: None)
+
+
 def fake_ffmpeg(monkeypatch, *, fail_first: int = 0, ok: bool = True) -> list[list[str]]:
     """Replace the subprocess call: succeed (writing a JPEG) or fail, and log argv."""
     calls: list[list[str]] = []
@@ -215,7 +223,7 @@ def test_start_grab_and_start_backfill_run_on_the_pool(tmp_path, monkeypatch) ->
 
 
 def test_a_pool_task_that_raises_is_logged_not_lost(tmp_path, monkeypatch, caplog) -> None:
-    def explode(*args):
+    def explode(*args, **kwargs):
         raise RuntimeError("ffmpeg ate the disk")
 
     monkeypatch.setattr(posters, "ensure_poster_for", explode)
@@ -233,7 +241,9 @@ def test_create_route_grabs_the_poster_through_the_hook(client, home, tmp_path, 
     synchronous so the response can be asserted without waiting on the pool."""
     calls = fake_ffmpeg(monkeypatch)
     monkeypatch.setattr(posters, "_default_ffmpeg", find_fake)
-    monkeypatch.setattr(posters, "start_grab", lambda store, record: posters.ensure_poster_for(store, record))
+    monkeypatch.setattr(
+        posters, "start_grab", lambda store, record, **kw: posters.ensure_poster_for(store, record)
+    )
     source = media(tmp_path)
     headers = {AGENT_HEADER: AGENT_TOKEN}
     res = client.post("/api/library", json={"source_path": str(source)}, headers=headers)

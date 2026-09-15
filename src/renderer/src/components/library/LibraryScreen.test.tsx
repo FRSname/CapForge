@@ -4,8 +4,8 @@
  *
  * What matters: the status a record is at is legible from the card (the rail is
  * cumulative), a record whose media is gone says so, the newest resumable
- * record is promoted out of the grid exactly once, and the two toolbar actions
- * are always reachable.
+ * record is promoted out of the grid exactly once, Import… and Add video are
+ * always reachable, and a portrait poster is not forced into a 16:9 box.
  */
 
 import { describe, expect, test } from 'vitest'
@@ -42,9 +42,8 @@ function render(props: Partial<React.ComponentProps<typeof LibraryScreen>> = {})
       loading={false}
       onOpen={noop}
       onAddVideo={noop}
-      onImportProjects={noop}
-      onImportFolder={noop}
-      onImportFiles={noop}
+      onImport={noop}
+      onImportDropped={noop}
       onFileDropped={noop}
       onDropRejected={noop}
       onRemove={noop}
@@ -75,13 +74,21 @@ describe('LibraryScreen', () => {
     expect(html).not.toContain('All videos')
   })
 
-  test('the toolbar always offers Add video and Import project files', () => {
+  test('the toolbar always offers Add video and Import…', () => {
     // Arrange / Act
     const html = render({ videos: [video()] })
 
     // Assert
     expect(html).toContain('Add video')
-    expect(html).toContain('Import project files…')
+    expect(html).toContain('>Import…<')
+  })
+
+  test('the two old import buttons are gone', () => {
+    for (const html of [render(), render({ videos: [video()] })]) {
+      expect(html).not.toContain('Import folder…')
+      expect(html).not.toContain('Import project files…')
+      expect(html).not.toContain('Import a folder of recordings…')
+    }
   })
 
   test('shows a card per record with the cumulative status rail', () => {
@@ -113,8 +120,18 @@ describe('LibraryScreen', () => {
   test('promotes the newest resumable record into the Continue hero, once', () => {
     // Arrange
     const videos = [
-      video({ id: 'a'.repeat(32), title: 'Older session', updatedAt: '2026-09-01T10:00:00Z', hasProject: true }),
-      video({ id: 'b'.repeat(32), title: 'Newest session', updatedAt: '2026-09-12T10:00:00Z', hasProject: true }),
+      video({
+        id: 'a'.repeat(32),
+        title: 'Older session',
+        updatedAt: '2026-09-01T10:00:00Z',
+        hasProject: true,
+      }),
+      video({
+        id: 'b'.repeat(32),
+        title: 'Newest session',
+        updatedAt: '2026-09-12T10:00:00Z',
+        hasProject: true,
+      }),
     ]
 
     // Act
@@ -153,13 +170,12 @@ describe('LibraryScreen', () => {
     expect(html).not.toContain('NaN')
   })
 
-  test('Import folder… is reachable with and without records', () => {
-    expect(render()).toContain('Import folder…')
-    expect(render({ videos: [video()] })).toContain('Import folder…')
-  })
-
-  test('the empty state offers a whole folder of recordings too', () => {
-    expect(render()).toContain('Import a folder of recordings…')
+  test('Import… is reachable with and without records', () => {
+    expect(render({ videos: [video()] }).split('>Import…<').length - 1).toBe(1)
+    // An empty library offers it in the toolbar and again in the empty state.
+    const empty = render()
+    expect(empty.split('>Import…<').length - 1).toBe(2)
+    expect(empty.lastIndexOf('>Import…<')).toBeGreaterThan(empty.indexOf('Your library is empty'))
   })
 
   test('the loading count replaces the total while the list is in flight', () => {
@@ -203,12 +219,13 @@ describe('LibraryScreen collections', () => {
     expect(html).not.toContain('title="Collection:')
   })
 
-  test('New collection… sits beside the filter, before the import buttons', () => {
+  test('New collection… sits beside the filter, then Import…, then Add video', () => {
     const html = render({ videos: [video()], collections: [] })
     const filterAt = html.indexOf('Filter by collection')
     const newAt = html.indexOf('New collection…')
     expect(newAt).toBeGreaterThan(filterAt)
-    expect(newAt).toBeLessThan(html.indexOf('Import folder…'))
+    expect(newAt).toBeLessThan(html.indexOf('>Import…<'))
+    expect(html.indexOf('>Import…<')).toBeLessThan(html.indexOf('Add video'))
     // Closed until clicked: no form in the markup.
     expect(html).not.toContain('aria-label="Collection name"')
   })
@@ -230,8 +247,11 @@ describe('LibraryScreen toolbar layout', () => {
   const html = render({ videos: [video()] })
 
   test('the toolbar buttons never wrap their labels', () => {
-    for (const label of ['Import folder…', 'Import project files…', 'Add video', 'New collection…']) {
-      const button = html.slice(html.lastIndexOf('<button', html.indexOf(label)), html.indexOf(label))
+    for (const label of ['Import…', 'Add video', 'New collection…']) {
+      const button = html.slice(
+        html.lastIndexOf('<button', html.indexOf(label)),
+        html.indexOf(label)
+      )
       expect(button, label).toContain('whitespace-nowrap')
     }
   })
@@ -244,5 +264,22 @@ describe('LibraryScreen toolbar layout', () => {
 
   test('the filter keeps a bounded width, inline (field-input would override a utility)', () => {
     expect(html).toMatch(/<select[^>]*style="[^"]*width:auto[^"]*max-width:\d/)
+  })
+})
+
+describe('LibraryScreen posters', () => {
+  test('the grid does not stretch a row to its tallest (portrait) card', () => {
+    const html = render({ videos: [video({ id: 'a'.repeat(32) }), video({ id: 'b'.repeat(32) })] })
+    expect(html).toMatch(/<div class="grid [^"]*items-start/)
+  })
+
+  test('the Continue poster has a fixed height and a width from the ratio (16:9 until known)', () => {
+    const html = render({ videos: [video({ title: 'Resume me', hasProject: true })] })
+    const hero = html.slice(html.indexOf('Continue Resume me'))
+    const poster = hero.slice(hero.indexOf('<div class="relative'))
+    const tag = poster.slice(0, poster.indexOf('>'))
+    expect(tag).toMatch(/height:\d+px/)
+    expect(tag).toMatch(/width:\d+px/)
+    expect(tag).not.toContain('aspect-ratio')
   })
 })

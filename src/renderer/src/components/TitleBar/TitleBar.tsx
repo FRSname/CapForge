@@ -1,4 +1,5 @@
 import type { Screen } from '../../types/app'
+import { libraryButtonVisible } from '../../lib/screenNavigation'
 import appIcon from '../../assets/icon.png'
 import { Button } from '../ui/Button'
 import { IconButton } from '../ui/IconButton'
@@ -15,6 +16,8 @@ const MAC_TRAFFIC_LIGHT_CLEARANCE = '76px'
 
 interface TitleBarProps {
   screen: Screen
+  /** Home without resetting anything (shown on `file` and `results` only). */
+  onLibrary: () => void
   onNew: () => void
   onSave: () => void
   onOpen: () => void
@@ -30,6 +33,7 @@ interface TitleBarProps {
 
 export function TitleBar({
   screen,
+  onLibrary,
   onNew,
   onSave,
   onOpen,
@@ -78,6 +82,24 @@ export function TitleBar({
 
       {/* Right: actions */}
       <div className="app-no-drag flex items-center gap-1">
+        {libraryButtonVisible(screen) && (
+          <>
+            <Button
+              variant="titlebar"
+              className="flex items-center gap-1.5"
+              onClick={onLibrary}
+              title="Back to the library (this session stays open)"
+              aria-label="Back to the library"
+            >
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M1 2.75C1 1.784 1.784 1 2.75 1h2.5C6.216 1 7 1.784 7 2.75v2.5A1.75 1.75 0 0 1 5.25 7h-2.5A1.75 1.75 0 0 1 1 5.25Zm1.75-.25a.25.25 0 0 0-.25.25v2.5c0 .138.112.25.25.25h2.5a.25.25 0 0 0 .25-.25v-2.5a.25.25 0 0 0-.25-.25ZM9 2.75C9 1.784 9.784 1 10.75 1h2.5C14.216 1 15 1.784 15 2.75v2.5A1.75 1.75 0 0 1 13.25 7h-2.5A1.75 1.75 0 0 1 9 5.25Zm1.75-.25a.25.25 0 0 0-.25.25v2.5c0 .138.112.25.25.25h2.5a.25.25 0 0 0 .25-.25v-2.5a.25.25 0 0 0-.25-.25ZM1 10.75C1 9.784 1.784 9 2.75 9h2.5C6.216 9 7 9.784 7 10.75v2.5A1.75 1.75 0 0 1 5.25 15h-2.5A1.75 1.75 0 0 1 1 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v2.5c0 .138.112.25.25.25h2.5a.25.25 0 0 0 .25-.25v-2.5a.25.25 0 0 0-.25-.25ZM9 10.75C9 9.784 9.784 9 10.75 9h2.5c.966 0 1.75.784 1.75 1.75v2.5A1.75 1.75 0 0 1 13.25 15h-2.5A1.75 1.75 0 0 1 9 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v2.5c0 .138.112.25.25.25h2.5a.25.25 0 0 0 .25-.25v-2.5a.25.25 0 0 0-.25-.25Z" />
+              </svg>
+              Library
+            </Button>
+            <div className="w-px h-3.5 bg-[var(--color-border)] mx-0.5" />
+          </>
+        )}
+
         {showResults && onExport && (
           <Button
             variant="titlebar"

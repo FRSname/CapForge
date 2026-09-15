@@ -68,12 +68,34 @@ NO_SNAPSHOT_DETAIL = (
 #: pointing at the previous tmp dir.
 _STORES: dict[str, LibraryStore] = {}
 
+#: ``listener(video_id)`` — a record's probed duration or poster landed (told
+#: from the poster pool's thread). Set by ``main.py`` at startup, because the
+#: loop its broadcast hops onto only exists there, and cleared at shutdown.
+MediaChanged = Callable[[str], None]
+_media_listener: Optional[MediaChanged] = None
+
+
+def set_media_changed_listener(listener: Optional[MediaChanged]) -> None:
+    global _media_listener
+    _media_listener = listener
+
+
+def notify_media_changed(video_id: str) -> None:
+    """The pool task's ``on_changed``: whichever listener is set when it fires."""
+    listener = _media_listener
+    if listener is not None:
+        listener(video_id)
+
+
+def _on_created(store: LibraryStore, record: VideoRecord) -> None:
+    posters.start_grab(store, record, on_changed=notify_media_changed)
+
 
 def get_store() -> LibraryStore:
     key = str(library_root())
     store = _STORES.get(key)
     if store is None:
-        store = LibraryStore(library_root(), on_created=posters.start_grab)
+        store = LibraryStore(library_root(), on_created=_on_created)
         _STORES[key] = store
     return store
 
@@ -250,8 +272,8 @@ def _register_library_routes(router: APIRouter) -> None:
     def create_video(body: CreateVideoRequest, response: Response) -> dict:
         """Create-or-return: 201 for a new record, 200 for a fingerprint hit.
 
-        A new record's poster is grabbed by the store's ``on_created`` hook
-        (off this thread) — the card shows a placeholder until the next list."""
+        A new record's duration and poster come from the store's ``on_created``
+        hook (off this thread), announced as ``library_changed`` ``updated``."""
         store = get_store()
         with _library_errors():
             record, created = store.create_or_get(body.source_path, scratch=body.scratch)

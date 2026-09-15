@@ -1,16 +1,17 @@
 /**
- * Folder import, "Locate…" relink and the watch folder — the decisions and the
- * copy, kept pure so the node-environment tests can pin every branch
- * (docs/plans/library-folder-import.md).
+ * Import (the picker and drops), "Locate…" relink and the watch folder — the
+ * decisions and the copy, kept pure so the node-environment tests can pin
+ * every branch (docs/plans/library-folder-import.md).
  *
  * Nothing here scans, fetches or decides what a record *is*: the backend owns
- * dedupe (fingerprints) and the relink rules. This module only says what a
- * drop means, how an import reads in a toast, and which refusal a relink hit.
+ * dedupe (fingerprints) and the relink rules. This module only sorts what was
+ * picked or dropped (`importPlan`), which refusal a relink hit, and what the
+ * watch folder row says. The combined import toast is `libraryImportSummary.ts`.
  *
  * Pure module: no React, no `window`, no I/O.
  */
 
-import type { FolderImportFailure, FolderImportResult, WatchStatus } from './libraryTypes'
+import type { WatchStatus } from './libraryTypes'
 import { isMediaPath } from './libraryView'
 
 /**
@@ -20,14 +21,8 @@ import { isMediaPath } from './libraryView'
  */
 export const IMPORT_PATHS_MAX = 500
 
-/** Appended to a summary whose import stopped before the end. */
-export const IMPORT_STOPPED_EARLY_NOTE =
-  'The scan stopped early — import the remaining files or subfolders on their own.'
-
-/** How many failed file names a summary spells out before counting the rest. */
-export const MAX_NAMED_FAILURES = 2
-
-const SUMMARY_SEPARATOR = ' · '
+/** The CapForge project extension, dotless like `MEDIA_EXTENSIONS`. */
+export const PROJECT_EXTENSION = 'capforge'
 
 /** The last segment of a path, ignoring a trailing separator. */
 export function pathBaseName(path: string): string {
@@ -36,49 +31,8 @@ export function pathBaseName(path: string): string {
   return trimmed.split(/[\\/]/).pop() ?? trimmed
 }
 
-function plural(count: number, noun: string): string {
+export function plural(count: number, noun: string): string {
   return `${count} ${noun}${count === 1 ? '' : 's'}`
-}
-
-function failedPart(failed: readonly FolderImportFailure[]): string {
-  const named = failed.slice(0, MAX_NAMED_FAILURES).map((f) => pathBaseName(f.path))
-  const rest = failed.length - named.length
-  const names = rest > 0 ? [...named, `+${rest} more`] : named
-  return `${failed.length} could not be read (${names.join(', ')})`
-}
-
-/**
- * The toast after a folder (or multi-file) import: every non-empty bucket, in
- * the order created → existing → relinked → failed. A pass that created
- * nothing names the folder instead of claiming "Imported 0 videos".
- */
-export function folderImportSummary(result: FolderImportResult, folderName: string): string {
-  const parts: string[] = []
-  if (result.created.length > 0) parts.push(`Imported ${plural(result.created.length, 'video')}`)
-  if (result.existing.length > 0) parts.push(`${result.existing.length} already in the library`)
-  if (result.relinked.length > 0) parts.push(`${result.relinked.length} relinked`)
-  if (result.failed.length > 0) parts.push(failedPart(result.failed))
-
-  let summary: string
-  if (parts.length === 0) summary = `No media found in ${folderName}`
-  else if (result.created.length === 0) summary = `${folderName}: ${parts.join(SUMMARY_SEPARATOR)}`
-  else summary = parts.join(SUMMARY_SEPARATOR)
-
-  return result.truncated ? `${summary}. ${IMPORT_STOPPED_EARLY_NOTE}` : summary
-}
-
-/** The toast type an import summary is shown with (`useToast`'s `ToastType`). */
-export type ImportTone = 'success' | 'info' | 'error'
-
-/**
- * `info` when the import found nothing at all, `error` when every file it
- * found failed, `success` whenever anything landed (created, already there, or
- * relinked) — a partial failure is still named inside the summary text.
- */
-export function folderImportTone(result: FolderImportResult): ImportTone {
-  const landed = result.created.length + result.existing.length + result.relinked.length
-  if (landed > 0) return 'success'
-  return result.failed.length > 0 ? 'error' : 'info'
 }
 
 /** The paths one `import-paths` request may carry, and whether any were left out. */
@@ -87,6 +41,77 @@ export function importPathsBatch(paths: readonly string[]): {
   truncated: boolean
 } {
   return { paths: paths.slice(0, IMPORT_PATHS_MAX), truncated: paths.length > IMPORT_PATHS_MAX }
+}
+
+/** True for a `.capforge` project file, case-insensitively. The dot is required. */
+export function isProjectPath(path: string): boolean {
+  return path.toLowerCase().endsWith(`.${PROJECT_EXTENSION}`)
+}
+
+// ── The import plan (picks and drops) ───────────────────────────────────────
+
+/**
+ * What the Import… picker opens: files and folders in one dialog (`any`,
+ * macOS only), or `files` / `folder` from the menu Windows and Linux get.
+ * Mirrors `ImportPickMode` in `src/preload/index.ts`.
+ */
+export type ImportPickMode = 'any' | 'files' | 'folder'
+
+/** One path the Import… picker returned, stat'ed by Electron main. */
+export interface PickedEntry {
+  path: string
+  kind: 'file' | 'directory'
+}
+
+/** Reported when the picker's IPC answer is not the documented shape. */
+export const PICKER_ANSWER_INVALID = 'The import picker answered with something unexpected.'
+
+function isPickedEntry(value: unknown): value is PickedEntry {
+  if (typeof value !== 'object' || value === null) return false
+  const { path, kind } = value as Record<string, unknown>
+  return typeof path === 'string' && path !== '' && (kind === 'file' || kind === 'directory')
+}
+
+/**
+ * The boundary guard for `window.subforge.pickImport`'s answer. A malformed
+ * answer throws (and is toasted) rather than quietly importing part of it.
+ */
+export function pickedEntriesOf(value: unknown): PickedEntry[] {
+  if (!Array.isArray(value) || !value.every(isPickedEntry)) throw new Error(PICKER_ANSWER_INVALID)
+  return value.map((entry) => ({ path: entry.path, kind: entry.kind }))
+}
+
+/**
+ * What an import will do: every folder is its own `import-folder` request,
+ * the media files are one `import-paths` batch (cut at the route limit,
+ * `mediaTruncated`), every project is its own `import-project`, and anything
+ * else is only named, by file name, in the summary.
+ */
+export interface ImportPlan {
+  folders: string[]
+  media: string[]
+  mediaTruncated: boolean
+  projects: string[]
+  skipped: string[]
+}
+
+export function importPlan(picked: readonly PickedEntry[]): ImportPlan {
+  const files = picked.filter((entry) => entry.kind === 'file').map((entry) => entry.path)
+  const batch = importPathsBatch(files.filter((path) => isMediaPath(path)))
+  return {
+    folders: picked.filter((entry) => entry.kind === 'directory').map((entry) => entry.path),
+    media: batch.paths,
+    mediaTruncated: batch.truncated,
+    projects: files.filter((path) => !isMediaPath(path) && isProjectPath(path)),
+    skipped: files
+      .filter((path) => !isMediaPath(path) && !isProjectPath(path))
+      .map((path) => pathBaseName(path)),
+  }
+}
+
+/** True when a plan has nothing to import and nothing to report. */
+export function isEmptyPlan(plan: ImportPlan): boolean {
+  return plan.folders.length + plan.media.length + plan.projects.length + plan.skipped.length === 0
 }
 
 // ── Relink refusals ─────────────────────────────────────────────────────────
@@ -167,9 +192,8 @@ export interface DroppedItem {
 
 export type DropPlan =
   | { kind: 'none' }
-  | { kind: 'folder'; path: string }
   | { kind: 'open'; path: string; skipped: string[] }
-  | { kind: 'files'; paths: string[]; skipped: string[] }
+  | { kind: 'import'; plan: ImportPlan }
   | { kind: 'rejected'; message: string }
 
 /** Reported when something that is not media is dropped on the library. */
@@ -177,41 +201,36 @@ export function droppedNotMediaMessage(name: string): string {
   return `${name} is not a video or audio file CapForge can open.`
 }
 
-export const DROP_ONE_FOLDER_MESSAGE =
-  'Drop one folder at a time — or drop video files on their own.'
-
 /** Names of dropped files that were left out because they are not media. */
 export function droppedSkippedMessage(skipped: readonly string[]): string {
   return `Skipped ${plural(skipped.length, 'file')} that ${skipped.length === 1 ? 'is' : 'are'} not video or audio: ${skipped.join(', ')}`
 }
 
 /**
- * What a drop on the library means. One media file keeps "open in the
- * editor"; several import without opening; a single folder imports the folder.
- * A folder mixed with anything else is refused rather than half-done.
+ * What a drop on the library means — sorted by `importPlan`, like a pick. One
+ * media file (and no folder or project) keeps "open in the editor", naming
+ * any non-media beside it. Otherwise folders, several files and projects are
+ * all imported together; a drop with nothing importable is refused.
  */
 export function droppedImport(items: readonly DroppedItem[]): DropPlan {
   const usable = items.filter((item): item is DroppedItem & { path: string } => !!item.path)
   if (usable.length === 0) return { kind: 'none' }
 
-  if (usable.some((item) => item.isDirectory)) {
-    return usable.length === 1
-      ? { kind: 'folder', path: usable[0].path }
-      : { kind: 'rejected', message: DROP_ONE_FOLDER_MESSAGE }
+  const plan = importPlan(
+    usable.map((item) => ({ path: item.path, kind: item.isDirectory ? 'directory' : 'file' }))
+  )
+  const onlyFiles = plan.folders.length === 0 && plan.projects.length === 0
+  if (onlyFiles && plan.media.length === 1) {
+    return { kind: 'open', path: plan.media[0], skipped: plan.skipped }
   }
-
-  const media = usable.filter((item) => isMediaPath(item.path))
-  const skipped = usable.filter((item) => !isMediaPath(item.path)).map((item) => item.name)
-  if (media.length === 0) {
-    const what = usable.length === 1 ? usable[0].name : `None of the ${usable.length} dropped files`
+  if (onlyFiles && plan.media.length === 0) {
     const message =
       usable.length === 1
-        ? droppedNotMediaMessage(what)
-        : `${what} is a video or audio file CapForge can open.`
+        ? droppedNotMediaMessage(usable[0].name)
+        : `None of the ${usable.length} dropped files is a video or audio file CapForge can open.`
     return { kind: 'rejected', message }
   }
-  if (media.length === 1) return { kind: 'open', path: media[0].path, skipped }
-  return { kind: 'files', paths: media.map((item) => item.path), skipped }
+  return { kind: 'import', plan }
 }
 
 /** The members of a `DataTransferItem` the drop reads — structural, so tests pass fakes. */

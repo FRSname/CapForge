@@ -5,19 +5,21 @@
  * `'file'` screen shows, so there is exactly one drop target implementation and
  * exactly one list of accepted extensions. Browsing for a file here hands it
  * straight to App, which creates the record and moves to the file screen.
- * A *drop* is handled by `LibraryScreen` before it reaches the zone (a folder
- * or several files mean something else there), which is why the zone is keyed:
- * a remount per drop clears the highlight it never got to clear itself.
+ * A *drop* is handled by `LibraryScreen` before it reaches the zone (a folder,
+ * a project or several files mean something else there), which is why the
+ * zone is keyed: a remount per drop clears the highlight it never got to clear
+ * itself.
  *
- * A creator's recordings live in folders, so importing a whole folder is
- * offered right here too, not only in the toolbar. So is "New collection…",
+ * A creator's recordings live in folders, so the toolbar's Import… (files,
+ * folders and projects) is offered right here too. So is "New collection…",
  * when the library has no collections yet (the toolbar only offers it beside
  * the filter, which an empty library does not show).
  */
 
 import type { CreateCollectionResult } from '../../lib/collectionCreate'
+import type { ImportPickMode } from '../../lib/libraryImport'
 import { DropZoneScreen } from '../screens/DropZoneScreen'
-import { Button } from '../ui/Button'
+import { ImportButton } from './ImportButton'
 import { NewCollectionPopover } from './NewCollectionForm'
 
 export interface LibraryEmptyStateProps {
@@ -25,8 +27,8 @@ export interface LibraryEmptyStateProps {
   onFileSelected: (path: string) => void
   /** The file is chosen — go transcribe it. */
   onStart: () => void
-  /** Pick a folder and import every recording in it. */
-  onImportFolder: () => void
+  /** Import… — the same action as the toolbar's. */
+  onImport: (mode: ImportPickMode) => void
   /** Offers "New collection…" when given. The create itself confirms with a toast. */
   onCreateCollection?: (name: string) => Promise<CreateCollectionResult>
   /** Changes per drop on the library, remounting the drop zone. */
@@ -39,7 +41,7 @@ function ignoreCreated(): void {}
 export function LibraryEmptyState({
   onFileSelected,
   onStart,
-  onImportFolder,
+  onImport,
   onCreateCollection,
   dropZoneKey,
 }: LibraryEmptyStateProps) {
@@ -69,9 +71,7 @@ export function LibraryEmptyState({
         onStart={onStart}
       />
       <div className="flex flex-wrap items-center justify-center gap-2">
-        <Button variant="ghost" className="whitespace-nowrap text-xs" onClick={onImportFolder}>
-          Import a folder of recordings…
-        </Button>
+        <ImportButton onImport={onImport} align="center" />
         {onCreateCollection && (
           <NewCollectionPopover
             onCreate={onCreateCollection}

@@ -174,6 +174,11 @@ export interface WatchStatus {
 export interface LibraryChangedEvent {
   created: string[]
   relinked: string[]
+  /**
+   * Records whose import-time facts (the probed duration, the poster) just
+   * landed. Absent when the frame has no such key (the watch folder's frame).
+   */
+  updated?: string[]
 }
 
 export const FOLDER_IMPORT_SHAPE_MESSAGE =
@@ -238,5 +243,9 @@ export function parseLibraryChangedEvent(value: unknown): LibraryChangedEvent {
     Array.isArray(list)
       ? list.filter((id): id is string => typeof id === 'string' && id !== '')
       : []
-  return { created: strings(body?.created), relinked: strings(body?.relinked) }
+  return {
+    created: strings(body?.created),
+    relinked: strings(body?.relinked),
+    ...(body && 'updated' in body ? { updated: strings(body.updated) } : {}),
+  }
 }

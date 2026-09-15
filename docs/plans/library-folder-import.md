@@ -102,3 +102,10 @@ Request models `extra="forbid"`.
 ## Verification (to fill in)
 - backend pytest (library tests + full suite; the 15 golden-frame failures on this Mac are the known environmental delta), `npm run typecheck`, `npm test`, `npm run lint`, `node --test electron/library-dialogs.test.js`.
 - Live, against a temp `CAPFORGE_HOME` uvicorn: import a folder of real clips (cards + posters), move one file and import the new folder (relinked, opens), relink a card to a different file (409 → force), watch a folder and copy a file in (appears after two ticks, a `library_changed` frame on `/ws/...`), Remove it (not re-imported).
+
+## Follow-up after user QA (2026-09-15, `feat/v3-library-polish`)
+
+- **One "Import…" button** replaces "Import folder…" and "Import project files…". `library:pick-import(mode)` returns `[{path, kind}]`, and `importPlan` routes each pick: folders to import-folder, media to one import-paths batch, `.capforge` files to project import. The result is one combined summary. macOS gets a single file-or-folder dialog; Windows/Linux get a "Files… / Folder…" menu, because Electron cannot combine them there.
+- **Drops** use the same routing. A mixed drop is no longer refused, and one lone media file still opens in the editor.
+- **Posters** keep the frame's aspect ratio (measured on image load, cached per record, clamped 9/21..21/9), and the grid no longer stretches rows. The Continue hero keeps a fixed height.
+- **The TitleBar's "Library" button** flushes the record autosave and returns home without resetting the session.

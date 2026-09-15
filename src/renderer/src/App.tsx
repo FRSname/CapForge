@@ -36,6 +36,7 @@ import { useGlobalShortcuts } from './hooks/useGlobalShortcuts'
 import { useCrashRecovery } from './hooks/useCrashRecovery'
 import { useAgentBridge } from './hooks/useAgentBridge'
 import { useLibrarySession } from './hooks/useLibrarySession'
+import { useScreenNavigation } from './hooks/useScreenNavigation'
 import { usePublishRecord } from './hooks/usePublishRecord'
 import { usePublishWorkspace } from './hooks/usePublishWorkspace'
 import { useUiStateMirror } from './hooks/useUiStateMirror'
@@ -64,9 +65,8 @@ export function App() {
 
   const projectIORef = useRef<ProjectIOHandle | null>(null)
   // The library session is created further down (it needs `restoreFromProjectFile`),
-  // so the handlers declared above it reach it through these two refs.
+  // so the handlers declared above it reach it through this ref.
   const ensureRecordRef = useRef<((path: string) => Promise<string | null>) | null>(null)
-  const clearActiveRef = useRef<(() => void) | null>(null)
 
   // ── The caption-track store ─────────────────────────────────────
   // Everything the editor, the sidebar, the render path and the agent mirror
@@ -200,17 +200,6 @@ export function App() {
     replaceTracks([sourceTrackFromResult(data, sourceTrack)], SOURCE_TRACK_ID)
     setResultsSessionId((n) => n + 1)
     setScreen('results')
-  }
-
-  function handleNew() {
-    setFilePath(null)
-    setResult(null)
-    // New ends this session's claim on its record and goes home.
-    clearActiveRef.current?.()
-    setScreen('library')
-    replaceTracks([emptySourceTrack()], SOURCE_TRACK_ID)
-    resetSourceVideoInfo()
-    window.subforge.autosaveClear()
   }
 
   /**
@@ -376,9 +365,8 @@ export function App() {
     notify: setRestoreWarning,
   })
   // The session needs `restoreFromProjectFile` and the handlers above need its
-  // `ensureRecordFor`/`clearActive`; refs break the cycle without reordering.
+  // `ensureRecordFor`; a ref breaks the cycle without reordering.
   ensureRecordRef.current = session.ensureRecordFor
-  clearActiveRef.current = session.clearActive
 
   // ── The Publish workspace ───────────────────────────────────────
   // `workspace` is an axis over the open record, not a fifth screen: both
@@ -425,11 +413,20 @@ export function App() {
   // Snapshot the live session ~2s after any edit; the writer stores it in the
   // active library record and only falls back to `autosave.json` when that
   // fails (docs/plans/library-home-screen.md §9.1).
-  const lastSavedAt = useAutosave(
-    projectFile,
-    [screen, tracks, activeTrackId, result],
-    session.writeSnapshot
-  )
+  const autosave = useAutosave(projectFile, [screen, tracks, activeTrackId, result], session.writeSnapshot)
+
+  // New (ends the session) and Library (flushes, then goes home keeping it).
+  const nav = useScreenNavigation({
+    screen,
+    setScreen,
+    setFilePath,
+    setResult,
+    replaceTracks,
+    resetSourceVideoInfo,
+    clearActive: session.clearActive,
+    flushAutosave: autosave.flush,
+    notify: setRestoreWarning,
+  })
 
   // ── Global keyboard shortcuts ───────────────────────────────────
   useGlobalShortcuts({
@@ -461,7 +458,8 @@ export function App() {
       <div className="flex flex-col h-full" style={{ background: 'var(--color-bg)' }}>
         <TitleBar
           screen={screen}
-          onNew={handleNew}
+          onLibrary={nav.goToLibrary}
+          onNew={nav.handleNew}
           onSave={handleSave}
           onOpen={handleOpen}
           onSettingsToggle={() => setSettingsOpen((o) => !o)}
@@ -470,8 +468,8 @@ export function App() {
           canUndo={subtitleUndo?.canUndo ?? false}
           canRedo={subtitleUndo?.canRedo ?? false}
           autosavedLabel={
-            lastSavedAt
-              ? `Saved ${new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+            autosave.lastSavedAt
+              ? `Saved ${new Date(autosave.lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
               : undefined
           }
         />
@@ -506,7 +504,7 @@ export function App() {
               <ProgressScreen
                 filePath={filePath!}
                 onDone={handleTranscribeDone}
-                onCancel={handleNew}
+                onCancel={nav.handleNew}
               />
             </div>
           )}

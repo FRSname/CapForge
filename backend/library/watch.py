@@ -58,6 +58,8 @@ STOP_JOIN_TIMEOUT_S = 5.0
 
 #: ``notify(created_ids, relinked_ids)`` — called only when either is non-empty.
 Notify = Callable[[tuple[str, ...], tuple[str, ...]], None]
+#: ``notify(video_id)`` — the poster pool stored a probed duration or a poster.
+NotifyUpdated = Callable[[str], None]
 Broadcast = Callable[[dict], Awaitable[None]]
 Stat = tuple[int, int]
 
@@ -398,15 +400,51 @@ def make_notify(loop: asyncio.AbstractEventLoop, broadcast: Broadcast) -> Notify
     """A ``notify`` that hops from the watcher thread onto the server's loop."""
 
     def notify(created: tuple[str, ...], relinked: tuple[str, ...]) -> None:
-        payload = {
+        _send(loop, broadcast, {
             "type": LIBRARY_CHANGED_EVENT,
             "created": list(created),
             "relinked": list(relinked),
-        }
-        future = asyncio.run_coroutine_threadsafe(broadcast(payload), loop)
-        future.add_done_callback(_log_broadcast_failure)
+        })
 
     return notify
+
+
+def make_updated_notify(loop: asyncio.AbstractEventLoop, broadcast: Broadcast) -> NotifyUpdated:
+    """The poster pool's notify: the same event and hop, the id under ``updated``.
+
+    Pool threads are not the event loop, so this is ``make_notify``'s hop, not a
+    new event type — the list refetches either way.
+    """
+
+    def notify(video_id: str) -> None:
+        _send(loop, broadcast, {
+            "type": LIBRARY_CHANGED_EVENT,
+            "created": [],
+            "relinked": [],
+            "updated": [video_id],
+        })
+
+    return notify
+
+
+def _send(loop: asyncio.AbstractEventLoop, broadcast: Broadcast, payload: dict) -> None:
+    """Schedule ``broadcast(payload)`` on ``loop`` from any thread.
+
+    A closed loop (the server shut down while a pool task or poll was running)
+    is logged, not raised — the caller is a background thread with no one to
+    tell.
+    """
+    if loop.is_closed():
+        logger.warning("library_changed not sent, the server loop is closed: %s", payload)
+        return
+    coro = broadcast(payload)
+    try:
+        future = asyncio.run_coroutine_threadsafe(coro, loop)
+    except RuntimeError as exc:  # closed between the check and the call
+        coro.close()
+        logger.warning("library_changed not sent: %s", exc)
+        return
+    future.add_done_callback(_log_broadcast_failure)
 
 
 def _log_broadcast_failure(future: "Future[Any]") -> None:
