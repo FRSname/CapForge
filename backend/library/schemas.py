@@ -210,7 +210,8 @@ class RecordPatch(AuthoredFields):
     thumbnail: Optional[Thumbnail] = None
     speakers: Optional[dict[str, Speaker]] = None
     collection_id: Optional[str] = None
-    localized: Optional[dict[str, LocalizedFields]] = None
+    #: Merged per language on PATCH (``localized.py``): ``null`` removes a language.
+    localized: Optional[dict[str, Optional[LocalizedFields]]] = None
     publish: Optional[Publish] = None
     external_refs: Optional[list[ExternalRef]] = None
 

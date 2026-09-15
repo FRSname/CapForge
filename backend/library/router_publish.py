@@ -29,6 +29,15 @@ from pydantic import BaseModel, ConfigDict
 from backend.library.brief import Brief, BriefPatch, load_brief, save_brief
 from backend.library.collection_store import Collection, effective_brief
 from backend.library.errors import CollectionNotFound, CollectionsUnreadable
+from backend.library.localized import (
+    UnknownLanguage,
+    draft_record,
+    inherit_localized,
+    localize_record,
+    localized_notes,
+    merge_localized_fields,
+    resolve_language,
+)
 from backend.library.package import assemble_description, render_youtube_package
 from backend.library.paths import record_dir
 from backend.library.schemas import RecordPatch, VideoRecord
@@ -47,6 +56,7 @@ from backend.library.validate_media import (
     inherit_thumbnail,
     merge_thumbnail_fields,
 )
+from backend.library.validate_localized import view_findings
 
 #: The only package format v3.0 renders; anything else is a 400, never a guess.
 YOUTUBE = "youtube"
@@ -57,6 +67,7 @@ UNSUPPORTED_PLATFORM = (
 VIOLATION_DETAIL = "{count} rule(s) violated"
 BRIEF_UNREADABLE_STATUS = 500
 COLLECTIONS_UNREADABLE_STATUS = 500
+LANG_NEEDS_RECORD = "'lang' validates a record's localized view; pass a video_id with it"
 
 
 class ValidateRequest(BaseModel):
@@ -64,7 +75,8 @@ class ValidateRequest(BaseModel):
     the missing halves are read from the record and its transcript.
 
     ``collection_id`` is the panel's unsaved choice: a present ``null`` means
-    "no collection", and leaving it out uses the record's own.
+    "no collection", and leaving it out uses the record's own. ``lang`` judges
+    that language's localized view (Part B, decision 5) and needs a ``video_id``.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -73,6 +85,7 @@ class ValidateRequest(BaseModel):
     duration: Optional[float] = None
     video_id: Optional[str] = None
     collection_id: Optional[str] = None
+    lang: Optional[str] = None
 
 
 def register_publish_routes(
@@ -140,12 +153,15 @@ def violation_refusal(
     so a violation can never hide behind a write that did not repeat it. An
     unknown ``collection_id`` rides in the same ``violations`` list. A partial
     ``thumbnail`` object is first completed from ``record`` (an omitted key means
-    unchanged), so it is never judged against empty defaults.
+    unchanged), so it is never judged against empty defaults, and ``localized``
+    is merged per language, so one language is never judged as the whole dict.
     """
-    completed = inherit_thumbnail(record.thumbnail, patch)
+    completed = inherit_localized(record.localized, inherit_thumbnail(record.thumbnail, patch))
     merged = {**authored_fields(record), **completed.model_dump(exclude_unset=True)}
     found = [
-        *hard_violations(merged, duration=record_duration(store, record)),
+        *hard_violations(
+            merged, duration=record_duration(store, record), source_language=record.language
+        ),
         *candidates_findings(record.thumbnail.candidates, patch),
         *_collection_findings(store, record, patch),
     ]
@@ -162,17 +178,21 @@ def locked_refusal(
     The record is re-read here, so a frame grabbed or deleted after
     :func:`violation_refusal` is what a partial ``thumbnail`` inherits and what
     ``candidates_managed`` and ``cover_not_a_candidate`` judge (publish-editors
-    Part A). Returns the refusal, or ``None`` and the patch to write — its
-    thumbnail completed from that fresh read.
+    Part A), and a ``localized`` patch merges over the languages stored now and
+    is judged merged (Part B). Returns the refusal, or ``None`` and the patch to
+    write — its thumbnail and ``localized`` completed from that fresh read.
     """
     fresh = store.get(current.id)
-    completed = inherit_thumbnail(fresh.thumbnail, patch)
+    completed = inherit_localized(fresh.localized, inherit_thumbnail(fresh.thumbnail, patch))
     found = [
         *_collection_findings(store, current, patch),
         *candidates_findings(fresh.thumbnail.candidates, patch),
     ]
     if "thumbnail" in patch.model_fields_set:
         found += cover_findings(completed.thumbnail)
+    if "localized" in patch.model_fields_set:
+        found += hard_violations({"localized": completed.localized}, duration=None,
+                                 source_language=fresh.language)
     return (_violations_response(found) if found else None), completed
 
 
@@ -227,6 +247,30 @@ def _requested_collection(
         ) from exc
 
 
+def language_or_404(record: VideoRecord, lang: Optional[str]) -> Optional[str]:
+    """The language to localize into (None for the source), or a 404."""
+    try:
+        return resolve_language(record, lang)
+    except UnknownLanguage as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+def _language_findings(
+    record: Optional[VideoRecord], fields: dict, lang: str, *,
+    duration: Optional[float], brief: Brief,
+) -> list[Violation]:
+    """``/validate`` with ``lang``: the draft laid over the record, localized."""
+    if record is None:
+        raise HTTPException(status_code=422, detail=LANG_NEEDS_RECORD)
+    draft = draft_record(record, fields)
+    code = language_or_404(draft, lang)
+    if code is None:
+        return validate_fields(fields, duration=duration, brief=brief,
+                               source_language=record.language)
+    view = localize_record(draft, code)
+    return view_findings(validate_record(view, duration=duration, brief=brief), draft, code)
+
+
 # --- routes ------------------------------------------------------------------
 
 def _register_brief_routes(router: APIRouter, get_store: Callable) -> None:
@@ -264,14 +308,24 @@ def _register_validate_route(
             if fields is None:
                 fields = authored_fields(record)
             else:
-                fields = merge_thumbnail_fields(record.thumbnail, fields)
+                fields = merge_localized_fields(
+                    record.localized, merge_thumbnail_fields(record.thumbnail, fields)
+                )
             if duration is None:
                 duration = record_duration(store, record)
         brief = effective_brief(
             read_brief(store), _requested_collection(store, body, record)
         )
+        source = record.language if record is not None else None
         try:
-            found = validate_fields(fields or {}, duration=duration, brief=brief)
+            if body.lang is not None:
+                found = _language_findings(
+                    record, fields or {}, body.lang, duration=duration, brief=brief
+                )
+            else:
+                found = validate_fields(
+                    fields or {}, duration=duration, brief=brief, source_language=source
+                )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
         return {"violations": _dump(found)}
@@ -282,7 +336,9 @@ def _register_package_route(
 ) -> None:
 
     @router.get("/{video_id}/package")
-    def get_package(video_id: str, platform: str = YOUTUBE) -> dict:
+    def get_package(
+        video_id: str, platform: str = YOUTUBE, lang: Optional[str] = None
+    ) -> dict:
         """The pasteable text plus whatever is still open on the record.
 
         The package is rendered *even with* violations — the user is mid-edit
@@ -292,6 +348,9 @@ def _register_package_route(
         ``description`` is that assembled DESCRIPTION body on its own (no header,
         no rule lines) — exactly the text those ``package.description`` rules
         measured, so a preview never scrapes it out of ``text``.
+
+        ``lang`` renders the localized view (Part B, decision 4): an unknown one is
+        a 404, and no ``lang`` or the source language is the source package.
         """
         if platform != YOUTUBE:
             raise HTTPException(
@@ -301,25 +360,31 @@ def _register_package_route(
         store = get_store()
         with library_errors():
             record = store.get(video_id)
+        code = language_or_404(record, lang)
+        view = record if code is None else localize_record(record, code)
         brief = read_brief(store)
         collection = read_collection(store, record.collection_id)
+        effective = effective_brief(brief, collection)
         duration = record_duration(store, record)
         speakers = diarized_speakers(store, record)
         text = render_youtube_package(
-            record, brief, duration=duration,
+            view, brief, duration=duration,
             source_name=Path(record.sourcePath).name,
             diarized_ids=speakers, collection=collection,
             record_folder=record_dir(record.id, scratch=record.scratch, root=store.root).absolute(),
+            extra_notes=() if code is None else localized_notes(
+                record, code, footer=effective.footer
+            ),
         )
         assembled = assemble_description(
-            record, brief, collection=collection, diarized_ids=speakers
+            view, brief, collection=collection, diarized_ids=speakers
         )
         violations = [
-            *validate_record(
-                record, duration=duration, brief=effective_brief(brief, collection)
-            ),
+            *validate_record(view, duration=duration, brief=effective),
             *assembled_violations(assembled),
         ]
+        if code is not None:
+            violations = view_findings(violations, record, code)
         return {
             "platform": platform,
             "text": text,

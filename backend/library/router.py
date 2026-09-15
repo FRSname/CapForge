@@ -162,16 +162,14 @@ def _library_errors() -> Iterator[None]:
 
 
 def _view(store: LibraryStore, record: VideoRecord) -> dict:
-    """The wire shape: the dossier plus its read-time derived status.
-
-    ``hasProject`` rides along for the same reason ``status`` does — the card
-    needs it and neither is ever stored on the record.
-    """
+    """The wire shape: the dossier plus its read-time derived keys (``status``,
+    ``hasProject``, ``poster``, ``languages``), none of them ever stored."""
     return {
         **record.model_dump(),
         "status": store.status_of(record),
         "hasProject": store.has_project(record),
         "poster": store.has_poster(record),
+        "languages": store.languages_of(record),
     }
 
 

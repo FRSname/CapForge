@@ -54,6 +54,7 @@ from backend.library.schemas import (
 )
 from backend.library.store_admin import StoreAdminMixin
 from backend.library.store_frames import ThumbnailStoreMixin
+from backend.library.store_localized import LocalizedStoreMixin
 from backend.library.transcript import derive_transcript, plain_text
 from backend.library.transcript import segments_only as strip_word_arrays
 
@@ -103,7 +104,9 @@ def _truncate(value: Any) -> Any:
     return value
 
 
-class LibraryStore(StoreAdminMixin, CollectionStoreMixin, ThumbnailStoreMixin):
+class LibraryStore(
+    StoreAdminMixin, CollectionStoreMixin, ThumbnailStoreMixin, LocalizedStoreMixin
+):
     """Every record under ``root`` (``$CAPFORGE_HOME/library`` in production).
 
     Housekeeping (remove/detach/import/migrate) lives in ``store_admin``'s
