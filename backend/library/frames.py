@@ -21,14 +21,13 @@ from __future__ import annotations
 
 import logging
 import math
-import os
 import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional, Sequence, Union
 
-from backend.library import frame_grab
+from backend.library import frame_grab, fs
 from backend.library.errors import FrameNotFound, FramesRefused, ScratchReadOnly
 from backend.library.paths import THUMBNAILS_DIR, record_dir
 from backend.library.schemas import VideoRecord
@@ -198,7 +197,7 @@ def grab_frame_file(
             return FailedFrame(at_s, NO_FRAME_REASON.format(at=at_s))
         size = staging.stat().st_size
         if size <= THUMBNAIL_MAX_BYTES:
-            os.replace(staging, folder / name)
+            fs.replace_with_retry(staging, folder / name)
             return GrabbedFrame(at_s, name)
         logger.info("Frame at %.3fs is %d bytes at -q:v %d", at_s, size, quality)
     frame_grab.discard(staging)

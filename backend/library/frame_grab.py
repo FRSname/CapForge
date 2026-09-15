@@ -19,11 +19,12 @@ the runner are resolved per call so the tests never need a real binary.
 from __future__ import annotations
 
 import logging
-import os
 import subprocess
 import uuid
 from pathlib import Path
 from typing import Callable, Optional
+
+from backend.library import fs
 
 logger = logging.getLogger(__name__)
 
@@ -113,5 +114,5 @@ def grab_frame(
         )
         discard(tmp)
         return False
-    os.replace(tmp, dest)
+    fs.replace_with_retry(tmp, dest)
     return True
