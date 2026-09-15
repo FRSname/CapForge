@@ -20,13 +20,14 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import Any, Callable, Iterator, Union
 
-from fastapi import APIRouter, HTTPException, Response
+from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
 from starlette import status as http_status
 
 from backend.library.channels import Channel, ChannelBook, ChannelCreate, ChannelPatch
 from backend.library.errors import (
     ChannelExists,
+    ChannelInUse,
     ChannelIsPrimary,
     ChannelNotFound,
     LibraryError,
@@ -41,6 +42,11 @@ PRIMARY_PATH = "/channels/{channel_id}/primary"
 REASON_CHANNEL_EXISTS = "channel_exists"
 REASON_CHANNEL_IS_PRIMARY = "channel_is_primary"
 REASON_PRIMARY_NOT_YOUTUBE = "primary_not_youtube"
+REASON_CHANNEL_IN_USE = "channel_in_use"
+#: ``GET /channels/{id}?include_recent_posts=true&limit=``: the default and the bounds.
+RECENT_POSTS_DEFAULT_LIMIT = 10
+RECENT_POSTS_MIN_LIMIT = 1
+RECENT_POSTS_MAX_LIMIT = 50
 CHANNELS_UNREADABLE_STATUS = 500
 #: A literal: starlette renamed its 422 constant, and CI's starlette is unpinned.
 PRIMARY_NOT_YOUTUBE_STATUS = 422
@@ -115,10 +121,19 @@ def _register_list_and_create(router: APIRouter, get_store: Callable) -> None:
 def _register_one(router: APIRouter, get_store: Callable) -> None:
 
     @router.get(CHANNEL_PATH)
-    def get_channel(channel_id: str) -> dict:
+    def get_channel(
+        channel_id: str,
+        include_recent_posts: bool = False,
+        limit: int = Query(RECENT_POSTS_DEFAULT_LIMIT, ge=RECENT_POSTS_MIN_LIMIT,
+                           le=RECENT_POSTS_MAX_LIMIT),
+    ) -> dict:
+        """``Channel & {primary}``, plus ``recent_posts`` only with ``include_recent_posts``."""
         store = get_store()
         with _channel_errors():
-            return _one_view(store, store.get_channel(channel_id))
+            view = _one_view(store, store.get_channel(channel_id))
+            if not include_recent_posts:
+                return view
+            return {**view, "recent_posts": store.recent_posts(channel_id, limit=limit)}
 
     @router.patch(CHANNEL_PATH)
     def patch_channel(channel_id: str, patch: ChannelPatch) -> dict:
@@ -129,13 +144,18 @@ def _register_one(router: APIRouter, get_store: Callable) -> None:
 
     @router.delete(CHANNEL_PATH, status_code=http_status.HTTP_204_NO_CONTENT, response_model=None)
     def delete_channel(channel_id: str) -> Union[Response, JSONResponse]:
-        """204; the primary channel is refused with 409 ``channel_is_primary``."""
+        """204; the primary channel is refused with 409 ``channel_is_primary``, and a
+        channel any record holds a post for with 409 ``channel_in_use`` (+ ``posts``)."""
         store = get_store()
         with _channel_errors():
             try:
                 store.delete_channel(channel_id)
             except ChannelIsPrimary as exc:
                 return _refusal(http_status.HTTP_409_CONFLICT, REASON_CHANNEL_IS_PRIMARY, exc)
+            except ChannelInUse as exc:
+                return JSONResponse(status_code=http_status.HTTP_409_CONFLICT, content={
+                    "reason": REASON_CHANNEL_IN_USE, "detail": str(exc), "posts": exc.posts,
+                })
         return Response(status_code=http_status.HTTP_204_NO_CONTENT)
 
     @router.post(PRIMARY_PATH, response_model=None)

@@ -20,7 +20,7 @@ import shutil
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Callable, Iterator, Optional, Union
+from typing import Any, Callable, Iterator, Optional, Sequence, Union
 from uuid import uuid4
 
 from backend.library import fs, posters
@@ -32,6 +32,7 @@ from backend.library.errors import (  # re-exported: callers import them from he
     RecordNotFound,
     ScratchReadOnly,
     StaleRevision,
+    UnknownChannel,
 )
 from backend.library.index import SearchIndex, open_index
 from backend.library.locking import writes
@@ -44,11 +45,12 @@ from backend.library.paths import (
     TRANSCRIPT_FILE,
     record_dir,
 )
+from backend.library.record_io import backup_v1
+from backend.library.record_projection import loaded_record, project, stored_dict, unproject
+from backend.library.record_upgrade import CURRENT_SCHEMA
 from backend.library.schemas import (
-    HISTORY_CAP,
     HISTORY_PREV_MAX_CHARS,
-    HistoryEntry,
-    RecordPatch,
+    Post,
     RenderEntry,
     Status,
     VideoRecord,
@@ -57,6 +59,8 @@ from backend.library.schemas import (
 from backend.library.store_admin import StoreAdminMixin
 from backend.library.store_frames import ThumbnailStoreMixin
 from backend.library.store_localized import LocalizedStoreMixin
+from backend.library.store_patch import PatchStoreMixin
+from backend.library.store_posts import PostStoreMixin, index_texts, published_on
 from backend.library.transcript import derive_transcript, plain_text
 from backend.library.transcript import segments_only as strip_word_arrays
 
@@ -108,13 +112,20 @@ def _truncate(value: Any) -> Any:
 
 class LibraryStore(
     StoreAdminMixin, CollectionStoreMixin, ChannelStoreMixin, ThumbnailStoreMixin,
-    LocalizedStoreMixin,
+    LocalizedStoreMixin, PatchStoreMixin, PostStoreMixin,
 ):
     """Every record under ``root`` (``$CAPFORGE_HOME/library`` in production).
 
     Housekeeping (remove/detach/import/migrate) lives in ``store_admin``'s
-    mixin, collections in ``collection_store``'s and thumbnail candidates in
-    ``store_frames``'s — this file is at its ceiling.
+    mixin, collections in ``collection_store``'s, thumbnail candidates in
+    ``store_frames``'s, ``patch`` in ``store_patch``'s and post-derived reads in
+    ``store_posts``'s — this file is at its ceiling.
+
+    **Posts** (multi-channel PR 2): the file holds per-channel text in ``posts``
+    (schema 2); a loaded record's projected root fields are the primary
+    channel's post (``record_projection.py``). ``_load`` upgrades a schema-1 file
+    in memory and projects, ``_persist`` unprojects and keeps a schema-1 file as
+    ``record.v1.json`` before its first overwrite.
     """
 
     def __init__(
@@ -169,10 +180,8 @@ class LibraryStore(
 
     def _index_record(self, record: VideoRecord) -> None:
         transcript = self._read_json(record, TRANSCRIPT_FILE) or {}
-        tags_text = " ".join([*record.tags, *record.hashtags, *record.keywords])
-        self.index.upsert(
-            record.id, record.title, record.description, tags_text, plain_text(transcript)
-        )
+        title, body, tags_text = index_texts(record)
+        self.index.upsert(record.id, title, body, tags_text, plain_text(transcript))
 
     # --- reading -------------------------------------------------------------
 
@@ -192,8 +201,11 @@ class LibraryStore(
     def get(self, video_id: str) -> VideoRecord:
         return self._load(self._locate(video_id) / RECORD_FILE)
 
-    def _load(self, path: Path) -> VideoRecord:
-        record = VideoRecord.model_validate(fs.read_json(path))
+    def _load(self, path: Path, primary_id: Optional[str] = None) -> VideoRecord:
+        """The file upgraded (in memory only) and projected onto ``primary_id``,
+        resolved here when the caller has not already."""
+        primary = primary_id if primary_id is not None else self.record_primary_id()
+        record = loaded_record(fs.read_json(path), primary)
         # missing_media is derived at read time — the file it describes can
         # disappear between two reads.
         return record.model_copy(
@@ -201,14 +213,17 @@ class LibraryStore(
         )
 
     def _iter_records(self) -> Iterator[VideoRecord]:
-        """Every record on disk, library folders first, then scratch."""
+        """Every record on disk, library folders first, then scratch.
+
+        The primary channel is read once for the whole pass."""
+        primary = self.record_primary_id()
         for base in (self.root, self.root / SCRATCH_DIR_NAME):
             if not base.is_dir():
                 continue
             for folder in sorted(base.iterdir()):
                 if folder.name == SCRATCH_DIR_NAME or not (folder / RECORD_FILE).is_file():
                     continue
-                yield self._load(folder / RECORD_FILE)
+                yield self._load(folder / RECORD_FILE, primary)
 
     def find_by_path(self, path: PathLike) -> Optional[VideoRecord]:
         target = str(Path(path).expanduser().resolve())
@@ -254,6 +269,7 @@ class LibraryStore(
             "hasProject": self.has_project(record),
             "poster": self.has_poster(record),
             "cover": self.cover_of(record),
+            "publishedOn": published_on(record),
         }
 
     def has_poster(self, record: VideoRecord) -> bool:
@@ -274,17 +290,27 @@ class LibraryStore(
     # --- writing -------------------------------------------------------------
 
     def _persist(self, record: VideoRecord) -> VideoRecord:
-        """The ONE record write: atomic file, then index."""
-        folder = self._folder(record.id, scratch=record.scratch)
-        fs.write_json_atomic(folder / RECORD_FILE, record.model_dump())
-        self._index_record(record)
-        return record
+        """The ONE record write: atomic file, then index.
 
-    def create(self, source_path: PathLike, *, scratch: bool = False) -> VideoRecord:
-        return self.create_or_get(source_path, scratch=scratch)[0]
+        Returns the record as a read would: the root folded into the primary
+        post and projected back, so ``posts`` and the root agree."""
+        primary = self.record_primary_id()
+        synced = project(unproject(record, primary), primary).model_copy(
+            update={"schema": CURRENT_SCHEMA}
+        )
+        path = self._folder(record.id, scratch=record.scratch) / RECORD_FILE
+        backup_v1(path)
+        fs.write_json_atomic(path, stored_dict(synced, primary))
+        self._index_record(synced)
+        return synced
+
+    def create(
+        self, source_path: PathLike, *, scratch: bool = False, channels: Sequence[str] = ()
+    ) -> VideoRecord:
+        return self.create_or_get(source_path, scratch=scratch, channels=channels)[0]
 
     def create_or_get(
-        self, source_path: PathLike, *, scratch: bool = False
+        self, source_path: PathLike, *, scratch: bool = False, channels: Sequence[str] = ()
     ) -> tuple[VideoRecord, bool]:
         """Create a record, or return the one already holding this media.
 
@@ -292,12 +318,13 @@ class LibraryStore(
         for that and 200 for a hit. A scratch request on a known real record
         returns the real one; a real request on a known scratch record promotes
         it (§2.3). The media is read before the lock and ``on_created`` is told
-        after it is released.
+        after it is released. ``channels`` gives a *minted* record an empty post
+        per id; an unknown id raises ``UnknownChannel`` before anything is written.
         """
         media_fingerprint = self._media_fingerprint(source_path)
         with self._write_lock:
             record, minted = self._create_or_get_locked(
-                source_path, media_fingerprint, scratch=scratch
+                source_path, media_fingerprint, scratch=scratch, channels=channels
             )
         if minted:
             self._announce_created(record)
@@ -310,9 +337,18 @@ class LibraryStore(
             raise MediaNotFound(f"Media file not found: {source_path}") from exc
 
     def _create_or_get_locked(
-        self, source_path: PathLike, media_fingerprint: str, *, scratch: bool = False
+        self,
+        source_path: PathLike,
+        media_fingerprint: str,
+        *,
+        scratch: bool = False,
+        channels: Sequence[str] = (),
     ) -> tuple[VideoRecord, bool]:
         """``create_or_get``'s body; the caller holds the lock and announces."""
+        wanted = list(dict.fromkeys(channels))
+        unknown = [cid for cid in wanted if cid not in self.channel_platforms()] if wanted else []
+        if unknown:
+            raise UnknownChannel(unknown)
         existing = self._find_by_fingerprint(media_fingerprint)
         if existing is not None:
             if existing.scratch and not scratch:
@@ -329,6 +365,7 @@ class LibraryStore(
             createdAt=now,
             updatedAt=now,
             scratch=scratch,
+            posts={cid: Post() for cid in wanted},
         )
         return self._persist(record), True
 
@@ -339,45 +376,6 @@ class LibraryStore(
             self._on_created(self, record)
         except Exception:
             logger.warning("on_created hook failed for record %s", record.id, exc_info=True)
-
-    @writes
-    def patch(
-        self, video_id: str, patch: RecordPatch, *, rev: int, by: str
-    ) -> VideoRecord:
-        """Replace the authored fields the patch set; stamp history; bump rev."""
-        record = self.get(video_id)
-        if record.scratch:
-            raise ScratchReadOnly(
-                f"Record {video_id} is scratch; promote it before editing its dossier"
-            )
-        if rev != record.rev:
-            raise StaleRevision(record)
-
-        # A field sent back with the value it already holds is not an edit —
-        # no rev bump, no history entry. The debounced writer coalesces an
-        # insert-then-remove into exactly such a patch.
-        previous = record.model_dump()
-        sent = patch.model_dump()
-        changed = [
-            f
-            for f in RecordPatch.model_fields
-            if f in patch.model_fields_set and sent[f] != previous[f]
-        ]
-        if not changed:
-            return record
-
-        now = _now_iso()
-        entries = [
-            HistoryEntry(field=name, prev=_truncate(previous[name]), by=by, at=now)
-            for name in changed
-        ]
-        update: dict[str, Any] = {name: getattr(patch, name) for name in changed}
-        update["rev"] = record.rev + 1
-        update["updatedAt"] = now
-        update["history"] = [*record.history, *entries][-HISTORY_CAP:]
-        if patch.publish is not None and patch.publish.youtube.publishedAt:
-            update["publishedAt"] = patch.publish.youtube.publishedAt
-        return self._persist(record.model_copy(update=update))
 
     @writes
     def promote(self, video_id: str) -> VideoRecord:
@@ -448,7 +446,9 @@ class LibraryStore(
     # --- derived state / housekeeping ---------------------------------------
 
     def status_of(self, record: VideoRecord) -> Status:
-        return derive_status(record, has_segments=self._has_segments(record))
+        return derive_status(
+            record, has_segments=self._has_segments(record), posts=record.posts
+        )
 
     def _has_segments(self, record: VideoRecord) -> bool:
         """Whether the stored transcript holds any segment, cached by mtime+size.

@@ -352,6 +352,8 @@ def test_list_summary_shape(store, tmp_path):
         # Also derived: the cover frame's name when its file exists, so the
         # library card can show the cover chosen in Publish.
         "cover",
+        # Also derived (multi-channel PR 2): channels with a visible published post.
+        "publishedOn",
     }
     assert summary["cover"] is None
     assert summary["title"] == "Ship it"

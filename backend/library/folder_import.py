@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, Literal, Union
+from typing import TYPE_CHECKING, Iterable, Literal, Sequence, Union
 
 from backend.library.errors import LibraryError
 from backend.library.media_scan import SCAN_MAX_FILES, is_media_name, scan_media
@@ -78,25 +78,31 @@ def import_folder(
     *,
     recursive: bool = True,
     by: Actor = DEFAULT_IMPORT_ACTOR,
+    channels: Sequence[str] = (),
 ) -> FolderImport:
     """Scan ``folder`` and import every media file found (bounded by the scan cap).
 
+    ``channels`` gives each *created* record an empty post per id.
     Raises ``NotADirectoryError`` when ``folder`` is not a directory.
     """
     scan = scan_media(Path(folder), recursive=recursive, max_files=SCAN_MAX_FILES)
-    result = import_paths(store, scan.paths, by=by)
+    result = import_paths(store, scan.paths, by=by, channels=channels)
     return replace(result, truncated=scan.truncated)
 
 
 def import_paths(
-    store: "LibraryStore", paths: Iterable[PathInput], *, by: Actor
+    store: "LibraryStore",
+    paths: Iterable[PathInput],
+    *,
+    by: Actor,
+    channels: Sequence[str] = (),
 ) -> FolderImport:
     """The per-path step for an explicit list (the watcher, a multi-file drop)."""
     outcomes: dict[Outcome, list[str]] = {"created": [], "existing": [], "relinked": []}
     failed: list[tuple[str, str]] = []
     for path in paths:
         try:
-            outcome, video_id = _import_one(store, Path(path), by=by)
+            outcome, video_id = _import_one(store, Path(path), by=by, channels=channels)
         except (LibraryError, OSError, ValueError) as exc:
             reason = _reason(exc)
             logger.warning("Could not import %s: %s", path, reason)
@@ -112,7 +118,11 @@ def import_paths(
 
 
 def import_dropped_paths(
-    store: "LibraryStore", paths: Iterable[str], *, by: Actor
+    store: "LibraryStore",
+    paths: Iterable[str],
+    *,
+    by: Actor,
+    channels: Sequence[str] = (),
 ) -> FolderImport:
     """A multi-file drop: refuse what cannot be media, import the rest.
 
@@ -131,17 +141,22 @@ def import_dropped_paths(
             refused.append((raw, REASON_NOT_MEDIA))
         else:
             importable.append(candidate)
-    result = import_paths(store, importable, by=by)
+    result = import_paths(store, importable, by=by, channels=channels)
     return replace(result, failed=(*refused, *result.failed))
 
 
-def _import_one(store: "LibraryStore", path: Path, *, by: Actor) -> tuple[Outcome, str]:
+def _import_one(
+    store: "LibraryStore", path: Path, *, by: Actor, channels: Sequence[str] = ()
+) -> tuple[Outcome, str]:
     """Create, relink or match one file. A scratch hit is promoted by the store.
+    Only a created record gets ``channels``' empty posts.
 
     The relink re-checks ``missing_media`` under the store's write lock, so a
     record another writer healed in between is reported ``existing``.
     """
-    record, minted = store.create_or_get(path)
+    record, minted = (
+        store.create_or_get(path, channels=channels) if channels else store.create_or_get(path)
+    )
     if minted:
         return "created", record.id
     if record.missing_media:

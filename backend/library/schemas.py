@@ -13,8 +13,9 @@ chapter cannot move it.
 
 from __future__ import annotations
 
+import warnings
 from datetime import datetime
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -116,6 +117,59 @@ class Publish(BaseModel):
     pushes: list[dict] = Field(default_factory=list)
 
 
+class PostPublished(BaseModel):
+    """Where one channel's post went live. ``id`` is the YouTube video id, derived
+    from ``url`` on a ``posts`` write when absent (``youtube_url.py``)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    url: Optional[str] = None
+    id: Optional[str] = None
+    #: ISO-8601.
+    at: Optional[str] = None
+
+
+class Post(BaseModel):
+    """One video's text for one channel (multi-channel PR 2). One model for every
+    platform; which fields a platform has is ``platforms.py``'s table, and a
+    filled field the platform lacks is ``field_not_on_platform``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = ""                     # youtube
+    description: str = ""               # youtube
+    short_description: str = ""         # youtube
+    tags: list[str] = Field(default_factory=list)        # youtube
+    caption: str = ""                   # tiktok, instagram
+    text: str = ""                      # linkedin, x
+    hashtags: list[str] = Field(default_factory=list)
+    #: One of ``thumbnail.candidates``.
+    cover: Optional[str] = None
+    #: ``None`` means the channel's language.
+    language: Optional[str] = None
+    localized: dict[str, LocalizedFields] = Field(default_factory=dict)  # youtube
+    published: PostPublished = Field(default_factory=PostPublished)
+    hidden: bool = False
+
+
+class PostPatch(Post):
+    """A partial post. Only ``model_fields_set`` applies: a sent field replaces
+    (``null`` resets it to the default), and ``localized`` merges per language."""
+
+    title: Optional[str] = None
+    description: Optional[str] = None
+    short_description: Optional[str] = None
+    tags: Optional[list[str]] = None
+    caption: Optional[str] = None
+    text: Optional[str] = None
+    hashtags: Optional[list[str]] = None
+    cover: Optional[str] = None
+    language: Optional[str] = None
+    localized: Optional[dict[str, Optional[LocalizedFields]]] = None
+    published: Optional[PostPublished] = None
+    hidden: Optional[bool] = None
+
+
 class ExternalRef(BaseModel):
     system: str
     id: str
@@ -162,6 +216,16 @@ class AuthoredFields(BaseModel):
     localized: dict[str, LocalizedFields] = Field(default_factory=dict)
     publish: Publish = Field(default_factory=Publish)
     external_refs: list[ExternalRef] = Field(default_factory=list)
+    #: Per-channel text, keyed by channel id. The projected root fields above
+    #: (``record_projection.PROJECTED_FIELDS``) are the primary channel's post.
+    posts: dict[str, Post] = Field(default_factory=dict)
+
+
+# ``schema`` is the name the file carries; pydantic warns that it shadows the
+# deprecated ``BaseModel.schema()`` classmethod, which nothing here calls.
+warnings.filterwarnings(
+    "ignore", message='Field name "schema" in "SystemFields" shadows', category=UserWarning
+)
 
 
 class SystemFields(BaseModel):
@@ -181,6 +245,9 @@ class SystemFields(BaseModel):
     #: Derived at read time from ``sourcePath`` — stored in the file only so the
     #: shape stays flat for the MCP client; ``LibraryStore.get`` recomputes it.
     missing_media: bool = False
+    #: The stored shape: 1 (or absent) is the pre-posts file ``record_upgrade``
+    #: upgrades at read time; the store always writes 2.
+    schema: int = 1
 
 
 class VideoRecord(SystemFields, AuthoredFields):
@@ -214,6 +281,8 @@ class RecordPatch(AuthoredFields):
     localized: Optional[dict[str, Optional[LocalizedFields]]] = None
     publish: Optional[Publish] = None
     external_refs: Optional[list[ExternalRef]] = None
+    #: Merged per channel, then per field (``post_merge.py``): ``null`` removes a post.
+    posts: Optional[dict[str, Optional[PostPatch]]] = None
 
 
 AUTHORED_FIELDS: frozenset[str] = frozenset(AuthoredFields.model_fields)
@@ -222,11 +291,30 @@ SYSTEM_FIELDS: frozenset[str] = frozenset(SystemFields.model_fields)
 
 # --- derived state -----------------------------------------------------------
 
-def derive_status(record: VideoRecord, has_segments: bool) -> Status:
-    """The §2.3 ladder, highest rung first. Never stored on the record."""
-    if record.publish.youtube.videoId:
+def derive_status(
+    record: VideoRecord,
+    has_segments: bool,
+    *,
+    posts: Optional[Mapping[str, Post]] = None,
+) -> Status:
+    """The §2.3 ladder, highest rung first. Never stored on the record.
+
+    ``published`` is any visible post with a URL or id, ``drafted`` any visible
+    post with a description, caption or text. The store passes ``posts`` (a
+    record it loaded, whose root fields are only the primary post's projection,
+    so a hidden primary post counts for nothing). Without it, the root fields of
+    a record built in memory count as well.
+    """
+    visible = [post for post in (record.posts if posts is None else posts).values()
+               if not post.hidden]
+    legacy = posts is None
+    if any(post.published.url or post.published.id for post in visible) or (
+        legacy and record.publish.youtube.videoId
+    ):
         return "published"
-    if record.description.strip():
+    if any((post.description + post.caption + post.text).strip() for post in visible) or (
+        legacy and record.description.strip()
+    ):
         return "drafted"
     if record.renders:
         return "captioned"

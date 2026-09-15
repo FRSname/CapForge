@@ -89,6 +89,19 @@ def write_json_atomic(path: Path, data: Any) -> None:
             tmp.unlink()
 
 
+def copy_file_atomic(src: Path, dst: Path) -> None:
+    """Copy ``src``'s bytes to ``dst`` via tmp + ``os.replace`` (a backup that is
+    never half-written). ``OSError`` from reading ``src`` propagates."""
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    tmp = dst.with_name(dst.name + ".tmp")
+    try:
+        tmp.write_bytes(Path(src).read_bytes())
+        replace_with_retry(tmp, dst)
+    finally:
+        if tmp.exists():
+            tmp.unlink()
+
+
 def read_json(
     path: Path,
     *,

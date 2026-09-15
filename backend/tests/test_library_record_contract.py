@@ -27,6 +27,7 @@ from backend.library.schemas import (
     captions_newer_than_published,
     derive_status,
 )
+from backend.library.record_projection import PROJECTED_FIELDS
 from backend.library.store import LibraryStore
 
 CHAPTER_START_S = 61.25
@@ -72,6 +73,19 @@ def test_every_record_field_is_filed_exactly_once():
 def test_field_sets_match_their_base_classes():
     assert AUTHORED_FIELDS == set(AuthoredFields.model_fields)
     assert SYSTEM_FIELDS == set(SystemFields.model_fields)
+
+
+def test_posts_are_authored_and_the_schema_is_a_system_field():
+    assert "posts" in AUTHORED_FIELDS
+    assert "schema" in SYSTEM_FIELDS
+
+
+def test_the_projected_fields_are_pinned():
+    """The root fields that are the primary channel's post (PR 2 contract)."""
+    assert PROJECTED_FIELDS == frozenset({
+        "description", "short_description", "tags", "hashtags", "localized",
+        "thumbnail.cover", "publish.youtube",
+    })
 
 
 def test_patch_surface_is_exactly_the_authored_fields():
@@ -157,5 +171,30 @@ def test_record_json_on_disk_round_trips_through_the_model(tmp_path):
     rec = store.create(str(_media(tmp_path)))
     raw = fs.read_json(paths.record_dir(rec.id, root=tmp_path / "library") / paths.RECORD_FILE)
     assert VideoRecord.model_validate(raw).id == rec.id
-    assert set(raw) == set(VideoRecord.model_fields)
+    top_level_projected = {name for name in PROJECTED_FIELDS if "." not in name}
+    assert set(raw) == set(VideoRecord.model_fields) - top_level_projected
+    assert raw["schema"] == 2
+    store.close()
+
+
+def test_no_projected_field_is_ever_at_the_root_of_a_persisted_record(tmp_path):
+    """Every projected field written through the root lands in ``posts`` on disk."""
+    store = LibraryStore(tmp_path / "library")
+    rec = store.create(str(_media(tmp_path)))
+    store.patch(rec.id, RecordPatch.model_validate({
+        "description": "written", "short_description": "short", "tags": ["a"],
+        "hashtags": ["b"], "localized": {"pl": {"title": "Tytuł"}},
+        "publish": {"youtube": {"url": "https://youtu.be/abc", "videoId": "abc"}},
+    }), rev=rec.rev, by="agent")
+
+    raw = fs.read_json(paths.record_dir(rec.id, root=tmp_path / "library") / paths.RECORD_FILE)
+
+    for name in PROJECTED_FIELDS:
+        head, _, tail = name.partition(".")
+        if tail:
+            assert tail not in raw[head], name
+        else:
+            assert head not in raw, name
+    (post,) = raw["posts"].values()
+    assert post["description"] == "written" and post["published"]["id"] == "abc"
     store.close()
