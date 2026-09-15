@@ -24,6 +24,7 @@ export type PublishFieldId = keyof PublishAuthored
 export type PublishCardId =
   | 'title'
   | 'description'
+  | 'localized'
   | 'collection'
   | 'chapters'
   | 'shorts'
@@ -48,6 +49,7 @@ export const PUBLISH_FIELDS: ReadonlyArray<PublishFieldSpec> = [
   { id: 'title_options', label: 'Title options', card: 'title' },
   { id: 'title', label: 'Title', card: 'title' },
   { id: 'description', label: 'Description', card: 'description' },
+  { id: 'localized', label: 'Localized', card: 'localized' },
   { id: 'collection_id', label: 'Collection', card: 'collection' },
   { id: 'chapters', label: 'Chapters', card: 'chapters' },
   { id: 'shorts', label: 'Shorts', card: 'shorts' },
@@ -190,6 +192,10 @@ export function parseHashtags(line: string): string[] {
  * frames: `candidates` belongs to the frames routes, and a record holding a
  * stale list would make the next write a `candidates_managed` refusal.
  *
+ * A locked `localized` takes the remote languages whole: the user's side of it
+ * is a delta that stays a draft (`survivingDrafts`), and the record under it
+ * must be the backend's, or the send would compare the delta with itself.
+ *
  * Never mutates either side — the result is a fresh record.
  */
 export function mergeAgentUpdate(
@@ -198,6 +204,7 @@ export function mergeAgentUpdate(
   editingField: PublishFieldId | null
 ): PublishRecord {
   if (!editingField) return remote
+  if (editingField === 'localized') return remote
   if (editingField === 'thumbnail') {
     return { ...remote, thumbnail: composeThumbnailPatch(local.thumbnail, remote) }
   }

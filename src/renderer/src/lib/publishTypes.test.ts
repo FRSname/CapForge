@@ -42,8 +42,26 @@ describe('parsePublishRecord', () => {
       publish: { youtube: null, pushes: [] },
       shorts: { caption: '', clip_suggestions: [] },
       thumbnail: { ideas: [], candidates: [], cover: null },
+      localized: {},
+      language: '',
+      languages: [],
       history: [],
     })
+  })
+
+  test('reads the source language, the derived languages and the localized block', () => {
+    const record = parsePublishRecord({
+      id: 'v',
+      language: 'en',
+      languages: ['en', 'pl', 7, 'de'],
+      localized: { de: { title: 'Titel' } },
+    })
+    expect(record.language).toBe('en')
+    expect(record.languages).toEqual(['en', 'pl', 'de'])
+    expect(record.localized.de?.title).toBe('Titel')
+    // An older backend sends neither; a null source language is "unknown".
+    expect(parsePublishRecord({ id: 'v', language: null }).language).toBe('')
+    expect(parsePublishRecord({ id: 'v', languages: 'en' }).languages).toEqual([])
   })
 
   test('reads the shorts and thumbnail blocks through their guards', () => {

@@ -14,6 +14,8 @@ import {
   survivingDrafts,
   withoutDraft,
 } from './publishDrafts'
+import { EMPTY_LOCALIZED } from './publishMediaTypes'
+import { composeLocalizedPatch, localizedDraft } from './publishLocalized'
 import {
   insertChapter,
   removeChapter,
@@ -32,6 +34,8 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     hasProject: true,
     links: [],
     history: [],
+    language: 'en',
+    languages: ['en'],
     ...over,
   }
 }
@@ -60,6 +64,63 @@ describe('mergeDrafts', () => {
       candidates: [a, b],
       cover: a,
     })
+  })
+})
+
+describe('the localized draft is a delta, never a stale whole dict', () => {
+  const pl = { ...EMPTY_LOCALIZED, title: 'Tytuł' }
+  const de = { ...EMPTY_LOCALIZED, title: 'Titel' }
+  const agentDe = { ...EMPTY_LOCALIZED, title: 'Vom Agenten' }
+
+  test('mergeDrafts lays the changed languages over the record; null removes', () => {
+    const saved = record({ localized: { pl, de } })
+    const mine = { ...pl, title: 'Mój' }
+
+    expect(mergeDrafts(saved, { localized: { pl: mine } }).localized).toEqual({ pl: mine, de })
+    expect(mergeDrafts(saved, { localized: { de: null } }).localized).toEqual({ pl })
+  })
+
+  test('an agent added a language meanwhile: the draft survives and the agent’s language shows', () => {
+    const local = record({ localized: { pl } })
+    const remote = record({ rev: 2, localized: { pl, de: agentDe } })
+    const drafts = { localized: localizedDraft(local.localized, { pl: { ...pl, title: 'Mój' } }) }
+
+    const surviving = survivingDrafts(drafts, local, remote, null)
+
+    expect(surviving).toEqual(drafts)
+    const shown = mergeDrafts(remote, surviving).localized
+    expect(shown.de).toEqual(agentDe)
+    // And the send names only the user's language — never resurrecting or erasing `de`.
+    expect(Object.keys(composeLocalizedPatch(surviving.localized ?? {}, remote))).toEqual(['pl'])
+  })
+
+  test('an agent rewrote the drafted language: that language is the agent’s, the rest stay', () => {
+    const local = record({ localized: { pl, de } })
+    const remote = record({ rev: 2, localized: { pl, de: agentDe } })
+    const drafts = { localized: { de: { ...de, title: 'Mein' }, pl: null }, title: 'typing' }
+
+    expect(survivingDrafts(drafts, local, remote, null)).toEqual({
+      localized: { pl: null },
+      title: 'typing',
+    })
+  })
+
+  test('an agent removed the drafted language: a stale draft does not resurrect it', () => {
+    const local = record({ localized: { pl, de } })
+    const remote = record({ rev: 2, localized: { pl } })
+    const drafts = { localized: { de: { ...de, title: 'Mein' } } }
+
+    const surviving = survivingDrafts(drafts, local, remote, null)
+    expect(surviving).toEqual({})
+    expect(mergeDrafts(remote, surviving).localized).toEqual({ pl })
+  })
+
+  test('the locked localized field keeps its whole delta for the banner to settle', () => {
+    const local = record({ localized: { pl, de } })
+    const remote = record({ rev: 2, localized: { pl, de: agentDe } })
+    const drafts = { localized: { de: { ...de, title: 'Mein' } } }
+
+    expect(survivingDrafts(drafts, local, remote, 'localized')).toEqual(drafts)
   })
 })
 

@@ -11,10 +11,12 @@
 import type { CaptionTrack } from '../../lib/tracks'
 import type { Segment } from '../../types/app'
 import type { PublishController } from '../../hooks/usePublishRecord'
+import { packageLanguages } from '../../lib/publishLocalized'
 import { AgentUpdateBanner } from './AgentUpdateBanner'
 import { ChaptersCard } from './ChaptersCard'
 import { CollectionCard } from './CollectionCard'
 import { DescriptionCard } from './DescriptionCard'
+import { LocalizedCard } from './LocalizedCard'
 import { PublishFooter } from './PublishFooter'
 import { PublishStateCard } from './PublishStateCard'
 import { ShortsCard } from './ShortsCard'
@@ -73,6 +75,7 @@ export function PublishPanel({
           <>
             <TitleCard publish={publish} />
             <DescriptionCard publish={publish} />
+            <LocalizedCard publish={publish} />
             <CollectionCard publish={publish} />
             <ChaptersCard publish={publish} onSeek={onSeek} getPlayhead={getPlayhead} />
             <ShortsCard
@@ -94,6 +97,7 @@ export function PublishPanel({
       <div className="shrink-0 border-t border-[var(--color-border)] bg-[var(--color-surface)] p-2.5">
         <PublishFooter
           videoId={publish.record?.id ?? null}
+          languages={publish.record ? packageLanguages(publish.record) : []}
           segments={segments}
           tracks={tracks}
           outputDir={outputDir}

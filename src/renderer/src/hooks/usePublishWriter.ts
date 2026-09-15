@@ -18,6 +18,7 @@ import { StaleRecordError, ValidationRefusedError, api } from '../lib/api'
 import type { PublishRecord, Violation } from '../lib/publishTypes'
 import type { PublishDrafts } from '../lib/publishDrafts'
 import { withManagedCandidates } from '../lib/publishThumbnail'
+import { withLocalizedDraft, withLocalizedRestore } from '../lib/publishLocalized'
 
 /**
  * Trailing debounce before a `PATCH`. Longer than the mirror's 300 ms: this is
@@ -86,11 +87,14 @@ export function usePublishWriter({
     if (!current || Object.keys(pending).length === 0) return Promise.resolve()
     // `sent` keeps the draft values by identity (that is how `remainingDrafts`
     // settles them); the wire copy takes `thumbnail.candidates` from the record
-    // as it is *now*, never from the draft — see `lib/publishThumbnail.ts`.
+    // as it is *now*, never from the draft — see `lib/publishThumbnail.ts` —
+    // and names only the `localized` languages that still differ from it
+    // (`lib/publishLocalized.ts`; the backend merges per language).
     const sent = { ...pending }
+    const wire = withLocalizedDraft(withManagedCandidates(sent, current), current)
     onSaving(true)
     return api
-      .patchLibraryRecord(current.id, withManagedCandidates(sent, current), current.rev)
+      .patchLibraryRecord(current.id, wire, current.rev)
       .then((next) => {
         retriedRef.current = false
         onSaved(next, sent)
@@ -141,9 +145,11 @@ export function usePublishWriter({
     (patch: Record<string, unknown>): Promise<void> => {
       const current = stateRef.current.record
       if (!current) return Promise.resolve()
+      // A `localized` here is a whole earlier value (Revert's history `prev`).
+      const wire = withLocalizedRestore(withManagedCandidates(patch, current), current)
       onSaving(true)
       return api
-        .patchLibraryRecord(current.id, withManagedCandidates(patch, current), current.rev)
+        .patchLibraryRecord(current.id, wire, current.rev)
         .then((next) => {
           onRecord(next)
           onViolations([])

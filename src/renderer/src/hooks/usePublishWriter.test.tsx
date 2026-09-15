@@ -15,7 +15,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { api } from '../lib/api'
 import { EMPTY_FIELDS } from '../lib/publishDrafts'
 import type { PublishDrafts } from '../lib/publishDrafts'
-import type { PublishRecord, Thumbnail } from '../lib/publishTypes'
+import type { LocalizedMap, PublishRecord, Thumbnail } from '../lib/publishTypes'
+import { EMPTY_LOCALIZED } from '../lib/publishMediaTypes'
 import { PUBLISH_PATCH_DEBOUNCE_MS, usePublishWriter } from './usePublishWriter'
 import type { PublishWriter, PublishWriterInput } from './usePublishWriter'
 
@@ -35,6 +36,8 @@ function record(rev: number, candidates: string[], cover: string | null = null):
     hasProject: true,
     links: [],
     history: [],
+    language: 'en',
+    languages: ['en'],
     thumbnail: { ideas: [], candidates, cover },
   }
 }
@@ -172,5 +175,67 @@ describe('usePublishWriter — thumbnail send composition', () => {
     const h = harness(record(4, [A]), {})
     await h.writer.flushNow()
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('usePublishWriter — localized send composition', () => {
+  let fetchMock: ReturnType<typeof vi.fn>
+  const pl = { ...EMPTY_LOCALIZED, title: 'Tytuł' }
+  const de = { ...EMPTY_LOCALIZED, title: 'Titel' }
+
+  function withLocalized(rev: number, localized: LocalizedMap): PublishRecord {
+    return { ...record(rev, []), localized }
+  }
+
+  beforeEach(() => {
+    fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    api.setPort(53421)
+    api.setLocalToken('t')
+    api.resetBridge()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  function body(call: number): Record<string, unknown> {
+    const [, init] = fetchMock.mock.calls[call] as [string, RequestInit]
+    return JSON.parse(String(init.body))
+  }
+
+  test('an agent wrote `de` between the edit and the send: only `pl` goes out', async () => {
+    vi.useFakeTimers()
+    const draft: LocalizedMap = { pl: { ...pl, title: 'Mój' } }
+    const h = harness(withLocalized(4, { pl }), { localized: draft })
+    fetchMock.mockResolvedValue(response(withLocalized(6, { pl: draft.pl, de })))
+    h.writer.schedule()
+
+    h.state.current = { ...h.state.current, record: withLocalized(5, { pl, de }) }
+    await vi.advanceTimersByTimeAsync(PUBLISH_PATCH_DEBOUNCE_MS)
+
+    const sent = body(0).localized as Record<string, unknown>
+    expect(Object.keys(sent)).toEqual(['pl'])
+    expect(sent.pl).toMatchObject({ title: 'Mój', description: null })
+    expect(h.saved[0].sent.localized).toBe(draft)
+  })
+
+  test('a removal goes out as null; a language already matching is not re-sent', async () => {
+    const h = harness(withLocalized(4, { pl, de }), { localized: { pl: null, de }, title: 'T' })
+    fetchMock.mockResolvedValue(response(withLocalized(5, { de })))
+
+    await h.writer.flushNow()
+
+    expect(body(0)).toEqual({ localized: { pl: null }, title: 'T' })
+  })
+
+  test('a Revert restores the whole prev as a per-language delta', async () => {
+    const h = harness(withLocalized(9, { pl, de }), {})
+    fetchMock.mockResolvedValue(response(withLocalized(10, { pl })))
+
+    await h.writer.patchNow({ localized: { pl } })
+
+    expect(body(0)).toEqual({ localized: { de: null } })
   })
 })

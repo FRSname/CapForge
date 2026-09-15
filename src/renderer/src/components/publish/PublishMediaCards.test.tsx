@@ -32,6 +32,8 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     hasProject: true,
     links: [],
     history: [],
+    language: 'en',
+    languages: ['en'],
     ...over,
   }
 }

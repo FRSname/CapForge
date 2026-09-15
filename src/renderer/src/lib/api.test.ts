@@ -839,6 +839,16 @@ describe('publish routes', () => {
     expect(pkg.text).toBe('TITLE OPTIONS')
   })
 
+  test('getUploadPackage asks for a language when one is given', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ platform: 'youtube', text: 'TYTUŁ', violations: [] }))
+
+    await api.getUploadPackage('vid_1', 'youtube', 'pt-BR')
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      'http://127.0.0.1:53421/api/library/vid_1/package?platform=youtube&lang=pt-BR'
+    )
+  })
+
   test('getLibraryMoments returns the usable matches only', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({
