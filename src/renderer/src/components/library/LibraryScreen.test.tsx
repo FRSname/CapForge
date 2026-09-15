@@ -51,6 +51,8 @@ function render(props: Partial<React.ComponentProps<typeof LibraryScreen>> = {})
       onDelete={noop}
       onLocate={() => Promise.resolve({ kind: 'cancelled' as const })}
       onForceLocate={noop}
+      onCreateCollection={() => Promise.resolve({ kind: 'failed' as const })}
+      onMoveToCollection={noop}
       {...props}
     />
   )
@@ -199,5 +201,48 @@ describe('LibraryScreen collections', () => {
   test('a record with no collection has no chip', () => {
     const html = render({ videos: [video()], collections })
     expect(html).not.toContain('title="Collection:')
+  })
+
+  test('New collection… sits beside the filter, before the import buttons', () => {
+    const html = render({ videos: [video()], collections: [] })
+    const filterAt = html.indexOf('Filter by collection')
+    const newAt = html.indexOf('New collection…')
+    expect(newAt).toBeGreaterThan(filterAt)
+    expect(newAt).toBeLessThan(html.indexOf('Import folder…'))
+    // Closed until clicked: no form in the markup.
+    expect(html).not.toContain('aria-label="Collection name"')
+  })
+
+  test('an empty library offers New collection… in the empty state once none exist', () => {
+    const html = render({ videos: [], collections: [] })
+    expect(html).not.toContain('Filter by collection')
+    expect(html.split('New collection…').length - 1).toBe(1)
+    expect(html.indexOf('New collection…')).toBeGreaterThan(html.indexOf('Your library is empty'))
+  })
+
+  test('an empty library does not offer it before the list loads, or when some exist', () => {
+    expect(render({ videos: [], collections: null })).not.toContain('New collection…')
+    expect(render({ videos: [], collections })).not.toContain('New collection…')
+  })
+})
+
+describe('LibraryScreen toolbar layout', () => {
+  const html = render({ videos: [video()] })
+
+  test('the toolbar buttons never wrap their labels', () => {
+    for (const label of ['Import folder…', 'Import project files…', 'Add video', 'New collection…']) {
+      const button = html.slice(html.lastIndexOf('<button', html.indexOf(label)), html.indexOf(label))
+      expect(button, label).toContain('whitespace-nowrap')
+    }
+  })
+
+  test('the toolbar wraps as a row, inside the no-drag region', () => {
+    const toolbar = html.slice(html.lastIndexOf('<div', html.indexOf('Filter by collection')))
+    expect(toolbar).toMatch(/^<div class="[^"]*app-no-drag[^"]*flex-wrap[^"]*gap-2/)
+    expect(html).toMatch(/<header class="[^"]*flex-wrap/)
+  })
+
+  test('the filter keeps a bounded width, inline (field-input would override a utility)', () => {
+    expect(html).toMatch(/<select[^>]*style="[^"]*width:auto[^"]*max-width:\d/)
   })
 })

@@ -40,6 +40,9 @@ export const SLOT_NAME_RE = /^[a-z][a-z0-9_]{0,31}$/
 /** Mirrors the backend's `COLLECTION_ID_RE` length: 64 characters. */
 export const COLLECTION_ID_MAX_LENGTH = 64
 
+/** Mirrors the backend's `COLLECTION_NAME_MAX_CHARS`. */
+export const COLLECTION_NAME_MAX_LENGTH = 120
+
 /** The package finding field for the assembled DESCRIPTION body. */
 export const PACKAGE_DESCRIPTION_FIELD = 'package.description'
 

@@ -1,10 +1,10 @@
 /**
  * The library home screen — where CapForge opens (v3 §4).
  *
- * Composition: a masthead with the two toolbar actions, a "Continue" hero for
- * the most recent record that has a session to resume, then the rest of the
- * library as a grid of cards. The hero is deliberately *not* repeated in the
- * grid: it is the same record promoted, not a second one.
+ * Composition: a masthead with the toolbar (`LibraryToolbar`), a "Continue"
+ * hero for the most recent record that has a session to resume, then the rest
+ * of the library as a grid of cards. The hero is deliberately *not* repeated in
+ * the grid: it is the same record promoted, not a second one.
  *
  * The whole screen is a drop target, and what a drop means is decided by
  * `droppedImport` (lib/libraryImport.ts): one video opens in the editor as
@@ -15,11 +15,13 @@
  */
 
 import { useState } from 'react'
+import type { CreateCollectionResult } from '../../lib/collectionCreate'
+import { newCollectionPlacement } from '../../lib/collectionCreate'
 import type { DropPlan, LocateOutcome } from '../../lib/libraryImport'
 import { droppedImport, droppedItemsOf, droppedSkippedMessage } from '../../lib/libraryImport'
 import type { CollectionSummary } from '../../lib/collectionTypes'
 import { collectionLabel } from '../../lib/collections'
-import type { CollectionFilter, CollectionFilterOption } from '../../lib/libraryView'
+import type { CollectionFilter } from '../../lib/libraryView'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import {
   ALL_COLLECTIONS,
@@ -30,9 +32,9 @@ import {
   sortByUpdated,
 } from '../../lib/libraryView'
 import { warmForFile } from '../screens/DropZoneScreen'
-import { Button } from '../ui/Button'
 import { LanguageChip, LibraryCard, LibraryPoster, StatusRail } from './LibraryCard'
 import { LibraryEmptyState } from './LibraryEmptyState'
+import { LibraryToolbar } from './LibraryToolbar'
 
 export { droppedNotMediaMessage } from '../../lib/libraryImport'
 
@@ -61,6 +63,10 @@ export interface LibraryScreenProps {
   onLocate: (video: LibraryVideo) => Promise<LocateOutcome>
   /** Card: link a different file anyway, after the inline confirm. */
   onForceLocate: (video: LibraryVideo, path: string) => void
+  /** Create a collection by name. Never rejects: failures are inline or toasted. */
+  onCreateCollection: (name: string) => Promise<CreateCollectionResult>
+  /** Card: put one video in a collection (null: in none). */
+  onMoveToCollection: (video: LibraryVideo, collectionId: string | null) => void
 }
 
 export function LibraryScreen({
@@ -78,6 +84,8 @@ export function LibraryScreen({
   onDelete,
   onLocate,
   onForceLocate,
+  onCreateCollection,
+  onMoveToCollection,
 }: LibraryScreenProps) {
   const [dragging, setDragging] = useState(false)
   // Bumped per drop to remount the empty state's DropZoneScreen: the capture
@@ -91,6 +99,7 @@ export function LibraryScreen({
   const hero = continueCandidate(shown)
   const rest = sortByUpdated(shown).filter((v) => v.id !== hero?.id)
   const filtering = filter !== ALL_COLLECTIONS
+  const placement = newCollectionPlacement(videos.length, collections ?? null)
 
   function runDropPlan(plan: DropPlan) {
     if (plan.kind === 'none') return
@@ -137,8 +146,8 @@ export function LibraryScreen({
       onDragLeave={() => setDragging(false)}
       onDropCapture={handleDrop}
     >
-      <header className="flex items-end justify-between gap-4 px-8 pb-4 pt-7">
-        <div className="flex items-baseline gap-3">
+      <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 px-8 pb-4 pt-7">
+        <div className="flex shrink-0 items-baseline gap-3">
           <h1
             className="text-3xl leading-none"
             style={{
@@ -150,30 +159,21 @@ export function LibraryScreen({
             Library
           </h1>
           <span
-            className="text-[11px] uppercase tracking-widest"
+            className="whitespace-nowrap text-[11px] uppercase tracking-widest"
             style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
           >
             {loading ? 'loading…' : countLabel(shown.length, videos.length, filtering)}
           </span>
         </div>
-        <div className="app-no-drag flex items-center gap-2">
-          {videos.length > 0 && (
-            <CollectionFilterSelect
-              options={collectionFilterOptions(known, videos)}
-              value={filter}
-              onChange={setFilter}
-            />
-          )}
-          <Button variant="ghost" className="text-xs" onClick={() => onImportFolder()}>
-            Import folder…
-          </Button>
-          <Button variant="ghost" className="text-xs" onClick={onImportProjects}>
-            Import project files…
-          </Button>
-          <Button variant="primary" className="text-xs" onClick={onAddVideo}>
-            Add video
-          </Button>
-        </div>
+        <LibraryToolbar
+          filterOptions={placement === 'toolbar' ? collectionFilterOptions(known, videos) : null}
+          filter={filter}
+          onFilterChange={setFilter}
+          onCreateCollection={onCreateCollection}
+          onImportFolder={() => onImportFolder()}
+          onImportProjects={onImportProjects}
+          onAddVideo={onAddVideo}
+        />
       </header>
 
       {videos.length === 0 ? (
@@ -182,6 +182,7 @@ export function LibraryScreen({
           onFileSelected={onFileDropped}
           onStart={onAddVideo}
           onImportFolder={() => onImportFolder()}
+          onCreateCollection={placement === 'empty-state' ? onCreateCollection : undefined}
         />
       ) : (
         <div className="flex flex-col gap-8 px-8 pb-10">
@@ -205,11 +206,14 @@ export function LibraryScreen({
                     key={video.id}
                     video={video}
                     collectionName={collectionLabel(known, video.collection_id)}
+                    collections={known}
                     onOpen={onOpen}
                     onRemove={onRemove}
                     onDelete={onDelete}
                     onLocate={onLocate}
                     onForceLocate={onForceLocate}
+                    onMoveToCollection={onMoveToCollection}
+                    onCreateCollection={onCreateCollection}
                   />
                 ))}
               </div>
@@ -225,29 +229,6 @@ export function LibraryScreen({
 function countLabel(shown: number, total: number, filtering: boolean): string {
   const noun = `video${total === 1 ? '' : 's'}`
   return filtering ? `${shown} of ${total} ${noun}` : `${total} ${noun}`
-}
-
-interface CollectionFilterSelectProps {
-  options: CollectionFilterOption[]
-  value: CollectionFilter
-  onChange: (value: CollectionFilter) => void
-}
-
-function CollectionFilterSelect({ options, value, onChange }: CollectionFilterSelectProps) {
-  return (
-    <select
-      className="field-input w-44 text-xs"
-      aria-label="Filter by collection"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value}>
-          {option.label}
-        </option>
-      ))}
-    </select>
-  )
 }
 
 interface ContinueHeroProps {

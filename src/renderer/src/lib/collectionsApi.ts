@@ -47,7 +47,21 @@ export class CollectionRefusedError extends Error {
   }
 }
 
+/**
+ * The backend refused the body (`422`): a bad id, name or slot name. The
+ * message is the formatted detail, which is user-facing, so a form can show it
+ * under the field instead of in a toast.
+ */
+export class CollectionInvalidError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'CollectionInvalidError'
+  }
+}
+
 type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE'
+
+const HTTP_UNPROCESSABLE = 422
 
 const COLLECTIONS_PATH = '/api/library/collections'
 
@@ -67,7 +81,9 @@ async function send(method: Method, path: string, body?: unknown): Promise<Respo
   const refused = await refusedBody(res)
   const refusal = collectionRefusal(res.status, refused)
   if (refusal) throw new CollectionRefusedError(refusal)
-  throw api.apiError(res, refused)
+  const error = api.apiError(res, refused)
+  if (res.status === HTTP_UNPROCESSABLE) throw new CollectionInvalidError(error.message)
+  throw error
 }
 
 async function json(method: Method, path: string, body?: unknown): Promise<unknown> {

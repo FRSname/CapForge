@@ -7,6 +7,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from './api'
 import {
+  CollectionInvalidError,
   CollectionRefusedError,
   createCollection,
   deleteCollection,
@@ -107,6 +108,18 @@ describe('collectionsApi', () => {
     await expect(createCollection({ name: 'x', slots: { footer: 'a' } })).rejects.toThrow(
       'Slot name "footer" is built in'
     )
+  })
+
+  test('a 422 throws CollectionInvalidError so a form can show it inline', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse(
+        { detail: [{ loc: ['body', 'name'], msg: 'String should have at most 120 characters' }] },
+        422
+      )
+    )
+    const err = await createCollection({ name: 'x' }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(CollectionInvalidError)
+    expect((err as Error).message).toBe('name: String should have at most 120 characters')
   })
 
   test('patchCollection PATCHes the partial body, nulls included', async () => {

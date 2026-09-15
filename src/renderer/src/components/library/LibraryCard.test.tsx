@@ -57,10 +57,41 @@ describe('LibraryCardMenu', () => {
         onLocate={noop}
         onLink={noop}
         onCancelLink={noop}
+        moving={false}
+        collections={[
+          {
+            id: 'uck26',
+            name: 'UCK 26',
+            slots: {},
+            overrides: {} as never,
+            createdAt: '',
+            updatedAt: '',
+            members: 0,
+          },
+        ]}
+        onAskMove={noop}
+        onBackFromMove={noop}
+        onPickCollection={noop}
+        onCreateCollection={() => Promise.resolve({ kind: 'failed' as const })}
         {...overrides}
       />
     )
   }
+
+  test('offers Move to collection… beside the other record actions', () => {
+    const html = menu()
+    expect(html).toContain('Move to collection…')
+    expect(html).toContain('Remove from library')
+    expect(html).not.toContain('role="menuitemradio"')
+  })
+
+  test('moving swaps the actions for the collection sub-list', () => {
+    const html = menu({ moving: true })
+    expect(html).toContain('>UCK 26<')
+    expect(html).toContain('>None<')
+    expect(html).toContain('New collection…')
+    expect(html).not.toContain('Remove from library')
+  })
 
   test('offers Locate… only when the media is missing', () => {
     expect(menu()).not.toContain('Locate…')

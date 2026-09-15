@@ -11,15 +11,20 @@
  * no native dialog, because the renderer's tests have no DOM and a
  * `window.confirm` would be untestable as well as ugly. A record whose media
  * is missing also gets "Locate…"; if the picked file is different media, the
- * same inline pattern asks before linking it anyway.
+ * same inline pattern asks before linking it anyway. "Move to collection…"
+ * swaps the actions for `MoveToCollectionMenu`.
  */
 
 import { useState } from 'react'
+import type { CreateCollectionResult } from '../../lib/collectionCreate'
+import type { CollectionSummary } from '../../lib/collectionTypes'
 import type { LocateOutcome } from '../../lib/libraryImport'
 import { pathBaseName } from '../../lib/libraryImport'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import { displayTitle, formatDuration, statusPips } from '../../lib/libraryView'
 import { usePosterUrl } from '../../hooks/usePosterUrl'
+import { InlineConfirm, MenuItem } from './LibraryMenuParts'
+import { MoveToCollectionMenu } from './MoveToCollectionMenu'
 
 /** The status rail, in ladder order — also used by the Continue hero. */
 const PIP_LABELS = ['Transcribed', 'Captioned', 'Drafted', 'Published'] as const
@@ -145,6 +150,8 @@ export interface LibraryCardProps {
   video: LibraryVideo
   /** The name of the record's collection (or its bare id when none is defined). */
   collectionName?: string | null
+  /** Every collection, for "Move to collection…". */
+  collections: readonly CollectionSummary[]
   onOpen: (video: LibraryVideo) => void
   /** Hide the record, keeping every file it holds. */
   onRemove: (video: LibraryVideo) => void
@@ -154,26 +161,35 @@ export interface LibraryCardProps {
   onLocate: (video: LibraryVideo) => Promise<LocateOutcome>
   /** Link a different file anyway, after the inline confirm. */
   onForceLocate: (video: LibraryVideo, path: string) => void
+  /** Put the record in a collection (null: in none). Failures are toasted. */
+  onMoveToCollection: (video: LibraryVideo, collectionId: string | null) => void
+  /** Create a collection by name; the card then moves the record into it. */
+  onCreateCollection: (name: string) => Promise<CreateCollectionResult>
 }
 
 export function LibraryCard({
   video,
   collectionName,
+  collections,
   onOpen,
   onRemove,
   onDelete,
   onLocate,
   onForceLocate,
+  onMoveToCollection,
+  onCreateCollection,
 }: LibraryCardProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [pendingLinkPath, setPendingLinkPath] = useState<string | null>(null)
+  const [moving, setMoving] = useState(false)
   const title = displayTitle(video)
 
   function closeMenu() {
     setMenuOpen(false)
     setConfirmingDelete(false)
     setPendingLinkPath(null)
+    setMoving(false)
   }
 
   function handleLocate() {
@@ -184,6 +200,11 @@ export function LibraryCard({
       setPendingLinkPath(outcome.path)
       setMenuOpen(true)
     })
+  }
+
+  function handlePickCollection(collectionId: string | null) {
+    closeMenu()
+    if (collectionId !== video.collection_id) onMoveToCollection(video, collectionId)
   }
 
   return (
@@ -231,6 +252,8 @@ export function LibraryCard({
           video={video}
           confirmingDelete={confirmingDelete}
           pendingLinkPath={pendingLinkPath}
+          moving={moving}
+          collections={collections}
           onRemove={() => {
             closeMenu()
             onRemove(video)
@@ -248,6 +271,10 @@ export function LibraryCard({
             if (path) onForceLocate(video, path)
           }}
           onCancelLink={closeMenu}
+          onAskMove={() => setMoving(true)}
+          onBackFromMove={() => setMoving(false)}
+          onPickCollection={handlePickCollection}
+          onCreateCollection={onCreateCollection}
         />
       )}
     </div>
@@ -260,6 +287,9 @@ export interface LibraryCardMenuProps {
   confirmingDelete: boolean
   /** A different-media file awaiting "link anyway?"; null when none. */
   pendingLinkPath: string | null
+  /** "Move to collection…" was clicked; the sub-list shows instead of the actions. */
+  moving: boolean
+  collections: readonly CollectionSummary[]
   onRemove: () => void
   onAskDelete: () => void
   onDelete: () => void
@@ -267,6 +297,10 @@ export interface LibraryCardMenuProps {
   onLocate: () => void
   onLink: () => void
   onCancelLink: () => void
+  onAskMove: () => void
+  onBackFromMove: () => void
+  onPickCollection: (collectionId: string | null) => void
+  onCreateCollection: (name: string) => Promise<CreateCollectionResult>
 }
 
 /** The card's `…` menu — presentational, so every state renders to static markup. */
@@ -282,100 +316,52 @@ export function LibraryCardMenu(props: LibraryCardMenuProps) {
         boxShadow: 'var(--shadow-2)',
       }}
     >
-      {video.missing_media &&
-        (pendingLinkPath ? (
-          <InlineConfirm
-            prompt="Different file — link anyway?"
-            title={`${pathBaseName(pendingLinkPath)} is not the media this video was made from`}
-            confirmLabel="Link"
-            confirmColor="var(--color-brand)"
-            onConfirm={props.onLink}
-            onCancel={props.onCancelLink}
-          />
-        ) : (
-          <MenuItem
-            label="Locate…"
-            title={`Find the moved file: ${video.sourcePath}`}
-            onClick={props.onLocate}
-          />
-        ))}
-      <MenuItem label="Remove from library" onClick={props.onRemove} />
-      {confirmingDelete ? (
-        <InlineConfirm
-          prompt="Delete?"
-          confirmLabel="Delete"
-          confirmColor="var(--color-danger)"
-          onConfirm={props.onDelete}
-          onCancel={props.onCancelDelete}
+      {props.moving ? (
+        <MoveToCollectionMenu
+          collections={props.collections}
+          currentId={video.collection_id}
+          onPick={props.onPickCollection}
+          onCreate={props.onCreateCollection}
+          onBack={props.onBackFromMove}
         />
       ) : (
-        <MenuItem label="Delete record…" color="var(--color-danger)" onClick={props.onAskDelete} />
+        <>
+          {video.missing_media &&
+            (pendingLinkPath ? (
+              <InlineConfirm
+                prompt="Different file — link anyway?"
+                title={`${pathBaseName(pendingLinkPath)} is not the media this video was made from`}
+                confirmLabel="Link"
+                confirmColor="var(--color-brand)"
+                onConfirm={props.onLink}
+                onCancel={props.onCancelLink}
+              />
+            ) : (
+              <MenuItem
+                label="Locate…"
+                title={`Find the moved file: ${video.sourcePath}`}
+                onClick={props.onLocate}
+              />
+            ))}
+          <MenuItem label="Move to collection…" onClick={props.onAskMove} />
+          <MenuItem label="Remove from library" onClick={props.onRemove} />
+          {confirmingDelete ? (
+            <InlineConfirm
+              prompt="Delete?"
+              confirmLabel="Delete"
+              confirmColor="var(--color-danger)"
+              onConfirm={props.onDelete}
+              onCancel={props.onCancelDelete}
+            />
+          ) : (
+            <MenuItem
+              label="Delete record…"
+              color="var(--color-danger)"
+              onClick={props.onAskDelete}
+            />
+          )}
+        </>
       )}
-    </div>
-  )
-}
-
-interface MenuItemProps {
-  label: string
-  title?: string
-  color?: string
-  onClick: () => void
-}
-
-function MenuItem({ label, title, color = 'var(--color-text)', onClick }: MenuItemProps) {
-  return (
-    <button
-      type="button"
-      role="menuitem"
-      title={title}
-      className="rounded px-2 py-1.5 text-left hover:bg-[var(--color-surface-3)]"
-      style={{ color }}
-      onClick={onClick}
-    >
-      {label}
-    </button>
-  )
-}
-
-interface InlineConfirmProps {
-  prompt: string
-  title?: string
-  confirmLabel: string
-  confirmColor: string
-  onConfirm: () => void
-  onCancel: () => void
-}
-
-/** The menu's inline "are you sure" row — Delete's pattern, shared with Link. */
-function InlineConfirm({
-  prompt,
-  title,
-  confirmLabel,
-  confirmColor,
-  onConfirm,
-  onCancel,
-}: InlineConfirmProps) {
-  return (
-    <div className="flex flex-wrap items-center gap-1 px-2 py-1.5" title={title}>
-      <span style={{ color: 'var(--color-text-2)' }}>{prompt}</span>
-      <button
-        type="button"
-        role="menuitem"
-        className="ml-auto rounded px-1.5 py-0.5"
-        style={{ color: confirmColor }}
-        onClick={onConfirm}
-      >
-        {confirmLabel}
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        className="rounded px-1.5 py-0.5"
-        style={{ color: 'var(--color-text-3)' }}
-        onClick={onCancel}
-      >
-        Cancel
-      </button>
     </div>
   )
 }

@@ -10,11 +10,15 @@
  * a remount per drop clears the highlight it never got to clear itself.
  *
  * A creator's recordings live in folders, so importing a whole folder is
- * offered right here too, not only in the toolbar.
+ * offered right here too, not only in the toolbar. So is "New collection…",
+ * when the library has no collections yet (the toolbar only offers it beside
+ * the filter, which an empty library does not show).
  */
 
+import type { CreateCollectionResult } from '../../lib/collectionCreate'
 import { DropZoneScreen } from '../screens/DropZoneScreen'
 import { Button } from '../ui/Button'
+import { NewCollectionPopover } from './NewCollectionForm'
 
 export interface LibraryEmptyStateProps {
   /** A media file was browsed for. */
@@ -23,14 +27,20 @@ export interface LibraryEmptyStateProps {
   onStart: () => void
   /** Pick a folder and import every recording in it. */
   onImportFolder: () => void
+  /** Offers "New collection…" when given. The create itself confirms with a toast. */
+  onCreateCollection?: (name: string) => Promise<CreateCollectionResult>
   /** Changes per drop on the library, remounting the drop zone. */
   dropZoneKey?: number
 }
+
+/** Nothing to show after a create here: the success toast says it, and no filter is visible. */
+function ignoreCreated(): void {}
 
 export function LibraryEmptyState({
   onFileSelected,
   onStart,
   onImportFolder,
+  onCreateCollection,
   dropZoneKey,
 }: LibraryEmptyStateProps) {
   return (
@@ -58,9 +68,18 @@ export function LibraryEmptyState({
         onFileSelected={onFileSelected}
         onStart={onStart}
       />
-      <Button variant="ghost" className="text-xs" onClick={onImportFolder}>
-        Import a folder of recordings…
-      </Button>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <Button variant="ghost" className="whitespace-nowrap text-xs" onClick={onImportFolder}>
+          Import a folder of recordings…
+        </Button>
+        {onCreateCollection && (
+          <NewCollectionPopover
+            onCreate={onCreateCollection}
+            onCreated={ignoreCreated}
+            align="center"
+          />
+        )}
+      </div>
     </section>
   )
 }
