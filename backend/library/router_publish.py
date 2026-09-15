@@ -14,6 +14,12 @@ Collections (docs/plans/library-collections.md): the package and the validators
 use the **effective** brief — the channel brief under the record's collection.
 A record whose ``collection_id`` names no collection (an orphan) simply renders
 with the channel brief.
+
+Channels (docs/plans/multi-channel-pr1-contract.md): the channel brief is now
+the **primary channel's brief view** (``channels.brief_from_channel``), so
+:func:`read_brief` is the one seam every brief reader goes through, and
+``PATCH /brief`` writes to the primary channel. ``brief.json`` is only the
+bootstrap source; see ``channels.py`` for the accepted ``{{channel}}`` delta.
 """
 
 from __future__ import annotations
@@ -26,7 +32,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict
 
-from backend.library.brief import Brief, BriefPatch, load_brief, save_brief
+from backend.library.brief import Brief, BriefPatch
+from backend.library.channels import brief_from_channel, channel_patch_from_brief
 from backend.library.collection_store import Collection, effective_brief
 from backend.library.errors import CollectionNotFound, CollectionsUnreadable
 from backend.library.localized import (
@@ -101,9 +108,13 @@ def register_publish_routes(
 # --- shared helpers ----------------------------------------------------------
 
 def read_brief(store: Any) -> Brief:
-    """The stored brief. A corrupt file is reported, never quietly replaced."""
+    """The primary channel's brief view.
+
+    A corrupt ``channels.json``, or a corrupt ``brief.json`` met by the first
+    bootstrap, is reported (500), never quietly replaced.
+    """
     try:
-        return load_brief(store.root)
+        return brief_from_channel(store.primary_channel())
     except ValueError as exc:
         raise HTTPException(status_code=BRIEF_UNREADABLE_STATUS, detail=str(exc)) from exc
 
@@ -280,10 +291,18 @@ def _register_brief_routes(router: APIRouter, get_store: Callable) -> None:
 
     @router.patch("/brief")
     def patch_brief(patch: BriefPatch) -> dict:
-        """Merge and store. An unknown field is a 422 from ``extra="forbid"``."""
+        """Merge into the primary channel and answer its brief view.
+
+        An unknown field is a 422 from ``extra="forbid"``, and so is a field
+        sent as ``null``; an unreadable channels or brief file is a 500.
+        """
         store = get_store()
         try:
-            return save_brief(store.root, patch).model_dump(mode="json")
+            channel_patch = channel_patch_from_brief(patch)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        try:
+            return brief_from_channel(store.patch_primary_channel(channel_patch)).model_dump(mode="json")
         except ValueError as exc:
             raise HTTPException(
                 status_code=BRIEF_UNREADABLE_STATUS, detail=str(exc)

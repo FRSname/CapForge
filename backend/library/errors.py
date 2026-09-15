@@ -94,3 +94,45 @@ class FrameNotFound(LibraryError):
 
 class FramesRefused(LibraryError, ValueError):
     """Frame times or the candidate limit refused (422); the message is a sentence."""
+
+
+class ChannelNotFound(LibraryError):
+    """No channel with that id (404)."""
+
+
+class ChannelExists(LibraryError):
+    """An explicit channel id that is already taken (409 ``channel_exists``)."""
+
+    def __init__(self, channel_id: str) -> None:
+        super().__init__(f"A channel with the id {channel_id!r} already exists")
+        self.channel_id = channel_id
+
+
+class ChannelIsPrimary(LibraryError):
+    """Delete refused for the primary channel (409 ``channel_is_primary``)."""
+
+    def __init__(self, channel_id: str) -> None:
+        super().__init__(
+            f"Channel {channel_id!r} is the primary channel; make another YouTube "
+            "channel primary before deleting it"
+        )
+        self.channel_id = channel_id
+
+
+class PrimaryNotYoutube(LibraryError):
+    """Only a YouTube channel can be primary (422 ``primary_not_youtube``)."""
+
+    def __init__(self, channel_id: str, platform: str) -> None:
+        super().__init__(
+            f"Channel {channel_id!r} is on {platform}, and the primary channel "
+            "is always a YouTube channel"
+        )
+        self.channel_id = channel_id
+        self.platform = platform
+
+
+class ChannelsUnreadable(LibraryError, ValueError):
+    """``channels.json`` exists but cannot be read as channels (500).
+
+    A ``ValueError`` too, like a corrupt brief: the file is reported, never reset.
+    """

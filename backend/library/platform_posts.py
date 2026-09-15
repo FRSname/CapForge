@@ -38,6 +38,17 @@ from typing import Callable, Optional, Sequence
 from backend.library.brief import Brief
 from backend.library.collection_store import Collection, effective_brief
 from backend.library.package import FULL_VIDEO_URL_PLACEHOLDER, chapter_lines, hashtags
+from backend.library.platforms import (  # the numbers live in platforms.py, once
+    INSTAGRAM_MAX_CHARS,
+    INSTAGRAM_MAX_HASHTAGS,
+    LINKEDIN_MAX_CHARS,
+    LINKEDIN_MAX_HASHTAGS,
+    LINKEDIN_MIN_HASHTAGS,
+    URL_RE,
+    X_MAX_WEIGHTED_CHARS,
+    X_URL_WEIGHT,
+    weighted_length,
+)
 from backend.library.schemas import VideoRecord
 from backend.library.violation import Violation, hard, style
 
@@ -49,16 +60,8 @@ INSTAGRAM = "instagram"
 #: The clipboard posts, in the order a menu lists them.
 PLATFORMS = (LINKEDIN, X, INSTAGRAM)
 
-LINKEDIN_MAX_CHARS = 3000
-LINKEDIN_MAX_HASHTAGS = 5
-LINKEDIN_MIN_HASHTAGS = 3
-#: Chapters listed under "In this video:".
+#: Chapters listed under "In this video:" (a layout choice, not a platform limit).
 LINKEDIN_MAX_MOMENTS = 5
-X_MAX_WEIGHTED_CHARS = 280
-#: What X's link shortener makes every URL count, whatever its real length.
-X_URL_WEIGHT = 23
-INSTAGRAM_MAX_CHARS = 2200
-INSTAGRAM_MAX_HASHTAGS = 30
 
 WATCH_LABEL = "Watch: "
 MOMENTS_HEADER = "In this video:"
@@ -70,7 +73,7 @@ PACKAGE_FIELD = "package.{platform}"
 UNSUPPORTED = "No {platform!r} post layout; CapForge renders {supported}"
 
 #: Every URL X would shorten, plus the placeholder a URL will replace.
-X_URL_RE = re.compile(rf"https?://\S+|{re.escape(FULL_VIDEO_URL_PLACEHOLDER)}")
+X_URL_RE = re.compile(rf"{URL_RE.pattern}|{re.escape(FULL_VIDEO_URL_PLACEHOLDER)}")
 #: A blank line (spaces allowed) between two paragraphs, however many there are.
 PARAGRAPH_BREAK_RE = re.compile(r"\n\s*\n")
 
@@ -117,8 +120,7 @@ def render_platform_post(
 def weighted_x_length(text: str) -> int:
     """X's count: every URL (and the video URL placeholder) is ``X_URL_WEIGHT``,
     every other character is one. Emoji and CJK weighting is not modelled."""
-    urls = X_URL_RE.findall(text)
-    return len(text) - sum(len(url) for url in urls) + X_URL_WEIGHT * len(urls)
+    return weighted_length(text, url_weight=X_URL_WEIGHT, url_re=X_URL_RE)
 
 
 # --- the three renderers ---------------------------------------------------------
