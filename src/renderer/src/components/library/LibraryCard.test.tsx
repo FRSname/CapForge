@@ -22,6 +22,7 @@ const video: LibraryVideo = {
   missing_media: false,
   hasProject: true,
   poster: true,
+  cover: null,
 }
 
 describe('LibraryCardMenu', () => {

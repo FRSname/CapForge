@@ -43,7 +43,16 @@ export interface LibraryVideo {
   hasProject: boolean
   /** A poster frame was grabbed at import (`asset/poster.jpg`); false shows the placeholder. */
   poster: boolean
+  /**
+   * The frame chosen as the cover in Publish (`thumbnail.cover`, a name under
+   * `thumbnails/`). The card shows it instead of the poster; null when there is
+   * none or the value is not a frame name.
+   */
+  cover: string | null
 }
+
+/** A thumbnail frame's file name — `backend/library/frames.py` `FRAME_NAME_RE`. */
+export const FRAME_NAME_RE = /^[0-9a-f]{32}\.jpg$/
 
 /**
  * The record view (`POST /api/library`, `GET /api/library/{id}`) — the whole
@@ -79,6 +88,12 @@ function nullableNumber(value: unknown): number | null {
 
 function nullableString(value: unknown): string | null {
   return typeof value === 'string' && value !== '' ? value : null
+}
+
+/** `thumbnail.cover` when it is a frame name; anything else (no thumbnail included) is null. */
+function coverName(thumbnail: unknown): string | null {
+  const cover = asRecordObject(thumbnail)?.cover
+  return typeof cover === 'string' && FRAME_NAME_RE.test(cover) ? cover : null
 }
 
 function isStatus(value: unknown): value is LibraryStatus {
@@ -119,6 +134,7 @@ export function parseLibraryVideo(value: unknown, index: number): LibraryVideo {
     missing_media: row.missing_media === true,
     hasProject: row.hasProject === true,
     poster: row.poster === true,
+    cover: coverName(row.thumbnail),
   }
 }
 

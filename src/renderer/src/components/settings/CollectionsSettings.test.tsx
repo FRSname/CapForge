@@ -190,6 +190,7 @@ function video(over: Partial<LibraryVideo> = {}): LibraryVideo {
     missing_media: false,
     hasProject: true,
     poster: false,
+    cover: null,
     ...over,
   }
 }

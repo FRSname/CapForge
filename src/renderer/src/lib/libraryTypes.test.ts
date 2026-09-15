@@ -32,9 +32,32 @@ const ROW = {
   missing_media: false,
   hasProject: true,
   poster: false,
+  cover: null,
 }
 
+const COVER = `${'c'.repeat(32)}.jpg`
+
 describe('parseLibraryList', () => {
+  test('reads the cover from the row’s thumbnail', () => {
+    const [parsed] = parseLibraryList({
+      videos: [{ ...ROW, thumbnail: { ideas: [], candidates: [COVER], cover: COVER } }],
+    })
+    expect(parsed.cover).toBe(COVER)
+  })
+
+  test.each([
+    ['no thumbnail', undefined],
+    ['a thumbnail that is not an object', 'cover.jpg'],
+    ['no cover', { ideas: [], candidates: [] }],
+    ['a null cover', { cover: null }],
+    ['a cover that is not a frame name', { cover: '../record.json' }],
+    ['an upper-case frame name', { cover: `${'C'.repeat(32)}.jpg` }],
+    ['a non-string cover', { cover: 7 }],
+  ])('degrades %s to no cover', (_reason, thumbnail) => {
+    const [parsed] = parseLibraryList({ videos: [{ ...ROW, thumbnail }] })
+    expect(parsed.cover).toBeNull()
+  })
+
   test('passes a well-formed row through unchanged', () => {
     expect(parseLibraryList({ videos: [ROW] })).toEqual([ROW])
   })
@@ -70,6 +93,7 @@ describe('parseLibraryList', () => {
       missing_media: false,
       hasProject: false,
       poster: false,
+      cover: null,
     })
   })
 

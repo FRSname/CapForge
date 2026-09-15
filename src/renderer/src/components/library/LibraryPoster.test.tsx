@@ -26,6 +26,7 @@ const video: LibraryVideo = {
   missing_media: false,
   hasProject: true,
   poster: true,
+  cover: null,
 }
 
 const PORTRAIT = 9 / 16

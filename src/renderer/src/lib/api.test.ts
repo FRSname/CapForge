@@ -498,6 +498,7 @@ describe('CapForgeAPI', () => {
       missing_media: false,
       hasProject: false,
       poster: false,
+      cover: null,
     }
 
     test('listLibrary sends the local token and parses the envelope', async () => {

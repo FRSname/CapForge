@@ -30,6 +30,7 @@ function video(overrides: Partial<LibraryVideo> = {}): LibraryVideo {
     missing_media: false,
     hasProject: false,
     poster: false,
+    cover: null,
     ...overrides,
   }
 }
