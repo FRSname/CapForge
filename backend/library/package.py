@@ -20,11 +20,14 @@ collection footer reaches every member's package on the next render.
 from __future__ import annotations
 
 import math
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Optional, Sequence
 
 from backend.library.brief import Brief
 from backend.library.collection_store import Collection, effective_brief
+from backend.library.paths import THUMBNAILS_DIR
 from backend.library.schemas import Chapter, Link, Speaker, ThumbnailIdea, VideoRecord
 from backend.library.template import (
     DEFAULT_DESCRIPTION_TEMPLATE,
@@ -50,6 +53,8 @@ UNKNOWN_SLOTS_HEADER = "Unknown template slots, printed as written:"
 TAG_SEPARATOR = ", "
 THUMBNAIL_SEPARATOR = " — "
 SHORTS_HASHTAG = "#Shorts"
+#: THUMBNAIL IDEAS ends with this line, once a cover frame is chosen.
+COVER_FILE_LABEL = "Cover file: "
 BLOCK_SEPARATOR = "\n\n"
 
 #: Brief lines that are themselves templates: ``(slot, Brief field)``. Each is
@@ -97,6 +102,7 @@ def render_youtube_package(
     source_name: str,
     diarized_ids: Sequence[str] = (),
     collection: Optional[Collection] = None,
+    record_folder: Optional[Path] = None,
 ) -> str:
     """The full package text. ``duration`` may be None (no transcript yet).
 
@@ -104,6 +110,8 @@ def render_youtube_package(
     …); one the record has not named yet is printed as the placeholder and
     listed under NOTES, so an unnamed speaker is never silently dropped.
     ``brief`` is the channel brief; ``collection``'s overrides are applied here.
+    ``record_folder`` is the record's folder: with a cover chosen, THUMBNAIL IDEAS
+    ends with that frame's file (without either, the output is unchanged).
     """
     description = assemble_description(
         record, brief, collection=collection, diarized_ids=diarized_ids
@@ -122,7 +130,7 @@ def render_youtube_package(
         _section("TAGS", TAG_SEPARATOR.join(t.strip() for t in record.tags if t.strip())),
         _section("SHORT DESCRIPTION", record.short_description.strip()),
         shorts.text,
-        _section("THUMBNAIL IDEAS", _thumbnail_lines(record.thumbnail.ideas)),
+        _section("THUMBNAIL IDEAS", _thumbnail_body(record, record_folder)),
         notes,
     ]
     return BLOCK_SEPARATOR.join(part for part in sections if part) + "\n"
@@ -319,6 +327,16 @@ def _thumbnail_lines(ideas: Sequence[ThumbnailIdea]) -> str:
             continue
         lines.append(f"{headline}{THUMBNAIL_SEPARATOR}{visual}" if visual else headline)
     return "\n".join(lines)
+
+
+def _thumbnail_body(record: VideoRecord, record_folder: Optional[Path]) -> str:
+    """The idea lines, then the chosen cover's file when there is one."""
+    cover = record.thumbnail.cover
+    cover_line = (
+        f"{COVER_FILE_LABEL}{os.fspath(Path(record_folder) / THUMBNAILS_DIR / cover)}"
+        if cover and record_folder is not None else ""
+    )
+    return _join([_thumbnail_lines(record.thumbnail.ideas), cover_line])
 
 
 # --- NOTES -------------------------------------------------------------------

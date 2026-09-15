@@ -27,6 +27,8 @@ INDEX_DB_NAME = "library.db"
 RECORD_FILE = "record.json"
 PROJECT_FILE = "project.capforge"
 TRANSCRIPT_FILE = "transcript.json"
+#: Thumbnail frames (``frames.py``) live in this sub-folder of the record.
+THUMBNAILS_DIR = "thumbnails"
 
 #: The only names the asset route will ever serve, resolved strictly under the
 #: record folder — never a client-supplied path (vision §2.2).

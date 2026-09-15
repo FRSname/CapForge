@@ -320,3 +320,61 @@ def test_a_transcript_speaker_the_record_has_not_named_becomes_a_placeholder():
     assert f"{SPEAKER_NAME_PLACEHOLDER} for SPEAKER_01" in text
     # Order: the record's named speaker first, then the unnamed transcript one.
     assert text.index("Speaker: Filip") < text.index(f"Speaker: {SPEAKER_NAME_PLACEHOLDER}")
+
+
+# --- the cover file (publish-editors Part A, decision 5) ----------------------
+
+COVER_NAME = "c" * 32 + ".jpg"
+
+
+def with_cover(record: VideoRecord, *, ideas: bool = True) -> VideoRecord:
+    thumbnail = record.thumbnail.model_copy(update={
+        "candidates": ["d" * 32 + ".jpg", COVER_NAME],
+        "cover": COVER_NAME,
+        **({} if ideas else {"ideas": []}),
+    })
+    return record.model_copy(update={"thumbnail": thumbnail})
+
+
+def thumbnail_section(text: str) -> str:
+    return text.split("THUMBNAIL IDEAS", 1)[1].split("NOTES", 1)[0]
+
+
+def test_a_cover_prints_its_absolute_file_under_thumbnail_ideas(tmp_path):
+    folder = tmp_path / "library" / ("a" * 32)
+
+    text = render_youtube_package(
+        with_cover(full_record()), full_brief(), duration=DURATION_S,
+        source_name=SOURCE_NAME, record_folder=folder,
+    )
+
+    section = thumbnail_section(text)
+    assert f"Cover file: {folder / 'thumbnails' / COVER_NAME}" in section
+    assert section.index("No render farm") < section.index("Cover file:")
+
+
+def test_a_cover_with_no_ideas_still_prints_the_section(tmp_path):
+    text = render_youtube_package(
+        with_cover(full_record(), ideas=False), full_brief(), duration=DURATION_S,
+        source_name=SOURCE_NAME, record_folder=tmp_path,
+    )
+
+    assert f"Cover file: {tmp_path / 'thumbnails' / COVER_NAME}" in thumbnail_section(text)
+
+
+def test_with_no_cover_the_package_is_byte_identical_given_a_folder(tmp_path):
+    record = full_record().model_copy(update={"thumbnail": full_record().thumbnail.model_copy(
+        update={"candidates": [COVER_NAME]}
+    )})
+
+    with_folder = render_youtube_package(
+        record, full_brief(), duration=DURATION_S, source_name=SOURCE_NAME,
+        record_folder=tmp_path,
+    )
+
+    assert with_folder == render(full_record(), full_brief())
+    assert with_folder == GOLDEN.read_text(encoding="utf-8")
+
+
+def test_a_cover_without_a_folder_prints_no_line():
+    assert "Cover file:" not in render(with_cover(full_record()), full_brief())

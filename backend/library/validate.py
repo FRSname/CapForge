@@ -18,9 +18,9 @@ until there is something to measure.
 
 from __future__ import annotations
 
-from typing import Any, Literal, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence
 
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import ValidationError
 
 from backend.library.brief import Brief, CountWindow, HouseRules
 from backend.library.collection_store import Collection
@@ -30,8 +30,10 @@ from backend.library.package import (
     format_timestamp,
 )
 from backend.library.schemas import AUTHORED_FIELDS, Chapter, RecordPatch, VideoRecord
-
-Severity = Literal["hard", "style"]
+from backend.library.validate_media import media_hard_rules, media_style_rules
+from backend.library.violation import Severity, Violation  # noqa: F401 - re-exported
+from backend.library.violation import hard as _hard
+from backend.library.violation import style as _style
 
 #: YouTube's own limits.
 TITLE_MAX_CHARS = 100
@@ -54,17 +56,6 @@ DASH_FIELDS = ("title", "description", "short_description")
 PACKAGE_DESCRIPTION_FIELD = "package.description"
 
 
-class Violation(BaseModel):
-    """One finding, addressed to a field the Publish panel can highlight."""
-
-    model_config = ConfigDict(frozen=True)
-
-    field: str
-    rule: str
-    message: str
-    severity: Severity
-
-
 def validate_fields(
     fields: Mapping[str, Any],
     *,
@@ -84,7 +75,7 @@ def validate_fields(
         raise ValueError(f"Not a set of authored fields: {exc}") from exc
     found = _hard_rules(patch, duration)
     if brief is not None:
-        found += _style_rules(patch, brief.house_rules)
+        found += [*_style_rules(patch, brief.house_rules), *media_style_rules(patch)]
     return found
 
 
@@ -166,16 +157,13 @@ def unknown_collection_violation(collection_id: str) -> Violation:
 
 # --- hard rules --------------------------------------------------------------
 
-def _hard(field: str, rule: str, message: str) -> Violation:
-    return Violation(field=field, rule=rule, message=message, severity="hard")
-
-
 def _hard_rules(patch: RecordPatch, duration: Optional[float]) -> list[Violation]:
     return [
         *_title_rules(patch),
         *_description_rules(patch),
         *_tag_rules(patch),
         *_chapter_rules(patch.chapters, duration),
+        *media_hard_rules(patch, duration),
     ]
 
 
@@ -274,10 +262,6 @@ def _chapter_position(
 
 
 # --- style rules -------------------------------------------------------------
-
-def _style(field: str, rule: str, message: str) -> Violation:
-    return Violation(field=field, rule=rule, message=message, severity="style")
-
 
 def _style_rules(patch: RecordPatch, rules: HouseRules) -> list[Violation]:
     found: list[Violation] = []

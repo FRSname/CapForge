@@ -68,6 +68,8 @@ def test_the_fixture_covers_every_rule_the_module_can_emit():
         "no_angle_brackets", "chapters_start_at_zero", "chapters_min",
         "chapters_ascending", "chapter_min_gap", "chapter_within_duration",
         "no_em_dashes", "description_chars", "keywords_terms", "hook_first_150",
+        "cover_not_a_candidate", "clip_order", "clip_past_end", "shorts_clip_length",
+        "thumbnail_recommended",
     }
 
 
