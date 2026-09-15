@@ -1,7 +1,7 @@
 /**
- * The frames REST client against a mocked `fetch`: both routes ride api.ts's
- * authenticated transport, the grab's answer is parsed at the boundary, and a
- * refusal surfaces with the backend's sentence.
+ * The frames REST client against a mocked `fetch`: every route rides api.ts's
+ * authenticated transport (an upload as the raw image), each answer is parsed
+ * at the boundary, and a refusal surfaces with the backend's sentence.
  */
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
@@ -12,6 +12,7 @@ import {
   frameAssetPath,
   grabFrames,
   parseFramesResult,
+  uploadFrame,
 } from './framesApi'
 
 const BASE = 'http://127.0.0.1:53421'
@@ -89,6 +90,45 @@ describe('framesApi', () => {
   test('deleteFrame reports a 404 rather than pretending it worked', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ detail: 'No such frame' }, 404))
     await expect(deleteFrame(ID, FRAME)).rejects.toThrow('No such frame')
+  })
+
+  test('uploadFrame POSTs the raw image with its type and the token, answering name and rev', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ frame: { name: FRAME }, rev: 4 }))
+    const image = new Blob([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], { type: 'image/png' })
+
+    expect(await uploadFrame(ID, image)).toEqual({ name: FRAME, rev: 4 })
+    const { url, init } = call()
+    expect(url).toBe(`${BASE}/api/library/${ID}/frames/upload`)
+    expect(init.method).toBe('POST')
+    const headers = init.headers as Record<string, string>
+    expect(headers['X-CapForge-Local-Token']).toBe(TOKEN)
+    expect(headers['Content-Type']).toBe('image/png')
+    expect(init.body).toBe(image)
+  })
+
+  test('uploadFrame sends an untyped blob as octet-stream', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ frame: { name: FRAME }, rev: 4 }))
+
+    await uploadFrame(ID, new Blob([new Uint8Array([1])]))
+
+    expect((call().init.headers as Record<string, string>)['Content-Type']).toBe(
+      'application/octet-stream'
+    )
+  })
+
+  test('uploadFrame surfaces a 422 sentence as the error message', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ detail: 'GIF images cannot be used.' }, 422))
+    await expect(uploadFrame(ID, new Blob([]))).rejects.toThrow('GIF images cannot be used.')
+  })
+
+  test.each([
+    { rev: 4 },
+    { frame: {}, rev: 4 },
+    { frame: { name: '../x' }, rev: 4 },
+    { frame: { name: FRAME } },
+  ])('uploadFrame rejects the unexpected body %j', async (body) => {
+    fetchMock.mockResolvedValue(jsonResponse(body))
+    await expect(uploadFrame(ID, new Blob([]))).rejects.toThrow(FRAMES_SHAPE_MESSAGE)
   })
 
   test('frameAssetPath is the asset route path of a frame', () => {

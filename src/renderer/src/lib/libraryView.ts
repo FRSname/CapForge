@@ -11,6 +11,7 @@
  */
 
 import type { CollectionSummary } from './collectionTypes'
+import { frameAssetPath } from './framesApi'
 import type { LibraryStatus, LibraryVideo } from './libraryTypes'
 
 /**
@@ -119,6 +120,19 @@ export function continueCandidate(videos: readonly LibraryVideo[]): LibraryVideo
 }
 
 // ── Posters ─────────────────────────────────────────────────────────────────
+
+/** The poster the backend grabs at import. */
+export const POSTER_ASSET = 'poster.jpg'
+
+/**
+ * The asset path a card draws (`GET /api/library/{id}/asset/{path}`): the cover
+ * chosen in Publish when there is one, else the import poster when it exists,
+ * else null — no picture, and no request.
+ */
+export function cardImageAsset(video: Pick<LibraryVideo, 'poster' | 'cover'>): string | null {
+  if (video.cover) return frameAssetPath(video.cover)
+  return video.poster ? POSTER_ASSET : null
+}
 
 /** A poster box's ratio (width / height) while the frame's size is unknown. */
 export const POSTER_ASPECT_FALLBACK = 16 / 9

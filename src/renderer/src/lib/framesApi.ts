@@ -1,8 +1,9 @@
 /**
  * REST client for a record's thumbnail frames (docs/plans/publish-editors.md,
- * Part A): `POST /api/library/{id}/frames` grabs, `DELETE …/frames/{name}`
- * removes. These two routes are the **only** writers of
- * `thumbnail.candidates`; both bump the record's `rev` and fire
+ * Part A): `POST /api/library/{id}/frames` grabs, `POST …/frames/upload`
+ * stores an image the user chose (and makes it the cover), `DELETE
+ * …/frames/{name}` removes. These three routes are the **only** writers of
+ * `thumbnail.candidates`; each bumps the record's `rev` and fires
  * `record_updated`, which is how the Publish panel picks the change up.
  *
  * A sibling of `api.ts` (past its size ceiling) — the `libraryApi.ts`
@@ -12,6 +13,7 @@
  */
 
 import { api } from './api'
+import { FRAME_NAME_RE } from './libraryTypes'
 import { num, obj, rows, str } from './wireReaders'
 
 /** A frame the backend wrote: its file name under `thumbnails/`. */
@@ -80,6 +82,29 @@ async function requestJson(method: 'POST' | 'DELETE', path: string, body?: unkno
 /** Grab a frame at each time (1–8 per call). A 422's sentence is the error message. */
 export async function grabFrames(id: string, times: readonly number[]): Promise<FramesResult> {
   return parseFramesResult(await requestJson('POST', framesPath(id), { times: [...times] }))
+}
+
+/** An uploaded image, stored as a frame and made the cover. */
+export interface UploadedFrame {
+  name: string
+  /** The record's revision after the append. */
+  rev: number
+}
+
+/** The upload's answer. Throws unless it names a frame and carries a rev. */
+export function parseUploadedFrame(value: unknown): UploadedFrame {
+  const body = obj(value)
+  const name = obj(body?.frame)?.name
+  if (!body || typeof body.rev !== 'number' || !Number.isFinite(body.rev)) {
+    throw new Error(FRAMES_SHAPE_MESSAGE)
+  }
+  if (typeof name !== 'string' || !FRAME_NAME_RE.test(name)) throw new Error(FRAMES_SHAPE_MESSAGE)
+  return { name, rev: body.rev }
+}
+
+/** Upload an image (JPEG, PNG or WEBP) as a frame and the cover. A 422's sentence is the error message. */
+export async function uploadFrame(id: string, image: Blob): Promise<UploadedFrame> {
+  return parseUploadedFrame(await requestJson('POST', `${framesPath(id)}/upload`, image))
 }
 
 /** Delete one frame (clearing the cover if it was the cover). Answers the new rev. */

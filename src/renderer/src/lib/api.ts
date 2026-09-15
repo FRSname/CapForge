@@ -425,6 +425,11 @@ class CapForgeAPI {
     const headers: Record<string, string> = {}
     if (this.localToken) headers['X-CapForge-Local-Token'] = this.localToken
     if (body === undefined) return fetch(`${this.base}${path}`, { method, headers })
+    if (body instanceof Blob) {
+      // Raw bytes (an uploaded image) go as they are, typed by the blob.
+      headers['Content-Type'] = body.type || 'application/octet-stream'
+      return fetch(`${this.base}${path}`, { method, headers, body })
+    }
     headers['Content-Type'] = 'application/json'
     return fetch(`${this.base}${path}`, { method, headers, body: JSON.stringify(body) })
   }

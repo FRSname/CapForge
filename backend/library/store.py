@@ -39,6 +39,7 @@ from backend.library.paths import (
     PROJECT_FILE,
     RECORD_FILE,
     SCRATCH_DIR_NAME,
+    THUMBNAILS_DIR,
     TRANSCRIPT_FILE,
     record_dir,
 )
@@ -246,15 +247,27 @@ class LibraryStore(
     def _summary(self, record: VideoRecord, status: str) -> dict:
         dumped = {**record.model_dump(), "status": status}
         summary = {name: dumped[name] for name in SUMMARY_FIELDS}
-        return {  # both derived at read time, never stored
+        return {  # all derived at read time, never stored
             **summary,
             "hasProject": self.has_project(record),
             "poster": self.has_poster(record),
+            "cover": self.cover_of(record),
         }
 
     def has_poster(self, record: VideoRecord) -> bool:
         """A ``poster.jpg`` sits in the record folder (``posters.py`` grabs it)."""
         return posters.has_poster(self._folder(record.id, scratch=record.scratch))
+
+    def cover_of(self, record: VideoRecord) -> Optional[str]:
+        """The cover frame's name when its file is in the record folder, else None.
+
+        The list is a summary without ``thumbnail``, so the card reads this; a
+        cover whose file is gone draws the poster rather than a broken image."""
+        cover = record.thumbnail.cover
+        if not cover:
+            return None
+        folder = self._folder(record.id, scratch=record.scratch)
+        return cover if (folder / THUMBNAILS_DIR / cover).is_file() else None
 
     # --- writing -------------------------------------------------------------
 

@@ -32,9 +32,36 @@ const ROW = {
   missing_media: false,
   hasProject: true,
   poster: false,
+  cover: null,
 }
 
+const COVER = `${'c'.repeat(32)}.jpg`
+
 describe('parseLibraryList', () => {
+  test('reads the cover from the row’s derived cover key', () => {
+    const [parsed] = parseLibraryList({ videos: [{ ...ROW, cover: COVER }] })
+    expect(parsed.cover).toBe(COVER)
+  })
+
+  test('ignores thumbnail.cover: the list summary has no thumbnail, only the derived key', () => {
+    const { cover: _omitted, ...row } = ROW
+    const [parsed] = parseLibraryList({
+      videos: [{ ...row, thumbnail: { ideas: [], candidates: [COVER], cover: COVER } }],
+    })
+    expect(parsed.cover).toBeNull()
+  })
+
+  test.each([
+    ['no cover key', undefined],
+    ['a null cover', null],
+    ['a cover that is not a frame name', '../record.json'],
+    ['an upper-case frame name', `${'C'.repeat(32)}.jpg`],
+    ['a non-string cover', 7],
+  ])('degrades %s to no cover', (_reason, cover) => {
+    const [parsed] = parseLibraryList({ videos: [{ ...ROW, cover }] })
+    expect(parsed.cover).toBeNull()
+  })
+
   test('passes a well-formed row through unchanged', () => {
     expect(parseLibraryList({ videos: [ROW] })).toEqual([ROW])
   })
@@ -70,6 +97,7 @@ describe('parseLibraryList', () => {
       missing_media: false,
       hasProject: false,
       poster: false,
+      cover: null,
     })
   })
 

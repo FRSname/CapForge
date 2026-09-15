@@ -349,9 +349,28 @@ def test_list_summary_shape(store, tmp_path):
         "hasProject",
         # Also derived: a poster.jpg exists in the record folder (#6).
         "poster",
+        # Also derived: the cover frame's name when its file exists, so the
+        # library card can show the cover chosen in Publish.
+        "cover",
     }
+    assert summary["cover"] is None
     assert summary["title"] == "Ship it"
     assert summary["hasProject"] is False
+
+
+def test_the_summary_cover_is_the_cover_frame_only_while_its_file_exists(store, tmp_path):
+    rec = store.create(str(media(tmp_path)))
+    name = f"{'a' * 32}.jpg"
+    store.add_thumbnail_candidates(rec.id, [name], by="user", cover=name)
+
+    assert store.list()[0]["cover"] is None  # the record names it, the file is missing
+
+    frame = store._folder(rec.id, scratch=False) / "thumbnails" / name
+    frame.parent.mkdir(parents=True, exist_ok=True)
+    frame.write_bytes(b"jpeg")
+
+    assert store.list()[0]["cover"] == name
+    assert store.cover_of(store.get(rec.id)) == name
 
 
 def test_list_filters_by_status_collection_and_query(store, tmp_path):

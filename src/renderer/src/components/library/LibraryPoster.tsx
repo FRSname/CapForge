@@ -1,9 +1,10 @@
 /**
- * A record's poster block: the frame the backend grabbed at import (fetched
- * into a `blob:` URL by `usePosterUrl`, because the CSP refuses `127.0.0.1`
- * images), or a gradient placeholder. Either way it carries the mono duration
- * badge and, when the source file is gone, the missing-media chip, so a card
- * still reads as a *video* rather than a row.
+ * A record's poster block: the cover chosen in Publish, else the frame the
+ * backend grabbed at import (fetched into a `blob:` URL by `usePosterUrl`,
+ * because the CSP refuses `127.0.0.1` images), or a gradient placeholder.
+ * Either way it carries the mono duration badge and, when the source file is
+ * gone, the missing-media chip, so a card still reads as a *video* rather than
+ * a row.
  *
  * The box keeps the video's ratio. The poster JPEG is the frame scaled with
  * its ratio preserved, so `LibraryPoster` reads the ratio off the loaded
@@ -17,18 +18,24 @@ import type { CSSProperties } from 'react'
 import { useState } from 'react'
 import { cn } from '../../lib/cn'
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { formatDuration, posterAspect, posterBoxWidth } from '../../lib/libraryView'
+import { cardImageAsset, formatDuration, posterAspect, posterBoxWidth } from '../../lib/libraryView'
 import { usePosterUrl } from '../../hooks/usePosterUrl'
 
 /** `POSTER_ASPECT_FALLBACK` as CSS — kept as the ratio it is rather than a long decimal. */
 const FALLBACK_ASPECT_CSS = '16 / 9'
 
 /**
- * Ratios already measured, by record id, so coming back to the library does
- * not redraw every portrait card at 16:9 while its poster is re-fetched. A
- * cache only: a re-measured poster overwrites its entry.
+ * Ratios already measured, by record id **and** picture (`aspectKey`), so
+ * coming back to the library does not redraw every portrait card at 16:9 while
+ * its poster is re-fetched, and a newly chosen cover of another shape is never
+ * drawn at the old picture's ratio. A cache only: a re-measured picture
+ * overwrites its entry.
  */
 const measuredAspects = new Map<string, number>()
+
+function aspectKey(id: string, asset: string | null): string {
+  return `${id}\n${asset ?? ''}`
+}
 
 export interface PosterFixedHeight {
   heightPx: number
@@ -112,16 +119,17 @@ export interface LibraryPosterProps {
 /** `Poster` bound to the record's fetched frame and its measured ratio — what the card and the hero mount. */
 export function LibraryPoster({ video, fixedHeight }: LibraryPosterProps) {
   const posterUrl = usePosterUrl(video)
-  // Keyed by id, so a hero that switches records never shows the last one's ratio.
-  const [measured, setMeasured] = useState<{ id: string; aspect: number } | null>(null)
-  const aspect =
-    measured?.id === video.id ? measured.aspect : (measuredAspects.get(video.id) ?? null)
+  // Keyed by id and picture, so a hero that switches records, or a card whose
+  // cover changed, never shows the last picture's ratio.
+  const key = aspectKey(video.id, cardImageAsset(video))
+  const [measured, setMeasured] = useState<{ key: string; aspect: number } | null>(null)
+  const aspect = measured?.key === key ? measured.aspect : (measuredAspects.get(key) ?? null)
 
   function handleImageSize(width: number, height: number) {
     const next = posterAspect(width, height)
     if (next === null) return
-    measuredAspects.set(video.id, next)
-    setMeasured({ id: video.id, aspect: next })
+    measuredAspects.set(key, next)
+    setMeasured({ key, aspect: next })
   }
 
   return (

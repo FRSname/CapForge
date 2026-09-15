@@ -19,6 +19,7 @@ import {
   POSTER_ASPECT_MAX,
   POSTER_ASPECT_MIN,
   UNTITLED,
+  cardImageAsset,
   collectionFilterOptions,
   continueCandidate,
   filterByCollection,
@@ -47,9 +48,24 @@ function video(overrides: Partial<LibraryVideo> = {}): LibraryVideo {
     missing_media: false,
     hasProject: true,
     poster: false,
+    cover: null,
     ...overrides,
   }
 }
+
+describe('cardImageAsset', () => {
+  const COVER = `${'c'.repeat(32)}.jpg`
+
+  test('the chosen cover wins over the poster', () => {
+    expect(cardImageAsset(video({ poster: true, cover: COVER }))).toBe(`thumbnails/${COVER}`)
+    expect(cardImageAsset(video({ poster: false, cover: COVER }))).toBe(`thumbnails/${COVER}`)
+  })
+
+  test('without a cover the poster, and without either nothing to fetch', () => {
+    expect(cardImageAsset(video({ poster: true }))).toBe('poster.jpg')
+    expect(cardImageAsset(video({ poster: false }))).toBeNull()
+  })
+})
 
 describe('displayTitle', () => {
   test('prefers the authored title', () => {
