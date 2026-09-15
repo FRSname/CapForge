@@ -43,6 +43,7 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     hashtags: [],
     speakers: {},
     summary_md: '',
+    collection_id: null,
     links: [],
     publish: { youtube: null, pushes: [] },
     history: [],
@@ -62,6 +63,7 @@ describe('PUBLISH_FIELDS', () => {
       'title_options',
       'title',
       'description',
+      'collection_id',
       'chapters',
       'tags',
       'keywords',
@@ -75,7 +77,10 @@ describe('PUBLISH_FIELDS', () => {
   test('authoredFields sends the authored half and nothing else', () => {
     const payload = authoredFields(record({ title: 'Talk', tags: ['a'] }))
 
-    const wire = PUBLISH_FIELDS.map((f) => f.id).filter((id) => id !== 'publish')
+    // `publish` and `collection_id` are only ever written whole and at once.
+    const wire = PUBLISH_FIELDS.map((f) => f.id).filter(
+      (id) => id !== 'publish' && id !== 'collection_id'
+    )
     expect(Object.keys(payload).sort()).toEqual(wire.sort())
     expect(payload.title).toBe('Talk')
     // The system fields are not validated and must not ride along.

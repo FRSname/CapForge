@@ -9,11 +9,16 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import type { LibraryVideo } from './libraryTypes'
+import type { CollectionSummary } from './collectionTypes'
 import {
+  ALL_COLLECTIONS,
   DURATION_PLACEHOLDER,
   MEDIA_EXTENSIONS,
+  NO_COLLECTION,
   UNTITLED,
+  collectionFilterOptions,
   continueCandidate,
+  filterByCollection,
   displayTitle,
   fileStem,
   formatDuration,
@@ -160,5 +165,48 @@ describe('isMediaPath', () => {
 
   test.each(['/x/notes.capforge', '/x/README', '/x/archive.zip', ''])('rejects %s', (name) => {
     expect(isMediaPath(name)).toBe(false)
+  })
+})
+
+describe('filterByCollection', () => {
+  const videos = [
+    video({ id: 'a', collection_id: 'uck26' }),
+    video({ id: 'b', collection_id: null }),
+    video({ id: 'c', collection_id: 'old' }),
+  ]
+
+  test('All keeps every record, as a new array', () => {
+    const out = filterByCollection(videos, ALL_COLLECTIONS)
+    expect(out.map((v) => v.id)).toEqual(['a', 'b', 'c'])
+    expect(out).not.toBe(videos)
+  })
+
+  test('No collection keeps the unfiled ones', () => {
+    expect(filterByCollection(videos, NO_COLLECTION).map((v) => v.id)).toEqual(['b'])
+  })
+
+  test('a collection id keeps its members only', () => {
+    expect(filterByCollection(videos, 'uck26').map((v) => v.id)).toEqual(['a'])
+    expect(filterByCollection(videos, 'nobody')).toEqual([])
+  })
+})
+
+describe('collectionFilterOptions', () => {
+  test('All, each collection by name, ids only records carry, then No collection', () => {
+    const collections = [{ id: 'uck26', name: 'UCK 26' }] as CollectionSummary[]
+    const videos = [video({ collection_id: 'old' }), video({ collection_id: 'uck26' })]
+
+    expect(collectionFilterOptions(collections, videos)).toEqual([
+      { value: ALL_COLLECTIONS, label: 'All videos' },
+      { value: 'uck26', label: 'UCK 26' },
+      { value: 'old', label: 'old' },
+      { value: NO_COLLECTION, label: 'No collection' },
+    ])
+  })
+
+  test('the sentinels can never collide with a collection id', () => {
+    for (const sentinel of [ALL_COLLECTIONS, NO_COLLECTION]) {
+      expect(/^[a-z0-9][a-z0-9-]{0,63}$/.test(sentinel)).toBe(false)
+    }
   })
 })

@@ -21,6 +21,7 @@ export type PublishFieldId = keyof PublishAuthored
 export type PublishCardId =
   | 'title'
   | 'description'
+  | 'collection'
   | 'chapters'
   | 'tags'
   | 'speakers'
@@ -42,6 +43,7 @@ export const PUBLISH_FIELDS: ReadonlyArray<PublishFieldSpec> = [
   { id: 'title_options', label: 'Title options', card: 'title' },
   { id: 'title', label: 'Title', card: 'title' },
   { id: 'description', label: 'Description', card: 'description' },
+  { id: 'collection_id', label: 'Collection', card: 'collection' },
   { id: 'chapters', label: 'Chapters', card: 'chapters' },
   { id: 'tags', label: 'Tags', card: 'tags' },
   { id: 'keywords', label: 'Keywords', card: 'tags' },
@@ -69,10 +71,13 @@ export function fieldLabel(field: string): string {
  * Fields the validator and the debounced patch may carry. `publish` is not one:
  * no rule reads it, its wire shape is an always-present youtube object (the
  * renderer keeps a nullable one), and it is written only by `markPublished`
- * with the whole block.
+ * with the whole block. Nor is `collection_id`: a select, written at once
+ * (`setCollection`), and the validator reads the record's own collection when
+ * it is given a `video_id`.
  */
 export const WIRE_EXCLUDED_FIELDS: ReadonlySet<PublishFieldId> = new Set<PublishFieldId>([
   'publish',
+  'collection_id',
 ])
 
 export function authoredFields(source: PublishAuthored): Record<string, unknown> {

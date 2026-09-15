@@ -28,6 +28,8 @@ describe('BriefSettings', () => {
       'Default hashtags',
       'Link rows',
       'House rules',
+      'Description template',
+      'Template slots',
     ]) {
       expect(html).toContain(label)
     }
@@ -44,6 +46,16 @@ describe('BriefSettings', () => {
     expect(html.match(/aria-checked="true"/g)).toHaveLength(1)
   })
 
+  test('offers the slot palette over the template and an empty slot list', () => {
+    const html = render()
+
+    expect(html).toContain('aria-label="Insert a slot"')
+    expect(html).toContain('{{footer}}')
+    expect(html).toContain('{{collection}}')
+    expect(html).toContain('Add slot')
+    expect(html).not.toContain('aria-label="Slot 1 name"')
+  })
+
   test('starts with no link rows and a way to add one', () => {
     const html = render()
 
@@ -58,7 +70,7 @@ describe('the Channel category', () => {
   })
 
   test('is what the words a user would type lead to', () => {
-    for (const query of ['channel', 'brief', 'hashtag', 'footer', 'speaker', 'house rules']) {
+    for (const query of ['channel', 'brief', 'hashtag', 'footer', 'speaker', 'house rules', 'slots']) {
       expect(filterAppSettings(query).categories).toContain('channel')
     }
   })

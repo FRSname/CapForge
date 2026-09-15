@@ -23,7 +23,12 @@ from typing import Any, Literal, Mapping, Optional, Sequence
 from pydantic import BaseModel, ConfigDict, ValidationError
 
 from backend.library.brief import Brief, CountWindow, HouseRules
-from backend.library.package import format_timestamp
+from backend.library.collection_store import Collection
+from backend.library.package import (
+    AssembledDescription,
+    assemble_description,
+    format_timestamp,
+)
 from backend.library.schemas import AUTHORED_FIELDS, Chapter, RecordPatch, VideoRecord
 
 Severity = Literal["hard", "style"]
@@ -45,6 +50,8 @@ DASH_CHARS = "—–"
 #: The fields the ``no_em_dashes`` house rule reads (every plain-text field a
 #: viewer sees; ``summary_md`` is markdown for reuse elsewhere, so it is out).
 DASH_FIELDS = ("title", "description", "short_description")
+#: A finding about the pasted DESCRIPTION text rather than any one record field.
+PACKAGE_DESCRIPTION_FIELD = "package.description"
 
 
 class Violation(BaseModel):
@@ -107,6 +114,54 @@ def validate_record(
 ) -> list[Violation]:
     """The same rules over the stored dossier's **authored** half."""
     return validate_fields(authored_fields(record), duration=duration, brief=brief)
+
+
+# --- the assembled package and membership ------------------------------------
+
+def package_violations(
+    record: VideoRecord,
+    brief: Brief,
+    *,
+    collection: Optional[Collection] = None,
+    diarized_ids: Sequence[str] = (),
+) -> list[Violation]:
+    """Findings on the DESCRIPTION the package pastes (collections plan, 4–5).
+
+    That text is more than the record's ``description``: the recorded-at line,
+    highlights, chapters, links, speakers, footer and hashtags all count toward
+    YouTube's limit. ``brief`` is the channel brief; ``collection`` is applied
+    here. These never block a record write — they are brief/collection problems.
+    """
+    return assembled_violations(
+        assemble_description(record, brief, collection=collection, diarized_ids=diarized_ids)
+    )
+
+
+def assembled_violations(assembled: AssembledDescription) -> list[Violation]:
+    """:func:`package_violations` over a body already assembled — the package route
+    validates the very ``description`` it returns, rather than a second rendering."""
+    found = [
+        _hard(PACKAGE_DESCRIPTION_FIELD, "unknown_slot",
+              f"{{{{{name}}}}} is not a slot the channel brief or the collection "
+              "defines; it is pasted as written")
+        for name in assembled.unknown_slots
+    ]
+    size = len(assembled.body.encode("utf-8"))
+    if size > DESCRIPTION_MAX_BYTES:
+        found.append(_hard(PACKAGE_DESCRIPTION_FIELD, "description_max_bytes",
+                           f"The assembled description is {size} bytes; "
+                           f"YouTube allows {DESCRIPTION_MAX_BYTES}"))
+    found += _angle_brackets(
+        assembled.body, PACKAGE_DESCRIPTION_FIELD, "The assembled description"
+    )
+    return found
+
+
+def unknown_collection_violation(collection_id: str) -> Violation:
+    """The refusal for a ``collection_id`` that names no collection (decision 6)."""
+    return _hard("collection_id", "unknown_collection",
+                 f"No collection has the id {collection_id!r}; create it first "
+                 "or set collection_id to null")
 
 
 # --- hard rules --------------------------------------------------------------

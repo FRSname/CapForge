@@ -51,3 +51,38 @@ class MediaInUse(LibraryError):
 
 class MediaMismatch(LibraryError):
     """Relink target is different media from the record's; needs ``force`` (409)."""
+
+
+class CollectionNotFound(LibraryError):
+    """No collection with that id (404)."""
+
+
+class CollectionExists(LibraryError):
+    """An explicit collection id that is already taken (409 ``collection_exists``)."""
+
+    def __init__(self, collection_id: str) -> None:
+        super().__init__(f"A collection with the id {collection_id!r} already exists")
+        self.collection_id = collection_id
+
+
+class CollectionInUse(LibraryError):
+    """Delete refused while videos still name the collection (409 ``collection_in_use``).
+
+    Carries the member count; emptying a collection is a per-video
+    ``collection_id: null`` write, never a bulk side effect of a delete.
+    """
+
+    def __init__(self, collection_id: str, members: int) -> None:
+        super().__init__(
+            f"Collection {collection_id!r} still has {members} video(s); set their "
+            "collection_id to null before deleting it"
+        )
+        self.collection_id = collection_id
+        self.members = members
+
+
+class CollectionsUnreadable(LibraryError, ValueError):
+    """``collections.json`` exists but cannot be read as collections (500).
+
+    A ``ValueError`` too, like a corrupt brief: the file is reported, never reset.
+    """

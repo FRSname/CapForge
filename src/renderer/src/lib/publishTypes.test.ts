@@ -37,10 +37,17 @@ describe('parsePublishRecord', () => {
       hashtags: [],
       speakers: {},
       summary_md: '',
+      collection_id: null,
       links: [],
       publish: { youtube: null, pushes: [] },
       history: [],
     })
+  })
+
+  test('reads the collection a record belongs to, empty meaning none', () => {
+    expect(parsePublishRecord({ id: 'v', collection_id: 'uck26' }).collection_id).toBe('uck26')
+    expect(parsePublishRecord({ id: 'v', collection_id: '' }).collection_id).toBeNull()
+    expect(parsePublishRecord({ id: 'v', collection_id: 7 }).collection_id).toBeNull()
   })
 
   test('keeps the structured fields it recognises and drops the rows it cannot use', () => {
@@ -88,6 +95,21 @@ describe('parseBrief', () => {
     })
   })
 
+  test('defaults the description template to the built-in layout and slots to none', () => {
+    const brief = parseBrief({})
+    expect(brief.description_template).toBe('')
+    expect(brief.slots).toEqual({})
+  })
+
+  test('reads the template and keeps only string slot values', () => {
+    const brief = parseBrief({
+      description_template: '{{description}}\n\n{{footer}}',
+      slots: { event: 'UCK 26', count: 3 },
+    })
+    expect(brief.description_template).toBe('{{description}}\n\n{{footer}}')
+    expect(brief.slots).toEqual({ event: 'UCK 26' })
+  })
+
   test('reads the house-rule ranges only when they are a usable pair', () => {
     const brief = parseBrief({
       house_rules: { description_chars: [1800, 2200], keywords_terms: [12] },
@@ -116,6 +138,17 @@ describe('parseViolations', () => {
 describe('parseUploadPackage and parseMoments', () => {
   test('a package without text is unusable and throws', () => {
     expect(() => parseUploadPackage({ platform: 'youtube' })).toThrow(PACKAGE_SHAPE_MESSAGE)
+  })
+
+  test('keeps the pasteable DESCRIPTION body the backend rendered', () => {
+    const pkg = parseUploadPackage({ text: 'full', violations: [], description: 'Hook.\n\nFooter' })
+    expect(pkg.description).toBe('Hook.\n\nFooter')
+    expect(parseUploadPackage({ text: 'full', description: '' }).description).toBe('')
+  })
+
+  test('an older backend without description reads as null, never a throw', () => {
+    expect(parseUploadPackage({ text: 'full', violations: [] }).description).toBeNull()
+    expect(parseUploadPackage({ text: 'full', description: 7 }).description).toBeNull()
   })
 
   test('moments keep their optional gap/speaker and drop untimed rows', () => {

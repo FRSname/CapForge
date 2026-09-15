@@ -249,3 +249,69 @@ def test_library_package_defaults_to_youtube(capforge, monkeypatch):
 
     capforge.library_package("abc123", platform="youtube")
     assert rec.last["url"] == f"{BASE}/api/library/abc123/package?platform=youtube"
+
+
+# --- collections ------------------------------------------------------------
+
+def test_library_collections_list_and_get_paths(capforge, monkeypatch):
+    rec = _record(monkeypatch)
+
+    capforge.library_collections_list()
+    assert rec.last["method"] == "GET"
+    assert rec.last["url"] == f"{BASE}/api/library/collections"
+
+    capforge.library_collection_get("uck 26")
+    assert rec.last["method"] == "GET"
+    assert rec.last["url"] == f"{BASE}/api/library/collections/uck%2026"
+    assert rec.last["headers"][AGENT_TOKEN_HEADER] == TOKEN
+
+
+def test_library_collection_create_posts_the_body_verbatim(capforge, monkeypatch):
+    rec = _record(monkeypatch)
+    body = {"id": "uck26", "name": "UCK 2026", "slots": {"event": "UCK"}}
+
+    capforge.library_collection_create(body)
+
+    assert rec.last["method"] == "POST"
+    assert rec.last["url"] == f"{BASE}/api/library/collections"
+    assert rec.last["json"] == body
+
+
+def test_library_collection_patch_has_no_if_match(capforge, monkeypatch):
+    rec = _record(monkeypatch)
+
+    capforge.library_collection_patch("uck26", {"overrides": {"footer": None}})
+
+    assert rec.last["method"] == "PATCH"
+    assert rec.last["url"] == f"{BASE}/api/library/collections/uck26"
+    assert rec.last["json"] == {"overrides": {"footer": None}}
+    # Like the brief: one small file, no rev to race on (plan decision 1).
+    assert "If-Match" not in rec.last["headers"]
+
+
+def test_library_collection_delete_204_returns_an_empty_dict(capforge, monkeypatch):
+    calls: list[tuple[str, str]] = []
+
+    def _no_content(method, url, **kwargs):
+        calls.append((method, url))
+        return httpx.Response(204, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(client_module.httpx, "request", _no_content)
+
+    assert capforge.library_collection_delete("uck26") == {}
+    assert calls == [("DELETE", f"{BASE}/api/library/collections/uck26")]
+
+
+def test_library_collection_409_is_an_http_error_not_a_stale_record(capforge, monkeypatch):
+    """Only a record patch has a rev; a collection refusal keeps its body."""
+    _record(monkeypatch, {
+        ("DELETE", f"{BASE}/api/library/collections/uck26"): (
+            409, {"reason": "collection_in_use", "members": 3},
+        ),
+    })
+
+    with pytest.raises(httpx.HTTPStatusError) as excinfo:
+        capforge.library_collection_delete("uck26")
+
+    assert not isinstance(excinfo.value, StaleRecord)
+    assert excinfo.value.response.json()["members"] == 3

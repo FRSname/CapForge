@@ -26,6 +26,9 @@ LIBRARY_PATH = "/api/library"
 #: The channel brief — one file for the whole library, not a per-record route.
 BRIEF_PATH = f"{LIBRARY_PATH}/brief"
 
+#: Collections (events): one small file for the whole library, like the brief.
+COLLECTIONS_PATH = f"{LIBRARY_PATH}/collections"
+
 #: transcription/render can take minutes; reads are quick.
 _LONG_TIMEOUT = httpx.Timeout(None)
 _SHORT_TIMEOUT = httpx.Timeout(30.0)
@@ -286,6 +289,32 @@ class CapForgeClient:
         return self._request(
             "GET", f"{LIBRARY_PATH}/{quote(video_id)}/package?{query}"
         )
+
+    # -- collections (docs/plans/library-collections.md) -------------------
+    # No `If-Match` anywhere here: like the brief, collections live in one small
+    # file with no `rev`. A 409 is left as an HTTPStatusError on purpose — its
+    # body (`reason`, `members`) is what the tool layer turns into a sentence.
+    def library_collections_list(self) -> Any:
+        """`{collections: [collection & {members}], orphans: [{id, members}]}`."""
+        return self._request("GET", COLLECTIONS_PATH)
+
+    def library_collection_get(self, collection_id: str) -> Any:
+        """The collection plus `{members, effective_brief}`; 404 when unknown."""
+        return self._request("GET", f"{COLLECTIONS_PATH}/{quote(collection_id)}")
+
+    def library_collection_create(self, body: dict) -> Any:
+        """POST `{id?, name, slots?, overrides?}` verbatim; 201 with `members`."""
+        return self._request("POST", COLLECTIONS_PATH, json=body)
+
+    def library_collection_patch(self, collection_id: str, patch: dict) -> Any:
+        """PATCH `{name?, slots?, overrides?}`; answers the same shape as GET."""
+        return self._request(
+            "PATCH", f"{COLLECTIONS_PATH}/{quote(collection_id)}", json=patch
+        )
+
+    def library_collection_delete(self, collection_id: str) -> Any:
+        """DELETE; a 204 comes back as `{}`."""
+        return self._request("DELETE", f"{COLLECTIONS_PATH}/{quote(collection_id)}")
 
     # -- co-author workspace ---------------------------------------------
     def get_workspace(self) -> Any:

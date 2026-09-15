@@ -13,7 +13,9 @@
  */
 
 import type { LibraryVideo } from '../../lib/libraryTypes'
+import { useCollections } from '../../hooks/useCollections'
 import { useLibraryActions } from '../../hooks/useLibraryActions'
+import { useLibraryCollectionActions } from '../../hooks/useLibraryCollectionActions'
 import { useToast } from '../../hooks/useToast'
 import { useLibraryList } from '../../hooks/useLibraryList'
 import { useLibraryMigration } from '../../hooks/useLibraryMigration'
@@ -37,10 +39,20 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
   // with its own tone here; App's `notify` relay always shows an error.
   const { toast } = useToast()
   const actions = useLibraryActions({ refresh, notify, inform: toast })
+  // Names for the collection filter and the card chips; re-read on every visit.
+  const { collections, refresh: refreshCollections } = useCollections({ notify })
+  const collectionActions = useLibraryCollectionActions({
+    collections,
+    refresh,
+    refreshCollections,
+    notify,
+    inform: (message) => toast(message, 'success'),
+  })
 
   return (
     <LibraryScreen
       videos={videos}
+      collections={collections}
       loading={loading}
       onOpen={onOpen}
       onAddVideo={onAddVideo}
@@ -53,6 +65,10 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
       onDelete={actions.deleteRecord}
       onLocate={actions.locate}
       onForceLocate={actions.forceLocate}
+      onCreateCollection={collectionActions.createCollection}
+      onMoveToCollection={(video, collectionId) =>
+        void collectionActions.moveToCollection(video, collectionId)
+      }
     />
   )
 }

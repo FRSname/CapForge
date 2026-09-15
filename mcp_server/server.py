@@ -15,6 +15,7 @@ from typing import Literal, Optional
 from mcp.server.fastmcp import FastMCP, Image
 from pydantic import BaseModel, Field
 
+from . import collection_tools
 from . import library, publish, publish_guide, tracks
 from .cleanup import apply_word_edits, remove_fillers
 from .client import CapForgeClient
@@ -969,6 +970,11 @@ publish.register(mcp, lambda: _client)
 # `capforge://publish` resources and the `breakdown` / `describe` / `chapters`
 # / `batch_publish` prompts live in publish_guide.py (vision §3.4).
 publish_guide.register(mcp)
+
+# `list_collections`, `get_collection`, `set_collection` and `delete_collection`
+# live in collection_tools.py — an event's shared slots and brief overrides, which
+# every member's package renders with (docs/plans/library-collections.md).
+collection_tools.register(mcp, lambda: _client)
 
 
 # --- Caption tracks ------------------------------------------------------

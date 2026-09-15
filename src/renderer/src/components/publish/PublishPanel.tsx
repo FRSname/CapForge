@@ -13,6 +13,7 @@ import type { Segment } from '../../types/app'
 import type { PublishController } from '../../hooks/usePublishRecord'
 import { AgentUpdateBanner } from './AgentUpdateBanner'
 import { ChaptersCard } from './ChaptersCard'
+import { CollectionCard } from './CollectionCard'
 import { DescriptionCard } from './DescriptionCard'
 import { PublishFooter } from './PublishFooter'
 import { PublishStateCard } from './PublishStateCard'
@@ -70,6 +71,7 @@ export function PublishPanel({
           <>
             <TitleCard publish={publish} />
             <DescriptionCard publish={publish} />
+            <CollectionCard publish={publish} />
             <ChaptersCard publish={publish} onSeek={onSeek} getPlayhead={getPlayhead} />
             <TagsCard publish={publish} />
             <SpeakersCard publish={publish} />

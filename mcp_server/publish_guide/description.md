@@ -12,12 +12,14 @@ refuses a write that breaks a limit and reports a house-rule finding as advice.
 4. **`tags`** join into one comma-separated line of at most 500 characters.
 5. Plain text everywhere; the description keeps its line breaks, nothing else.
 
-## The house rules (from `get_brief`)
+## The house rules (from the brief)
 
 Whatever the brief states: no em dashes, a description length window, a keyword
 count, a hook in the first 150 characters, the footer, the default hashtags. They
 are advice — `validate_video` lists them under `style` — and you follow them unless
-the user overrides them in the conversation.
+the user overrides them in the conversation. The brief is `get_brief` for a video in
+no collection, and the `effective_brief` of `get_collection(collection_id)` for a
+video in one.
 
 ## `title` and `title_options`
 
@@ -36,7 +38,24 @@ the transcript does not support.
   block from `speakers`; the footer and the hashtags from the brief. Do not write
   those into the description text — CapForge assembles them, and writing them twice
   prints them twice.
+- In a collection, the event's recorded-at line, sponsor footer and feedback link
+  are rendered too. The `description` field is only this video's paragraph.
 - No filler: "dive into", "unlock", "game-changing". Name the thing.
+
+## Slots and the effective brief
+
+The brief's `description_template` lays out the DESCRIPTION block with `{{slot}}`
+placeholders: built-in ones (`{{description}}`, `{{chapters}}`, `{{footer}}`, …) and
+custom ones the channel or the collection defines (`{{event}}`, `{{sponsor}}`). Slots
+also expand inside the footer and `recorded_at_line`. You write none of that text:
+you write the fields, and the template places them.
+
+- A `{{name}}` no slot defines stays in the text and comes back from
+  `get_upload_package` as a hard `unknown_slot` violation. Fix it on the collection
+  or the channel brief, never on the record (see `publish_guide("collections")`).
+- The package checks the 5000-byte limit and the angle-bracket rule on the
+  **assembled** description (field `package.description`), not only on the field
+  you wrote. A long event footer counts against every member.
 
 ## `short_description`
 

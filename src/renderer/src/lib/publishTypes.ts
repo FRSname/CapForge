@@ -76,6 +76,8 @@ export interface PublishAuthored {
   hashtags: string[]
   speakers: Record<string, SpeakerInfo>
   summary_md: string
+  /** The collection this video belongs to (`GET /api/library/collections`), or null. */
+  collection_id: string | null
   publish: PublishBlock
 }
 
@@ -113,6 +115,10 @@ export interface Brief {
   default_hashtags: string[]
   link_rows: LinkRow[]
   house_rules: HouseRules
+  /** The DESCRIPTION layout with `{{slot}}` placeholders. Empty = the built-in layout. */
+  description_template: string
+  /** Custom template slots, `name → value`. A collection's slots merge over these key-wise. */
+  slots: Record<string, string>
 }
 
 /** One `find_video_moments` hit — a candidate chapter boundary. */
@@ -131,6 +137,11 @@ export interface Moment {
 export interface UploadPackage {
   platform: string
   text: string
+  /**
+   * The pasteable DESCRIPTION body — the rendered template, no header or rule
+   * lines. Null from a backend that predates the field.
+   */
+  description: string | null
   violations: Violation[]
 }
 
@@ -156,6 +167,10 @@ function str(value: unknown, fallback = ''): string {
 
 function num(value: unknown, fallback = 0): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value !== '' ? value : null
 }
 
 function nullableNumber(value: unknown): number | null {
@@ -277,6 +292,7 @@ export function parsePublishRecord(value: unknown): PublishRecord {
     hashtags: strings(row.hashtags),
     speakers: speakers(row.speakers),
     summary_md: str(row.summary_md),
+    collection_id: nonEmptyString(row.collection_id),
     links: linkRows(row.links),
     publish: publishBlock(row.publish),
     history: history(row.history),
@@ -291,29 +307,55 @@ function houseRange(value: unknown): [number, number] | null {
   return [lo, hi]
 }
 
+function houseRules(value: unknown): HouseRules {
+  const rules = obj(value)
+  return {
+    no_em_dashes: bool(rules?.no_em_dashes),
+    description_chars: houseRange(rules?.description_chars),
+    keywords_terms: houseRange(rules?.keywords_terms),
+    hook_first_150: bool(rules?.hook_first_150, true),
+  }
+}
+
+/** `name → value`, keeping only string values. */
+function slotMap(value: unknown): Record<string, string> {
+  const raw = obj(value)
+  if (!raw) return {}
+  return Object.fromEntries(
+    Object.entries(raw).filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+  )
+}
+
+/**
+ * One reader per brief field. Shared with `lib/collectionTypes.ts`, whose
+ * overrides are "any brief field, or null" and must read a value exactly the
+ * way the brief itself does.
+ */
+export const BRIEF_FIELD_READERS: { readonly [K in keyof Brief]: (value: unknown) => Brief[K] } = {
+  channel: (v) => str(v),
+  audience: (v) => str(v),
+  voice: (v) => str(v),
+  language: (v) => str(v),
+  footer: (v) => str(v),
+  recorded_at_line: (v) => str(v),
+  speaker_block: (v) => str(v),
+  default_hashtags: strings,
+  link_rows: linkRows,
+  house_rules: houseRules,
+  description_template: (v) => str(v),
+  slots: slotMap,
+}
+
 /** `GET/PATCH /api/library/brief`. A missing file answers with defaults, so
  *  every field here has one — an unreachable brief is not an empty channel. */
 export function parseBrief(value: unknown): Brief {
   const row = obj(value)
   if (!row) throw new Error(BRIEF_SHAPE_MESSAGE)
-  const rules = obj(row.house_rules)
-  return {
-    channel: str(row.channel),
-    audience: str(row.audience),
-    voice: str(row.voice),
-    language: str(row.language),
-    footer: str(row.footer),
-    recorded_at_line: str(row.recorded_at_line),
-    speaker_block: str(row.speaker_block),
-    default_hashtags: strings(row.default_hashtags),
-    link_rows: linkRows(row.link_rows),
-    house_rules: {
-      no_em_dashes: bool(rules?.no_em_dashes),
-      description_chars: houseRange(rules?.description_chars),
-      keywords_terms: houseRange(rules?.keywords_terms),
-      hook_first_150: bool(rules?.hook_first_150, true),
-    },
+  const out: Record<string, unknown> = {}
+  for (const [field, read] of Object.entries(BRIEF_FIELD_READERS)) {
+    out[field] = (read as (v: unknown) => unknown)(row[field])
   }
+  return out as unknown as Brief
 }
 
 /** `GET /api/library/{id}/package` — the text is the whole point, so it must exist. */
@@ -323,6 +365,8 @@ export function parseUploadPackage(value: unknown): UploadPackage {
   return {
     platform: str(row.platform, 'youtube'),
     text: row.text,
+    // Optional: an older backend does not send it, and that is not a broken package.
+    description: typeof row.description === 'string' ? row.description : null,
     violations: parseViolations(row.violations),
   }
 }

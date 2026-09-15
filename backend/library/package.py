@@ -1,9 +1,16 @@
 """The upload package: one record, rendered as the text the user pastes.
 
 **Fields are the source, the package is the rendering** (the publish skill's
-first rule). Nothing here authors anything — it reads a ``VideoRecord`` and a
-``Brief`` and lays them out in the order the skill promises, dropping every
-section whose data is empty so no header is ever printed with nothing under it.
+first rule). Nothing here authors anything — it reads a ``VideoRecord``, a
+``Brief`` and the record's collection, and lays them out in the order the skill
+promises, dropping every section whose data is empty so no header is ever
+printed with nothing under it.
+
+The DESCRIPTION block goes through the **effective** brief's
+``description_template`` (``template.py``; collections plan, decision 4). An
+empty template is ``DEFAULT_DESCRIPTION_TEMPLATE``, which reproduces the
+pre-template layout byte for byte. Nothing is stored per video, so a changed
+collection footer reaches every member's package on the next render.
 
 ``format_timestamp`` lives here and is the **one** formula with a renderer twin
 (``lib/youtubeRules.ts``); both are pinned against
@@ -17,7 +24,13 @@ from dataclasses import dataclass
 from typing import Optional, Sequence
 
 from backend.library.brief import Brief
+from backend.library.collection_store import Collection, effective_brief
 from backend.library.schemas import Chapter, Link, Speaker, ThumbnailIdea, VideoRecord
+from backend.library.template import (
+    DEFAULT_DESCRIPTION_TEMPLATE,
+    render_template,
+    slot_references,
+)
 
 #: The skill's horizontal rule: 69 ``=``, above and below every section header.
 RULE_WIDTH = 69
@@ -31,11 +44,18 @@ SPEAKER_NAME_PLACEHOLDER = "[SPEAKER NAME]"
 #: Printed in SHORTS until the user pastes the published URL.
 FULL_VIDEO_URL_PLACEHOLDER = "[FULL VIDEO URL]"
 PLACEHOLDERS_HEADER = "Placeholders still open:"
+#: Listed under NOTES for every ``{{slot}}`` nothing defines (never shipped silently).
+UNKNOWN_SLOTS_HEADER = "Unknown template slots, printed as written:"
 
 TAG_SEPARATOR = ", "
 THUMBNAIL_SEPARATOR = " — "
 SHORTS_HASHTAG = "#Shorts"
 BLOCK_SEPARATOR = "\n\n"
+
+#: Brief lines that are themselves templates: ``(slot, Brief field)``. Each is
+#: expanded with every other slot, so ``{{footer}}`` inside the footer is unknown
+#: rather than recursive.
+EXPANDED_BRIEF_LINES = (("recorded_at", "recorded_at_line"), ("footer", "footer"))
 
 
 def format_timestamp(seconds: float) -> str:
@@ -60,6 +80,15 @@ class _Block:
     placeholders: tuple[str, ...] = ()
 
 
+@dataclass(frozen=True)
+class AssembledDescription:
+    """The DESCRIPTION body as pasted, what it left open, and what it could not fill."""
+
+    body: str
+    placeholders: tuple[str, ...] = ()
+    unknown_slots: tuple[str, ...] = ()
+
+
 def render_youtube_package(
     record: VideoRecord,
     brief: Brief,
@@ -67,24 +96,29 @@ def render_youtube_package(
     duration: Optional[float],
     source_name: str,
     diarized_ids: Sequence[str] = (),
+    collection: Optional[Collection] = None,
 ) -> str:
     """The full package text. ``duration`` may be None (no transcript yet).
 
     ``diarized_ids`` are the speaker ids the transcript carries (``SPEAKER_00``
     …); one the record has not named yet is printed as the placeholder and
     listed under NOTES, so an unnamed speaker is never silently dropped.
+    ``brief`` is the channel brief; ``collection``'s overrides are applied here.
     """
-    description = _description_section(record, brief, diarized_ids)
-    shorts = _shorts_section(record, brief)
+    description = assemble_description(
+        record, brief, collection=collection, diarized_ids=diarized_ids
+    )
+    shorts = _shorts_section(record, effective_brief(brief, collection))
     notes = _notes_section(
         record,
         duration=duration,
         source_name=source_name,
         placeholders=(*description.placeholders, *shorts.placeholders),
+        unknown_slots=description.unknown_slots,
     )
     sections = [
         _title_options_section(record),
-        description.text,
+        _section("DESCRIPTION", description.body, lead_blank=True),
         _section("TAGS", TAG_SEPARATOR.join(t.strip() for t in record.tags if t.strip())),
         _section("SHORT DESCRIPTION", record.short_description.strip()),
         shorts.text,
@@ -133,23 +167,60 @@ def _title_options_section(record: VideoRecord) -> str:
 
 # --- DESCRIPTION -------------------------------------------------------------
 
-def _description_section(
-    record: VideoRecord, brief: Brief, diarized_ids: Sequence[str] = ()
-) -> _Block:
-    speakers = _speaker_blocks(record.speakers, brief.speaker_block, diarized_ids)
-    body = _join([
-        record.description.strip(),
-        brief.recorded_at_line.strip(),
-        _labelled("WHAT YOU'LL LEARN", [
+def assemble_description(
+    record: VideoRecord,
+    brief: Brief,
+    *,
+    collection: Optional[Collection] = None,
+    diarized_ids: Sequence[str] = (),
+) -> AssembledDescription:
+    """The DESCRIPTION body through the effective template, one expansion pass.
+
+    The footer and the recorded-at line are expanded first (with every slot but
+    themselves), then the template. Placeholders and unknown slots are reported
+    only for text the template actually prints.
+    """
+    effective = effective_brief(brief, collection)
+    speakers = _speaker_blocks(record.speakers, effective.speaker_block, diarized_ids)
+    slots = {**effective.slots, **_builtin_blocks(record, effective, collection, speakers.text)}
+    template = effective.description_template
+    if not template.strip():
+        template = DEFAULT_DESCRIPTION_TEMPLATE
+    used = set(slot_references(template))
+    lines = {
+        slot: render_template(getattr(effective, field), slots)
+        for slot, field in EXPANDED_BRIEF_LINES
+    }
+    body = render_template(template, {**slots, **{s: r.text for s, r in lines.items()}})
+    unknown = [
+        *(name for slot, line in lines.items() if slot in used for name in line.unknown),
+        *body.unknown,
+    ]
+    return AssembledDescription(
+        body.text,
+        speakers.placeholders if "speakers" in used else (),
+        tuple(dict.fromkeys(unknown)),
+    )
+
+
+def _builtin_blocks(
+    record: VideoRecord, brief: Brief, collection: Optional[Collection], speakers: str
+) -> dict[str, str]:
+    """Every built-in slot but ``recorded_at`` and ``footer`` (expanded after)."""
+    return {
+        "description": record.description.strip(),
+        "title": record.title.strip(),
+        "short_description": record.short_description.strip(),
+        "highlights": _labelled("WHAT YOU'LL LEARN", [
             f"- {h.text.strip()}" for h in record.highlights if h.text.strip()
         ]),
-        _labelled("CHAPTERS", _chapter_lines(record.chapters)),
-        _labelled("LINKS", _link_lines([*record.links, *brief.link_rows])),
-        speakers.text,
-        brief.footer.strip(),
-        " ".join(hashtags(brief.default_hashtags, record.hashtags)),
-    ])
-    return _Block(_section("DESCRIPTION", body, lead_blank=True), speakers.placeholders)
+        "chapters": _labelled("CHAPTERS", _chapter_lines(record.chapters)),
+        "links": _labelled("LINKS", _link_lines([*record.links, *brief.link_rows])),
+        "speakers": speakers,
+        "hashtags": " ".join(hashtags(brief.default_hashtags, record.hashtags)),
+        "channel": brief.channel.strip(),
+        "collection": collection.name if collection is not None else "",
+    }
 
 
 def _chapter_lines(chapters: Sequence[Chapter]) -> list[str]:
@@ -258,6 +329,7 @@ def _notes_section(
     duration: Optional[float],
     source_name: str,
     placeholders: tuple[str, ...],
+    unknown_slots: tuple[str, ...] = (),
 ) -> str:
     source = f"Source: CapForge transcript, {source_name}"
     if duration is not None:
@@ -270,6 +342,8 @@ def _notes_section(
         f"Shorts caption: {len(record.shorts.caption)} characters",
         _chapters_note(record.chapters),
     ]
+    if unknown_slots:
+        lines += [UNKNOWN_SLOTS_HEADER, *(f"- {{{{{name}}}}}" for name in unknown_slots)]
     if placeholders:
         lines += [PLACEHOLDERS_HEADER, *(f"- {item}" for item in placeholders)]
     return _section("NOTES", "\n".join(lines))

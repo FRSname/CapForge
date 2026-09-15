@@ -44,6 +44,8 @@ names the video rather than a path.
    Publish workspace) are the starting point; show them and ask before replacing
    anything the user wrote.
 2. `get_brief()`. Everything it states is binding unless the user overrides it here.
+   If the record has a collection_id, read `get_collection(collection_id)` instead
+   (see Collections, below).
 3. The transcript: `get_transcript(segments_only=True)` for the open video, else
    `get_video_transcript(video_id)`. Ask for word-level timing only when you need it
    for a quote.
@@ -52,6 +54,26 @@ names the video rather than a path.
    a specific line.
 5. Ask for the published video URL only if the user wants the Shorts caption to link
    to it; otherwise leave the placeholder and say so.
+
+## Collections (events)
+
+A record with a collection_id belongs to an event or series that states its shared
+boilerplate once: slots such as the event name or the sponsor, and overrides of the
+brief's fields such as the footer and the recorded-at line.
+
+- Read `get_collection(collection_id)` once per collection and follow its effective
+  brief instead of `get_brief()`: the channel's brief with the event's overrides and
+  slots applied.
+- **Never paste boilerplate the template renders** (the recorded-at line, the sponsor
+  footer, the feedback link, the hashtags, links and speaker blocks) into the
+  description. Write only this video's paragraph; the package assembles the rest.
+- An unknown {{slot}} in the package is a collection problem, not a record problem.
+  Tell the user, or fix the collection with `set_collection`; never edit the video
+  to hide it.
+- When the event's boilerplate changes, it is one `set_collection` write, then
+  re-read each member's `get_upload_package`. No description is rewritten.
+- `publish_guide("collections")` covers setting up an event, the built-in slots and
+  adopting orphan ids.
 
 ## Hard rules
 
