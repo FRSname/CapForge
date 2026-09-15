@@ -1,4 +1,4 @@
-"""Posters — one JPEG frame per record, grabbed at import (v3.0 #6).
+"""Posters and duration — one JPEG frame per record, grabbed at import (v3.0 #6).
 
 The card needs a picture and the record folder is where sidecars live
 (``poster.jpg`` on the asset allowlist, ``paths.ASSET_NAME_RE``). The grab is
@@ -7,6 +7,13 @@ folder — never servable — then ``os.replace``), grabbed whenever a record is
 minted and backfilled at startup for records that predate this or whose grab
 failed. Nothing here ever fails an import: a record
 without a poster is a card with a placeholder.
+
+The same pool task first probes the media's duration when the record has none
+(``media_probe``, one ffprobe call), stores it through
+``LibraryStore.set_probed_duration`` (no ``rev`` bump; a transcript's duration
+always wins) and grabs the poster *at* that duration, so the frame lands a tenth
+of the way in instead of at 1 s. When either landed it tells ``on_changed(id)``
+— ``router`` wires that to the ``library_changed`` event's ``updated`` key.
 
 Where it runs: ``LibraryStore`` calls ``start_grab`` from its ``on_created``
 hook (wired once in ``router.get_store``), so *every* path that mints a record
@@ -55,6 +62,10 @@ GRAB_TIMEOUT_S = 30.0
 BACKFILL_MAX_RECORDS = 200
 
 FfmpegFinder = Callable[[], str]
+#: ``probe(source_path) -> seconds | None`` — ``media_probe.probe_duration``.
+Probe = Callable[[str], Optional[float]]
+#: ``on_changed(video_id)`` — a record's probed duration or poster landed.
+OnChanged = Callable[[str], None]
 
 
 def poster_path(record_folder: Path) -> Path:
@@ -77,6 +88,13 @@ def _default_ffmpeg() -> str:
     from backend.exporters.video_render import _find_ffmpeg
 
     return _find_ffmpeg()
+
+
+def _default_probe(source: str) -> Optional[float]:
+    # Resolved per call (like the ffmpeg finder) so the tests can swap it.
+    from backend.library.media_probe import probe_duration
+
+    return probe_duration(source)
 
 
 def _run(cmd: list[str], timeout: float) -> subprocess.CompletedProcess:
@@ -164,52 +182,116 @@ def ensure_poster_for(store: Any, record: Any, **kw: Any) -> bool:
     return ensure_poster(folder, record.sourcePath, record.duration, **kw)
 
 
-def backfill_posters(
-    store: Any, *, limit: int = BACKFILL_MAX_RECORDS, find_ffmpeg: Optional[FfmpegFinder] = None
-) -> int:
-    """Startup pass: a poster for every real record without one, bounded.
+def _tell(on_changed: Optional[OnChanged], video_id: str) -> None:
+    """Report a change; a failing listener is logged, never fails the task."""
+    if on_changed is None:
+        return
+    try:
+        on_changed(video_id)
+    except Exception:
+        logger.warning("Media-changed listener failed for record %s", video_id, exc_info=True)
 
-    Returns how many were grabbed. Records whose media is gone are skipped
-    (nothing to grab from) and scratch records are not listed at all.
+
+def _probe_into_store(store: Any, record: Any, probe: Optional[Probe]) -> bool:
+    """Probe and store the duration; True only when the store took it."""
+    seconds = (probe or _default_probe)(record.sourcePath)
+    return seconds is not None and store.set_probed_duration(record.id, seconds)
+
+
+def ensure_media_facts(
+    store: Any,
+    record: Any,
+    *,
+    probe: Optional[Probe] = None,
+    find_ffmpeg: Optional[FfmpegFinder] = None,
+    on_changed: Optional[OnChanged] = None,
+) -> bool:
+    """The per-record pool task: the duration when unknown, then the poster at it.
+
+    The record is re-read first (it may have been relinked, promoted or removed
+    since it was queued) and again after the probe, so a transcript duration
+    that landed meanwhile is the one ``poster_time`` uses. True — and one
+    ``on_changed`` call — when either the duration or the poster was stored.
     """
-    grabbed = 0
+    try:
+        current = store.get(record.id)
+    except RecordNotFound:
+        return False  # removed before the pool reached it
+    if not Path(current.sourcePath).is_file():
+        return False
+    duration_set = False
+    if current.duration is None:
+        duration_set = _probe_into_store(store, current, probe)
+        try:
+            current = store.get(record.id)
+        except RecordNotFound:
+            return False
+    poster_set = not store.has_poster(current) and ensure_poster_for(
+        store, current, find_ffmpeg=find_ffmpeg
+    )
+    changed = bool(duration_set or poster_set)
+    if changed:
+        _tell(on_changed, current.id)
+    return changed
+
+
+def backfill_posters(
+    store: Any,
+    *,
+    limit: int = BACKFILL_MAX_RECORDS,
+    find_ffmpeg: Optional[FfmpegFinder] = None,
+    probe: Optional[Probe] = None,
+    on_changed: Optional[OnChanged] = None,
+) -> int:
+    """Startup pass: a duration and a poster for every real record missing one.
+
+    Bounded by ``limit`` records examined; returns how many changed. Records
+    whose media is gone are skipped (nothing to read) and scratch records are
+    not listed at all.
+    """
+    changed = 0
     examined = 0
     for summary in store.list():
         if examined >= limit:
             break
-        if summary.get("missing_media") or summary.get("poster"):
+        if summary.get("missing_media"):
+            continue
+        if summary.get("poster") and summary.get("duration") is not None:
             continue
         examined += 1
         try:
             record = store.get(summary["id"])
         except RecordNotFound:
-            continue  # removed between the list and now — nothing to grab for
-        if ensure_poster_for(store, record, find_ffmpeg=find_ffmpeg):
-            grabbed += 1
-    return grabbed
+            continue  # removed between the list and now — nothing to do
+        if ensure_media_facts(
+            store, record, probe=probe, find_ffmpeg=find_ffmpeg, on_changed=on_changed
+        ):
+            changed += 1
+    return changed
 
 
 # --- scheduling ------------------------------------------------------------
-# One worker: a poster is a single frame, and two ffmpeg processes racing a
-# transcription for the disk is worse than a card that fills in a second later.
+# One worker: a poster is a single frame and a probe a header read, and two
+# ffmpeg processes racing a transcription for the disk is worse than a card
+# that fills in a second later. ffprobe runs here too, never on a request thread.
 
 _POOL = ThreadPoolExecutor(max_workers=1, thread_name_prefix="poster")
 
 
-def _guarded(fn: Callable[..., Any], *args: Any) -> Any:
+def _guarded(fn: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
     """Run a poster task; a failure is logged, never lost inside a Future."""
     try:
-        return fn(*args)
+        return fn(*args, **kwargs)
     except Exception:
         logger.error("Poster task %s failed", getattr(fn, "__name__", fn), exc_info=True)
         return None
 
 
-def start_grab(store: Any, record: Any) -> Future:
-    """Grab ``record``'s poster off the calling thread — the ``on_created`` hook."""
-    return _POOL.submit(_guarded, ensure_poster_for, store, record)
+def start_grab(store: Any, record: Any, on_changed: Optional[OnChanged] = None) -> Future:
+    """Probe + grab for ``record`` off the calling thread — the ``on_created`` hook."""
+    return _POOL.submit(_guarded, ensure_media_facts, store, record, on_changed=on_changed)
 
 
-def start_backfill(store: Any) -> Future:
+def start_backfill(store: Any, on_changed: Optional[OnChanged] = None) -> Future:
     """The startup pass, off the event loop; startup never waits on ffmpeg."""
-    return _POOL.submit(_guarded, backfill_posters, store)
+    return _POOL.submit(_guarded, backfill_posters, store, on_changed=on_changed)

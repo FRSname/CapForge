@@ -163,15 +163,38 @@ describe('parseWatchStatus', () => {
 describe('parseLibraryChangedEvent', () => {
   test('keeps the string ids', () => {
     expect(
-      parseLibraryChangedEvent({ type: 'library_changed', created: ['a'], relinked: ['b'] })
-    ).toEqual({ created: ['a'], relinked: ['b'] })
+      parseLibraryChangedEvent({
+        type: 'library_changed',
+        created: ['a'],
+        relinked: ['b'],
+        updated: ['c'],
+      })
+    ).toEqual({ created: ['a'], relinked: ['b'], updated: ['c'] })
+  })
+
+  test('`updated` is optional — the watch folder frame has no such key', () => {
+    const event = parseLibraryChangedEvent({
+      type: 'library_changed',
+      created: ['a'],
+      relinked: [],
+    })
+    expect(event).toStrictEqual({ created: ['a'], relinked: [] })
+    expect('updated' in event).toBe(false)
   })
 
   test('never throws on a socket frame — junk degrades to empty lists', () => {
-    expect(parseLibraryChangedEvent({ created: 'a', relinked: [1, 'b', ''] })).toEqual({
+    expect(
+      parseLibraryChangedEvent({ created: 'a', relinked: [1, 'b', ''], updated: { id: 'c' } })
+    ).toEqual({
       created: [],
       relinked: ['b'],
+      updated: [],
     })
-    expect(parseLibraryChangedEvent(null)).toEqual({ created: [], relinked: [] })
+    expect(parseLibraryChangedEvent({ updated: [null, 'd', 7] })).toEqual({
+      created: [],
+      relinked: [],
+      updated: ['d'],
+    })
+    expect(parseLibraryChangedEvent(null)).toStrictEqual({ created: [], relinked: [] })
   })
 })

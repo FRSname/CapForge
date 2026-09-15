@@ -1,4 +1,5 @@
-"""Library housekeeping: relocation, relink, project import, first-launch migration.
+"""Library housekeeping: relocation, relink, project import, first-launch migration,
+and the import-time duration probe's write.
 
 Mixed into :class:`~backend.library.store.LibraryStore` (which is already at its
 size ceiling) rather than imported by it as free functions, so the call sites
@@ -14,12 +15,13 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
 
 from backend.library import fs
-from backend.library.errors import MediaInUse, MediaMismatch, MediaNotFound
+from backend.library.errors import MediaInUse, MediaMismatch, MediaNotFound, RecordNotFound
 from backend.library.locking import writes
 from backend.library.paths import (
     PROJECT_FILE,
@@ -105,6 +107,13 @@ def _validate_project_body(data: Any, target: Path) -> dict:
     return data
 
 
+def _usable_duration(seconds: Any) -> bool:
+    """A real, finite, positive number of seconds (``bool`` is not a number here)."""
+    if isinstance(seconds, bool) or not isinstance(seconds, (int, float)):
+        return False
+    return math.isfinite(seconds) and seconds > 0
+
+
 def _stamped_target(base: Path, video_id: str, stamp: str) -> Path:
     """``base/<id>``, or ``base/<id>-<stamp>`` when that name is taken.
 
@@ -147,6 +156,29 @@ class StoreAdminMixin:
         reads), so it is a view/summary key and never a ``VideoRecord`` field.
         """
         return has_project_file(self._folder(record.id, scratch=record.scratch))
+
+    @writes
+    def set_probed_duration(self: "LibraryStore", video_id: str, seconds: Any) -> bool:
+        """Fill an unknown ``duration`` with ffprobe's answer (``media_probe``).
+
+        True only when it wrote. It writes only while the record's duration is
+        still ``None`` and the value is a finite number > 0, so a transcript's
+        duration (``put_project``) always wins, whichever lands first. Duration
+        is a system field: no ``rev`` bump (that would 409 an agent's pending
+        ``If-Match`` patch), no history entry, and ``updatedAt`` is untouched so
+        a startup backfill does not reorder the library. A missing record is
+        ``False`` — the pool task can outlive a Remove.
+        """
+        if not _usable_duration(seconds):
+            return False
+        try:
+            record = self.get(video_id)
+        except RecordNotFound:
+            return False
+        if record.duration is not None:
+            return False
+        self._persist(record.model_copy(update={"duration": float(seconds)}))
+        return True
 
     def relink(
         self: "LibraryStore",

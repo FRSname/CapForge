@@ -1,4 +1,4 @@
-"""Posters against the real ffmpeg binary (v3.0 #6).
+"""Posters (and the import-time duration probe) against the real ffmpeg binaries (v3.0 #6).
 
 ``test_library_posters.py`` replaces the subprocess call, so it can only pin the
 argv it expects — and it pinned a ``-vf`` that ffmpeg's filtergraph parser
@@ -69,3 +69,15 @@ def test_ensure_poster_end_to_end(tmp_path: Path) -> None:
     assert posters.has_poster(folder)
     # Only the poster — no dot-prefixed temp file left behind.
     assert [p.name for p in folder.iterdir()] == [posters.POSTER_NAME]
+
+
+FFPROBE = shutil.which("ffprobe")
+
+
+@pytest.mark.skipif(FFPROBE is None, reason="ffprobe not installed")
+def test_probe_duration_reads_a_real_clip(tmp_path: Path) -> None:
+    """The duration a fresh card shows, from the real ffprobe argv."""
+    from backend.library import media_probe
+
+    seconds = media_probe.probe_duration(clip(tmp_path, NARROW), find_ffprobe=lambda: FFPROBE)
+    assert seconds == pytest.approx(float(CLIP_SECONDS), abs=0.1)
