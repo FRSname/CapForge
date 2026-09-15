@@ -207,7 +207,105 @@ The agent already writes `shorts` (caption + clip suggestions) and `thumbnail.id
   - `?lang=xx` → 404.
   - `{pl: null}` removes only `pl`.
 
-## Part C — Copy for platform + Transcript tab (outline)
+## Part C — Copy for platform + Transcript tab
+
+**Status:** building on `feat/v3-platform-transcript` (stacked on Part B, #42).
+
+### C1 — Copy for platform (LinkedIn, X, Instagram)
+
+#### Decisions
+1. **Clipboard text only** (§6): nothing is posted, and there is no OAuth. `GET /api/library/{id}/package?platform=linkedin|x|instagram[&lang=xx]` renders from the same record, **effective brief** and `lang` localized view as the YouTube package. The response shape is the same `{platform, text, violations, description}`; for these platforms `description` is `null`.
+2. **Formatting per platform**, all pure, in `backend/library/platform_posts.py`:
+
+   | | LinkedIn | X | Instagram |
+   |---|---|---|---|
+   | Text | the hook (`short_description`, else the description's first paragraph), then the rest of the description, then up to `LINKEDIN_MAX_MOMENTS = 5` chapters as "In this video:" lines | `title` (else `short_description`) | `short_description`, else the description's first paragraph |
+   | Video URL | `Watch: <url>` on its own line | the URL | none: `Link in bio`, because captions don't link |
+   | Hashtags | the first `LINKEDIN_MAX_HASHTAGS = 5` | as many whole hashtags as still fit, dropping the least important first | at most `INSTAGRAM_MAX_HASHTAGS = 30`, in one block at the end |
+   | Length | 3000 chars | 280 weighted: a URL counts `X_URL_WEIGHT = 23`, the prose is never cut | 2200 chars |
+
+   - **Video URL:** the formatters read `publish.youtube.url`. When it's missing, the post carries `[FULL VIDEO URL]` (the existing placeholder) and reports it.
+   - **Hashtags:** from `hashtags(effective brief defaults, record)`.
+   - **Collections:** the collection's slots expand inside the brief's `footer`, which is **not** printed on these platforms (it's a YouTube-description convention).
+3. **Findings** are reported, never enforced by truncating prose:
+
+   | Rule | Severity | Field |
+   |---|---|---|
+   | `linkedin_max_chars`, `x_max_chars`, `instagram_max_chars` | hard | `package.<platform>` |
+   | `video_url_missing` (placeholder printed) | style | `package.<platform>` |
+   | `linkedin_hashtags` (fewer than 3) | style | `package.<platform>` |
+   | `instagram_hashtags_trimmed` (more than 30 dropped) | style | `package.<platform>` |
+
+   A hard finding here blocks nothing, because the package is a read. It only means the text won't paste as-is.
+4. **Counting:** X counts characters with each URL weighted 23; everywhere else it's `len()` of the text. X's weighting of emoji and CJK characters is **not** modelled, and the docstring says so.
+5. **MCP:** `get_upload_package` accepts `platform` in `youtube | linkedin | x | instagram`, and the `workflow` guide topic gets a short "Other platforms" note. The tool count stays 57.
+
+#### Backend / MCP
+- `platform_posts.py` (new, pure): `render_platform_post(record, brief, platform, *, collection=None) -> PlatformPost` (frozen: `text`, `violations`), `weighted_x_length(text)`, and the three renderers with named constants.
+- The package route dispatches on `platform`. `youtube` stays as-is (byte-identical); any other unknown value is still a 400. `router_publish.py` is at 393 lines, so the dispatch should live in a helper, keeping the route thin.
+- MCP: extend `SUPPORTED_PLATFORMS`, docstring, guide note, tests.
+- **Tests first:**
+  - each renderer's layout on a full record and on a sparse one
+  - hashtag caps, and X dropping hashtags to fit
+  - the URL weighting, the missing-URL placeholder and its finding
+  - each length rule at and over the limit
+  - `lang` substitution flowing through
+  - the route status codes, and YouTube byte-identity
+  - MCP platform validation
+
+#### Renderer (C1)
+- `lib/publishTypes.ts`: `PublishPlatform = 'youtube' | 'linkedin' | 'x' | 'instagram'`; `getUploadPackage(id, platform, lang?)` takes the union.
+- `PublishFooter.tsx`:
+  - A platform select sits beside the language select, YouTube first. The primary button reads "Copy upload package" for YouTube and "Copy for LinkedIn / X / Instagram" otherwise.
+  - The language select applies to every platform.
+  - After copying, the toast gives the count of hard findings plus the first one's message (for example "Copied — 1 issue: the X post is 312 of 280 characters"). A clean copy gets the plain success toast.
+  - The platform choice is remembered per session (component state), not persisted.
+  - The pure pieces go in `lib/publishPlatforms.ts`: labels, button text and toast text.
+
+### C2 — Transcript tab (read-mostly, chapter gutter)
+
+#### Decisions
+1. **Where the tab lives:** a third editor tab, **Transcript**, beside Text and Groups in `ResultsScreen`. It is shown in both workspaces; the chapter gutter only has content when the session has a library record. It's a separate component, `components/editor/TranscriptView.tsx`, because `ResultsScreen.tsx` is 763 lines: the screen gains only the tab button and one render branch, and must stay ≤ 780.
+2. **How it reaches the Publish record:** the controller is created in `App.tsx` (`usePublishRecord`) and today reaches only the aside. A small `PublishRecordContext` (`hooks/usePublishRecordContext.ts`) carries `{chapters, insertChapterAt, hasRecord}` and is provided where `App` already renders the workspace. `App.tsx` must not grow (617), so the provider's lines are paid for by moving something out, as before. The view reads it with a safe default (no provider → no chapters, no insert), so the text and groups views and every existing test are unaffected.
+3. **What it shows:** the active track's segments, read-only. Each row has an `MM:SS` timestamp (`formatTimestamp`), the speaker label when present, and the text. The row containing the playhead is highlighted. Clicking a row seeks the player through the screen's existing `handleSeek`.
+4. **Chapter gutter:**
+   - Each chapter is drawn as a marker (title + `MM:SS`) above the first segment whose `end > start_s` (the segment the chapter starts inside, or the next one).
+   - Chapters past the last segment are listed at the end.
+   - Matching is a pure `placeChapters(segments, chapters)` in `lib/transcriptChapters.ts`, tested.
+   - Each segment row offers "Insert chapter here", which calls `insertChapterAt(segment.start)`; the existing insert snaps to a word start and the draft/writer path saves it.
+   - Renaming and removing chapters stay in the Chapters card; the tab never edits text.
+5. **Performance:** segment rows only re-render when the active row changes; the highlight is keyed on the active index, not raw `currentTime`. Long transcripts (1000+ segments) must not re-render every row per playback tick.
+
+#### Renderer (C2)
+- `lib/transcriptChapters.ts` (pure): `placeChapters`, `activeSegmentIndex(segments, t)` (binary search).
+- `hooks/usePublishRecordContext.ts` (context + provider + a safe-default hook).
+- `components/editor/TranscriptView.tsx`, as memoised rows.
+- `ResultsScreen` gets `EditorView` `'transcript'`, the tab button and the render branch.
+- Tests (node env): `placeChapters` edge cases (a chapter before the first segment, inside a segment, exactly at a boundary, past the end, unsorted input), `activeSegmentIndex`, and `TranscriptView` markup (rows, speaker labels, gutter markers, insert buttons only with a record, the empty transcript).
+
+### As built (Part C)
+- **Backend:** `platform_posts.py` (pure renderers) and `platform_package.py` (the dispatch and response builder, keeping `router_publish.py` at 393 lines). `package._chapter_lines` became the public `chapter_lines`.
+- **Post text details:** each post has `\n` endings and no trailing newline. Blocks are joined by blank lines, and empty sections are dropped. LinkedIn's `Watch:` line and Instagram's `Link in bio` always print.
+- **Findings** are the record's own (under the effective brief; `localized.<lang>.*` naming with `lang`), then the post's `package.<platform>` ones. The YouTube-only `package.description` findings are not included.
+- **LinkedIn body:** with a short description, it leads and the **whole** description follows. Without one, the description's first paragraph is the hook.
+- **Hashtags:** LinkedIn keeps the first 5 with no finding. X drops hashtags silently. Instagram names how many it trimmed.
+- **X weighting:** `[FULL VIDEO URL]` counts 23, like the URL it stands for, and only `http(s)://` URLs are weighted.
+- **Renderer:** `lib/publishPlatforms.ts`, `lib/transcriptChapters.ts`, `lib/editorViews.ts` (arrow keys across the three tabs), `hooks/usePublishRecordContext.ts`, `components/editor/TranscriptView.tsx`, and `hooks/useSourceTimingLink.ts`. The last is the source-track timing link effect, moved out of `App.tsx` to pay for the provider: `App.tsx` 617 → 602.
+- **Copy toast:** there is one toast per copy. Only **hard** findings count ("Copied — N issue(s): …"); the old second YouTube toast for open record findings is gone.
+- **Context insert:** the provider forwards `insertChapterAt` through a ref, so memoised rows aren't invalidated by App re-renders. There is one justified `react-hooks/refs` disable.
+- **Transcript rows:** a segment is active on `start <= t < end`. The row shows the raw speaker id, not the Speakers card name, and doesn't auto-scroll.
+
+### Verification (Part C)
+- **Backend:** 2082 passed (only the 15 known golden-frame failures). MCP: 271 passed.
+- **Renderer:** vitest 2115, typecheck clean, lint 0 errors.
+- **Live, temp `CAPFORGE_HOME`:**
+  - A 3500-word description → LinkedIn 3547 chars `linkedin_max_chars` (hard), and Instagram 3534 chars `instagram_max_chars` (hard).
+  - X stayed at 142 chars with no finding (a 95-char title; hashtags dropped to fit).
+  - The YouTube package still carries `description`.
+  - Without a URL: LinkedIn and X print the placeholder with `video_url_missing`, and Instagram is unchanged.
+- Backend library tests + the full suite, the MCP tests, the renderer gates.
+- **Live:** all three platform posts from a real record, with and without the video URL, checking lengths and findings.
+- **Manual in the app:** Copy for platform, and the Transcript tab (seek, the active row during playback, the gutter, insert chapter).
 
 - **Formatters:** backend `platform=linkedin|x|instagram` renderers over the same record plus effective brief, clipboard text only (§6): LinkedIn ≤ 3000 chars, 3–5 hashtags, the link on its own line; X ≤ 280 with URLs counted as 23; Instagram ≤ 2200, ≤ 30 hashtags, "link in bio". Each has its own violations. The footer gets a "Copy for platform ▾" menu, and MCP `get_upload_package(platform=…)` accepts the new values.
 - **Transcript tab:** a read-mostly third tab beside Text/Groups, extracted as its own component (`ResultsScreen.tsx` is 763 lines). Segments with timestamps, a chapter gutter placing each chapter at its segment (seconds → the first segment that starts at or after it), click to seek, and "insert chapter here".
