@@ -9,6 +9,7 @@ import { parseLibraryChangedEvent, parseLibraryList, parseLibraryRecord } from '
 import type {
   Brief,
   Moment,
+  PublishPlatform,
   PublishRecord,
   UploadPackage,
   Violation,
@@ -768,9 +769,14 @@ class CapForgeAPI {
 
   /**
    * The rendered upload package — returned even when it violates something.
-   * `lang` renders a stored localized language (404 for one with no entry).
+   * `lang` renders a stored localized language (404 for one with no entry);
+   * `platform` picks the YouTube package or a LinkedIn / X / Instagram post.
    */
-  getUploadPackage(id: string, platform = 'youtube', lang?: string): Promise<UploadPackage> {
+  getUploadPackage(
+    id: string,
+    platform: PublishPlatform = 'youtube',
+    lang?: string
+  ): Promise<UploadPackage> {
     const langQuery = lang ? `&lang=${encodeURIComponent(lang)}` : ''
     return this.getWithLocalToken<unknown>(
       `/api/library/${encodeURIComponent(id)}/package?platform=${encodeURIComponent(platform)}${langQuery}`

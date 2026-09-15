@@ -3,12 +3,13 @@
  *
  * "Copy upload package" asks the backend to render the bundled skill's text
  * layout from the record + the brief — the renderer never assembles that text,
- * it only copies it. With localized languages stored it is a split control:
- * the button plus a language choice (source first), since each language has
- * its own package (`?lang=`). "Copy plain transcript" is the paragraph form YouTube
- * Studio's caption auto-sync wants. The SRT/VTT row is the export route that
- * already exists, one pair per caption track, through the same
- * `buildExportParams` the Studio panel uses.
+ * it only copies it. A platform choice beside it (YouTube first) turns it into
+ * "Copy for LinkedIn / X / Instagram": clipboard posts rendered from the same
+ * record, nothing is posted. With localized languages stored a language choice
+ * joins it, applying to every platform (`?lang=`). "Copy plain transcript" is
+ * the paragraph form YouTube Studio's caption auto-sync wants. The SRT/VTT row
+ * is the export route that already exists, one pair per caption track, through
+ * the same `buildExportParams` the Studio panel uses.
  */
 
 import { api } from '../../lib/api'
@@ -17,6 +18,17 @@ import type { ExportTrack } from '../../lib/exportParams'
 import { displayGroupsFor } from '../../lib/tracks'
 import type { CaptionTrack } from '../../lib/tracks'
 import { plainTranscript } from '../../lib/youtubeRules'
+import type { PublishPlatform } from '../../lib/publishTypes'
+import {
+  DEFAULT_PUBLISH_PLATFORM,
+  PUBLISH_PLATFORMS,
+  copiedWhat,
+  copyButtonText,
+  copyButtonTitle,
+  isPublishPlatform,
+  packageCopiedToast,
+  platformLabel,
+} from '../../lib/publishPlatforms'
 import type { Segment } from '../../types/app'
 import { useState } from 'react'
 import type { PackageLanguage } from '../../lib/publishLocalized'
@@ -25,8 +37,8 @@ import { Button } from '../ui/Button'
 
 /** No clipboard (an old webview, a denied permission) — say so, never swallow. */
 const NO_CLIPBOARD_MESSAGE = 'This window has no clipboard access.'
-/** The language choice's width beside the package button (`.field-input` would take 100%). */
-const LANGUAGE_SELECT_WIDTH = '42%'
+/** Each choice's width beside the package button (`.field-input` would take 100%). */
+const CHOICE_SELECT_WIDTH = '30%'
 /** The `<select>` value standing for the source package. */
 const SOURCE_VALUE = ''
 /** No localized language stored: the source package only, no choice drawn. */
@@ -51,12 +63,12 @@ interface PackageLanguageSelectProps {
   onChange: (value: string) => void
 }
 
-/** The split control's second half: which language's package the button copies. */
+/** Which language's package the button copies. */
 function PackageLanguageSelect({ languages, value, onChange }: PackageLanguageSelectProps) {
   return (
     <select
       className="field-input text-[11px]"
-      style={{ width: LANGUAGE_SELECT_WIDTH }}
+      style={{ width: CHOICE_SELECT_WIDTH }}
       aria-label="Upload package language"
       value={value}
       onChange={(e) => onChange(e.target.value)}
@@ -64,6 +76,32 @@ function PackageLanguageSelect({ languages, value, onChange }: PackageLanguageSe
       {languages.map((l) => (
         <option key={l.lang ?? SOURCE_VALUE} value={l.lang ?? SOURCE_VALUE}>
           {l.label}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+interface PackagePlatformSelectProps {
+  value: PublishPlatform
+  onChange: (value: PublishPlatform) => void
+}
+
+/** Where the copied text is going: the YouTube package or a platform post. */
+function PackagePlatformSelect({ value, onChange }: PackagePlatformSelectProps) {
+  return (
+    <select
+      className="field-input text-[11px]"
+      style={{ width: CHOICE_SELECT_WIDTH }}
+      aria-label="Copy for platform"
+      value={value}
+      onChange={(e) => {
+        if (isPublishPlatform(e.target.value)) onChange(e.target.value)
+      }}
+    >
+      {PUBLISH_PLATFORMS.map((p) => (
+        <option key={p} value={p}>
+          {platformLabel(p)}
         </option>
       ))}
     </select>
@@ -84,36 +122,44 @@ export function PublishFooter({
 }: PublishFooterProps) {
   const { toast } = useToast()
   const [picked, setPicked] = useState(SOURCE_VALUE)
+  // Remembered for the session only (component state), never persisted.
+  const [platform, setPlatform] = useState<PublishPlatform>(DEFAULT_PUBLISH_PLATFORM)
   // A language removed since it was picked falls back to the source package.
   const lang = languages.some((l) => l.lang === picked) ? picked : SOURCE_VALUE
   const choosing = languages.length > 1
 
-  async function copy(text: string, what: string) {
+  /** True once the text is on the clipboard; every failure is toasted here. */
+  async function writeClipboard(text: string, what: string): Promise<boolean> {
     if (!navigator.clipboard) {
       toast(NO_CLIPBOARD_MESSAGE, 'error')
-      return
+      return false
     }
     try {
       await navigator.clipboard.writeText(text)
-      toast(`Copied ${what}`, 'success')
+      return true
     } catch (err) {
       toast(err instanceof Error ? err.message : `Could not copy ${what}`, 'error')
+      return false
     }
+  }
+
+  async function copy(text: string, what: string) {
+    if (await writeClipboard(text, what)) toast(`Copied ${what}`, 'success')
   }
 
   function copyPackage() {
     if (!videoId) return
-    const label = languages.find((l) => (l.lang ?? SOURCE_VALUE) === lang)?.label
-    const what = lang && label ? `the ${label} upload package` : 'the upload package'
+    const chosen = platform
+    const label = lang ? (languages.find((l) => l.lang === lang)?.label ?? null) : null
+    const what = copiedWhat(chosen, label)
     api
-      .getUploadPackage(videoId, 'youtube', lang || undefined)
+      .getUploadPackage(videoId, chosen, lang || undefined)
       .then(async (pkg) => {
-        await copy(pkg.text, what)
-        if (pkg.violations.length > 0) {
-          toast(`${pkg.violations.length} finding(s) still open on this record`, 'info')
-        }
+        if (!(await writeClipboard(pkg.text, what))) return
+        const done = packageCopiedToast(chosen, pkg.violations, what)
+        toast(done.message, done.type)
       })
-      .catch((err) => toast(err.message || 'Could not build the upload package', 'error'))
+      .catch((err) => toast(err.message || `Could not build ${what}`, 'error'))
   }
 
   function exportSubtitles(track: CaptionTrack, format: string, label: string) {
@@ -125,17 +171,18 @@ export function PublishFooter({
 
   return (
     <div className="flex flex-col gap-1.5">
-      <div className={choosing ? 'flex flex-col gap-1.5' : 'flex gap-1.5'}>
-        <div className="flex flex-1 gap-1">
+      <div className="flex flex-col gap-1.5">
+        <div className="flex gap-1">
           <Button
             variant="primary"
-            className="flex-1 text-[11px] py-1 justify-center"
+            className="flex-1 min-w-0 text-[11px] py-1 justify-center"
             onClick={copyPackage}
             disabled={!videoId}
-            title="The whole YouTube Studio paste, rendered from this record and your brief"
+            title={copyButtonTitle(platform)}
           >
-            Copy upload package
+            {copyButtonText(platform)}
           </Button>
+          <PackagePlatformSelect value={platform} onChange={setPlatform} />
           {choosing && (
             <PackageLanguageSelect languages={languages} value={lang} onChange={setPicked} />
           )}

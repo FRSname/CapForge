@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import type { Screen, TranscriptionResult } from './types/app'
 import type { ProjectFile, ProjectIOHandle } from './lib/project'
 import { projectFileFromTracks } from './lib/project'
@@ -9,9 +9,8 @@ import {
 } from './lib/projectRestore'
 import type { ProjectRestorePlan } from './lib/projectRestore'
 import { api } from './lib/api'
-import { SOURCE_TRACK_ID, withSentenceSegments } from './lib/tracks'
+import { SOURCE_TRACK_ID } from './lib/tracks'
 import type { TrackEditorState } from './lib/tracks'
-import { propagateSourceTiming } from './lib/trackTiming'
 import { IDLE_AGENT_ECHO, nameSuffixFor, renderEditedFlag } from './lib/uiStateMirror'
 import type { AgentCommandEcho } from './lib/uiStateMirror'
 import { TitleBar } from './components/TitleBar/TitleBar'
@@ -38,6 +37,8 @@ import { useAgentBridge } from './hooks/useAgentBridge'
 import { useLibrarySession } from './hooks/useLibrarySession'
 import { useScreenNavigation } from './hooks/useScreenNavigation'
 import { usePublishRecord } from './hooks/usePublishRecord'
+import { PublishRecordProvider } from './hooks/usePublishRecordContext'
+import { useSourceTimingLink } from './hooks/useSourceTimingLink'
 import { usePublishWorkspace } from './hooks/usePublishWorkspace'
 import { useUiStateMirror } from './hooks/useUiStateMirror'
 import { useUserPresets } from './hooks/useUserPresets'
@@ -268,34 +269,15 @@ export function App() {
   })
 
   // ── Source-track timing link ────────────────────────────────────
-  // Whenever the source's words or grouping move, every translated group that
-  // is still linked to a source span moves with it (D4).
-  //
-  // `propagateSourceTiming` is reference-stable and returns a source track
-  // untouched, so a single-track project does nothing at all here and this can
-  // never re-trigger itself. A track that *did* move while its editor is up has
-  // to be remounted, or the editor would keep publishing the pre-move groups
-  // back over the relink — which can only happen from an agent edit to the
-  // source while a translated tab is open.
-  useEffect(() => {
-    const moved: string[] = []
-    const next = tracks.map((track) => {
-      // Relinking moves group spans and re-lays their words, so the derived
-      // text units move with them — `withSentenceSegments` is the one place
-      // that is decided (`lib/tracks.ts`), and it is reference-stable, so a
-      // track that did not move is still handed back untouched.
-      const relinked = withSentenceSegments(propagateSourceTiming(track, sourceTrack), widToSegment)
-      if (relinked !== track) moved.push(track.id)
-      return relinked
-    })
-    if (moved.length === 0) return
-    commitTracks(next, activeTrackId)
-    for (const id of moved) bumpRevision(id)
-    // Deliberately narrow: this reacts to the SOURCE moving, and reads the rest
-    // of the store as it is at that moment.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceTrack.segments, sourceTrack.groups])
-
+  // Linked translated groups follow the source's spans (D4; `hooks/useSourceTimingLink.ts`).
+  useSourceTimingLink({
+    tracks,
+    activeTrackId,
+    sourceTrack,
+    widToSegment,
+    commitTracks,
+    bumpRevision,
+  })
 
   // ── Project save ────────────────────────────────────────────────
   const projectFile = useCallback((): ProjectFile | null => {
@@ -537,28 +519,31 @@ export function App() {
                 {/* Keyed by session + track + that track's revision: switching tab
                     (or a write that landed underneath the editor) remounts it with
                     fresh state from the store. Nothing has to be checkpointed
-                    first, because raw editor state is published continuously. */}
-                <ResultsScreen
-                  key={`${resultsSessionId}:${activeTrackId}:${revisions[activeTrackId] ?? 0}`}
-                  result={activeResult}
-                  trackId={activeTrackId}
-                  settings={settings}
-                  autoGroup={activeTrack.isSource}
-                  widToSegment={widToSegment}
-                  initialGroups={activeTrack.groups.length > 0 ? activeTrack.groups : null}
-                  initialGroupsEdited={activeTrack.groupsEdited}
-                  initialSegmentsEdited={activeTrack.segmentsEdited}
-                  groupStates={trackActions.activeClassification?.byGroup}
-                  reflowNeeded={trackActions.activeClassification?.reflowNeeded ?? false}
-                  staleCount={trackActions.activeClassification?.staleCount ?? 0}
-                  onReflow={activeTrack.isSource ? undefined : trackActions.reflowActiveTrack}
-                  onTrackStateChange={handleTrackStateChange}
-                  onAlignmentDegraded={markAlignmentDegraded}
-                  projectIORef={projectIORef}
-                  onUndoRedoChange={setSubtitleUndo}
-                  seekTo={publishWorkspace.pendingSeek}
-                  onTimeUpdate={publishWorkspace.handleTimeUpdate}
-                />
+                    first, because raw editor state is published continuously.
+                    The provider hands the record's chapters to the Transcript tab. */}
+                <PublishRecordProvider publish={publish}>
+                  <ResultsScreen
+                    key={`${resultsSessionId}:${activeTrackId}:${revisions[activeTrackId] ?? 0}`}
+                    result={activeResult}
+                    trackId={activeTrackId}
+                    settings={settings}
+                    autoGroup={activeTrack.isSource}
+                    widToSegment={widToSegment}
+                    initialGroups={activeTrack.groups.length > 0 ? activeTrack.groups : null}
+                    initialGroupsEdited={activeTrack.groupsEdited}
+                    initialSegmentsEdited={activeTrack.segmentsEdited}
+                    groupStates={trackActions.activeClassification?.byGroup}
+                    reflowNeeded={trackActions.activeClassification?.reflowNeeded ?? false}
+                    staleCount={trackActions.activeClassification?.staleCount ?? 0}
+                    onReflow={activeTrack.isSource ? undefined : trackActions.reflowActiveTrack}
+                    onTrackStateChange={handleTrackStateChange}
+                    onAlignmentDegraded={markAlignmentDegraded}
+                    projectIORef={projectIORef}
+                    onUndoRedoChange={setSubtitleUndo}
+                    seekTo={publishWorkspace.pendingSeek}
+                    onTimeUpdate={publishWorkspace.handleTimeUpdate}
+                  />
+                </PublishRecordProvider>
               </div>
             </div>
           )}
