@@ -14,6 +14,8 @@
 
 import type { PublishAuthored, PublishRecord } from './publishTypes'
 import type { PublishFieldId } from './publishFields'
+import { EMPTY_SHORTS, EMPTY_THUMBNAIL } from './publishMediaTypes'
+import { authoredThumbnail, composeThumbnailPatch } from './publishThumbnail'
 
 /** The drafts map: every authored field, optional. */
 export type PublishDrafts = Partial<PublishAuthored>
@@ -31,11 +33,27 @@ export const EMPTY_FIELDS: PublishAuthored = {
   summary_md: '',
   collection_id: null,
   publish: { youtube: null, pushes: [] },
+  shorts: EMPTY_SHORTS,
+  thumbnail: EMPTY_THUMBNAIL,
 }
 
-/** What the cards render: the record, with the unsaved drafts on top. */
+/**
+ * What the cards render: the record, with the unsaved drafts on top. A
+ * thumbnail draft keeps its ideas and cover but shows the record's frames —
+ * the draft's `candidates` is whatever the list was when the user typed, and
+ * only the frames routes may change it.
+ */
 export function mergeDrafts(record: PublishRecord | null, drafts: PublishDrafts): PublishAuthored {
-  return { ...(record ?? EMPTY_FIELDS), ...drafts }
+  const base = record ?? EMPTY_FIELDS
+  const merged = { ...base, ...drafts }
+  return drafts.thumbnail
+    ? { ...merged, thumbnail: composeThumbnailPatch(drafts.thumbnail, base) }
+    : merged
+}
+
+/** A field's value as the soft lock compares it: a thumbnail without its backend-managed frames. */
+function comparable(field: PublishFieldId, record: PublishRecord): unknown {
+  return field === 'thumbnail' ? authoredThumbnail(record.thumbnail) : record[field]
 }
 
 /**
@@ -70,7 +88,8 @@ export function survivingDrafts(
   const keep: Record<string, unknown> = {}
   for (const [field, value] of Object.entries(drafts)) {
     const id = field as PublishFieldId
-    const untouched = JSON.stringify(local[id]) === JSON.stringify(remote[id])
+    const untouched =
+      JSON.stringify(comparable(id, local)) === JSON.stringify(comparable(id, remote))
     if (id === locked || untouched) keep[field] = value
   }
   return keep as PublishDrafts

@@ -450,20 +450,6 @@ class CapForgeAPI {
     return res.json() as Promise<T>
   }
 
-  /**
-   * The record's poster JPEG, or `null` when none has been grabbed yet (404).
-   * A Blob, not a URL: the renderer CSP allows `blob:` images but not
-   * `127.0.0.1`, so the caller turns it into an object URL.
-   */
-  async getLibraryPoster(id: string): Promise<Blob | null> {
-    const res = await this.fetchWithLocalToken(
-      `/api/library/${encodeURIComponent(id)}/asset/poster.jpg`
-    )
-    if (res.status === 404) return null
-    if (!res.ok) throw await this.handleError(res)
-    return res.blob()
-  }
-
   private async post<T>(path: string, body: unknown): Promise<T> {
     await this.ensureBridge()
     // A subset of POST routes (e.g. /api/export, /api/render-video,

@@ -104,6 +104,12 @@ contextBridge.exposeInMainWorld('subforge', {
    *  'files' or 'folder'. Resolves to `[{ path, kind: 'file' | 'directory' }]`, [] on cancel. */
   pickImport: (mode) => ipcRenderer.invoke('library:pick-import', mode),
 
+  /** Save a grabbed thumbnail frame out ("Save cover…"). The main process resolves
+   *  `<library>/<videoId>/thumbnails/<name>` itself; `title` only names the file.
+   *  Returns the saved path, or null when cancelled. */
+  saveLibraryFrame: (videoId, name, title) =>
+    ipcRenderer.invoke('library:save-frame', videoId, name, title),
+
   /** Multi-select .capforge picker. Returns the chosen paths ([] when cancelled). */
   openProjectFiles: () => ipcRenderer.invoke('dialog:open-projects'),
 

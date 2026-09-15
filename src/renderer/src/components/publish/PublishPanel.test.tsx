@@ -48,6 +48,8 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     collection_id: null,
     links: [],
     publish: { youtube: null, pushes: [] },
+    shorts: { caption: '', clip_suggestions: [] },
+    thumbnail: { ideas: [], candidates: [], cover: null },
     history: [
       { field: 'title', prev: 'The first draft', by: 'agent', at: THREE_MINUTES_AGO },
       { field: 'description', prev: undefined, by: 'user', at: THREE_MINUTES_AGO },
@@ -75,6 +77,7 @@ function controller(
     revert: noop,
     setField: noop,
     setCollection: noop,
+    flushDrafts: () => Promise.resolve(),
     beginEdit: noop,
     endEdit: noop,
     pendingAgentUpdate: null,
@@ -144,7 +147,9 @@ describe('TitleCard', () => {
 describe('DescriptionCard', () => {
   test('meters bytes, not characters, and previews the first 150', () => {
     const emoji = 'A 🎬 description'
-    const markup = html(<DescriptionCard publish={controller({}, record({ description: emoji }))} />)
+    const markup = html(
+      <DescriptionCard publish={controller({}, record({ description: emoji }))} />
+    )
 
     // 15 characters, 18 bytes: the emoji is four.
     expect(markup).toContain('18/5000 bytes')
@@ -271,11 +276,20 @@ describe('PublishPanel', () => {
   test('stacks every card and pins the package actions', () => {
     const markup = html(<PublishPanel publish={controller()} {...props} />)
 
+    // Shorts and Thumbnail come straight after Chapters.
+    const order = ['Chapters', 'Shorts', 'Thumbnail', 'Tags &amp; keywords'].map((t) =>
+      markup.indexOf(`>${t}<`)
+    )
+    expect(order.every((index) => index >= 0)).toBe(true)
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+
     for (const title of [
       'Title',
       'Description',
       'Collection',
       'Chapters',
+      'Shorts',
+      'Thumbnail',
       'Tags &amp; keywords',
       'Speakers',
       'Summary',

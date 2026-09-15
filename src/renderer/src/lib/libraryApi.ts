@@ -78,6 +78,25 @@ export async function relinkLibraryRecord(
   throw api.apiError(res, body)
 }
 
+const HTTP_NOT_FOUND = 404
+
+/**
+ * A record asset from the backend's fixed allowlist (`poster.jpg`,
+ * `thumbnails/<name>.jpg`, …), or `null` when it does not exist (404).
+ * A Blob, not a URL: the renderer CSP allows `blob:` images but not
+ * `127.0.0.1`, so the caller wraps it in an object URL.
+ */
+export async function getLibraryAsset(id: string, assetPath: string): Promise<Blob | null> {
+  const encoded = assetPath.split('/').map(encodeURIComponent).join('/')
+  const res = await api.sendWithLocalToken(
+    'GET',
+    `/api/library/${encodeURIComponent(id)}/asset/${encoded}`
+  )
+  if (res.status === HTTP_NOT_FOUND) return null
+  if (res.ok) return res.blob()
+  throw api.apiError(res, await refusedBody(res))
+}
+
 export async function getLibraryWatch(): Promise<WatchStatus> {
   return parseWatchStatus(await requestJson('GET', '/api/library/watch'))
 }

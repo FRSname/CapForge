@@ -95,6 +95,8 @@ export interface PublishController {
   setField: <K extends PublishFieldId>(field: K, value: PublishAuthored[K]) => void
   /** Move the video into a collection (or out, with null) — written at once, not debounced. */
   setCollection: (collectionId: string | null) => void
+  /** Send pending drafts now (before a frame grab/delete bumps `rev`); settles, never throws. */
+  flushDrafts: () => Promise<void>
   beginEdit: (field: PublishFieldId) => void
   endEdit: () => void
   pendingAgentUpdate: AgentUpdateNotice | null
@@ -170,7 +172,7 @@ export function usePublishRecord({
   // The debounced PATCH, the immediate one and the two structured refusals
   // live in `usePublishWriter`; this hook only says what to do with what comes
   // back.
-  const { schedule, patchNow } = usePublishWriter({
+  const { schedule, flushNow, patchNow } = usePublishWriter({
     stateRef,
     notifyRef,
     onSaved: useCallback(
@@ -379,6 +381,7 @@ export function usePublishRecord({
     revert,
     setField,
     setCollection,
+    flushDrafts: flushNow,
     beginEdit,
     endEdit,
     pendingAgentUpdate,

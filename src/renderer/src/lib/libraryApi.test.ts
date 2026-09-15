@@ -9,6 +9,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { api } from './api'
 import {
   RelinkRefusedError,
+  getLibraryAsset,
   getLibraryWatch,
   importLibraryFolder,
   importLibraryPaths,
@@ -211,5 +212,25 @@ describe('libraryApi', () => {
     await getLibraryWatch()
 
     expect(order).toEqual(['port', 'http://127.0.0.1:60000/api/library/watch'])
+  })
+
+  test('getLibraryAsset GETs an allowlisted asset with the token, as a Blob', async () => {
+    const blob = { size: 3 } as unknown as Blob
+    fetchMock.mockResolvedValue({ ok: true, status: 200, blob: () => Promise.resolve(blob) })
+    const frame = `${'b'.repeat(32)}.jpg`
+
+    expect(await getLibraryAsset('v 1', `thumbnails/${frame}`)).toBe(blob)
+    const { url, init } = lastCall()
+    // Each segment is encoded; the separator the asset route splits on is kept.
+    expect(url).toBe(`${BASE}/api/library/v%201/asset/thumbnails/${frame}`)
+    expect((init.headers as Record<string, string>)['X-CapForge-Local-Token']).toBe(TOKEN)
+  })
+
+  test('getLibraryAsset answers null for a missing asset and throws on any other failure', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ detail: 'Not Found' }, 404))
+    expect(await getLibraryAsset('v1', 'poster.jpg')).toBeNull()
+
+    fetchMock.mockResolvedValue(jsonResponse({ detail: 'Bad token' }, 403))
+    await expect(getLibraryAsset('v1', 'poster.jpg')).rejects.toThrow('Bad token')
   })
 })

@@ -64,10 +64,14 @@ async function pick(f) {
   return handler({})
 }
 
-test('registers exactly the pick-folder and pick-import channels', () => {
+test('registers exactly the pick-folder, pick-import and save-frame channels', () => {
   const f = fakes({ answer: { canceled: true, filePaths: [] } })
   registerLibraryDialogs(f.deps)
-  assert.deepEqual([...f.handlers.keys()].sort(), ['library:pick-folder', 'library:pick-import'])
+  assert.deepEqual([...f.handlers.keys()].sort(), [
+    'library:pick-folder',
+    'library:pick-import',
+    'library:save-frame',
+  ])
 })
 
 test('returns the chosen folder and remembers it', async () => {
@@ -257,4 +261,165 @@ test('a stat failure rejects (the renderer toasts it) rather than guessing a kin
     throw new Error('ENOENT: /gone.mp4')
   }
   await assert.rejects(() => pickImport(f, 'files'), /ENOENT/)
+})
+
+// ── library:save-frame ──────────────────────────────────────────────────────
+
+const os = require('node:os')
+const libraryFs = require('./library-fs')
+const { SAVE_FRAME_CHANNEL, FRAME_REFUSED_MESSAGE, frameFileName } = require('./library-dialogs')
+
+const VIDEO_ID = 'a'.repeat(32)
+const FRAME = `${'b'.repeat(32)}.jpg`
+const ROOT = '/home/u/.capforge/library'
+const CHOSEN = '/Users/u/Desktop/out.jpg'
+
+/** Fakes for the save handler: the save dialog's answer, recorded copies and guard calls. */
+function saveFakes({ answer = { canceled: false, filePath: CHOSEN } } = {}) {
+  const f = fakes()
+  const copies = []
+  const guarded = []
+  const saveDialogCalls = []
+  f.deps.dialog.showSaveDialog = async (win, options) => {
+    saveDialogCalls.push({ win, options })
+    return answer
+  }
+  f.deps.copyFile = async (from, to) => {
+    copies.push({ from, to })
+  }
+  f.deps.libraryRoot = () => ROOT
+  f.deps.assertInLibrary = (p) => {
+    guarded.push(p)
+    return p
+  }
+  return { ...f, copies, guarded, saveDialogCalls }
+}
+
+async function saveFrame(f, ...args) {
+  registerLibraryDialogs(f.deps)
+  const handler = f.handlers.get(SAVE_FRAME_CHANNEL)
+  assert.equal(typeof handler, 'function', 'the save-frame channel is registered')
+  return handler({}, ...args)
+}
+
+const REFUSED = new RegExp(FRAME_REFUSED_MESSAGE)
+
+test('save-frame resolves the frame path itself, guards it and copies it to the chosen file', async () => {
+  const f = saveFakes()
+  const expected = path.join(ROOT, VIDEO_ID, 'thumbnails', FRAME)
+  assert.equal(await saveFrame(f, VIDEO_ID, FRAME, 'My Talk'), CHOSEN)
+  assert.deepEqual(f.guarded, [expected])
+  assert.deepEqual(f.copies, [{ from: expected, to: CHOSEN }])
+  const { win, options } = f.saveDialogCalls[0]
+  assert.equal(win, WINDOW)
+  assert.equal(options.defaultPath, 'My Talk-thumbnail.jpg')
+  assert.ok(options.filters.some((filter) => filter.extensions.includes('jpg')))
+})
+
+test('save-frame copies the path the guard resolved, not the one it built', async () => {
+  const f = saveFakes()
+  f.deps.assertInLibrary = () => '/real/resolved.jpg'
+  await saveFrame(f, VIDEO_ID, FRAME, 'T')
+  assert.equal(f.copies[0].from, '/real/resolved.jpg')
+})
+
+test('save-frame answers null on cancel and copies nothing', async () => {
+  for (const answer of [
+    { canceled: true, filePath: '/x.jpg' },
+    { canceled: false, filePath: '' },
+    // null, not undefined: undefined would fall back to saveFakes' default answer.
+    null,
+  ]) {
+    const f = saveFakes({ answer })
+    assert.equal(await saveFrame(f, VIDEO_ID, FRAME, 'T'), null)
+    assert.equal(f.copies.length, 0)
+  }
+})
+
+test('save-frame refuses a malformed video id or frame name before any dialog', async () => {
+  const bad = [
+    ['a'.repeat(31), FRAME],
+    ['A'.repeat(32), FRAME],
+    ['../../etc', FRAME],
+    [VIDEO_ID, '../poster.jpg'],
+    [VIDEO_ID, 'poster.jpg'],
+    [VIDEO_ID, `${'b'.repeat(32)}.png`],
+    [VIDEO_ID, `${'b'.repeat(32)}.jpg/..`],
+    [42, FRAME],
+    [VIDEO_ID, undefined],
+  ]
+  for (const [id, name] of bad) {
+    const f = saveFakes()
+    await assert.rejects(() => saveFrame(f, id, name, 'T'), REFUSED)
+    assert.equal(f.saveDialogCalls.length, 0, `${String(id)} ${String(name)}`)
+    assert.equal(f.guarded.length, 0)
+  }
+})
+
+test('save-frame refuses with its own message when the guard rejects the path', async () => {
+  const f = saveFakes()
+  f.deps.assertInLibrary = () => {
+    throw new Error('Refusing to trash a path outside the library')
+  }
+  await assert.rejects(() => saveFrame(f, VIDEO_ID, FRAME, 'T'), REFUSED)
+  assert.equal(f.saveDialogCalls.length, 0)
+})
+
+test('save-frame: a copy failure rejects (the renderer toasts it)', async () => {
+  const f = saveFakes()
+  f.deps.copyFile = async () => {
+    throw new Error('ENOENT: no such frame')
+  }
+  await assert.rejects(() => saveFrame(f, VIDEO_ID, FRAME, 'T'), /ENOENT/)
+})
+
+test('frameFileName turns the title into a safe default file name', () => {
+  assert.equal(frameFileName('My Talk'), 'My Talk-thumbnail.jpg')
+  assert.equal(frameFileName('a/b\\c:d*e?f"g<h>i|j'), 'a b c d e f g h i j-thumbnail.jpg')
+  assert.equal(frameFileName('  ..hidden.   name  '), 'hidden. name-thumbnail.jpg')
+  assert.equal(frameFileName(String.fromCharCode(0, 7)), 'thumbnail.jpg')
+  for (const empty of ['', '   ', undefined, null, 42]) {
+    assert.equal(frameFileName(empty), 'thumbnail.jpg')
+  }
+  const long = frameFileName('x'.repeat(500))
+  assert.ok(long.length <= 120, long)
+  assert.ok(long.endsWith('-thumbnail.jpg'))
+})
+
+test('save-frame with the real library-fs guard: copies a frame, refuses a symlink out', async () => {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'capforge-frame-'))
+  const outside = fs.mkdtempSync(path.join(os.tmpdir(), 'capforge-outside-'))
+  const previous = process.env.CAPFORGE_HOME
+  process.env.CAPFORGE_HOME = home
+  const realDeps = {
+    copyFile: (a, b) => fs.promises.copyFile(a, b),
+    libraryRoot: libraryFs.libraryRoot,
+    assertInLibrary: libraryFs.assertTrashable,
+  }
+  try {
+    const thumbs = path.join(home, 'library', VIDEO_ID, 'thumbnails')
+    fs.mkdirSync(thumbs, { recursive: true })
+    fs.writeFileSync(path.join(thumbs, FRAME), 'jpeg-bytes')
+    const dest = path.join(home, 'out.jpg')
+    const f = saveFakes({ answer: { canceled: false, filePath: dest } })
+    Object.assign(f.deps, realDeps)
+    assert.equal(await saveFrame(f, VIDEO_ID, FRAME, 'T'), dest)
+    assert.equal(fs.readFileSync(dest, 'utf-8'), 'jpeg-bytes')
+
+    // A record whose thumbnails folder is a symlink pointing out of the library.
+    fs.writeFileSync(path.join(outside, FRAME), 'secret')
+    const other = 'c'.repeat(32)
+    fs.mkdirSync(path.join(home, 'library', other))
+    fs.symlinkSync(outside, path.join(home, 'library', other, 'thumbnails'))
+    const leak = path.join(home, 'leak.jpg')
+    const g = saveFakes({ answer: { canceled: false, filePath: leak } })
+    Object.assign(g.deps, realDeps)
+    await assert.rejects(() => saveFrame(g, other, FRAME, 'T'), REFUSED)
+    assert.equal(fs.existsSync(leak), false)
+  } finally {
+    if (previous === undefined) delete process.env.CAPFORGE_HOME
+    else process.env.CAPFORGE_HOME = previous
+    fs.rmSync(home, { recursive: true, force: true })
+    fs.rmSync(outside, { recursive: true, force: true })
+  }
 })

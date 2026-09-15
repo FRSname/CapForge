@@ -49,6 +49,18 @@ describe('mergeDrafts', () => {
   test('with no record at all, every field has a defined empty value', () => {
     expect(mergeDrafts(null, {})).toEqual(EMPTY_FIELDS)
   })
+
+  test('a thumbnail draft shows the record’s current frames, never the list it was edited over', () => {
+    const [a, b] = [`${'a'.repeat(32)}.jpg`, `${'b'.repeat(32)}.jpg`]
+    const saved = record({ thumbnail: { ideas: [], candidates: [a, b], cover: null } })
+    const draft = { ideas: [], candidates: [a], cover: a }
+
+    expect(mergeDrafts(saved, { thumbnail: draft }).thumbnail).toEqual({
+      ideas: [],
+      candidates: [a, b],
+      cover: a,
+    })
+  })
 })
 
 describe('remainingDrafts', () => {
@@ -102,6 +114,19 @@ describe('survivingDrafts (an agent wrote the record)', () => {
     expect(survivingDrafts(drafts, local, remote, null)).toEqual({})
     // Nothing was mutated.
     expect(drafts).toEqual({ title: 'mine', description: 'mine' })
+  })
+
+  test('a grabbed frame alone does not throw away an unsaved thumbnail edit', () => {
+    const [a, b] = [`${'a'.repeat(32)}.jpg`, `${'b'.repeat(32)}.jpg`]
+    const local = record({ thumbnail: { ideas: [], candidates: [a], cover: null } })
+    const remote = record({ rev: 2, thumbnail: { ideas: [], candidates: [a, b], cover: null } })
+    const drafts = { thumbnail: { ideas: [], candidates: [a], cover: a } }
+
+    expect(survivingDrafts(drafts, local, remote, null)).toEqual(drafts)
+    // But a cover the backend changed (the frame was deleted) is the backend's now.
+    const cleared = record({ rev: 3, thumbnail: { ideas: [], candidates: [], cover: null } })
+    const withCover = record({ thumbnail: { ideas: [], candidates: [a], cover: a } })
+    expect(survivingDrafts(drafts, withCover, cleared, null)).toEqual({})
   })
 })
 

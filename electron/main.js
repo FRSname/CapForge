@@ -541,13 +541,17 @@ function registerIpcHandlers() {
     return { ok: true }
   })
 
-  // IPC: v3 library pickers (the Import… picker, watch folder) — library-dialogs.js.
+  // IPC: v3 library pickers (the Import… picker, watch folder) and "Save cover…"
+  // — library-dialogs.js. The frame path is resolved and guarded in there.
   registerLibraryDialogs({
     ipcMain,
     dialog,
     getWindow: () => mainWindow,
     appState,
     stat: (p) => fs.promises.stat(p),
+    copyFile: (from, to) => fs.promises.copyFile(from, to),
+    libraryRoot,
+    assertInLibrary: assertTrashable,
   })
 
   // IPC: one-click "Connect to Claude" for the MCP control layer.
