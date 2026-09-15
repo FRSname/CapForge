@@ -327,6 +327,37 @@ def test_ffmpeg_never_runs_under_the_write_lock(store, record) -> None:
     assert free == [True, True]
 
 
+# --- appending with a cover -------------------------------------------------------
+
+def test_an_append_can_set_the_cover_in_the_same_write(store, record) -> None:
+    first, second = names(2)
+
+    updated = store.add_thumbnail_candidates(record.id, [first, second], by="user", cover=second)
+
+    assert updated.thumbnail.candidates == [first, second]
+    assert updated.thumbnail.cover == second
+    assert updated.rev == record.rev + 1
+    assert [entry.field for entry in updated.history] == ["thumbnail"]
+
+
+def test_an_append_without_a_cover_keeps_the_stored_cover(store, record) -> None:
+    first, second = names(2)
+    store.add_thumbnail_candidates(record.id, [first], by="user", cover=first)
+
+    updated = store.add_thumbnail_candidates(record.id, [second], by="agent")
+
+    assert updated.thumbnail.cover == first
+
+
+def test_a_cover_that_is_not_being_added_is_refused(store, record) -> None:
+    first, second = names(2)
+    store.add_thumbnail_candidates(record.id, [first], by="user")
+
+    with pytest.raises(ValueError, match="cover"):
+        store.add_thumbnail_candidates(record.id, [second], by="user", cover=first)
+    assert store.get(record.id).thumbnail.candidates == [first]
+
+
 # --- deleting -------------------------------------------------------------------
 
 def test_deleting_a_frame_removes_the_candidate_and_the_file(store, record) -> None:

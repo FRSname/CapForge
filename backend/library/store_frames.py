@@ -4,13 +4,14 @@ Mixed into :class:`~backend.library.store.LibraryStore` (at its size ceiling),
 so the call sites stay ``store.add_thumbnail_candidates(...)``. Both methods are
 ``@writes``: they re-read the record under the store's one write lock, bump
 ``rev``, stamp ``history`` under ``thumbnail`` and persist — so the Publish soft
-lock and any writer still holding the old ``rev`` see the change. ffmpeg never
-runs here; ``frames.grab_frames`` grabs first and appends after.
+lock and any writer still holding the old ``rev`` see the change. ffmpeg and
+Pillow never run here: ``frames.grab_frames`` grabs and
+``frame_upload.upload_frame`` decodes first, and both append after.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Sequence
+from typing import TYPE_CHECKING, Optional, Sequence
 
 from backend.library.errors import FrameNotFound
 from backend.library.frames import FRAME_NAME_RE, check_room, require_editable
@@ -45,21 +46,36 @@ class ThumbnailStoreMixin:
 
     @writes
     def add_thumbnail_candidates(
-        self: "LibraryStore", video_id: str, names: Sequence[str], *, by: Actor
+        self: "LibraryStore",
+        video_id: str,
+        names: Sequence[str],
+        *,
+        by: Actor,
+        cover: Optional[str] = None,
     ) -> VideoRecord:
         """Append frame names in order. The limit is checked here, under the
         lock, against the record as it is now — another grab may have landed
-        while ffmpeg ran."""
+        while ffmpeg ran.
+
+        ``cover``, when given, must be one of ``names``; it becomes
+        ``thumbnail.cover`` in the same write (one ``rev``, one history entry),
+        which is how an uploaded image is the cover the moment it lands.
+        """
         malformed = [name for name in names if not FRAME_NAME_RE.match(name)]
         if malformed:
             raise ValueError(f"Not thumbnail frame names: {malformed!r}")
+        if cover is not None and cover not in names:
+            raise ValueError(f"The cover {cover!r} is not one of the frames being added")
         record = self.get(video_id)
         require_editable(record)
         if not names:
             return record
         stored = record.thumbnail.candidates
         check_room(len(stored), len(names))
-        thumbnail = record.thumbnail.model_copy(update={"candidates": [*stored, *names]})
+        update: dict = {"candidates": [*stored, *names]}
+        if cover is not None:
+            update["cover"] = cover
+        thumbnail = record.thumbnail.model_copy(update=update)
         return self._persist(_with_thumbnail(record, thumbnail, by))
 
     @writes

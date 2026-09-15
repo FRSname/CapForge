@@ -1,11 +1,12 @@
 /**
- * The Thumbnail card's three actions that leave the panel: grab a frame at the
- * playhead, delete a frame, and save the cover out through Electron.
+ * The Thumbnail card's four actions that leave the panel: grab a frame at the
+ * playhead, upload an image as a frame (it becomes the cover), delete a frame,
+ * and save the cover out through Electron.
  *
- * Grab and delete bump the record's `rev` themselves, so the pending drafts
- * are **flushed first** — otherwise the user's own unsaved cover or idea edit
- * would come back as a 409 against the revision the grab created. The new
- * record is not installed from the response: both routes fire
+ * Grab, upload and delete bump the record's `rev` themselves, so the pending
+ * drafts are **flushed first** — otherwise the user's own unsaved cover or idea
+ * edit would come back as a 409 against the revision the write created. The
+ * new record is not installed from the response: all three routes fire
  * `record_updated`, and `usePublishRecord`'s existing subscription re-reads
  * it (the soft lock included).
  *
@@ -16,7 +17,7 @@
 import { useCallback, useState } from 'react'
 import type { PublishController } from './usePublishRecord'
 import type { ToastType } from './useToast'
-import { deleteFrame, grabFrames } from '../lib/framesApi'
+import { deleteFrame, grabFrames, uploadFrame } from '../lib/framesApi'
 import { NO_COVER_MESSAGE, coverSavedMessage, frameFailureMessage } from '../lib/publishThumbnail'
 
 export interface ThumbnailFramesInput {
@@ -27,9 +28,11 @@ export interface ThumbnailFramesInput {
 }
 
 export interface ThumbnailFrames {
-  /** A grab or delete is in flight. */
+  /** A grab, upload or delete is in flight. */
   busy: boolean
   grabAtPlayhead: () => void
+  /** Store `file` as a frame and make it the cover. */
+  uploadImage: (file: File) => void
   removeFrame: (name: string) => void
   saveCover: () => void
 }
@@ -72,6 +75,15 @@ export function useThumbnailFrames({
     })
   }, [run, getPlayhead, toast])
 
+  const uploadImage = useCallback(
+    (file: File) => {
+      void run('Could not upload the image', async (id) => {
+        await uploadFrame(id, file)
+      })
+    },
+    [run]
+  )
+
   const removeFrame = useCallback(
     (name: string) => {
       void run('Could not delete the frame', async (id) => {
@@ -96,5 +108,5 @@ export function useThumbnailFrames({
       .catch((err: unknown) => toast(`Could not save the cover: ${reasonOf(err)}`, 'error'))
   }, [videoId, cover, title, toast])
 
-  return { busy, grabAtPlayhead, removeFrame, saveCover }
+  return { busy, grabAtPlayhead, uploadImage, removeFrame, saveCover }
 }

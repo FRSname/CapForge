@@ -153,6 +153,7 @@ describe('ThumbnailCardView', () => {
         confirming={null}
         onConfirm={noop}
         onGrab={noop}
+        onUpload={noop}
         onDelete={noop}
         onSaveCover={noop}
         onAssetError={noop}
@@ -166,9 +167,25 @@ describe('ThumbnailCardView', () => {
 
     expect(markup).toContain('>Thumbnail<')
     expect(markup).toContain('No frames yet')
-    expect(markup).toContain('Grab frame at playhead')
+    expect(markup).toContain('upload an image')
+    expect(markup).toContain('>Grab frame<')
     expect(markup).toMatch(/<button[^>]*disabled=""[^>]*>Save cover…<\/button>/)
     expect(markup).toContain('No thumbnail ideas yet')
+  })
+
+  test('offers an image upload through a hidden picker limited to the accepted formats', () => {
+    const markup = view(record())
+
+    expect(markup).toMatch(/<button[^>]*title="[^"]+"[^>]*>Upload image…<\/button>/)
+    const input = markup.match(/<input[^>]*type="file"[^>]*>/)?.[0] ?? ''
+    expect(input).toContain('accept="image/jpeg,image/png,image/webp"')
+    expect(input).toContain('hidden=""')
+  })
+
+  test('the upload waits while a frame call is in flight', () => {
+    expect(view(record(), { busy: true })).toMatch(
+      /<button[^>]*disabled=""[^>]*>Upload image…<\/button>/
+    )
   })
 
   test('draws a tile per frame and rings the cover', () => {
@@ -227,7 +244,7 @@ describe('ThumbnailCardView', () => {
     ])
 
     const cover = markup.indexOf('cover_not_a_candidate message')
-    const grab = markup.indexOf('Grab frame at playhead')
+    const grab = markup.indexOf('>Grab frame<')
     const ideasLabel = markup.indexOf('>Ideas<')
     const recommended = markup.indexOf('thumbnail_recommended message')
     expect(cover).toBeGreaterThan(-1)

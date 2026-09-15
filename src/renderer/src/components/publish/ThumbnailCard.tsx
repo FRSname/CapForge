@@ -1,16 +1,18 @@
 /**
  * Thumbnail: the frame strip, the cover, and the idea briefs.
  *
- * Frames are stills the backend grabbed from the video into the record folder
- * (`thumbnails/<name>.jpg`). They load as `blob:` URLs (the CSP forbids
- * `127.0.0.1` images). Clicking a frame makes it the cover (the ring); × asks
- * inline, then deletes it through `DELETE …/frames/{name}`. The strip's list
- * is `thumbnail.candidates` — managed by the frames routes alone, which is why
- * every thumbnail write composes it from the latest record
- * (`lib/publishThumbnail.ts`).
+ * Frames are stills the backend grabbed from the video, or images the user
+ * uploaded ("Upload image…", `POST …/frames/upload`, which also makes the
+ * upload the cover), kept in the record folder (`thumbnails/<name>.jpg`). They
+ * load as `blob:` URLs (the CSP forbids `127.0.0.1` images). Clicking a frame
+ * makes it the cover (the ring); × asks inline, then deletes it through
+ * `DELETE …/frames/{name}`. The strip's list is `thumbnail.candidates` —
+ * managed by the frames routes alone, which is why every thumbnail write
+ * composes it from the latest record (`lib/publishThumbnail.ts`).
  */
 
-import { useCallback, useState } from 'react'
+import type { ChangeEvent } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import { StudioCard } from '../studio/StudioCard'
 import { Button } from '../ui/Button'
 import { frameAssetPath } from '../../lib/framesApi'
@@ -26,6 +28,12 @@ import { ThumbnailIdeas } from './ThumbnailIdeas'
 
 /** The strip's tiles are 16:9 boxes; a vertical frame is letterboxed inside. */
 const TILE_ASPECT = '16 / 9'
+
+/** What the upload picker offers — `backend/library/frame_upload.py` `ACCEPTED_FORMATS`. */
+const UPLOAD_ACCEPT = 'image/jpeg,image/png,image/webp'
+
+/** The action row's buttons; the row wraps when the aside is too narrow for three. */
+const ACTION_CLASS = 'flex-1 whitespace-nowrap text-[11px] py-1 justify-center'
 
 interface ThumbnailCardProps {
   publish: PublishController
@@ -48,6 +56,7 @@ export function ThumbnailCard({ publish, getPlayhead }: ThumbnailCardProps) {
       confirming={confirming}
       onConfirm={setConfirming}
       onGrab={frames.grabAtPlayhead}
+      onUpload={frames.uploadImage}
       onDelete={(name) => {
         setConfirming(null)
         frames.removeFrame(name)
@@ -65,9 +74,65 @@ export interface ThumbnailCardViewProps {
   confirming: string | null
   onConfirm: (name: string | null) => void
   onGrab: () => void
+  /** An image the user picked, to store as a frame and the cover. */
+  onUpload: (file: File) => void
   onDelete: (name: string) => void
   onSaveCover: () => void
   onAssetError: (reason: string) => void
+}
+
+interface FrameActionsProps {
+  busy: boolean
+  hasCover: boolean
+  onGrab: () => void
+  onUpload: (file: File) => void
+  onSaveCover: () => void
+}
+
+/** Grab, upload and save-out; the upload drives a hidden file picker. */
+function FrameActions({ busy, hasCover, onGrab, onUpload, onSaveCover }: FrameActionsProps) {
+  const picker = useRef<HTMLInputElement>(null)
+
+  function handlePicked(event: ChangeEvent<HTMLInputElement>) {
+    const input = event.currentTarget
+    const file = input.files?.[0]
+    if (file) onUpload(file)
+    // Cleared so choosing the same file again still fires a change.
+    input.value = ''
+  }
+
+  return (
+    <div className="flex flex-wrap gap-1.5 mt-2 mb-3">
+      <Button
+        variant="ghost"
+        className={ACTION_CLASS}
+        onClick={onGrab}
+        loading={busy}
+        title="Grab a still from the video at the playhead"
+      >
+        Grab frame
+      </Button>
+      <Button
+        variant="ghost"
+        className={ACTION_CLASS}
+        onClick={() => picker.current?.click()}
+        disabled={busy}
+        title="Upload a JPEG, PNG or WEBP image as a frame; it becomes the cover"
+      >
+        Upload image…
+      </Button>
+      <Button
+        variant="ghost"
+        className={ACTION_CLASS}
+        onClick={onSaveCover}
+        disabled={!hasCover}
+        title="Save the cover frame as a JPEG"
+      >
+        Save cover…
+      </Button>
+      <input ref={picker} type="file" accept={UPLOAD_ACCEPT} hidden onChange={handlePicked} />
+    </div>
+  )
 }
 
 interface FrameTileProps {
@@ -142,8 +207,7 @@ function FrameTile(props: FrameTileProps) {
 }
 
 export function ThumbnailCardView(props: ThumbnailCardViewProps) {
-  const { publish, busy, confirming, onConfirm, onGrab, onDelete, onSaveCover, onAssetError } =
-    props
+  const { publish, busy, confirming, onConfirm, onDelete, onAssetError } = props
   const thumbnail = publish.fields.thumbnail
   const videoId = publish.record?.id ?? ''
   const {
@@ -161,8 +225,9 @@ export function ThumbnailCardView(props: ThumbnailCardViewProps) {
       <FieldHeader publish={publish} field="thumbnail" label="Frames" />
       {thumbnail.candidates.length === 0 ? (
         <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
-          No frames yet. Move the player to a moment worth a thumbnail and grab it — frames are
-          stills from the video, kept with this record, and the one you click becomes the cover.
+          No frames yet. Move the player to a moment worth a thumbnail and grab it, or upload an
+          image you made — frames are kept with this record, and the one you click becomes the
+          cover.
         </p>
       ) : (
         <ul className="grid grid-cols-3 gap-1.5" aria-label="Thumbnail frames">
@@ -183,26 +248,13 @@ export function ThumbnailCardView(props: ThumbnailCardViewProps) {
       )}
       <FieldViolations violations={stripFindings} />
 
-      <div className="flex gap-1.5 mt-2 mb-3">
-        <Button
-          variant="ghost"
-          className="flex-1 text-[11px] py-1 justify-center"
-          onClick={onGrab}
-          loading={busy}
-          title="Grab a still from the video at the playhead"
-        >
-          Grab frame at playhead
-        </Button>
-        <Button
-          variant="ghost"
-          className="flex-1 text-[11px] py-1 justify-center"
-          onClick={onSaveCover}
-          disabled={!thumbnail.cover}
-          title="Save the cover frame as a JPEG"
-        >
-          Save cover…
-        </Button>
-      </div>
+      <FrameActions
+        busy={busy}
+        hasCover={thumbnail.cover !== null}
+        onGrab={props.onGrab}
+        onUpload={props.onUpload}
+        onSaveCover={props.onSaveCover}
+      />
 
       <ThumbnailIdeas publish={publish} violations={ideaFindings} />
       <FieldViolations violations={unplaced} />

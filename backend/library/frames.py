@@ -1,7 +1,8 @@
 """Thumbnail frames — still JPEGs a cover is picked from (publish-editors Part A).
 
-``grab_frames`` is the only way a name enters ``thumbnail.candidates`` and
-``delete_frame`` the only way one leaves: candidates are *files* in the record
+``grab_frames`` and ``frame_upload.upload_frame`` (an image the user chose,
+which also becomes the cover) are the only ways a name enters
+``thumbnail.candidates``, and ``delete_frame`` the only way one leaves: candidates are *files* in the record
 folder (``thumbnails/<32-hex>.jpg``, on the asset allowlist), so only the code
 that creates and deletes the files may change the list. A ``PATCH`` that
 changes it is refused (``validate_media.candidates_findings``).
