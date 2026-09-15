@@ -29,6 +29,12 @@ BRIEF_PATH = f"{LIBRARY_PATH}/brief"
 #: Collections (events): one small file for the whole library, like the brief.
 COLLECTIONS_PATH = f"{LIBRARY_PATH}/collections"
 
+#: Channels (multi-channel PR 1): one small file too; the brief is the primary's view.
+CHANNELS_PATH = f"{LIBRARY_PATH}/channels"
+
+#: The platform table: ids, editable fields and limits.
+PLATFORMS_PATH = f"{LIBRARY_PATH}/platforms"
+
 #: transcription/render can take minutes; reads are quick.
 _LONG_TIMEOUT = httpx.Timeout(None)
 _SHORT_TIMEOUT = httpx.Timeout(30.0)
@@ -326,6 +332,38 @@ class CapForgeClient:
     def library_collection_delete(self, collection_id: str) -> Any:
         """DELETE; a 204 comes back as `{}`."""
         return self._request("DELETE", f"{COLLECTIONS_PATH}/{quote(collection_id)}")
+
+    # -- channels (docs/plans/multi-channel-pr1-contract.md) ---------------
+    # No `If-Match`, like collections. A 409/422 refusal is left as an
+    # HTTPStatusError on purpose: its `reason` is what the tool layer relays.
+    def library_channels_list(self) -> Any:
+        """`{primary_id, channels: [channel & {primary}]}` in file order."""
+        return self._request("GET", CHANNELS_PATH)
+
+    def library_channel_get(self, channel_id: str) -> Any:
+        """The channel plus `primary`; 404 when unknown."""
+        return self._request("GET", f"{CHANNELS_PATH}/{quote(channel_id)}")
+
+    def library_channel_create(self, body: dict) -> Any:
+        """POST `{id?, platform, name, handle?, url?, language?, context?, profile?}`; 201."""
+        return self._request("POST", CHANNELS_PATH, json=body)
+
+    def library_channel_patch(self, channel_id: str, patch: dict) -> Any:
+        """PATCH `{name?, handle?, url?, language?, context?, profile?}`; `context`
+        and `profile` merge per field on the backend."""
+        return self._request("PATCH", f"{CHANNELS_PATH}/{quote(channel_id)}", json=patch)
+
+    def library_channel_delete(self, channel_id: str) -> Any:
+        """DELETE; a 204 comes back as `{}`. The primary channel answers 409."""
+        return self._request("DELETE", f"{CHANNELS_PATH}/{quote(channel_id)}")
+
+    def library_channel_set_primary(self, channel_id: str) -> Any:
+        """POST …/primary; answers the list shape. A non-YouTube channel answers 422."""
+        return self._request("POST", f"{CHANNELS_PATH}/{quote(channel_id)}/primary")
+
+    def library_platforms(self) -> Any:
+        """`{platforms: [{id, label, fields, limits}]}`."""
+        return self._request("GET", PLATFORMS_PATH)
 
     # -- co-author workspace ---------------------------------------------
     def get_workspace(self) -> Any:

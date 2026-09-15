@@ -20,8 +20,9 @@ from mcp_server.discovery import BackendNotFound
 
 VIDEO_ID = "6f1c2d3e4a5b6c7d8e9f0a1b2c3d4e5f"
 
-#: 46 tools, plus the six in `publish.py`, plus the four in `collection_tools.py`.
-EXPECTED_TOOL_COUNT = 57
+#: 46 tools, plus the six in `publish.py`, the four in `collection_tools.py`
+#: and the four in `channel_tools.py`.
+EXPECTED_TOOL_COUNT = 61
 
 PACKAGE_TEXT = "TITLE OPTIONS\n1. Kubernetes on a budget\n"
 

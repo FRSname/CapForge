@@ -12,7 +12,7 @@
 
 export type AppSettingsCategoryId =
   | 'general'
-  | 'channel'
+  | 'channels'
   | 'collections'
   | 'transcription'
   | 'claude'
@@ -34,7 +34,7 @@ export interface AppSettingsEntry {
 /** Rail order, top to bottom. */
 export const APP_SETTINGS_CATEGORIES: ReadonlyArray<AppSettingsCategory> = [
   { id: 'general', label: 'General' },
-  { id: 'channel', label: 'Channel' },
+  { id: 'channels', label: 'Channels' },
   { id: 'collections', label: 'Collections' },
   { id: 'transcription', label: 'Transcription' },
   { id: 'claude', label: 'Claude & Skills' },
@@ -54,32 +54,64 @@ export const APP_SETTINGS_ENTRIES: ReadonlyArray<AppSettingsEntry> = [
     keywords: ['log', 'folder', 'debug', 'diagnostics', 'troubleshoot'],
   },
   {
-    category: 'channel',
-    label: 'Channel brief',
-    keywords: ['brief', 'channel', 'audience', 'voice', 'publish', 'youtube'],
+    category: 'channels',
+    label: 'Channels',
+    keywords: [
+      'channel',
+      'platform',
+      'youtube',
+      'tiktok',
+      'instagram',
+      'linkedin',
+      'x',
+      'primary',
+      'handle',
+      'brief',
+      'publish',
+    ],
   },
   {
-    category: 'channel',
+    category: 'channels',
+    label: 'About this channel — for Claude',
+    keywords: ['about', 'audience', 'voice', 'claude', 'agent', 'context', 'notes'],
+  },
+  {
+    category: 'channels',
+    label: 'Title style and example titles',
+    keywords: ['title style', 'example titles', 'titles', 'caption'],
+  },
+  {
+    category: 'channels',
+    label: 'Naming and example slugs',
+    keywords: ['naming', 'slugs', 'slug', 'file names', 'episode'],
+  },
+  {
+    category: 'channels',
+    label: 'Keywords',
+    keywords: ['keywords', 'tags', 'seo'],
+  },
+  {
+    category: 'channels',
     label: 'Default hashtags',
-    keywords: ['hashtag', 'tags', 'brief'],
+    keywords: ['hashtag', 'hashtags', 'tags', 'pasted into posts'],
   },
   {
-    category: 'channel',
+    category: 'channels',
     label: 'Footer and link rows',
-    keywords: ['footer', 'links', 'link rows', 'boilerplate', 'brief'],
+    keywords: ['footer', 'links', 'link rows', 'boilerplate', 'pasted into posts'],
   },
   {
-    category: 'channel',
+    category: 'channels',
     label: 'Recorded-at line and speaker block',
-    keywords: ['speaker', 'recorded', 'event', 'template', 'brief'],
+    keywords: ['speaker', 'recorded', 'event', 'template'],
   },
   {
-    category: 'channel',
+    category: 'channels',
     label: 'House rules',
     keywords: ['house rules', 'em dash', 'hook', 'keywords', 'description length', 'style'],
   },
   {
-    category: 'channel',
+    category: 'channels',
     label: 'Description template and slots',
     keywords: ['template', 'slots', 'layout', 'placeholder', 'variables', 'brief'],
   },

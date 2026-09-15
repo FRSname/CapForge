@@ -24,6 +24,7 @@ from typing import Any, Callable, Iterator, Optional, Union
 from uuid import uuid4
 
 from backend.library import fs, posters
+from backend.library.channel_store import ChannelStoreMixin
 from backend.library.collection_store import CollectionStoreMixin
 from backend.library.errors import (  # re-exported: callers import them from here
     LibraryError,
@@ -106,7 +107,8 @@ def _truncate(value: Any) -> Any:
 
 
 class LibraryStore(
-    StoreAdminMixin, CollectionStoreMixin, ThumbnailStoreMixin, LocalizedStoreMixin
+    StoreAdminMixin, CollectionStoreMixin, ChannelStoreMixin, ThumbnailStoreMixin,
+    LocalizedStoreMixin,
 ):
     """Every record under ``root`` (``$CAPFORGE_HOME/library`` in production).
 

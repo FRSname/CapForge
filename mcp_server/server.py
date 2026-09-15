@@ -15,7 +15,7 @@ from typing import Literal, Optional
 from mcp.server.fastmcp import FastMCP, Image
 from pydantic import BaseModel, Field
 
-from . import collection_tools
+from . import channel_tools, collection_tools
 from . import library, publish, publish_guide, tracks
 from .cleanup import apply_word_edits, remove_fillers
 from .client import CapForgeClient
@@ -975,6 +975,11 @@ publish_guide.register(mcp)
 # live in collection_tools.py — an event's shared slots and brief overrides, which
 # every member's package renders with (docs/plans/library-collections.md).
 collection_tools.register(mcp, lambda: _client)
+
+# `list_channels`, `get_channel`, `set_channel` and `delete_channel` live in
+# channel_tools.py — the channels a video is published to and how each one writes;
+# the brief is the primary channel's view (docs/plans/multi-channel-pr1-contract.md).
+channel_tools.register(mcp, lambda: _client)
 
 
 # --- Caption tracks ------------------------------------------------------
