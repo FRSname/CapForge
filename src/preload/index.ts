@@ -22,6 +22,15 @@ export type ImportPresetResult =
   | { name: string; fontStatus: 'embedded' | 'bundled' | 'missing' | 'none' }
   | { error: string }
 
+/** What the library's Import… picker opens: both (macOS only), files, or folders. */
+export type ImportPickMode = 'any' | 'files' | 'folder'
+
+/** One path the Import… picker returned, stat'ed by the main process. */
+export interface PickedImportEntry {
+  path: string
+  kind: 'file' | 'directory'
+}
+
 export interface SubforgeApi {
   /** Electron 32+ replacement for File.path (sync). */
   getPathForFile: (file: File) => string
@@ -58,6 +67,8 @@ export interface SubforgeApi {
   revealLibraryFolder: () => Promise<void>
   /** Folder picker for the library's folder import and watch folder; null when cancelled. */
   pickLibraryFolder: () => Promise<string | null>
+  /** The library's Import… picker; resolves to the stat'ed picks, [] when cancelled. */
+  pickImport: (mode: ImportPickMode) => Promise<PickedImportEntry[]>
   /** Multi-select `.capforge` picker; resolves to the chosen paths (empty when cancelled). */
   openProjectFiles: () => Promise<string[]>
   openLogsFolder: () => Promise<void>
@@ -204,6 +215,7 @@ contextBridge.exposeInMainWorld('subforge', {
     ipcRenderer.invoke('library:trash-folder', folderPath),
   revealLibraryFolder: () => ipcRenderer.invoke('library:reveal'),
   pickLibraryFolder: () => ipcRenderer.invoke('library:pick-folder'),
+  pickImport: (mode: ImportPickMode) => ipcRenderer.invoke('library:pick-import', mode),
   openProjectFiles: () => ipcRenderer.invoke('dialog:open-projects'),
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),

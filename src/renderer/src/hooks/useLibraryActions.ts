@@ -1,7 +1,7 @@
 /**
  * The library card/toolbar actions that touch the backend: removing a record,
- * deleting one, importing `.capforge` files, importing a folder (or several
- * dropped files) of media, and relinking a record whose media moved.
+ * deleting one, importing (the Import… picker and drops), and relinking a
+ * record whose media moved.
  *
  * Lives outside App because App is at its size ceiling (§9.3) and because the
  * delete is a two-party operation worth keeping in one place: **the backend
@@ -9,10 +9,12 @@
  * answers with its folder; Electron is what moves that folder to the Trash,
  * through a guard that refuses anything outside the library root.
  *
- * Every failure is toasted through `notify`; none is swallowed. An import's
- * *summary* goes through `inform` instead, with a tone (`folderImportTone`),
- * because "Imported 12 videos" is not an error. The pure decisions (what a
- * refused relink means, what a failed drop reports) are exported and tested.
+ * An import runs every request its plan (`importPlan`) calls for — a folder
+ * import per folder, one batch of media files, a project import per
+ * `.capforge` — and then shows **one** summary through `inform`, with the tone
+ * it earned (`libraryImportSummary.ts`). A request that fails is named inside
+ * that summary rather than toasted on its own; one failure never stops the rest.
+ * Every other failure is toasted through `notify`; none is swallowed.
  */
 
 import { useCallback, useRef } from 'react'
@@ -23,14 +25,24 @@ import {
   importLibraryPaths,
   relinkLibraryRecord,
 } from '../lib/libraryApi'
-import type { ImportTone, LocateOutcome } from '../lib/libraryImport'
+import type { ImportPickMode, ImportPlan, LocateOutcome, PickedEntry } from '../lib/libraryImport'
 import {
-  folderImportSummary,
-  folderImportTone,
-  importPathsBatch,
+  importPlan,
+  isEmptyPlan,
   pathBaseName,
+  pickedEntriesOf,
+  plural,
   relinkRefusalMessage,
 } from '../lib/libraryImport'
+import type { ImportTally, ImportTone } from '../lib/libraryImportSummary'
+import {
+  importSummary,
+  importTally,
+  importTone,
+  tallyError,
+  tallyFolderResult,
+  tallyProject,
+} from '../lib/libraryImportSummary'
 import type { FolderImportResult, LibraryVideo } from '../lib/libraryTypes'
 import { displayTitle } from '../lib/libraryView'
 
@@ -39,7 +51,7 @@ export interface LibraryActionsInput {
   refresh: () => Promise<void>
   /** App's toast relay — every failure here is reported, none swallowed. */
   notify: (message: string) => void
-  /** An import summary, shown with the tone it earned (success / info / error). */
+  /** The import summary, shown with the tone it earned (success / info / error). */
   inform: (message: string, tone: ImportTone) => void
 }
 
@@ -48,20 +60,15 @@ export interface LibraryActions {
   removeRecord: (video: LibraryVideo) => Promise<void>
   /** Un-index the record and move its folder to the Trash. */
   deleteRecord: (video: LibraryVideo) => Promise<void>
-  /** Pick `.capforge` files and adopt each one as a record. */
-  importProjects: () => Promise<void>
-  /** Import every media file under a folder; opens the picker when no path is given. */
-  importFolder: (path?: string) => Promise<void>
-  /** Import several dropped media files without opening any of them. */
-  importFiles: (paths: readonly string[]) => Promise<void>
+  /** Import…: open the picker in `mode`, then import everything picked. */
+  pickAndImport: (mode: ImportPickMode) => Promise<void>
+  /** Run an import plan (a drop), toast one summary, refresh once. */
+  runImport: (plan: ImportPlan) => Promise<void>
   /** Pick a file for a record whose media is missing and relink it. Never rejects. */
   locate: (video: LibraryVideo) => Promise<LocateOutcome>
   /** The user confirmed a different-media relink. */
   forceLocate: (video: LibraryVideo, path: string) => Promise<void>
 }
-
-/** The folder label a multi-file drop's summary uses in place of a folder name. */
-export const DROPPED_FILES_LABEL = 'Dropped files'
 
 export function removeFailedMessage(title: string, reason: string): string {
   return `Could not remove ${title} from the library: ${reason}`
@@ -71,16 +78,8 @@ export function deleteFailedMessage(title: string, reason: string): string {
   return `Could not delete ${title}: ${reason}`
 }
 
-export function importFailedMessage(path: string, reason: string): string {
-  return `Could not import ${path}: ${reason}`
-}
-
-export function folderImportFailedMessage(folder: string, reason: string): string {
-  return `Could not import the folder ${folder}: ${reason}`
-}
-
-export function filesImportFailedMessage(count: number, reason: string): string {
-  return `Could not import ${count} dropped file${count === 1 ? '' : 's'}: ${reason}`
+export function importPickerFailedMessage(reason: string): string {
+  return `Could not open the import picker: ${reason}`
 }
 
 export function locateFailedMessage(title: string, reason: string): string {
@@ -89,6 +88,56 @@ export function locateFailedMessage(title: string, reason: string): string {
 
 function reasonOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
+}
+
+/** The three backend calls an import plan makes — injected so the sequencing is testable. */
+export interface ImportRequests {
+  importFolder: (path: string) => Promise<FolderImportResult>
+  importPaths: (paths: readonly string[]) => Promise<FolderImportResult>
+  importProject: (path: string) => Promise<unknown>
+}
+
+/**
+ * Run every request a plan calls for, one at a time (folders, then the media
+ * batch, then projects), and add up what happened. Never rejects: a failed
+ * request is tallied as an error, naming what it was for, and the rest carry on.
+ */
+export async function executeImportPlan(
+  plan: ImportPlan,
+  requests: ImportRequests
+): Promise<ImportTally> {
+  let tally = importTally(plan)
+  for (const folder of plan.folders) {
+    try {
+      const result = await requests.importFolder(folder)
+      tally = tallyFolderResult(tally, result)
+    } catch (err) {
+      tally = tallyError(tally, pathBaseName(folder), reasonOf(err))
+    }
+  }
+  if (plan.media.length > 0) {
+    try {
+      const result = await requests.importPaths(plan.media)
+      tally = tallyFolderResult(tally, result)
+    } catch (err) {
+      tally = tallyError(tally, plural(plan.media.length, 'file'), reasonOf(err))
+    }
+  }
+  for (const project of plan.projects) {
+    try {
+      await requests.importProject(project)
+      tally = tallyProject(tally)
+    } catch (err) {
+      tally = tallyError(tally, pathBaseName(project), reasonOf(err))
+    }
+  }
+  return tally
+}
+
+const IMPORT_REQUESTS: ImportRequests = {
+  importFolder: (path) => importLibraryFolder(path),
+  importPaths: (paths) => importLibraryPaths(paths),
+  importProject: (path) => api.importLibraryProject(path),
 }
 
 export interface LocateResult {
@@ -148,70 +197,27 @@ export function useLibraryActions({
     }
   }, [])
 
-  const importProjects = useCallback(async (): Promise<void> => {
-    let paths: string[]
-    try {
-      paths = await window.subforge.openProjectFiles()
-    } catch (err) {
-      inputRef.current.notify(`Could not open the project picker: ${reasonOf(err)}`)
-      return
-    }
-    if (paths.length === 0) return
-
-    // One bad file must not cancel the rest of the selection, so each failure is
-    // reported on its own and the import carries on.
-    for (const path of paths) {
-      try {
-        await api.importLibraryProject(path)
-      } catch (err) {
-        inputRef.current.notify(importFailedMessage(path, reasonOf(err)))
-      }
-    }
+  const runImport = useCallback(async (plan: ImportPlan): Promise<void> => {
+    if (isEmptyPlan(plan)) return
+    const tally = await executeImportPlan(plan, IMPORT_REQUESTS)
+    inputRef.current.inform(importSummary(tally), importTone(tally))
     await inputRef.current.refresh()
   }, [])
 
-  const importFolder = useCallback(async (path?: string): Promise<void> => {
-    let folder = path ?? null
-    if (!folder) {
+  const pickAndImport = useCallback(
+    async (mode: ImportPickMode): Promise<void> => {
+      let picked: PickedEntry[]
       try {
-        folder = await window.subforge.pickLibraryFolder()
+        picked = pickedEntriesOf(await window.subforge.pickImport(mode))
       } catch (err) {
-        inputRef.current.notify(`Could not open the folder picker: ${reasonOf(err)}`)
+        inputRef.current.notify(importPickerFailedMessage(reasonOf(err)))
         return
       }
-      if (!folder) return
-    }
-    const name = pathBaseName(folder)
-    let result: FolderImportResult
-    try {
-      result = await importLibraryFolder(folder)
-    } catch (err) {
-      inputRef.current.notify(folderImportFailedMessage(name, reasonOf(err)))
-      return
-    }
-    inputRef.current.inform(folderImportSummary(result, name), folderImportTone(result))
-    await inputRef.current.refresh()
-  }, [])
-
-  const importFiles = useCallback(async (paths: readonly string[]): Promise<void> => {
-    if (paths.length === 0) return
-    // One request, capped at the route's limit; anything past it is named in
-    // the summary as "stopped early" rather than silently dropped.
-    const batch = importPathsBatch(paths)
-    let result: FolderImportResult
-    try {
-      const answer = await importLibraryPaths(batch.paths)
-      result = batch.truncated ? { ...answer, truncated: true } : answer
-    } catch (err) {
-      inputRef.current.notify(filesImportFailedMessage(batch.paths.length, reasonOf(err)))
-      return
-    }
-    inputRef.current.inform(
-      folderImportSummary(result, DROPPED_FILES_LABEL),
-      folderImportTone(result)
-    )
-    await inputRef.current.refresh()
-  }, [])
+      if (picked.length === 0) return
+      await runImport(importPlan(picked))
+    },
+    [runImport]
+  )
 
   const relink = useCallback(
     async (video: LibraryVideo, path: string, force: boolean): Promise<LocateOutcome> => {
@@ -255,9 +261,8 @@ export function useLibraryActions({
   return {
     removeRecord,
     deleteRecord,
-    importProjects,
-    importFolder,
-    importFiles,
+    pickAndImport,
+    runImport,
     locate,
     forceLocate,
   }

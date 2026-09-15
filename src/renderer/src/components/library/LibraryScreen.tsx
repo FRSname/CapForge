@@ -2,22 +2,25 @@
  * The library home screen — where CapForge opens (v3 §4).
  *
  * Composition: a masthead with the toolbar (`LibraryToolbar`), a "Continue"
- * hero for the most recent record that has a session to resume, then the rest
- * of the library as a grid of cards. The hero is deliberately *not* repeated in
- * the grid: it is the same record promoted, not a second one.
+ * hero (`ContinueHero`) for the most recent record that has a session to
+ * resume, then the rest of the library as a grid of cards. The hero is
+ * deliberately *not* repeated in the grid: it is the same record promoted, not
+ * a second one. Cards keep their poster's ratio, so the grid is `items-start`:
+ * a row never stretches its shorter (landscape) cards to its tallest one.
  *
  * The whole screen is a drop target, and what a drop means is decided by
- * `droppedImport` (lib/libraryImport.ts): one video opens in the editor as
- * before, several import without opening, a folder imports the folder.
- * The handler runs in the **capture** phase and stops the event there, so the
- * empty state's own DropZoneScreen never also handles it (it would open a
- * dropped folder as if it were a media file, and open a file twice).
+ * `droppedImport` (lib/libraryImport.ts), which sorts it exactly like an
+ * Import… pick: one video opens in the editor as before; folders, several
+ * files and `.capforge` projects are imported together. The handler runs in
+ * the **capture** phase and stops the event there, so the empty state's own
+ * DropZoneScreen never also handles it (it would open a dropped folder as if
+ * it were a media file, and open a file twice).
  */
 
 import { useState } from 'react'
 import type { CreateCollectionResult } from '../../lib/collectionCreate'
 import { newCollectionPlacement } from '../../lib/collectionCreate'
-import type { DropPlan, LocateOutcome } from '../../lib/libraryImport'
+import type { DropPlan, ImportPickMode, ImportPlan, LocateOutcome } from '../../lib/libraryImport'
 import { droppedImport, droppedItemsOf, droppedSkippedMessage } from '../../lib/libraryImport'
 import type { CollectionSummary } from '../../lib/collectionTypes'
 import { collectionLabel } from '../../lib/collections'
@@ -27,12 +30,12 @@ import {
   ALL_COLLECTIONS,
   collectionFilterOptions,
   continueCandidate,
-  displayTitle,
   filterByCollection,
   sortByUpdated,
 } from '../../lib/libraryView'
 import { warmForFile } from '../screens/DropZoneScreen'
-import { LanguageChip, LibraryCard, LibraryPoster, StatusRail } from './LibraryCard'
+import { ContinueHero } from './ContinueHero'
+import { LibraryCard } from './LibraryCard'
 import { LibraryEmptyState } from './LibraryEmptyState'
 import { LibraryToolbar } from './LibraryToolbar'
 
@@ -47,12 +50,10 @@ export interface LibraryScreenProps {
   onOpen: (video: LibraryVideo) => void
   /** Toolbar: go to the drop screen. */
   onAddVideo: () => void
-  /** Toolbar: pick `.capforge` files and adopt them as records. */
-  onImportProjects: () => void
-  /** Import a folder of media — the picker when no path, the dropped folder otherwise. */
-  onImportFolder: (path?: string) => void
-  /** Several media files were dropped: import them without opening any. */
-  onImportFiles: (paths: string[]) => void
+  /** Import… (toolbar and empty state): open the picker in this mode, import what is picked. */
+  onImport: (mode: ImportPickMode) => void
+  /** A drop that imports (folders, several files, projects): run its plan. */
+  onImportDropped: (plan: ImportPlan) => void
   /** A media file was dropped (or browsed for, from the empty state). */
   onFileDropped: (path: string) => void
   /** A dropped file CapForge cannot open — reported, never ignored. */
@@ -75,9 +76,8 @@ export function LibraryScreen({
   loading,
   onOpen,
   onAddVideo,
-  onImportProjects,
-  onImportFolder,
-  onImportFiles,
+  onImport,
+  onImportDropped,
   onFileDropped,
   onDropRejected,
   onRemove,
@@ -107,17 +107,13 @@ export function LibraryScreen({
       onDropRejected(plan.message)
       return
     }
-    if (plan.kind === 'folder') {
-      onImportFolder(plan.path)
+    if (plan.kind === 'import') {
+      onImportDropped(plan.plan)
       return
     }
     if (plan.skipped.length > 0) onDropRejected(droppedSkippedMessage(plan.skipped))
-    if (plan.kind === 'open') {
-      onFileDropped(plan.path)
-      warmForFile()
-      return
-    }
-    onImportFiles(plan.paths)
+    onFileDropped(plan.path)
+    warmForFile()
   }
 
   function handleDrop(e: React.DragEvent) {
@@ -170,8 +166,7 @@ export function LibraryScreen({
           filter={filter}
           onFilterChange={setFilter}
           onCreateCollection={onCreateCollection}
-          onImportFolder={() => onImportFolder()}
-          onImportProjects={onImportProjects}
+          onImport={onImport}
           onAddVideo={onAddVideo}
         />
       </header>
@@ -181,7 +176,7 @@ export function LibraryScreen({
           dropZoneKey={dropCount}
           onFileSelected={onFileDropped}
           onStart={onAddVideo}
-          onImportFolder={() => onImportFolder()}
+          onImport={onImport}
           onCreateCollection={placement === 'empty-state' ? onCreateCollection : undefined}
         />
       ) : (
@@ -200,7 +195,7 @@ export function LibraryScreen({
               >
                 All videos
               </h2>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-4">
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] items-start gap-4">
                 {rest.map((video) => (
                   <LibraryCard
                     key={video.id}
@@ -229,55 +224,4 @@ export function LibraryScreen({
 function countLabel(shown: number, total: number, filtering: boolean): string {
   const noun = `video${total === 1 ? '' : 's'}`
   return filtering ? `${shown} of ${total} ${noun}` : `${total} ${noun}`
-}
-
-interface ContinueHeroProps {
-  video: LibraryVideo
-  onOpen: (video: LibraryVideo) => void
-}
-
-/** The one record promoted out of the grid: the session you were last in. */
-function ContinueHero({ video, onOpen }: ContinueHeroProps) {
-  const title = displayTitle(video)
-  return (
-    <button
-      type="button"
-      aria-label={`Continue ${title}`}
-      title={video.sourcePath}
-      className="flex items-center gap-6 rounded-2xl p-4 text-left transition-transform duration-150 hover:-translate-y-0.5 focus-visible:-translate-y-0.5"
-      style={{
-        background:
-          'linear-gradient(120deg, var(--color-surface-2) 0%, var(--color-surface) 60%)',
-        border: '1px solid var(--color-border-2)',
-        boxShadow: 'var(--shadow-3)',
-      }}
-      onClick={() => onOpen(video)}
-    >
-      <div className="w-[260px] shrink-0">
-        <LibraryPoster video={video} />
-      </div>
-      <div className="flex min-w-0 flex-col gap-2">
-        <span
-          className="text-[11px] uppercase tracking-widest"
-          style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-brand)' }}
-        >
-          Continue
-        </span>
-        <span
-          className="truncate text-2xl"
-          style={{
-            fontFamily: 'var(--cf-font-display)',
-            fontStyle: 'italic',
-            color: 'var(--color-text)',
-          }}
-        >
-          {title}
-        </span>
-        <div className="flex items-center gap-2">
-          <StatusRail video={video} />
-          <LanguageChip lang={video.language} />
-        </div>
-      </div>
-    </button>
-  )
 }

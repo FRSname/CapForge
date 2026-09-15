@@ -118,6 +118,40 @@ export function continueCandidate(videos: readonly LibraryVideo[]): LibraryVideo
   return sortByUpdated(videos).find((v) => v.hasProject && !v.missing_media) ?? null
 }
 
+// ── Posters ─────────────────────────────────────────────────────────────────
+
+/** A poster box's ratio (width / height) while the frame's size is unknown. */
+export const POSTER_ASPECT_FALLBACK = 16 / 9
+/** The tallest box a poster gets — a 9:21 frame; anything taller is cropped. */
+export const POSTER_ASPECT_MIN = 9 / 21
+/** The widest box a poster gets — a 21:9 frame; anything wider is cropped. */
+export const POSTER_ASPECT_MAX = 21 / 9
+
+/**
+ * The ratio of a loaded poster (`naturalWidth` / `naturalHeight`), clamped to
+ * the sane range; null when the size is unusable (an image that has not
+ * decoded reports 0×0). The poster JPEG is the video's frame scaled with its
+ * ratio kept, so this is the video's ratio.
+ */
+export function posterAspect(width: number, height: number): number | null {
+  if (!Number.isFinite(width) || !Number.isFinite(height)) return null
+  if (width <= 0 || height <= 0) return null
+  return Math.min(POSTER_ASPECT_MAX, Math.max(POSTER_ASPECT_MIN, width / height))
+}
+
+/**
+ * The width of a fixed-height poster box (the Continue hero): the ratio's
+ * width, rounded to a whole pixel and held to `maxWidthPx` so a wide video
+ * does not push the text out of the row.
+ */
+export function posterBoxWidth(
+  aspect: number | null,
+  heightPx: number,
+  maxWidthPx: number
+): number {
+  return Math.min(Math.round(heightPx * (aspect ?? POSTER_ASPECT_FALLBACK)), maxWidthPx)
+}
+
 /** True when a dropped path looks like media CapForge can transcribe. */
 export function isMediaPath(name: string): boolean {
   const dot = name.lastIndexOf('.')

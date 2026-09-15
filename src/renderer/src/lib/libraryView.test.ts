@@ -15,6 +15,9 @@ import {
   DURATION_PLACEHOLDER,
   MEDIA_EXTENSIONS,
   NO_COLLECTION,
+  POSTER_ASPECT_FALLBACK,
+  POSTER_ASPECT_MAX,
+  POSTER_ASPECT_MIN,
   UNTITLED,
   collectionFilterOptions,
   continueCandidate,
@@ -23,6 +26,8 @@ import {
   fileStem,
   formatDuration,
   isMediaPath,
+  posterAspect,
+  posterBoxWidth,
   sortByUpdated,
   statusPips,
 } from './libraryView'
@@ -131,7 +136,11 @@ describe('sortByUpdated', () => {
 
 describe('continueCandidate', () => {
   test('is the newest record that has a stored session', () => {
-    const withoutProject = video({ id: 'fresh', updatedAt: '2026-09-10T10:00:00Z', hasProject: false })
+    const withoutProject = video({
+      id: 'fresh',
+      updatedAt: '2026-09-10T10:00:00Z',
+      hasProject: false,
+    })
     const withProject = video({ id: 'session', updatedAt: '2026-09-08T10:00:00Z' })
     expect(continueCandidate([withoutProject, withProject])?.id).toBe('session')
   })
@@ -143,10 +152,7 @@ describe('continueCandidate', () => {
 })
 
 /** One list, three copies (backend, renderer, Electron) — pinned to one fixture. */
-const MEDIA_EXTENSIONS_FIXTURE = join(
-  process.cwd(),
-  'backend/tests/fixtures/media_extensions.json'
-)
+const MEDIA_EXTENSIONS_FIXTURE = join(process.cwd(), 'backend/tests/fixtures/media_extensions.json')
 
 describe('MEDIA_EXTENSIONS', () => {
   test('equals the shared fixture', () => {
@@ -208,5 +214,49 @@ describe('collectionFilterOptions', () => {
     for (const sentinel of [ALL_COLLECTIONS, NO_COLLECTION]) {
       expect(/^[a-z0-9][a-z0-9-]{0,63}$/.test(sentinel)).toBe(false)
     }
+  })
+})
+
+describe('posterAspect', () => {
+  test('a frame keeps its ratio', () => {
+    expect(posterAspect(1920, 1080)).toBeCloseTo(16 / 9)
+    expect(posterAspect(1080, 1920)).toBeCloseTo(9 / 16)
+    expect(posterAspect(1080, 1080)).toBe(1)
+  })
+
+  test('an extreme ratio is clamped to the sane range', () => {
+    expect(posterAspect(4000, 100)).toBe(POSTER_ASPECT_MAX)
+    expect(posterAspect(100, 4000)).toBe(POSTER_ASPECT_MIN)
+    expect(POSTER_ASPECT_MIN).toBeCloseTo(9 / 21)
+    expect(POSTER_ASPECT_MAX).toBeCloseTo(21 / 9)
+  })
+
+  test.each([
+    [0, 1080],
+    [1920, 0],
+    [-1, 10],
+    [Number.NaN, 10],
+    [10, Number.POSITIVE_INFINITY],
+  ])('an unusable size (%s×%s) is unknown, not a ratio', (w, h) => {
+    expect(posterAspect(w, h)).toBeNull()
+  })
+
+  test('the fallback is 16:9', () => {
+    expect(POSTER_ASPECT_FALLBACK).toBeCloseTo(16 / 9)
+  })
+})
+
+describe('posterBoxWidth', () => {
+  test('a fixed height takes its width from the ratio', () => {
+    expect(posterBoxWidth(9 / 16, 180, 320)).toBe(101)
+    expect(posterBoxWidth(1, 180, 320)).toBe(180)
+  })
+
+  test('an unknown ratio uses 16:9', () => {
+    expect(posterBoxWidth(null, 180, 400)).toBe(320)
+  })
+
+  test('a wide ratio is held to the max width', () => {
+    expect(posterBoxWidth(21 / 9, 180, 320)).toBe(320)
   })
 })

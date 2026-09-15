@@ -100,6 +100,10 @@ contextBridge.exposeInMainWorld('subforge', {
   /** Folder picker for the library's folder import and watch folder. Returns path or null. */
   pickLibraryFolder: () => ipcRenderer.invoke('library:pick-folder'),
 
+  /** The library's Import… picker. `mode` is 'any' (files and folders, macOS only),
+   *  'files' or 'folder'. Resolves to `[{ path, kind: 'file' | 'directory' }]`, [] on cancel. */
+  pickImport: (mode) => ipcRenderer.invoke('library:pick-import', mode),
+
   /** Multi-select .capforge picker. Returns the chosen paths ([] when cancelled). */
   openProjectFiles: () => ipcRenderer.invoke('dialog:open-projects'),
 

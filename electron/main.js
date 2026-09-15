@@ -541,8 +541,14 @@ function registerIpcHandlers() {
     return { ok: true }
   })
 
-  // IPC: v3 library pickers (folder import, watch folder) — library-dialogs.js.
-  registerLibraryDialogs({ ipcMain, dialog, getWindow: () => mainWindow, appState })
+  // IPC: v3 library pickers (the Import… picker, watch folder) — library-dialogs.js.
+  registerLibraryDialogs({
+    ipcMain,
+    dialog,
+    getWindow: () => mainWindow,
+    appState,
+    stat: (p) => fs.promises.stat(p),
+  })
 
   // IPC: one-click "Connect to Claude" for the MCP control layer.
   const claudeConnect = require('./claude-connect')

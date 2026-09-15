@@ -1,6 +1,6 @@
 /**
  * The library masthead's actions: the collection filter and "New collection…"
- * (only while the library has videos), then the two imports and Add video.
+ * (only while the library has videos), then Import… and Add video.
  *
  * Layout rules, because this row used to break: no button label ever wraps
  * (`whitespace-nowrap`), and when the row runs out of room it wraps as a row
@@ -11,8 +11,10 @@
  */
 
 import type { CreateCollectionResult } from '../../lib/collectionCreate'
+import type { ImportPickMode } from '../../lib/libraryImport'
 import type { CollectionFilter, CollectionFilterOption } from '../../lib/libraryView'
 import { Button } from '../ui/Button'
+import { ImportButton } from './ImportButton'
 import { NewCollectionPopover } from './NewCollectionForm'
 
 /** The filter sizes to its longest option, within these bounds. */
@@ -25,8 +27,8 @@ export interface LibraryToolbarProps {
   filter: CollectionFilter
   onFilterChange: (value: CollectionFilter) => void
   onCreateCollection: (name: string) => Promise<CreateCollectionResult>
-  onImportFolder: () => void
-  onImportProjects: () => void
+  /** Import… — open the picker in this mode and import what is picked. */
+  onImport: (mode: ImportPickMode) => void
   onAddVideo: () => void
 }
 
@@ -35,8 +37,7 @@ export function LibraryToolbar({
   filter,
   onFilterChange,
   onCreateCollection,
-  onImportFolder,
-  onImportProjects,
+  onImport,
   onAddVideo,
 }: LibraryToolbarProps) {
   return (
@@ -55,12 +56,7 @@ export function LibraryToolbar({
           />
         </>
       )}
-      <Button variant="ghost" className="whitespace-nowrap text-xs" onClick={onImportFolder}>
-        Import folder…
-      </Button>
-      <Button variant="ghost" className="whitespace-nowrap text-xs" onClick={onImportProjects}>
-        Import project files…
-      </Button>
+      <ImportButton onImport={onImport} align="end" />
       <Button variant="primary" className="whitespace-nowrap text-xs" onClick={onAddVideo}>
         Add video
       </Button>

@@ -35,8 +35,8 @@ export interface LibraryHomeProps {
 export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: LibraryHomeProps) {
   const { videos, loading, refresh } = useLibraryList({ active: true, notify })
   useLibraryMigration({ refresh, notify })
-  // LibraryHome renders inside ToastProvider, so an import summary is toasted
-  // with its own tone here; App's `notify` relay always shows an error.
+  // LibraryHome renders inside ToastProvider, so the one import summary is
+  // toasted with its own tone here; App's `notify` relay always shows an error.
   const { toast } = useToast()
   const actions = useLibraryActions({ refresh, notify, inform: toast })
   // Names for the collection filter and the card chips; re-read on every visit.
@@ -56,9 +56,8 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
       loading={loading}
       onOpen={onOpen}
       onAddVideo={onAddVideo}
-      onImportProjects={actions.importProjects}
-      onImportFolder={actions.importFolder}
-      onImportFiles={actions.importFiles}
+      onImport={(mode) => void actions.pickAndImport(mode)}
+      onImportDropped={(plan) => void actions.runImport(plan)}
       onFileDropped={onFileDropped}
       onDropRejected={notify}
       onRemove={actions.removeRecord}
