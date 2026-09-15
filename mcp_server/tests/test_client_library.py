@@ -315,3 +315,16 @@ def test_library_collection_409_is_an_http_error_not_a_stale_record(capforge, mo
 
     assert not isinstance(excinfo.value, StaleRecord)
     assert excinfo.value.response.json()["members"] == 3
+
+
+# --- frames (publish-editors Part A) -------------------------------------------
+
+def test_library_grab_frames_posts_the_times(capforge, monkeypatch):
+    rec = _record(monkeypatch)
+
+    capforge.library_grab_frames("abc 123", [61.25, 3.0])
+
+    assert rec.last["method"] == "POST"
+    assert rec.last["url"] == f"{BASE}/api/library/abc%20123/frames"
+    assert rec.last["json"] == {"times": [61.25, 3.0]}
+    assert rec.last["headers"][AGENT_TOKEN_HEADER] == TOKEN

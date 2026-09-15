@@ -168,10 +168,13 @@ rendering of them, so its text is never written back into a field.
 | `validate_video` | Run the publish rules over a record: `{hard, style, ok}`, each finding naming the `field`, the `rule` and a message |
 | `check_chapters` | Dry-run a chapter list against the record's duration before writing it — nothing is stored |
 | `get_upload_package` | The rendered package for a platform (`youtube` today): `{text, violations}`, plain text, ready to paste |
+| `grab_frames` | Grab still JPEG frames at the given seconds as thumbnail candidates: `{frames, failed, rev}` (≤ 8 per call, ≤ 24 per record, ≤ 1280 px long edge, ≤ 2 MB). Then set `thumbnail.cover` with `set_video_meta`; omit `candidates` (and `cover`) to leave them unchanged |
 
 **Hard rules** are YouTube's own limits (title ≤ 100 characters, description ≤ 5000
 bytes, tags line ≤ 500 characters, no angle brackets, chapters starting at 0, at least
-three, ascending, ≥ 10s apart, inside the duration). They live in Python once
+three, ascending, ≥ 10s apart, inside the duration; Shorts clips in order and inside the
+video; a thumbnail cover that is one of the grabbed frames, and no explicit change to
+`thumbnail.candidates`). They live in Python once
 (`backend/library/validate.py`) and `set_video_meta` is *refused* when one is broken —
 that refusal comes back as `{"status": "error", "reason": "violations", "violations":
 […]}`, so fix the named field and write again. **Style rules** come from the brief and

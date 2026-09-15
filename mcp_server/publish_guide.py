@@ -29,8 +29,8 @@ TOPICS: dict[str, tuple[str, str]] = {
     "breakdown": ("breakdown.md", "The transcript breakdown: summary_md, timed highlights and quotes, tools mentioned, speakers — the fields every other topic draws on."),
     "description": ("description.md", "Title, title options, description, short description, tags, hashtags, keywords — YouTube's limits and the brief's house rules."),
     "chapters": ("chapters.md", "Chapters as seconds from real moments: the five hard rules, the candidates, the dry run, the short-video exception."),
-    "thumbnails": ("thumbnails.md", "Thumbnail ideas as text (label, type, headline, subtext, visual suggestion) — CapForge generates no images."),
-    "shorts": ("shorts.md", "The Shorts caption and 2–3 clip candidates as timestamps; CapForge cuts nothing."),
+    "thumbnails": ("thumbnails.md", "Thumbnail ideas as text (label, type, headline, subtext, visual suggestion), frames grabbed from the video with grab_frames, and the cover — CapForge draws no images."),
+    "shorts": ("shorts.md", "The Shorts caption and 2–3 clip candidates as timestamps, and the rules a clip is checked against; CapForge cuts nothing."),
     "batch": ("batch.md", "Publishing a set of videos: list by status, one record per call, revs, what to report, scratch runs."),
     "collections": ("collections.md", "An event's shared boilerplate: slots, brief overrides, the description template, assigning videos, adopting orphan ids."),
 }

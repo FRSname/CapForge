@@ -133,6 +133,9 @@ thumbnail          {"ideas": [{"label": "Budget", "type": "face", "headline": "â
                                "recommended": true}]}
 ```
 
+In `thumbnail`, omit `candidates` (and `cover`) to leave them unchanged; `grab_frames`
+adds frames and only an explicit changed list is refused.
+
 Notes on the content, not the shape:
 
 - The description's opening paragraph leads with the problem or the claim, never with

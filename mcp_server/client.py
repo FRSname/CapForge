@@ -290,6 +290,14 @@ class CapForgeClient:
             "GET", f"{LIBRARY_PATH}/{quote(video_id)}/package?{query}"
         )
 
+    def library_grab_frames(self, video_id: str, times: list) -> Any:
+        """`{frames: [{time_s, name}], failed: [{time_s, reason}], rev}`. The
+        backend runs ffmpeg once per time, so this waits with no timeout."""
+        return self._request(
+            "POST", f"{LIBRARY_PATH}/{quote(video_id)}/frames",
+            json={"times": list(times)}, timeout=_LONG_TIMEOUT,
+        )
+
     # -- collections (docs/plans/library-collections.md) -------------------
     # No `If-Match` anywhere here: like the brief, collections live in one small
     # file with no `rev`. A 409 is left as an HTTPStatusError on purpose — its
