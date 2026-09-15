@@ -41,6 +41,8 @@ NOT_TOOLS = KINDS | PROMPT_NAMES | {
     "chapter_titles", "shorts_caption", "localized_lang_code", "localized_is_source",
     "localized_chapter_count", "title_max_chars", "description_max_bytes",
     "tags_max_chars", "no_angle_brackets",
+    # platform post findings (backend/library/platform_posts.py)
+    "video_url_missing", "linkedin_max_chars", "x_max_chars", "instagram_max_chars",
 }
 
 #: The built-in template slots, shared with the backend and the renderer.
@@ -171,6 +173,15 @@ def test_batch_publish_prompt_scopes_to_a_collection_when_given_one() -> None:
     assert "get_collection" in scoped
     unscoped = publish_guide.batch_publish("drafted")
     assert "get_collection" not in unscoped and "collection=" not in unscoped
+
+
+def test_the_workflow_has_an_other_platforms_note() -> None:
+    workflow = " ".join(publish_guide.GUIDE.read_topic("workflow").split())
+    assert "Other platforms" in workflow
+    note = workflow[workflow.index("Other platforms"):]
+    for words in ('platform="linkedin"', '"x"', '"instagram"', "video_url_missing",
+                  "nothing is posted"):
+        assert words in note, words
 
 
 def test_the_guide_reads_the_record_before_writing() -> None:

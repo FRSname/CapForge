@@ -80,6 +80,18 @@ it beside the video and `get_workspace` says where. The record, not the file, is
 the source of truth; `read_workspace_file("notes/youtube.txt")` brings a snapshot
 back, and the record wins wherever they differ.
 
+### Other platforms
+
+Only when the user asks for a social post: `get_upload_package(video_id,
+platform="linkedin")`, or `platform="x"` or `platform="instagram"` (add `lang` for a
+translation). Each is one post rendered from the same fields and brief, and is
+clipboard text: nothing is posted, so hand the text to the user. A post reads
+`publish.youtube.url`; before it is recorded the post prints `[FULL VIDEO URL]` with a
+`video_url_missing` finding (Instagram prints "Link in bio" instead of a link). A
+`linkedin_max_chars`, `x_max_chars` or `instagram_max_chars` finding means the text
+won't paste as-is. Shorten the field it came from, never the post, and read it again;
+X never cuts the title, it only drops hashtags from the end.
+
 ## 6. Later
 
 - When the user pastes the published URL: `mark_published(video_id, url)`. That is

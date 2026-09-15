@@ -267,6 +267,27 @@ def test_get_upload_package_rejects_an_unknown_platform_without_a_call(
     assert stub.package_calls == []
 
 
+@pytest.mark.parametrize("platform", ["linkedin", "x", "instagram"])
+def test_get_upload_package_renders_the_other_platforms(stub: StubClient, platform: str) -> None:
+    out = publish.get_upload_package(VIDEO_ID, platform=platform, lang="de")
+
+    assert out["status"] == "ok"
+    assert out["platform"] == platform
+    assert stub.package_calls == [{"video_id": VIDEO_ID, "platform": platform, "lang": "de"}]
+
+
+def test_the_supported_platforms_are_the_four_the_backend_renders() -> None:
+    assert publish.SUPPORTED_PLATFORMS == ("youtube", "linkedin", "x", "instagram")
+
+
+def test_get_upload_package_explains_each_post_and_that_nothing_is_posted() -> None:
+    doc = " ".join((publish.get_upload_package.__doc__ or "").split())
+
+    for words in ("LinkedIn", "X", "Instagram", "Link in bio", "3000", "280", "2200",
+                  "23", "nothing is posted", "emoji", "[FULL VIDEO URL]"):
+        assert words in doc, words
+
+
 def test_get_upload_package_passes_a_language_through(stub: StubClient) -> None:
     out = publish.get_upload_package(VIDEO_ID, lang="pl")
 
