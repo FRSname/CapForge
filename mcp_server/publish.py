@@ -103,11 +103,14 @@ def _validate(body: dict) -> dict:
 def get_brief() -> dict:
     """Read the channel brief — who the channel is for and how it writes.
 
-    One brief for the whole library (the user edits it in CapForge under
-    Settings → Channel): `channel`, `audience`, `voice`, `language` (empty means
-    the transcript's), `footer`, the recorded-at line, the speaker block,
-    default hashtags, link rows, and `house_rules` (no em dashes, a description
-    length window, a keyword count, hook-in-the-first-150).
+    The brief is an alias onto the **primary channel** (always a YouTube
+    channel): `channel` is its name, `audience` and `voice` come from its
+    context, then its `language` (empty means the transcript's) and its profile:
+    `footer`, the recorded-at line, the speaker block, default hashtags, link
+    rows, and `house_rules` (no em dashes, a description length window, a
+    keyword count, hook-in-the-first-150). Prefer `get_channel` for channel
+    work: it also shows the context the brief leaves out (about, title style
+    and example titles, naming, keywords, notes).
 
     Read it **before** writing any text: it is the style contract the user
     already stated, and `validate_video` reports its house rules as `style`
@@ -121,6 +124,10 @@ def get_brief() -> dict:
 
 def set_brief(patch: dict) -> dict:
     """Update the channel brief — top-level fields are merged, not replaced.
+
+    The brief is an alias onto the **primary channel**: `channel` renames it,
+    `audience` and `voice` land in its context, `language` on the channel, and
+    the rest in its profile. Prefer `set_channel` for channel work.
 
     Use this only for what the user tells you about the *channel* (its audience,
     voice, footer, default hashtags, house rules), and prefer letting them edit
