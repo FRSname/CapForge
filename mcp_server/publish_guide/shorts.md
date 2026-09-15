@@ -21,6 +21,12 @@ At most a few lines. The package appends `Full video:` with the published URL (o
 the `[FULL VIDEO URL]` placeholder until `mark_published` has been called) and
 `#Shorts`, so do not write those yourself. Plain text; the brief's voice.
 
+The Shorts caption belongs to the video (`shorts.caption` at the root), and its link is
+the primary channel's published URL. A TikTok or Instagram channel's post has its own
+`caption` under `posts` (`publish_guide("channels")`). It may start from the Shorts
+caption, but write it in that channel's voice after reading `get_channel`, and record
+where it went live with `mark_published(video_id, url, channel=…)`.
+
 ## Clip candidates — 2 or 3, self-contained
 
 A candidate is a passage that works with no setup: a surprising number, a demo that

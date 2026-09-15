@@ -39,6 +39,8 @@ REQUIRED_TOOLS = {
         "mark_published",
         # A member of a collection publishes under its effective brief.
         "get_collection",
+        # Multi-channel PR 2: every channel's context is read before its post.
+        "get_channel",
     },
 }
 
@@ -150,3 +152,15 @@ def test_publish_example_channel_file_ships() -> None:
     example = SKILLS_DIR / "capforge-publish" / "examples" / "conference-channel.md"
     assert example.is_file()
     assert "Channel notes" in example.read_text(encoding="utf-8")
+
+
+def test_publish_skill_reads_each_channel_and_keeps_recent_posts_opt_in() -> None:
+    """Multi-channel PR 2: a post is written in its channel's voice, from this video."""
+    text = " ".join(_skill_text(SKILLS_DIR / "capforge-publish").split())
+    assert "`get_channel(" in text
+    assert (
+        "Never pass include_recent_posts to get_channel unless the user asked you to take "
+        "inspiration from older videos" in text
+    )
+    assert "never write a post for a channel whose context you have not read" in text.lower()
+    assert "Settings → Channels" in text and "Settings → Channel;" not in text

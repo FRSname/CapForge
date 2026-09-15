@@ -659,3 +659,123 @@ def test_a_pydantic_422_still_takes_the_field_summary_path(monkeypatch) -> None:
 
     assert out["status"] == "error" and "reason" not in out
     assert "rev" in out["error"]
+
+
+# --- posts per channel (docs/plans/multi-channel-pr2-contract.md → MCP) ------
+
+IG_ID = "filip-ig"
+IG_URL = "https://www.instagram.com/p/Cx1abc/"
+
+
+def test_mark_published_with_a_channel_writes_that_posts_published(stub: StubClient) -> None:
+    out = library.mark_published(VIDEO_ID, IG_URL, published_at=PUBLISHED_AT, channel=IG_ID)
+
+    assert out["status"] == "ok" and out["channel"] == IG_ID and out["rev"] == 4
+    assert stub.patches[-1] == {
+        "video_id": VIDEO_ID,
+        "patch": {"posts": {IG_ID: {"published": {"url": IG_URL, "at": PUBLISHED_AT}}}},
+        "rev": 3,  # the rev it just read
+    }
+    assert out["published"] == {"url": IG_URL, "at": PUBLISHED_AT}
+
+
+def test_a_channel_write_sends_no_youtube_id_and_no_root_block(stub: StubClient) -> None:
+    """The backend derives a YouTube post's id from the URL (one copy of that logic)."""
+    library.mark_published(VIDEO_ID, "https://youtu.be/abc123", channel="update-conf")
+
+    patch = stub.patches[-1]["patch"]
+    assert list(patch) == ["posts"]
+    published = patch["posts"]["update-conf"]["published"]
+    assert set(published) == {"url", "at"}
+    assert published["at"].endswith("Z") and published["at"].startswith("20")
+
+
+def test_a_channel_write_keeps_the_posts_real_date(monkeypatch) -> None:
+    posted = record(posts={IG_ID: {"caption": "hi", "published": {
+        "url": "https://www.instagram.com/p/old/", "id": None, "at": PUBLISHED_AT}}})
+    stub = _use(monkeypatch, StubClient(records={VIDEO_ID: posted}))
+
+    library.mark_published(VIDEO_ID, IG_URL, channel=IG_ID)
+
+    assert stub.patches[-1]["patch"]["posts"][IG_ID]["published"] == {
+        "url": IG_URL, "at": PUBLISHED_AT,
+    }
+
+
+def test_a_channel_write_uses_the_rev_of_a_fresh_read(monkeypatch) -> None:
+    stub = _use(monkeypatch, StubClient(records={VIDEO_ID: record(rev=11)}))
+
+    library.mark_published(VIDEO_ID, IG_URL, channel=IG_ID)
+
+    assert stub.patches[-1]["rev"] == 11
+
+
+def test_a_channel_write_does_not_mutate_the_record_it_read(monkeypatch) -> None:
+    original = record(posts={IG_ID: {"caption": "hi", "published": {"url": None, "at": None}}})
+    _use(monkeypatch, StubClient(records={VIDEO_ID: original}))
+
+    library.mark_published(VIDEO_ID, IG_URL, channel=IG_ID)
+
+    assert original["posts"][IG_ID]["published"] == {"url": None, "at": None}
+
+
+@pytest.mark.parametrize("kwargs, words", [
+    ({"channel": ""}, "channel"),
+    ({"channel": "   "}, "channel"),
+    ({"channel": 7}, "channel"),
+    ({"channel": IG_ID, "youtube_video_id": "abc123"}, "youtube_video_id"),
+])
+def test_a_channel_write_refuses_unusable_arguments_without_a_call(
+    stub: StubClient, kwargs: dict, words: str
+) -> None:
+    out = library.mark_published(VIDEO_ID, URL, **kwargs)
+
+    assert out["status"] == "error" and words in out["error"]
+    assert stub.patches == []
+
+
+def test_a_channel_write_passes_the_backends_unknown_channel_refusal_through(monkeypatch) -> None:
+    unknown = [{"field": f"posts.{IG_ID}", "rule": "unknown_channel",
+                "message": f"No channel {IG_ID!r}", "severity": "hard"}]
+
+    class Refusing(StubClient):
+        def library_patch(self, video_id: str, patch: dict, rev: int) -> dict:
+            raise violations_error("Unknown channel", unknown)
+
+    _use(monkeypatch, Refusing())
+
+    out = library.mark_published(VIDEO_ID, IG_URL, channel=IG_ID)
+
+    assert out["status"] == "error" and out["reason"] == "violations"
+    assert out["violations"] == unknown
+
+
+def test_without_a_channel_mark_published_is_todays_root_write(stub: StubClient) -> None:
+    out = library.mark_published(VIDEO_ID, URL, published_at=PUBLISHED_AT)
+
+    assert stub.patches[-1]["patch"] == {"publish": {
+        "youtube": {"videoId": "abc123", "url": URL, "publishedAt": PUBLISHED_AT},
+        "pushes": [],
+    }}
+    assert set(out) == {"status", "rev", "publish"}
+
+
+def test_mark_published_signature_adds_channel_last() -> None:
+    import inspect
+
+    params = inspect.signature(library.mark_published).parameters
+    assert list(params) == ["video_id", "url", "youtube_video_id", "published_at", "channel"]
+    assert params["channel"].default is None
+
+
+def test_the_record_docstrings_document_posts() -> None:
+    get_doc = " ".join((library.get_video.__doc__ or "").split())
+    for words in ("`posts`", "hidden", "primary channel", "`caption`", "`text`", "published"):
+        assert words in get_doc, words
+    meta_doc = " ".join((library.set_video_meta.__doc__ or "").split())
+    for words in ("per channel and per field", "send only what you change",
+                  "one channel per call", "null}}` removes the post", '{"hidden": true}',
+                  "keeps its text", "primary channel's post", "`published`"):
+        assert words in meta_doc, words
+    mark_doc = " ".join((library.mark_published.__doc__ or "").split())
+    assert "posts.<channel>.published" in mark_doc and "primary channel" in mark_doc

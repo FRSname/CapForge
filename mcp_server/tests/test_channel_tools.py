@@ -23,6 +23,14 @@ from mcp_server.discovery import BackendNotFound
 PRIMARY_ID = "update-conf"
 IG_ID = "filip-ig"
 
+#: What `?include_recent_posts=true` adds (multi-channel PR 2 contract → Channels).
+RECENT_POSTS = [
+    {"video_id": "v2", "title": "Second talk", "text": "Newer body", "hashtags": ["#dev"],
+     "url": "https://youtu.be/two", "at": "2026-09-10T10:00:00Z"},
+    {"video_id": "v1", "title": "First talk", "text": "Older body", "hashtags": [],
+     "url": "https://youtu.be/one", "at": "2026-09-01T10:00:00Z"},
+]
+
 
 def channel(**over: Any) -> dict:
     base = {
@@ -72,12 +80,16 @@ class StubClient:
         self._check("list")
         return self._book()
 
-    def library_channel_get(self, channel_id: str) -> dict:
-        self.calls.append(("get", channel_id))
+    def library_channel_get(self, channel_id: str, **query: Any) -> dict:
+        # A plain read records just the id, so every PR 1 assertion still holds.
+        self.calls.append(("get", (channel_id, dict(query)) if query else channel_id))
         self._check("get")
         if channel_id not in self.stored:
             raise not_found()
-        return self._view(channel_id)
+        view = self._view(channel_id)
+        if query.get("include_recent_posts"):
+            return {**view, "recent_posts": copy.deepcopy(RECENT_POSTS[: query["limit"]])}
+        return view
 
     def library_channel_create(self, body: dict) -> dict:
         self.calls.append(("create", copy.deepcopy(body)))
@@ -381,3 +393,73 @@ def test_set_channel_signature_is_the_contracts() -> None:
     assert list(params) == ["channel_id", "platform", "name", "handle", "url", "language",
                             "context", "profile", "primary"]
     assert all(params[p].default is None for p in list(params)[1:])
+
+
+# --- recent posts (docs/plans/multi-channel-pr2-contract.md → Channels) ------------
+
+def test_get_channel_asks_for_no_recent_posts_by_default(stub) -> None:
+    out = channel_tools.get_channel(PRIMARY_ID)
+
+    assert stub.calls == [("get", PRIMARY_ID)]
+    assert "recent_posts" not in out["channel"]
+
+
+def test_get_channel_with_recent_posts_sends_the_flag_and_the_limit(stub) -> None:
+    out = channel_tools.get_channel(PRIMARY_ID, include_recent_posts=True, limit=1)
+
+    assert stub.calls == [("get", (PRIMARY_ID, {"include_recent_posts": True, "limit": 1}))]
+    assert out["status"] == "ok"
+    assert out["channel"]["recent_posts"] == RECENT_POSTS[:1]
+
+
+def test_a_limit_without_the_flag_sends_nothing_extra(stub) -> None:
+    channel_tools.get_channel(PRIMARY_ID, limit=20)
+
+    assert stub.calls == [("get", PRIMARY_ID)]
+
+
+@pytest.mark.parametrize("limit", [1, 50])
+def test_the_limit_bounds_are_inclusive(stub, limit) -> None:
+    out = channel_tools.get_channel(PRIMARY_ID, include_recent_posts=True, limit=limit)
+
+    assert out["status"] == "ok"
+
+
+@pytest.mark.parametrize("limit", [0, 51, -1, True, 2.5, "10", None])
+def test_a_limit_outside_1_to_50_is_refused_without_a_call(stub, limit) -> None:
+    out = channel_tools.get_channel(PRIMARY_ID, include_recent_posts=True, limit=limit)
+
+    assert out["status"] == "error"
+    assert "'limit'" in out["error"] and "1 to 50" in out["error"]
+    assert stub.calls == []
+
+
+@pytest.mark.parametrize("flag", ["yes", 1, None])
+def test_include_recent_posts_must_be_true_or_false(stub, flag) -> None:
+    out = channel_tools.get_channel(PRIMARY_ID, include_recent_posts=flag)
+
+    assert out["status"] == "error" and "include_recent_posts" in out["error"]
+    assert stub.calls == []
+
+
+def test_an_unknown_channel_with_recent_posts_is_still_the_not_found_sentence(stub) -> None:
+    out = channel_tools.get_channel("nope", include_recent_posts=True)
+
+    assert out["status"] == "error" and out["reason"] == "channel_not_found"
+
+
+def test_get_channel_docstring_keeps_recent_posts_opt_in() -> None:
+    doc = " ".join((channel_tools.get_channel.__doc__ or "").split())
+
+    assert "`include_recent_posts=True` **only when the user explicitly asks**" in doc
+    for words in ("inspiration from older videos", "this video alone", "`recent_posts`",
+                  "1 to 50"):
+        assert words in doc, words
+
+
+def test_get_channel_signature_is_the_contracts() -> None:
+    params = inspect.signature(channel_tools.get_channel).parameters
+
+    assert list(params) == ["channel_id", "include_recent_posts", "limit"]
+    assert params["include_recent_posts"].default is False
+    assert params["limit"].default == 10

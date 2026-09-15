@@ -5,6 +5,11 @@ The root fields of a record are the video's **source language** (the record's
 object per language code, so the user can paste a Polish or German upload package
 into YouTube Studio's translations.
 
+The root `localized` is the **primary channel's** post. Another YouTube channel's post
+keeps its own under `posts.<channel id>.localized`, with the same shape and the same
+per-language merge. Only YouTube posts have `localized`; on a TikTok, Instagram,
+LinkedIn or X post it is refused with `field_not_on_platform`.
+
 ## The shape
 
 ```
@@ -68,6 +73,10 @@ with the `rev` you last read. `localized` merges per language:
 A refused write names the field as `localized.pl.title`, `localized.pl.description`
 and so on, with the same rule names the root fields use. Fix it and write again.
 
+For another YouTube channel's post, nest the same object in that post:
+`set_video_meta(video_id, {"posts": {"second-yt": {"localized": {"pl": {…}}}}}, rev)`.
+The merge is the same, and a refused write names `posts.second-yt.localized.pl.<field>`.
+
 ## Validating and packaging
 
 1. `validate_video(video_id, lang="pl")` checks the Polish package view. Findings on
@@ -80,4 +89,5 @@ and so on, with the same rule names the root fields use. Fix it and write again.
    no per-language version — and `Omitted (source language only): …`. Show the text
    as it is, and tell the user what is still in the source language.
 
-Without `lang` both tools work on the source language exactly as before.
+Without `lang` both tools work on the source language exactly as before. Add
+`channel="second-yt"` to either one for that channel's post instead of the primary's.

@@ -44,6 +44,10 @@ NOT_TOOLS = KINDS | PROMPT_NAMES | {
     # channels: context/profile fields, a list key, the refusal reasons (channel_tools.py)
     "title_style", "example_titles", "example_slugs", "primary_id", "channel_is_primary",
     "primary_not_youtube",
+    # posts per channel: a get_channel parameter, its answer key, the refusal rules
+    # (docs/plans/multi-channel-pr2-contract.md)
+    "include_recent_posts", "recent_posts", "field_not_on_platform", "unknown_channel",
+    "ambiguous_post_field", "no_post",
     # platform post findings (backend/library/platform_posts.py)
     "video_url_missing", "linkedin_max_chars", "x_max_chars", "instagram_max_chars",
 }
@@ -247,3 +251,12 @@ def test_real_fastmcp_lists_the_prompts_and_serves_the_resources() -> None:
     topic = asyncio.run(mcp.read_resource("capforge://publish/chapters"))
     assert "five hard rules" in list(topic)[0].content
     assert {t.name for t in asyncio.run(mcp.list_tools())} == {"publish_guide"}
+
+
+def test_the_channels_topic_states_posts_and_the_recent_posts_opt_in() -> None:
+    topic = " ".join(publish_guide.GUIDE.read_topic("channels").split())
+    for name in ("posts", "set_video_meta", "validate_video", "get_upload_package",
+                 "mark_published", "include_recent_posts", "hidden", "primary channel's post"):
+        assert name in topic, name
+    assert "only when the user explicitly asks" in topic
+    assert "copy" in topic  # the reason: old posts pull a draft toward a copy

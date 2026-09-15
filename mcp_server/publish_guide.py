@@ -33,7 +33,7 @@ TOPICS: dict[str, tuple[str, str]] = {
     "shorts": ("shorts.md", "The Shorts caption and 2–3 clip candidates as timestamps, and the rules a clip is checked against; CapForge cuts nothing."),
     "batch": ("batch.md", "Publishing a set of videos: list by status, one record per call, revs, what to report, scratch runs."),
     "collections": ("collections.md", "An event's shared boilerplate: slots, brief overrides, the description template, assigning videos, adopting orphan ids."),
-    "channels": ("channels.md", "What a channel is: read get_channel before drafting for it, use its context (about, voice, title style and examples, naming, keywords, notes), leave its profile to the package; the primary channel is the brief."),
+    "channels": ("channels.md", "What a channel is and the video's post per channel: read get_channel before drafting for it, use its context (about, voice, title style and examples, naming, keywords, notes), leave its profile to the package, write posts per channel and per field, recent posts only when the user asks; the primary channel is the brief and the root fields."),
     "localized": ("localized.md", "Per-language title, description, tags, chapter titles and Shorts caption: which languages, one language per call, the merge, validating and packaging with lang."),
 }
 

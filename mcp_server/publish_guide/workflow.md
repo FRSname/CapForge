@@ -24,6 +24,9 @@ a title alone.
    `get_collection(collection_id)` instead: its `effective_brief` is the brief this
    video's package renders with, and its template already renders the event's
    boilerplate (`publish_guide("collections")`).
+   The video's other channels: for each channel under the record's `posts` (skip
+   posts with `hidden: true`), read `get_channel(channel_id)` before you write that
+   post, and use its context as the style reference (`publish_guide("channels")`).
 3. The transcript: `get_video_transcript(video_id)` from the library, or
    `get_transcript(segments_only=True)` for the open video. Ask for word-level
    timing only when you need it for a quote.
@@ -61,17 +64,29 @@ thumbnail          {"ideas": [{"label": "…", "type": "face", "headline": "≤4
 Plain text in every field — it is pasted into a form — except `summary_md`, which is
 markdown by definition. No `<` or `>` anywhere.
 
+The root `description`, `short_description`, `tags`, `hashtags` and `localized` are
+the **primary channel's post**, so the shapes above are how that post is written.
+Another channel's post goes under `posts`, keyed by its channel id, with only the
+fields its platform has, and merges per field:
+
+```
+posts   {"filip-ig": {"caption": "…", "hashtags": ["#DevOps"]}}   (TikTok, Instagram)
+        {"filip-li": {"text": "…", "hashtags": ["#Kubernetes"]}}  (LinkedIn, X)
+        {"second-yt": {"title": "…", "description": "…", "tags": ["…"]}}  (YouTube)
+```
+
 ## 4. Validate
 
 `validate_video(video_id)` answers `{hard, style, ok}`. Fix every hard finding and
 write again (a write that breaks one is refused, so a hard finding never sits
 unnoticed). Fix style findings unless the user told you otherwise. Only `ok: true`
-means the record is ready.
+means the record is ready. `validate_video(video_id, channel="filip-ig")` checks one
+channel's post against its platform; its findings name `posts.filip-ig.<field>`.
 
 ## 5. Present
 
 `get_upload_package(video_id)` returns the rendered text plus any violations still
-open. Show the text ready to copy and name what is left in `violations` instead of
+open; `get_upload_package(video_id, channel="filip-ig")` returns one channel's post. Show the text ready to copy and name what is left in `violations` instead of
 hiding it. Tell the user the same package lives in CapForge's Publish workspace,
 where every field is editable and "Copy upload package" copies the same text.
 
@@ -92,10 +107,17 @@ clipboard text: nothing is posted, so hand the text to the user. A post reads
 won't paste as-is. Shorten the field it came from, never the post, and read it again;
 X never cuts the title, it only drops hashtags from the end.
 
+These posts are derived from the YouTube fields. When the video has a post of its own
+for that platform's channel under `posts`, render that instead with
+`get_upload_package(video_id, channel=…)`; `channel` and `platform` are never passed
+together.
+
 ## 6. Later
 
 - When the user pastes the published URL: `mark_published(video_id, url)`. That is
-  what moves the record to `published`; CapForge uploads nothing.
+  what moves the record to `published`; CapForge uploads nothing. It records the
+  primary channel's post; `mark_published(video_id, url, channel="filip-ig")` records
+  where another channel's post went live.
 - A later run starts by reading the record again, not by regenerating. Fill the
   placeholder the user has now answered, or change the one field they asked about,
   and read the package again.
