@@ -151,6 +151,16 @@ function createWindow() {
 
   mainWindow = new BrowserWindow(opts)
 
+  // The embedded tutorial player's "Watch on YouTube" link (and anything else
+  // that calls window.open) must never open a second Electron window: that
+  // window would have no chrome, no way back, and a renderer of its own.
+  // An allowlisted link is handed to the real browser instead, everything
+  // else is dropped, and the popup is denied either way.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (isAllowedExternalUrl(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+
   // In dev mode, disable Chromium's HTTP cache so Vite module updates are always fresh
   if (process.env['ELECTRON_RENDERER_URL']) {
     mainWindow.webContents.session.clearCache()

@@ -54,8 +54,15 @@ describe('StartupGuideDialog', () => {
     expect(html).not.toContain('Get started')
   })
 
-  test('the tutorial link sits under the footer', () => {
-    expect(dialog()).toContain('Watch the tutorial')
+  test('the tutorial line sits under the footer', () => {
+    const html = dialog()
+    expect(html).toContain('Prefer to watch?')
+    expect(html).toContain('Watch the tutorial')
+    expect(html).toContain('Open in browser')
+  })
+
+  test('the video is click to load, so opening the guide loads nothing', () => {
+    expect(dialog()).not.toContain('<iframe')
   })
 
   test('the first step has no action button of its own', () => {

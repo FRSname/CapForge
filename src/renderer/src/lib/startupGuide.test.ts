@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from 'vitest'
 import { APP_SETTINGS_CATEGORIES } from './appSettingsIndex'
-import { GUIDE_STEPS, TUTORIAL_URL } from './startupGuide'
+import { GUIDE_STEPS, TUTORIAL_EMBED_URL, TUTORIAL_URL, TUTORIAL_VIDEO_ID } from './startupGuide'
 
 const EXPECTED_STEPS = 7
 const MAX_PARAGRAPH_CHARS = 320
@@ -62,6 +62,14 @@ describe('GUIDE_STEPS', () => {
   })
 
   test('the tutorial link is the one the changelog points at', () => {
+    expect(TUTORIAL_VIDEO_ID).toBe('7xxLt5FEq1E')
     expect(TUTORIAL_URL).toBe('https://www.youtube.com/watch?v=7xxLt5FEq1E')
+  })
+
+  test('the embed URL is the same video on the nocookie host', () => {
+    expect(TUTORIAL_EMBED_URL).toBe('https://www.youtube-nocookie.com/embed/7xxLt5FEq1E?rel=0')
+    const embed = new URL(TUTORIAL_EMBED_URL)
+    expect(embed.hostname).toBe('www.youtube-nocookie.com')
+    expect(embed.pathname).toContain(TUTORIAL_VIDEO_ID)
   })
 })

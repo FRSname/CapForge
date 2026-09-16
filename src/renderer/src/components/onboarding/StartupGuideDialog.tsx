@@ -11,9 +11,10 @@
 import { useEffect, useState } from 'react'
 import type { AppSettingsCategoryId } from '../../lib/appSettingsIndex'
 import type { GuideAction, GuideStep } from '../../lib/startupGuide'
-import { GUIDE_STEPS, TUTORIAL_URL } from '../../lib/startupGuide'
+import { GUIDE_STEPS } from '../../lib/startupGuide'
 import { Button } from '../ui/Button'
 import { ModalShell } from '../ui/ModalShell'
+import { TutorialPlayer } from './TutorialPlayer'
 
 const FIRST_STEP = 0
 
@@ -34,25 +35,8 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return el.closest('input, textarea, select, [contenteditable="true"]') !== null
 }
 
-export function StartupGuideDialog({
-  open,
-  onClose,
-  onOpenSettings,
-  onOpenUrl,
-}: StartupGuideDialogProps) {
-  const [index, setIndex] = useState(FIRST_STEP)
-  const [wasOpen, setWasOpen] = useState(open)
-  const last = GUIDE_STEPS.length - 1
-  const step = GUIDE_STEPS[Math.min(index, last)]
-
-  // Every opening starts at the beginning, however it was closed last time.
-  // Adjusted during render rather than in an effect (the React-documented way
-  // to reset state when a prop changes), so there is no second paint.
-  if (open !== wasOpen) {
-    setWasOpen(open)
-    if (open) setIndex(FIRST_STEP)
-  }
-
+/** Left/right arrows step the guide while it is open, except while typing. */
+function useStepKeyboard(open: boolean, last: number, setIndex: SetIndex) {
   useEffect(() => {
     if (!open) return
     function onKeyDown(e: KeyboardEvent) {
@@ -65,7 +49,36 @@ export function StartupGuideDialog({
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [open, last])
+  }, [open, last, setIndex])
+}
+
+type SetIndex = (update: (current: number) => number) => void
+
+export function StartupGuideDialog({
+  open,
+  onClose,
+  onOpenSettings,
+  onOpenUrl,
+}: StartupGuideDialogProps) {
+  const [index, setIndex] = useState(FIRST_STEP)
+  const [showTutorial, setShowTutorial] = useState(false)
+  const [wasOpen, setWasOpen] = useState(open)
+  const last = GUIDE_STEPS.length - 1
+  const step = GUIDE_STEPS[Math.min(index, last)]
+
+  // Every opening starts at the beginning, however it was closed last time,
+  // and with the video collapsed so nothing loads until it is asked for.
+  // Adjusted during render rather than in an effect (the React-documented way
+  // to reset state when a prop changes), so there is no second paint.
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setIndex(FIRST_STEP)
+      setShowTutorial(false)
+    }
+  }
+
+  useStepKeyboard(open, last, setIndex)
 
   function runAction(action: GuideAction) {
     // Both actions leave the dialog: Settings would open behind it, and a link
@@ -77,25 +90,32 @@ export function StartupGuideDialog({
 
   return (
     <ModalShell open={open} onClose={onClose} label="Welcome to CapForge">
-      <div className="flex items-center justify-between gap-3">
-        <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
-          Welcome to CapForge
-        </h2>
-        <span className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
-          Step {index + 1} of {GUIDE_STEPS.length}
-        </span>
-      </div>
+      <GuideHeader index={index} />
 
       <StepBody step={step} onAction={runAction} />
 
-      <GuideFooter
-        index={index}
-        last={last}
-        onSelect={setIndex}
-        onClose={onClose}
+      <GuideFooter index={index} last={last} onSelect={setIndex} onClose={onClose} />
+
+      <TutorialPlayer
+        expanded={showTutorial}
+        onToggle={() => setShowTutorial((shown) => !shown)}
         onOpenUrl={onOpenUrl}
       />
     </ModalShell>
+  )
+}
+
+/** The dialog's name and the step counter. */
+function GuideHeader({ index }: { index: number }) {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <h2 className="text-sm font-semibold" style={{ color: 'var(--color-text)' }}>
+        Welcome to CapForge
+      </h2>
+      <span className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
+        Step {index + 1} of {GUIDE_STEPS.length}
+      </span>
+    </div>
   )
 }
 
@@ -104,59 +124,44 @@ interface GuideFooterProps {
   last: number
   onSelect: (index: number) => void
   onClose: () => void
-  onOpenUrl: (url: string) => void
 }
 
-/** Skip, the dot rail, Back/Next, and the tutorial line under them. */
-function GuideFooter({ index, last, onSelect, onClose, onOpenUrl }: GuideFooterProps) {
+/** Skip, the dot rail and Back/Next. */
+function GuideFooter({ index, last, onSelect, onClose }: GuideFooterProps) {
   const onLast = index >= last
   return (
-    <>
-      <div className="flex items-center justify-between gap-3 pt-1">
-        <div className="flex items-center gap-3">
-          {!onLast && (
-            <button
-              type="button"
-              className="text-2xs underline underline-offset-2 hover:opacity-80"
-              style={{ color: 'var(--color-text-3)' }}
-              onClick={onClose}
-            >
-              Skip
-            </button>
-          )}
-          <DotRail count={last + 1} current={index} onSelect={onSelect} />
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            className="text-xs"
-            disabled={index === FIRST_STEP}
-            onClick={() => onSelect(Math.max(index - 1, FIRST_STEP))}
+    <div className="flex items-center justify-between gap-3 pt-1">
+      <div className="flex items-center gap-3">
+        {!onLast && (
+          <button
+            type="button"
+            className="text-2xs underline underline-offset-2 hover:opacity-80"
+            style={{ color: 'var(--color-text-3)' }}
+            onClick={onClose}
           >
-            Back
-          </Button>
-          <Button
-            variant="primary"
-            className="text-xs"
-            onClick={() => (onLast ? onClose() : onSelect(Math.min(index + 1, last)))}
-          >
-            {onLast ? 'Get started' : 'Next'}
-          </Button>
-        </div>
+            Skip
+          </button>
+        )}
+        <DotRail count={last + 1} current={index} onSelect={onSelect} />
       </div>
-
-      <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
-        Prefer to watch?{' '}
-        <button
-          type="button"
-          className="underline underline-offset-2 hover:opacity-80"
-          style={{ color: 'var(--color-text-2)' }}
-          onClick={() => onOpenUrl(TUTORIAL_URL)}
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          className="text-xs"
+          disabled={index === FIRST_STEP}
+          onClick={() => onSelect(Math.max(index - 1, FIRST_STEP))}
         >
-          ▶ Watch the tutorial
-        </button>
-      </p>
-    </>
+          Back
+        </Button>
+        <Button
+          variant="primary"
+          className="text-xs"
+          onClick={() => (onLast ? onClose() : onSelect(Math.min(index + 1, last)))}
+        >
+          {onLast ? 'Get started' : 'Next'}
+        </Button>
+      </div>
+    </div>
   )
 }
 
