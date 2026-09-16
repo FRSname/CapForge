@@ -1,6 +1,8 @@
 /**
  * The library masthead's actions: the collection filter and "New collection…"
- * (only while the library has videos), then Import… and Add video.
+ * (only while the library has videos), the view controls (`LibraryViewControls`:
+ * search, sort, grid/list, icon size — also only while it has videos), then
+ * Import… and Add video.
  *
  * Layout rules, because this row used to break: no button label ever wraps
  * (`whitespace-nowrap`), and when the row runs out of room it wraps as a row
@@ -12,9 +14,11 @@
 
 import type { CreateCollectionResult } from '../../lib/collectionCreate'
 import type { ImportPickMode } from '../../lib/libraryImport'
+import type { LibraryViewPrefs } from '../../lib/libraryPrefs'
 import type { CollectionFilter, CollectionFilterOption } from '../../lib/libraryView'
 import { Button } from '../ui/Button'
 import { ImportButton } from './ImportButton'
+import { LibraryViewControls } from './LibraryViewControls'
 import { NewCollectionPopover } from './NewCollectionForm'
 
 /** The filter sizes to its longest option, within these bounds. */
@@ -30,6 +34,11 @@ export interface LibraryToolbarProps {
   /** Import… — open the picker in this mode and import what is picked. */
   onImport: (mode: ImportPickMode) => void
   onAddVideo: () => void
+  /** The layout, icon size and sort; null hides the view controls (an empty library). */
+  view: LibraryViewPrefs | null
+  onViewChange: (next: LibraryViewPrefs) => void
+  searchQuery: string
+  onSearchChange: (query: string) => void
 }
 
 export function LibraryToolbar({
@@ -39,6 +48,10 @@ export function LibraryToolbar({
   onCreateCollection,
   onImport,
   onAddVideo,
+  view,
+  onViewChange,
+  searchQuery,
+  onSearchChange,
 }: LibraryToolbarProps) {
   return (
     <div className="app-no-drag flex min-w-0 flex-wrap items-center justify-end gap-2">
@@ -55,6 +68,14 @@ export function LibraryToolbar({
             onCreated={(collection) => onFilterChange(collection.id)}
           />
         </>
+      )}
+      {view && (
+        <LibraryViewControls
+          view={view}
+          onViewChange={onViewChange}
+          searchQuery={searchQuery}
+          onSearchChange={onSearchChange}
+        />
       )}
       <ImportButton onImport={onImport} align="end" />
       <Button variant="primary" className="whitespace-nowrap text-xs" onClick={onAddVideo}>

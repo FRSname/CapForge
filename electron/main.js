@@ -973,37 +973,6 @@ function registerIpcHandlers() {
     appState.set('lastProjectPath', result.filePath)
     return result.filePath
   })
-
-  // IPC: Open project file (.capforge)
-  ipcMain.handle('project:open', async () => {
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Open CapForge Project',
-      defaultPath: appState.get('lastProjectPath') || undefined,
-      filters: [{ name: 'CapForge Project', extensions: ['capforge'] }],
-      properties: ['openFile'],
-    })
-    if (result.canceled || !result.filePaths[0]) return null
-    const filePath = result.filePaths[0]
-    const content = fs.readFileSync(filePath, 'utf-8')
-    const data = JSON.parse(content)
-    data._filePath = filePath
-    appState.set('lastProjectPath', filePath)
-    return data
-  })
-
-  // IPC: multi-select .capforge picker for the library's "Import project
-  // files...". Paths only — the backend reads and validates the files.
-  ipcMain.handle('dialog:open-projects', async () => {
-    const lastProject = appState.get('lastProjectPath')
-    const result = await dialog.showOpenDialog(mainWindow, {
-      title: 'Import CapForge Projects',
-      defaultPath: lastProject ? path.dirname(lastProject) : undefined,
-      filters: [{ name: 'CapForge project', extensions: ['capforge'] }],
-      properties: ['openFile', 'multiSelections'],
-    })
-    if (result.canceled) return []
-    return result.filePaths
-  })
 }
 
 app.on('window-all-closed', () => {

@@ -49,6 +49,12 @@ export interface LibraryVideo {
    * none or the value is not a frame name.
    */
   cover: string | null
+  /**
+   * The channel ids with a visible, published post (`store_posts.published_on`,
+   * derived at read time). Present only when the backend sent a list: the
+   * single-record view and older backends have none, which reads as "nowhere".
+   */
+  publishedOn?: string[]
 }
 
 /** A thumbnail frame's file name — `backend/library/frames.py` `FRAME_NAME_RE`. */
@@ -99,6 +105,14 @@ function coverName(cover: unknown): string | null {
   return typeof cover === 'string' && FRAME_NAME_RE.test(cover) ? cover : null
 }
 
+/** `publishedOn` as a key to spread: omitted unless the backend sent a list. */
+function publishedOnOf(row: Record<string, unknown>): { publishedOn?: string[] } {
+  if (!Array.isArray(row.publishedOn)) return {}
+  return {
+    publishedOn: row.publishedOn.filter((id): id is string => typeof id === 'string' && id !== ''),
+  }
+}
+
 function isStatus(value: unknown): value is LibraryStatus {
   return typeof value === 'string' && (LIBRARY_STATUSES as readonly string[]).includes(value)
 }
@@ -138,6 +152,7 @@ export function parseLibraryVideo(value: unknown, index: number): LibraryVideo {
     hasProject: row.hasProject === true,
     poster: row.poster === true,
     cover: coverName(row.cover),
+    ...publishedOnOf(row),
   }
 }
 

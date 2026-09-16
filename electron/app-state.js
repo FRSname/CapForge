@@ -6,7 +6,8 @@
  *
  * Keys currently in use:
  *   window           {x, y, width, height, maximized}
- *   lastProjectPath  string   — last opened .capforge file
+ *   lastProjectPath  string   — last saved .capforge file (Save's default and
+ *                               the v3 first-launch migration)
  *   lastOutputDir    string   — last directory used for export
  *   lastPreset       string   — last selected style preset name
  *   lastInputPath    string   — last audio/video file opened
@@ -15,6 +16,10 @@
  *                    string[] — channel ids the last import published to; the
  *                               import "Publish to:" sheet pre-ticks them, and
  *                               drops any the Settings list no longer has
+ *   libraryView      {layout: 'grid'|'list', tileSize: number,
+ *                     sort: {key, direction}}
+ *                             — the library's layout, icon size and sort;
+ *                               parsed per field by src/renderer/src/lib/libraryPrefs.ts
  *   whisper_model    string   — chosen Whisper model id ('' = auto-detect);
  *                               seeded by first-run setup, edited in Settings
  *

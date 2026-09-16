@@ -74,6 +74,27 @@ export function formatDuration(seconds: number | null | undefined): string {
   return `${hours}:${String(mins).padStart(PAD, '0')}:${ss}`
 }
 
+/** ISO → a short local date ("Sep 1"); empty when the backend sent nothing usable. */
+export function formatShortDate(iso: string): string {
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return ''
+  return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' })
+}
+
+/**
+ * The channels a video is published on, by name, in the record's order. A
+ * channel Settings no longer has, or any channel before the list has loaded,
+ * shows its id. Empty when it is published nowhere.
+ */
+export function publishedOnLabel(
+  channelIds: readonly string[] | undefined,
+  channels: ReadonlyArray<{ id: string; name: string }> | null
+): string {
+  if (!channelIds || channelIds.length === 0) return ''
+  const names = new Map((channels ?? []).map((channel) => [channel.id, channel.name]))
+  return channelIds.map((id) => names.get(id) ?? id).join(', ')
+}
+
 /** The four pips of the status rail, in ladder order. */
 export interface StatusPips {
   transcribed: boolean

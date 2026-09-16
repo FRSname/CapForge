@@ -11,6 +11,7 @@
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { LibraryVideo } from '../../lib/libraryTypes'
+import { DEFAULT_LIBRARY_VIEW_PREFS } from '../../lib/libraryPrefs'
 import { LibraryScreen, droppedNotMediaMessage } from './LibraryScreen'
 
 const LIT = 'background:var(--color-brand)'
@@ -53,6 +54,10 @@ function render(props: Partial<React.ComponentProps<typeof LibraryScreen>> = {})
       onForceLocate={noop}
       onCreateCollection={() => Promise.resolve({ kind: 'failed' as const })}
       onMoveToCollection={noop}
+      view={DEFAULT_LIBRARY_VIEW_PREFS}
+      onViewChange={noop}
+      search={{ query: '', matchIds: null }}
+      onSearchChange={noop}
       {...props}
     />
   )
@@ -282,5 +287,93 @@ describe('LibraryScreen posters', () => {
     expect(tag).toMatch(/height:\d+px/)
     expect(tag).toMatch(/width:\d+px/)
     expect(tag).not.toContain('aspect-ratio')
+  })
+})
+
+describe('LibraryScreen views', () => {
+  const resumable = video({
+    id: 'a'.repeat(32),
+    title: 'Resume me',
+    hasProject: true,
+    updatedAt: '2026-09-12T10:00:00Z',
+  })
+  const other = video({ id: 'b'.repeat(32), title: 'Other one', duration: 30 })
+  const videos = [other, resumable]
+
+  test('grid is the default: hero, cards, and the tile size as a CSS variable', () => {
+    const html = render({ videos })
+    expect(html).toContain('Continue Resume me')
+    expect(html).not.toContain('<table')
+    expect(html).toMatch(/<div class="grid [^"]*minmax\(var\(--library-tile\),1fr\)[^"]*"/)
+    expect(html).toContain('--library-tile:230px')
+  })
+
+  test('the icon size reaches the grid', () => {
+    const html = render({ videos, view: { ...DEFAULT_LIBRARY_VIEW_PREFS, tileSize: 320 } })
+    expect(html).toContain('--library-tile:320px')
+  })
+
+  test('the grid follows the chosen sort', () => {
+    const html = render({
+      videos: [
+        video({ id: 'c'.repeat(32), title: 'Zulu' }),
+        video({ id: 'd'.repeat(32), title: 'Alpha' }),
+      ],
+      view: { ...DEFAULT_LIBRARY_VIEW_PREFS, sort: { key: 'name', direction: 'asc' } },
+    })
+    expect(html.indexOf('Open Alpha')).toBeLessThan(html.indexOf('Open Zulu'))
+  })
+
+  test('list shows a table with every video, the hero included, and no hero', () => {
+    const html = render({ videos, view: { ...DEFAULT_LIBRARY_VIEW_PREFS, layout: 'list' } })
+    expect(html).toContain('<table')
+    expect(html).not.toContain('Continue Resume me')
+    expect(html).toContain('Open Resume me')
+    expect(html).toContain('Open Other one')
+    expect(html).not.toContain('--library-tile')
+    expect(html).toContain('>Collection<')
+  })
+
+  test('list rows follow the sort', () => {
+    const html = render({
+      videos,
+      view: { layout: 'list', tileSize: 230, sort: { key: 'duration', direction: 'asc' } },
+    })
+    expect(html.indexOf('Open Other one')).toBeLessThan(html.indexOf('Open Resume me'))
+  })
+
+  test('while searching the hero is hidden and only matches show', () => {
+    const html = render({
+      videos,
+      search: { query: 'other', matchIds: new Set([other.id]) },
+    })
+    expect(html).not.toContain('Continue Resume me')
+    expect(html).not.toContain('Open Resume me')
+    expect(html).toContain('Open Other one')
+    expect(html).toContain('1 of 2 videos')
+  })
+
+  test('a search whose result has not landed hides nothing but the hero', () => {
+    const html = render({ videos, search: { query: 'other', matchIds: null } })
+    expect(html).not.toContain('Continue Resume me')
+    expect(html).toContain('Open Resume me')
+    expect(html).toContain('Open Other one')
+  })
+
+  test('a search with no match says so, naming the query', () => {
+    const html = render({ videos, search: { query: 'nothing', matchIds: new Set() } })
+    expect(html).toContain('No videos match “nothing”.')
+    expect(html).not.toContain('Open Other one')
+  })
+
+  test('a match outside the view does not appear', () => {
+    const html = render({ videos, search: { query: 'x', matchIds: new Set(['z'.repeat(32)]) } })
+    expect(html).toContain('No videos match “x”.')
+  })
+
+  test('the empty library has no search, sort or layout controls', () => {
+    const html = render()
+    expect(html).not.toContain('Search the library')
+    expect(html).not.toContain('aria-label="Layout"')
   })
 })

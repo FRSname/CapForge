@@ -6,8 +6,9 @@
  * the two surfaces never drift apart.
  *
  * Handler locations:
- *   Global    → App.tsx (⌘S/⌘O/⌘Z/?), ResultsScreen.tsx (⌘Z subtitle undo),
- *               SettingsDialog.tsx (⌘, opens Settings)
+ *   Global    → App.tsx (⌘S/⌘Z/?), ResultsScreen.tsx (⌘Z subtitle undo),
+ *               SettingsDialog.tsx (⌘, opens Settings),
+ *               LibraryHome.tsx via useLibraryImportShortcut (⌘O, library only)
  *   Playback  → ResultsScreen.tsx playback keydown
  *   Editor    → ResultsScreen.tsx (⌘1/⌘2), SubtitleEditor.tsx contentEditable keydown
  *   Groups    → GroupEditor.tsx list keydown (list must be focused)
@@ -30,7 +31,7 @@ export const SHORTCUT_SECTIONS: ShortcutSection[] = [
     title: 'Global',
     items: [
       { keys: ['⌘S'], description: 'Save project' },
-      { keys: ['⌘O'], description: 'Open project' },
+      { keys: ['⌘O'], description: 'Import… (library)' },
       { keys: ['⌘Z', '⌘⇧Z'], description: 'Undo / Redo' },
       { keys: ['?'], description: 'Keyboard shortcuts' },
       { keys: ['⌘,'], description: 'Open settings' },

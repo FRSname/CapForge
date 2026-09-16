@@ -101,6 +101,20 @@ describe('parseLibraryList', () => {
     })
   })
 
+  test('reads publishedOn (the channels a video is published on) when the backend sends it', () => {
+    const [parsed] = parseLibraryList({ videos: [{ ...ROW, publishedOn: ['main', 'shorts'] }] })
+    expect(parsed.publishedOn).toEqual(['main', 'shorts'])
+  })
+
+  test('tolerates an absent or malformed publishedOn', () => {
+    const [absent] = parseLibraryList({ videos: [ROW] })
+    expect(absent).not.toHaveProperty('publishedOn')
+    const [junk] = parseLibraryList({ videos: [{ ...ROW, publishedOn: 'main' }] })
+    expect(junk).not.toHaveProperty('publishedOn')
+    const [mixed] = parseLibraryList({ videos: [{ ...ROW, publishedOn: ['main', '', 7, null] }] })
+    expect(mixed.publishedOn).toEqual(['main'])
+  })
+
   test('drops a non-finite duration rather than carrying NaN into the card', () => {
     const [parsed] = parseLibraryList({ videos: [{ ...ROW, duration: 'soon' }] })
     expect(parsed.duration).toBeNull()
