@@ -3,6 +3,8 @@ import {
   MIN_WORD_DUR,
   joinWords,
   normalizeToken,
+  replaceSegmentWord,
+  replaceWordText,
   retimeWords,
   setWordSpan,
   tokenize,
@@ -365,6 +367,109 @@ describe('setWordSpan', () => {
     setWordSpan(segments, 'a0', { start: 0.1, end: 0.4 })
 
     // Assert
+    expect(JSON.stringify(segments)).toBe(before)
+  })
+})
+
+// ── replaceWordText / replaceSegmentWord ─────────────────────────
+//
+// The timeline word popup's text correction. Like the drag above it has to
+// reach the segment, or the next Text-view edit restores the old word.
+
+describe('replaceWordText', () => {
+  const target: Word = {
+    word: 'teh',
+    start: 1,
+    end: 1.5,
+    wid: 'x1',
+    overrides: { text_color: '#f00' },
+  }
+
+  test('one token keeps the slot: timing, id and overrides', () => {
+    // Arrange / Act / Assert
+    expect(replaceWordText(target, ' the ')).toEqual([{ ...target, word: 'the' }])
+  })
+
+  test('several tokens are retimed inside the word’s own span, the first keeping the id', () => {
+    // Act
+    const out = replaceWordText(target, 'the big')
+
+    // Assert
+    expect(out.map((w) => w.word)).toEqual(['the', 'big'])
+    expect(out[0].start).toBe(1)
+    expect(out[1].end).toBe(1.5)
+    expectMonotonic(out)
+    expect(out[0].wid).toBe('x1')
+    expect(out[1].wid).toBeTruthy()
+    expect(out[1].wid).not.toBe('x1')
+  })
+
+  test('empty text removes the word', () => {
+    expect(replaceWordText(target, '   ')).toEqual([])
+  })
+
+  test('never mutates the target', () => {
+    const before = JSON.stringify(target)
+    replaceWordText(target, 'a b c')
+    expect(JSON.stringify(target)).toBe(before)
+  })
+})
+
+describe('replaceSegmentWord', () => {
+  const idWord = (word: string, start: number, end: number, wid: string): Word => ({
+    ...w(word, start, end),
+    wid,
+  })
+  const segA = (): Segment => ({
+    id: 'a',
+    start: 0,
+    end: 1.5,
+    text: 'Hello teh world',
+    words: [
+      idWord('Hello', 0, 0.5, 'a0'),
+      idWord('teh', 0.5, 1.0, 'a1'),
+      idWord('world', 1.0, 1.5, 'a2'),
+    ],
+  })
+  const segB = (): Segment => ({
+    id: 'b',
+    start: 2,
+    end: 2.5,
+    text: 'Bye',
+    words: [idWord('Bye', 2, 2.5, 'b0')],
+  })
+
+  test('splices the replacement in place and re-joins the segment text', () => {
+    // Arrange
+    const segments = [segA(), segB()]
+    const replacement = replaceWordText(segments[0].words[1], 'the big')
+
+    // Act
+    const out = replaceSegmentWord(segments, 'a1', replacement)
+
+    // Assert
+    expect(out[0].words.map((x) => x.word)).toEqual(['Hello', 'the', 'big', 'world'])
+    expect(out[0].text).toBe('Hello the big world')
+    expect(out[0].words[0]).toBe(segments[0].words[0])
+    expect(out[0].words[3]).toBe(segments[0].words[2])
+    expect(out[1]).toBe(segments[1])
+  })
+
+  test('an empty replacement removes the word without leaving a double space', () => {
+    const out = replaceSegmentWord([segA()], 'a1', [])
+    expect(out[0].text).toBe('Hello world')
+    expect(out[0].words).toHaveLength(2)
+  })
+
+  test('returns the same array when no word carries that id', () => {
+    const segments = [segA()]
+    expect(replaceSegmentWord(segments, 'nope', [])).toBe(segments)
+  })
+
+  test('never mutates its input', () => {
+    const segments = [segA()]
+    const before = JSON.stringify(segments)
+    replaceSegmentWord(segments, 'a1', [idWord('the', 0.5, 1.0, 'a1')])
     expect(JSON.stringify(segments)).toBe(before)
   })
 })

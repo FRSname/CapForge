@@ -14,8 +14,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { GroupPositionOverride, Segment, WordOverrides } from '../types/app'
-import { joinWords, retimeWords, tokenize } from '../lib/wordTiming'
-import { withWordIds } from '../lib/wordIds'
+import { joinWords, replaceSegmentWord, replaceWordText, setWordSpan } from '../lib/wordTiming'
 
 interface UseTimelineEditingArgs {
   /** The raw groups the editor owns. */
@@ -38,15 +37,16 @@ interface UseTimelineEditingArgs {
    */
   translated?: boolean
   /**
-   * Source track only: called with the placed word's `wid` and span on every
-   * word-lane drag tick, so the caller can write the same span into the
-   * segments (`setWordSpan`, lib/wordTiming.ts). A group word's timing is
-   * refreshed from its segment twin on the next segments commit, so a placement
-   * that stays in the group alone is undone by the next text edit. A translated
+   * Source track only: commit an update to the transcript segments. The word
+   * lane drag and the word popup's text fix both edit a *source* word, and a
+   * group word is refreshed from its segment twin on the next segments commit,
+   * so an edit that stays in the group alone is undone by the next Text-view
+   * edit. Both gestures therefore write the same change through here
+   * (`setWordSpan` / `replaceSegmentWord`, lib/wordTiming.ts). A translated
    * track's words have no segment twin — its segments are derived from the
    * groups — so it is never called there.
    */
-  onSourceWordPlaced?: (wid: string, span: { start: number; end: number }) => void
+  commitSourceSegments?: (update: (prev: Segment[]) => Segment[]) => void
 }
 
 export function useTimelineEditing({
@@ -56,7 +56,7 @@ export function useTimelineEditing({
   onPositionChange: handleGroupsPositionChange,
   pushUndo,
   translated = false,
-  onSourceWordPlaced,
+  commitSourceSegments,
 }: UseTimelineEditingArgs) {
   // Timeline right-click on a word in the word lane → style/text popup.
   // Word identity is positional (groupIdx + wordIdx), not id-based — see the
@@ -161,10 +161,10 @@ export function useTimelineEditing({
       setGroupsEdited(true)
       if (!translated) {
         const wid = groups.find((g) => g.id === segId)?.words[wordIdx]?.wid
-        if (wid) onSourceWordPlaced?.(wid, patch)
+        if (wid) commitSourceSegments?.((prev) => setWordSpan(prev, wid, patch))
       }
     },
-    [groups, setGroups, setGroupsEdited, translated, onSourceWordPlaced]
+    [groups, setGroups, setGroupsEdited, translated, commitSourceSegments]
   )
 
   const handleWordEdgeDragStart = useCallback(() => {
@@ -218,49 +218,36 @@ export function useTimelineEditing({
     [pushUndo, setGroups, setGroupsEdited]
   )
 
-  // Text correction from the timeline word popup — preserves start/end/
-  // overrides via spread (SubtitleEditor.tsx's word-edit pattern) and rebuilds
-  // the group's joined text. A boundary-locking edit (Open decision #1): it
-  // flips groupsEdited exactly like GroupEditor/SubtitleEditor text edits.
-  // Same lazy one-snapshot-per-session undo push as applyTimelineWordOverride.
+  // Text correction from the timeline word popup. One token keeps the word's
+  // slot (timing, id, overrides); several split it inside its own span
+  // (`replaceWordText`). A boundary-locking edit (Open decision #1): it flips
+  // groupsEdited exactly like GroupEditor/SubtitleEditor text edits. On the
+  // source track the same replacement goes into the segment too, so the next
+  // Text-view edit does not restore the old word. Same lazy one-snapshot-per-
+  // session undo push as applyTimelineWordOverride.
   const applyTimelineWordText = useCallback(
     (gi: number, wi: number, newText: string) => {
+      const target = groups[gi]?.words[wi]
+      if (!target) return
       if (!wordPopupUndoPushedRef.current) {
         pushUndo()
         wordPopupUndoPushedRef.current = true
       }
+      const replacement = replaceWordText(target, newText)
       setGroups((prev) =>
         prev.map((g, idx) => {
-          if (idx !== gi) return g
-          const target = g.words[wi]
-          if (!target) return g
-          const tokens = tokenize(newText)
-          // One token in, one token out — the common typo fix. Spread so the
-          // word keeps its exact timing and overrides.
-          const replacement =
-            tokens.length === 1
-              ? [{ ...target, word: tokens[0] }]
-              : // Typing two words splits this word: retime strictly inside its
-                // own span so no neighbour moves (lib/wordTiming.ts). The first
-                // piece keeps the original `wid` so the group still anchors to a
-                // word the segments know about; the extras get fresh ids. This
-                // edit is group-only (segments are untouched), so a later
-                // segments edit still refreshes the first piece's text from the
-                // source and drops the extras — the same divergence the previous
-                // index-based sync had, deliberately not widened here.
-                withWordIds(
-                  retimeWords([target], tokens, {
-                    start: target.start,
-                    end: target.end,
-                  }).map((w, k) => (k === 0 && target.wid ? { ...w, wid: target.wid } : w))
-                )
+          if (idx !== gi || !g.words[wi]) return g
           const words = [...g.words.slice(0, wi), ...replacement, ...g.words.slice(wi + 1)]
           return { ...g, words, text: joinWords(words) }
         })
       )
       setGroupsEdited(true)
+      const wid = target.wid
+      if (!translated && wid) {
+        commitSourceSegments?.((prev) => replaceSegmentWord(prev, wid, replacement))
+      }
     },
-    [pushUndo, setGroups, setGroupsEdited]
+    [groups, pushUndo, setGroups, setGroupsEdited, translated, commitSourceSegments]
   )
 
   // Timeline group block right-click → open the position-override popup for

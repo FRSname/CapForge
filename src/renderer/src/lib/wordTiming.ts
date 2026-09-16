@@ -18,6 +18,7 @@
  */
 
 import type { Segment, Word } from '../types/app'
+import { withWordIds } from './wordIds'
 
 /** Minimum duration a retimed word may occupy, in seconds. */
 export const MIN_WORD_DUR = 0.04
@@ -306,4 +307,44 @@ export function setWordSpan(
     end: Math.max(seg.end, span.end),
   }
   return segments.map((s, i) => (i === si ? placed : s))
+}
+
+/**
+ * Correct one word's text by hand (the timeline word popup). One token is the
+ * same slot — it keeps its timing, its `wid` and its overrides. Several tokens
+ * split the word: they are retimed strictly inside its own span so no neighbour
+ * moves, the first piece keeps the `wid` (so the group still anchors to a word
+ * the segments know about) and the rest get fresh ids. Empty text removes it.
+ *
+ * The result is meant to be spliced into the group *and* into the segment
+ * (`replaceSegmentWord`) — one computation, so both sides carry the same ids
+ * and `reconcileGroups` matches every piece back to its group.
+ */
+export function replaceWordText(target: Word, text: string): Word[] {
+  const tokens = tokenize(text)
+  if (tokens.length === 1) return [{ ...target, word: tokens[0] }]
+  const retimed = retimeWords([target], tokens, { start: target.start, end: target.end })
+  return withWordIds(retimed).map((w, k) => (k === 0 && target.wid ? { ...w, wid: target.wid } : w))
+}
+
+/**
+ * Splice `replacement` in place of the segment word carrying `wid` and re-join
+ * that segment's text. The write-through twin of `replaceWordText`: a group
+ * word's text is refreshed from its segment on the next segments commit, so a
+ * correction that reached the group alone was undone by the next text edit.
+ *
+ * Returns the input array itself when no word carries `wid`.
+ */
+export function replaceSegmentWord(
+  segments: Segment[],
+  wid: string,
+  replacement: readonly Word[]
+): Segment[] {
+  const si = segments.findIndex((s) => s.words.some((w) => w.wid === wid))
+  if (si === -1) return segments
+  const seg = segments[si]
+  const at = seg.words.findIndex((w) => w.wid === wid)
+  const words = [...seg.words.slice(0, at), ...replacement, ...seg.words.slice(at + 1)]
+  const next: Segment = { ...seg, words, text: joinWords(words) }
+  return segments.map((s, i) => (i === si ? next : s))
 }

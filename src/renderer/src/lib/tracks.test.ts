@@ -13,7 +13,7 @@ import { classifyTrack, buildSourceIndex } from './trackStaleness'
 import { bakeTranslation } from './trackTiming'
 import { buildStudioGroups } from './groups'
 import { chunkTranslatedGroups } from './trackChunking'
-import { setWordSpan } from './wordTiming'
+import { joinWords, replaceSegmentWord, replaceWordText, setWordSpan } from './wordTiming'
 import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
 import {
   makeSourceTrack,
@@ -647,5 +647,63 @@ describe('syncSegmentsIntoTrack — hand-placed word timing', () => {
     const brown = next.groups.flatMap((g) => g.words).find((w) => w.wid === 's1w2')!
     expect(brown.start).toBe(placed.start)
     expect(brown.end).toBe(placed.end)
+  })
+})
+
+// ── Popup text fix vs. a later text edit ─────────────────────────
+//
+// Same shape as the drag: the timeline word popup corrects one word. The
+// correction has to reach the segment, or the next Text-view edit restores
+// the old word from its segment twin.
+
+describe('syncSegmentsIntoTrack — popup text correction', () => {
+  const editFox = (segments: Segment[]): Segment[] =>
+    segments.map((s) => {
+      const words = s.words.map((w) => (w.word === 'fox' ? { ...w, word: 'lis' } : w))
+      return { ...s, words, text: words.map((w) => w.word).join(' ') }
+    })
+
+  /** What the popup does: replace 'brown' (s1w2) in the group AND the segment. */
+  const correct = (text: string): CaptionTrack => {
+    const target = source.groups[0].words[2]
+    const replacement = replaceWordText(target, text)
+    const groups = source.groups.map((g, i) => {
+      if (i !== 0) return g
+      const words = [...g.words.slice(0, 2), ...replacement, ...g.words.slice(3)]
+      return { ...g, words, text: joinWords(words) }
+    })
+    const segments = replaceSegmentWord(source.segments, 's1w2', replacement)
+    return { ...source, groupsEdited: true, groups, segments }
+  }
+
+  test('a one-word fix survives a later Text-view edit', () => {
+    // Arrange
+    const fixed = correct('brwn')
+
+    // Act
+    const next = syncSegmentsIntoTrack(fixed, editFox(fixed.segments), 3, false)
+
+    // Assert
+    expect(next.groups.map((g) => g.text)).toEqual(['the quick brwn', 'lis jumps over'])
+    const brwn = next.groups[0].words[2]
+    expect(brwn.wid).toBe('s1w2')
+    expect(brwn.start).toBe(1.0)
+    expect(brwn.end).toBe(1.5)
+  })
+
+  test('a split stays in its group, both pieces, across a later Text-view edit', () => {
+    // Arrange
+    const split = correct('br own')
+
+    // Act
+    const next = syncSegmentsIntoTrack(split, editFox(split.segments), 3, false)
+
+    // Assert
+    expect(next.groups.map((g) => g.words.map((w) => w.word))).toEqual([
+      ['the', 'quick', 'br', 'own'],
+      ['lis', 'jumps', 'over'],
+    ])
+    expect(next.groups[0].words[2].start).toBe(1.0)
+    expect(next.groups[0].words[3].end).toBe(1.5)
   })
 })
