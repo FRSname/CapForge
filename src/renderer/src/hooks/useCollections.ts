@@ -1,7 +1,7 @@
 /**
- * The collections list (`GET /api/library/collections`) for whoever needs the
- * names: the library filter and chips, the Publish card's select and Settings
- * → Collections.
+ * The collections list (`GET /api/library/collections`) — "folders" in the UI —
+ * for whoever needs it: the library sidebar, tiles and chips, the Publish
+ * card's select and Settings → Folders.
  *
  * Fetched on mount; `refresh` re-reads it (after a create, or when the Publish
  * card's select gets focus, since Settings may have changed it meanwhile). A
@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { CollectionOrphan, CollectionsList, NestedCollection } from '../lib/collectionTypes'
+import type { CollectionOrphan, CollectionsList, CollectionSummary } from '../lib/collectionTypes'
 import { listCollections } from '../lib/collectionsApi'
 
 export interface CollectionsInput {
@@ -21,14 +21,14 @@ export interface CollectionsInput {
 
 export interface CollectionsState {
   /** Flat, with each row's `parent_id`: build the tree with `lib/collectionTree.ts`. */
-  collections: NestedCollection[] | null
+  collections: CollectionSummary[] | null
   orphans: CollectionOrphan[]
   loading: boolean
   refresh: () => Promise<void>
 }
 
 export function collectionsFailedMessage(reason: string): string {
-  return `Could not read the collections: ${reason}`
+  return `Could not read the folders: ${reason}`
 }
 
 export function useCollections({ notify }: CollectionsInput): CollectionsState {

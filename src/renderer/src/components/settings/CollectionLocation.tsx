@@ -9,7 +9,7 @@
  * rules on the move; its refusal is shown under the select.
  */
 
-import type { NestedCollection } from '../../lib/collectionTypes'
+import type { CollectionSummary } from '../../lib/collectionTypes'
 import { moveTargets, pathLabel } from '../../lib/collectionTree'
 import { BriefFieldRow } from './BriefFields'
 
@@ -24,7 +24,7 @@ export interface CollectionLocationProps {
   collectionId: string
   parentId: string | null
   /** Every folder, flat, as the list answers it. */
-  collections: readonly NestedCollection[]
+  collections: readonly CollectionSummary[]
   /** Why the last move was refused, shown under the select; null when none. */
   error: string | null
   onMove: (parentId: string | null) => void

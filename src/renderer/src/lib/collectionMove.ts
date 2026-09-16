@@ -1,7 +1,8 @@
 /**
- * Moving one video into a collection from its library card: a per-video
- * `PATCH /api/library/{id}` with `{collection_id}` (decision 8: never a bulk
- * write).
+ * Moving videos into a collection — a "folder" in the UI — from a card's menu
+ * or by dragging: a per-video `PATCH /api/library/{id}` with `{collection_id}`
+ * (decision 8: never a bulk write). `runMoveVideos` runs a batch through the
+ * one-video path with one refresh and one summary at the end.
  *
  * The library list carries no `rev`, so `assignCollection` reads the record
  * for it and PATCHes with `If-Match`. A `409` means the record moved on
@@ -13,8 +14,10 @@
  */
 
 import { StaleRecordError, ValidationRefusedError } from './api'
+import { buildTree, flattenTree, pathLabel } from './collectionTree'
 import type { CollectionSummary } from './collectionTypes'
 import { collectionLabel } from './collections'
+import { LIBRARY_ROOT_LABEL, compareFolderNames } from './libraryLocation'
 import type { LibraryVideo } from './libraryTypes'
 import { displayTitle } from './libraryView'
 
@@ -75,7 +78,7 @@ export function moveFailureOf(err: unknown, title: string, target: string): Move
   ) {
     return {
       kind: 'unknown_collection',
-      message: `${target} no longer exists, so ${title} was not moved. The collections list has been refreshed.`,
+      message: `${target} no longer exists, so ${title} was not moved. The folders have been refreshed.`,
     }
   }
   if (err instanceof StaleRecordError) {
@@ -87,31 +90,65 @@ export function moveFailureOf(err: unknown, title: string, target: string): Move
   return { kind: 'failed', message: `Could not move ${title} to ${target}: ${reasonOf(err)}` }
 }
 
-/** How a move target is named in a message. */
+/** How a move target is named in a message: a folder's name, or the Library root. */
 export function moveTargetLabel(
   collections: ReadonlyArray<Pick<CollectionSummary, 'id' | 'name'>>,
   collectionId: string | null
 ): string {
-  return collectionLabel(collections, collectionId) ?? 'no collection'
+  return collectionLabel(collections, collectionId) ?? LIBRARY_ROOT_LABEL
 }
 
+/** One row of a folder picker. */
 export interface MoveOption {
+  /** A folder id, or null for the top level. */
   id: string | null
   label: string
+  /** The folder's full path, for the tooltip. */
+  title: string
+  /** 0 for Top level, 1 for a top-level folder… */
+  depth: number
   checked: boolean
 }
 
-/** None, every collection, and an orphan id the record carries (so its check isn't lost). */
+export const TOP_LEVEL_LABEL = 'Top level'
+const TOP_LEVEL_TITLE = 'Library — in no folder'
+
+export function topLevelOption(checked: boolean): MoveOption {
+  return { id: null, label: TOP_LEVEL_LABEL, title: TOP_LEVEL_TITLE, depth: 0, checked }
+}
+
+type TreeFolder = Pick<CollectionSummary, 'id' | 'name' | 'parent_id'>
+
+/**
+ * A video's "Move to folder": Top level, the whole tree by name (indented, the
+ * path in the tooltip), and an orphan id the record carries, so its check
+ * isn't lost.
+ */
 export function moveMenuOptions(
-  collections: ReadonlyArray<Pick<CollectionSummary, 'id' | 'name'>>,
+  collections: readonly TreeFolder[],
   currentId: string | null
 ): MoveOption[] {
-  const known = collections.map((c) => ({ id: c.id, label: c.name, checked: c.id === currentId }))
+  const rows = flattenTree(buildTree(collections, compareFolderNames))
+  const known = rows.map(({ item, depth }) => ({
+    id: item.id,
+    label: item.name,
+    title: pathLabel(collections, item.id),
+    depth,
+    checked: item.id === currentId,
+  }))
   const orphan =
     currentId !== null && !collections.some((c) => c.id === currentId)
-      ? [{ id: currentId, label: `${currentId} (no such collection)`, checked: true }]
+      ? [
+          {
+            id: currentId,
+            label: `${currentId} (no such folder)`,
+            title: currentId,
+            depth: 1,
+            checked: true,
+          },
+        ]
       : []
-  return [{ id: null, label: 'None', checked: currentId === null }, ...known, ...orphan]
+  return [topLevelOption(currentId === null), ...known, ...orphan]
 }
 
 export interface MoveDeps extends AssignDeps {
@@ -140,4 +177,41 @@ export async function runMoveToCollection(
   }
   await deps.refresh()
   return true
+}
+
+/** One toast for a batch: a lone video keeps its own message. */
+export function moveVideosFailedMessage(failures: readonly string[], total: number): string {
+  if (total <= 1 && failures.length === 1) return failures[0]
+  const more = failures.length > 1 ? ` (and ${failures.length - 1} more)` : ''
+  return `Couldn't move ${failures.length} of ${total}: ${failures[0]}${more}`
+}
+
+/**
+ * Move a batch (a drop, a card's menu) one video at a time through
+ * `runMoveToCollection`, then refresh the list and the folders (their counts
+ * changed) **once**, and toast every failure as one summary. One failure never
+ * stops the rest. Never rejects; returns how many moved.
+ */
+export async function runMoveVideos(
+  videos: ReadonlyArray<Pick<LibraryVideo, 'id' | 'title' | 'sourcePath'>>,
+  collectionId: string | null,
+  collections: ReadonlyArray<Pick<CollectionSummary, 'id' | 'name'>>,
+  deps: MoveDeps
+): Promise<number> {
+  if (videos.length === 0) return 0
+  const failures: string[] = []
+  const quiet: MoveDeps = {
+    ...deps,
+    refresh: () => Promise.resolve(),
+    refreshCollections: () => Promise.resolve(),
+    notify: (message) => failures.push(message),
+  }
+  let moved = 0
+  for (const video of videos) {
+    if (await runMoveToCollection(video, collectionId, collections, quiet)) moved += 1
+  }
+  await deps.refresh()
+  await deps.refreshCollections()
+  if (failures.length > 0) deps.notify(moveVideosFailedMessage(failures, videos.length))
+  return moved
 }

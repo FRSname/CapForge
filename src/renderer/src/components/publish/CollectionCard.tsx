@@ -1,6 +1,8 @@
 /**
- * Which collection this video belongs to — the event or series whose brief
- * overrides and slots its package is rendered with.
+ * Which folder (a collection, on the wire) this video belongs to — the event
+ * or series whose brief overrides and slots its package is rendered with. The
+ * picker lists the folder tree by path (`Events › UCK26`), so two "Day 1"
+ * folders under different events are never confused.
  *
  * Written at once through the immediate writer (`setCollection` →
  * `patchNow`), not the debounce: a select is a decision, not a draft. A `422
@@ -14,18 +16,20 @@ import type { PublishController } from '../../hooks/usePublishRecord'
 import { useCollections } from '../../hooks/useCollections'
 import { useToast } from '../../hooks/useToast'
 import type { CollectionSummary } from '../../lib/collectionTypes'
+import { buildTree, flattenTree, pathLabel } from '../../lib/collectionTree'
 import { overriddenFields, overridesSummary } from '../../lib/collections'
+import { compareFolderNames } from '../../lib/libraryLocation'
 import { requestSettingsCategory } from '../../lib/settingsNavigation'
 import { StudioCard } from '../studio/StudioCard'
 import { FieldHeader } from './FieldHeader'
 import { FieldViolations } from './FieldViolations'
 
 /** Said when Settings could not be opened for us. */
-export const MANAGE_COLLECTIONS_FALLBACK = 'Open Settings (⌘,) → Folders to manage collections.'
+export const MANAGE_COLLECTIONS_FALLBACK = 'Open Settings (⌘,) → Folders to manage folders.'
 
-const NO_COLLECTION_TEXT = 'No collection — the channel brief applies as it is.'
+const NO_FOLDER_TEXT = 'No folder — the channel brief applies as it is.'
 const ORPHAN_TEXT =
-  'No collection has this id, so the channel brief applies. Create it in Settings → Folders to adopt it.'
+  'No folder has this id, so the channel brief applies. Create it in Settings → Folders to adopt it.'
 
 interface CollectionCardProps {
   publish: PublishController
@@ -64,9 +68,10 @@ function summaryText(
   collection: CollectionSummary | undefined,
   loaded: boolean
 ): string {
-  if (current === null) return NO_COLLECTION_TEXT
-  if (collection)
+  if (current === null) return NO_FOLDER_TEXT
+  if (collection) {
     return overridesSummary(overriddenFields(collection.overrides).length, collection.name)
+  }
   return loaded ? ORPHAN_TEXT : ''
 }
 
@@ -80,25 +85,26 @@ export function CollectionCardView({
   const list = collections ?? []
   const collection = list.find((c) => c.id === current)
   const loaded = collections !== null
+  const rows = flattenTree(buildTree(list, compareFolderNames))
 
   return (
-    <StudioCard title="Collection" defaultOpen={current !== null}>
+    <StudioCard title="Folder" defaultOpen={current !== null}>
       <FieldHeader publish={publish} field="collection_id" />
       <select
         className="field-input"
-        aria-label="Collection"
+        aria-label="Folder"
         value={current ?? ''}
         onFocus={onRefresh}
         onChange={(e) => publish.setCollection(e.target.value || null)}
       >
         <option value="">None</option>
-        {list.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.name}
+        {rows.map(({ item }) => (
+          <option key={item.id} value={item.id}>
+            {pathLabel(list, item.id)}
           </option>
         ))}
         {current !== null && !collection && (
-          <option value={current}>{loaded ? `${current} (no such collection)` : current}</option>
+          <option value={current}>{loaded ? `${current} (no such folder)` : current}</option>
         )}
       </select>
       <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
@@ -111,7 +117,7 @@ export function CollectionCardView({
         style={{ color: 'var(--color-brand)' }}
         onClick={onManage}
       >
-        Manage collections…
+        Manage folders…
       </button>
     </StudioCard>
   )

@@ -61,6 +61,9 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
   // Survives a close/reopen: the dialog reopens where the user left it.
   const [category, setCategory] = useState<AppSettingsCategoryId>('general')
   const [query, setQuery] = useState('')
+  // A folder the library asked to open on ("Folder settings…"). The nonce
+  // remounts the Folders pane, so asking again while it is open still selects.
+  const [folderFocus, setFolderFocus] = useState<{ id: string; nonce: number } | null>(null)
 
   const { categories: matching } = filterAppSettings(query)
   const filtering = query.trim() !== ''
@@ -90,12 +93,16 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onOpen])
 
-  // A card elsewhere asked for a category ("Manage collections…"): open on it.
+  // A card elsewhere asked for a category ("Manage folders…", "Folder
+  // settings…"): open on it, and on the folder when one was named.
   useEffect(
     () =>
-      onSettingsCategoryRequested((next) => {
+      onSettingsCategoryRequested((next, focus) => {
         setQuery('')
         setCategory(next)
+        setFolderFocus((was) =>
+          focus.collectionId ? { id: focus.collectionId, nonce: (was?.nonce ?? 0) + 1 } : null
+        )
         onOpen()
       }),
     [onOpen]
@@ -103,8 +110,10 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
 
   // Closing clears the search: the category the user was on is worth keeping
   // across a reopen, a half-typed query is not (it would keep the rail dimmed).
+  // A requested folder is not kept either: ⌘, reopens on the list as it was.
   function close() {
     setQuery('')
+    setFolderFocus(null)
     onClose()
   }
 
@@ -115,6 +124,7 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
       if (e.key === 'Escape') {
         e.preventDefault()
         setQuery('')
+        setFolderFocus(null)
         onClose()
       }
     }
@@ -191,7 +201,12 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
               <GeneralSettings lightMode={lightMode} onLightModeChange={setLightMode} />
             )}
             {category === 'channels' && <ChannelsSettings />}
-            {category === 'collections' && <CollectionsSettings />}
+            {category === 'collections' && (
+              <CollectionsSettings
+                key={folderFocus?.nonce ?? 0}
+                initialSelectedId={folderFocus?.id ?? null}
+              />
+            )}
             {category === 'transcription' && <TranscriptionSettings />}
             {category === 'claude' && <ClaudeSettings />}
             {category === 'shortcuts' && <ShortcutsSettings />}

@@ -1,6 +1,6 @@
 /**
  * Library search, the pure half. What matters: the backend's matches only ever
- * *narrow* what is on screen (a match outside the collection filter stays
+ * *narrow* what is on screen (a match outside the search scope stays
  * hidden, and the view's order is kept), no result yet means nothing is hidden,
  * and an older request that resolves after a newer one is recognisable as stale.
  */
@@ -64,7 +64,7 @@ describe('matchingVideos', () => {
     expect(shown.map((v) => v.id)).toEqual(['c', 'b'])
   })
 
-  test('a match that is not on screen (another collection) does not appear', () => {
+  test('a match that is not on screen (another folder) does not appear', () => {
     expect(matchingVideos([video('a')], new Set(['a', 'zzz'])).map((v) => v.id)).toEqual(['a'])
   })
 
@@ -108,7 +108,7 @@ describe('createLatestOnly', () => {
 describe('messages', () => {
   test('the empty result names the query', () => {
     expect(noMatchMessage('keynote', false)).toBe('No videos match “keynote”.')
-    expect(noMatchMessage('keynote', true)).toBe('No videos in this collection match “keynote”.')
+    expect(noMatchMessage('keynote', true)).toBe('No videos in this folder match “keynote”.')
   })
 
   test('a failed search says what failed and why', () => {

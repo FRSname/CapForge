@@ -10,7 +10,7 @@
  */
 
 import type { CollectionSummary } from '../../lib/collectionTypes'
-import { collectionLabel } from '../../lib/collections'
+import { pathLabel } from '../../lib/collectionTree'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import {
   displayTitle,
@@ -19,6 +19,7 @@ import {
   publishedOnLabel,
 } from '../../lib/libraryView'
 import type { ChannelNames } from '../../hooks/useLibraryChannels'
+import type { DragSourceProps } from '../../hooks/useLibraryDrag'
 import { usePosterUrl } from '../../hooks/usePosterUrl'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
 import { useRecordMenu } from '../../hooks/useRecordMenu'
@@ -27,7 +28,7 @@ import { LanguageChip, LibraryCardMenu, RecordActionsButton, StatusRail } from '
 export const LIST_THUMB_WIDTH_PX = 64
 export const LIST_THUMB_HEIGHT_PX = 36
 
-/** Shown in a cell with nothing to say (no collection, published nowhere). */
+/** Shown in a cell with nothing to say (in no folder, published nowhere). */
 const EMPTY_CELL = '—'
 /** A row's menu hangs under its `…` button, right-aligned to the cell. */
 const ROW_MENU_PLACEMENT = 'right-0 top-full mt-1'
@@ -36,7 +37,10 @@ export interface LibraryListRowProps extends RecordMenuActions {
   video: LibraryVideo
   collections: readonly CollectionSummary[]
   channels: ChannelNames | null
-  showCollection: boolean
+  /** The Folder column, with the folder's full path. */
+  showFolder: boolean
+  /** Drag the row onto a folder; absent, it does not drag. */
+  dragSource?: DragSourceProps
   onOpen: (video: LibraryVideo) => void
 }
 
@@ -44,7 +48,8 @@ export function LibraryListRow({
   video,
   collections,
   channels,
-  showCollection,
+  showFolder,
+  dragSource,
   onOpen,
   ...actions
 }: LibraryListRowProps) {
@@ -57,6 +62,7 @@ export function LibraryListRow({
       className="group cursor-pointer transition-colors hover:bg-[var(--color-surface)]"
       style={{ borderBottom: '1px solid var(--color-border)' }}
       title={video.sourcePath}
+      {...dragSource}
       onClick={() => onOpen(video)}
     >
       <td className="py-1.5 pr-3">
@@ -74,11 +80,7 @@ export function LibraryListRow({
           <span>{statusLabel(video.status)}</span>
         </span>
       </td>
-      {showCollection && (
-        <td className="max-w-[10rem] truncate py-1.5 pr-4">
-          {collectionLabel(collections, video.collection_id) ?? EMPTY_CELL}
-        </td>
-      )}
+      {showFolder && <FolderCell collections={collections} collectionId={video.collection_id} />}
       <td className="max-w-[12rem] truncate py-1.5 pr-4">{published || EMPTY_CELL}</td>
       <td className="whitespace-nowrap py-1.5 pr-4" style={{ color: 'var(--color-text-3)' }}>
         {formatShortDate(video.updatedAt)}
@@ -103,6 +105,21 @@ export function LibraryListRow({
 }
 
 const MONO = { fontFamily: 'var(--cf-font-mono)' } as const
+
+interface FolderCellProps {
+  collections: readonly CollectionSummary[]
+  collectionId: string | null
+}
+
+/** `Events › UCK26` (an orphan's bare id), or a dash in no folder. */
+function FolderCell({ collections, collectionId }: FolderCellProps) {
+  const path = collectionId ? pathLabel(collections, collectionId) : null
+  return (
+    <td className="max-w-[14rem] truncate py-1.5 pr-4" title={path ?? undefined}>
+      {path ?? EMPTY_CELL}
+    </td>
+  )
+}
 
 /** "captioned" → "Captioned". */
 function statusLabel(status: string): string {

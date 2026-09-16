@@ -2,8 +2,8 @@
  * The library's list view, rendered to static markup (the vitest environment
  * is node, so header clicks are pinned through `toggledSort` in
  * `librarySort.test.ts`). What matters here: the columns, which one carries
- * the sort arrow, the Collection column only under "All videos", and that a
- * row says what a card says.
+ * the sort arrow, the Folder column (with the path) only when asked for,
+ * folder rows before the videos, and that a row says what a card says.
  */
 
 import { describe, expect, test } from 'vitest'
@@ -12,6 +12,8 @@ import type { CollectionSummary } from '../../lib/collectionTypes'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import type { LibrarySort } from '../../lib/librarySort'
 import { LIST_THUMB_HEIGHT_PX, LIST_THUMB_WIDTH_PX, LibraryList } from './LibraryList'
+import { INERT_LIBRARY_DRAG } from '../../hooks/useLibraryDrag'
+import { INERT_FOLDER_ITEM_UI } from './folderItemUi'
 
 function video(overrides: Partial<LibraryVideo> = {}): LibraryVideo {
   return {
@@ -36,6 +38,18 @@ function video(overrides: Partial<LibraryVideo> = {}): LibraryVideo {
 
 const collections: CollectionSummary[] = [
   {
+    id: 'events',
+    name: 'Events',
+    slots: {},
+    overrides: {} as never,
+    createdAt: '',
+    updatedAt: '',
+    members: 0,
+    parent_id: null,
+    total_members: 1,
+    path: ['Events'],
+  },
+  {
     id: 'uck26',
     name: 'UCK 26',
     slots: {},
@@ -43,6 +57,9 @@ const collections: CollectionSummary[] = [
     createdAt: '',
     updatedAt: '',
     members: 1,
+    parent_id: 'events',
+    total_members: 1,
+    path: ['Events', 'UCK 26'],
   },
 ]
 
@@ -53,11 +70,14 @@ function render(
   const noop = () => {}
   return renderToStaticMarkup(
     <LibraryList
+      folders={[]}
       videos={[video()]}
       collections={collections}
       channels={[{ id: 'main', name: 'Main channel' }]}
-      showCollection
+      showFolder
       sort={sort}
+      folderUi={INERT_FOLDER_ITEM_UI}
+      drag={INERT_LIBRARY_DRAG}
       onSortChange={noop}
       onOpen={noop}
       onRemove={noop}
@@ -80,19 +100,21 @@ function header(html: string, label: string): string {
 describe('LibraryList columns', () => {
   test('names every column, in order', () => {
     const html = render()
-    const order = ['Name', 'Duration', 'Status', 'Collection', 'Published on', 'Modified'].map(
+    const order = ['Name', 'Duration', 'Status', 'Folder', 'Published on', 'Modified'].map(
       (label) => html.indexOf(`>${label}<`)
     )
     expect(order.every((at) => at > 0)).toBe(true)
     expect([...order].sort((a, b) => a - b)).toEqual(order)
   })
 
-  test('the Collection column only shows under All videos', () => {
-    expect(render({ showCollection: true })).toContain('>Collection<')
-    expect(render({ showCollection: true })).toContain('>UCK 26<')
-    const filtered = render({ showCollection: false })
-    expect(filtered).not.toContain('>Collection<')
-    expect(filtered).not.toContain('>UCK 26<')
+  test('the Folder column shows the full path, only when asked for', () => {
+    const html = render({ showFolder: true })
+    expect(html).toContain('>Folder<')
+    expect(html).toContain('>Events › UCK 26<')
+    expect(html).not.toMatch(/collection/i)
+    const inFolder = render({ showFolder: false })
+    expect(inFolder).not.toContain('>Folder<')
+    expect(inFolder).not.toContain('UCK 26')
   })
 
   test('the active sort column carries the arrow and aria-sort; the others do not', () => {
@@ -107,12 +129,12 @@ describe('LibraryList columns', () => {
     expect(header(reversed, 'Modified')).toContain('▼')
   })
 
-  test('sortable headers are buttons; Collection and Published on are not', () => {
+  test('sortable headers are buttons; Folder and Published on are not', () => {
     const html = render()
     for (const label of ['Name', 'Duration', 'Status', 'Modified']) {
       expect(header(html, label), label).toContain('<button')
     }
-    for (const label of ['Collection', 'Published on']) {
+    for (const label of ['Folder', 'Published on']) {
       expect(header(html, label), label).not.toContain('<button')
     }
   })
@@ -134,9 +156,15 @@ describe('LibraryList rows', () => {
     expect(html).toContain('aria-label="Actions for Keynote"')
   })
 
-  test('published nowhere and no collection show a quiet dash', () => {
+  test('published nowhere and in no folder show a quiet dash', () => {
     const html = render({ videos: [video({ publishedOn: undefined, collection_id: null })] })
     expect(html.split('>—<').length - 1).toBe(2)
+  })
+
+  test('video rows drag; the caller hands in the source', () => {
+    const drag = { ...INERT_LIBRARY_DRAG, videoSource: () => ({ draggable: true }) }
+    expect(render({ drag })).toMatch(/<tr[^>]*draggable="true"/)
+    expect(render()).not.toMatch(/<tr[^>]*draggable="true"/)
   })
 
   test('a record whose media is gone says so', () => {
@@ -168,5 +196,53 @@ describe('LibraryList rows', () => {
 
   test('uses theme tokens, not hardcoded colours', () => {
     expect(render()).not.toMatch(/text-white|bg-black/)
+  })
+})
+
+describe('LibraryList folder rows', () => {
+  const folders = [
+    {
+      id: 'uck26',
+      name: 'UCK 26',
+      orphan: false,
+      videoCount: 4,
+      folderCount: 2,
+      path: 'Events › UCK 26',
+    },
+    {
+      id: 'old-event',
+      name: 'old-event',
+      orphan: true,
+      videoCount: 1,
+      folderCount: 0,
+      path: 'old-event',
+    },
+  ]
+
+  test('folders come first: glyph, name, count, and their own actions', () => {
+    const html = render({ folders })
+    expect(html.indexOf('Open folder UCK 26')).toBeLessThan(html.indexOf('Open Keynote'))
+    expect(html).toContain('>4 videos · 2 folders<')
+    expect(html).toContain('aria-label="Actions for folder UCK 26"')
+    expect(html).toContain('data-folder-glyph="folder"')
+    expect(html.split('<tr').length - 1).toBe(4) // header + two folders + one video
+  })
+
+  test('an orphan row has the dashed glyph and says no folder has its id', () => {
+    const html = render({ folders })
+    expect(html).toContain('data-folder-glyph="orphan"')
+    expect(html).toContain('No folder has this id')
+  })
+
+  test('the summary spans the video columns, one more with the Folder column', () => {
+    expect(render({ folders, showFolder: true })).toContain('colSpan="5"')
+    expect(render({ folders, showFolder: false })).toContain('colSpan="4"')
+  })
+
+  test('a folder being renamed shows its name as an input', () => {
+    const html = render({ folders, folderUi: { ...INERT_FOLDER_ITEM_UI, renamingId: 'uck26' } })
+    expect(html).toContain('aria-label="Rename folder UCK 26"')
+    expect(html).toContain('value="UCK 26"')
+    expect(html).not.toContain('Open folder UCK 26')
   })
 })

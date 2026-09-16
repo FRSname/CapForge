@@ -2,7 +2,7 @@
  * The state behind one record's `…` menu (`LibraryCardMenu`), shared by the
  * grid card and the list row so both menus behave identically: the inline
  * Delete confirm, "Locate…" reopening on its "link anyway?" confirm, and the
- * "Move to collection…" sub-list.
+ * "Move to folder…" sub-list.
  *
  * Returns everything `LibraryCardMenu` takes except `video` and `collections`,
  * plus whether the menu is open and the `…` button's toggle.

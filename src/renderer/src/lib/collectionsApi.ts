@@ -16,7 +16,7 @@ import type {
   BriefOverrides,
   CollectionDetail,
   CollectionsList,
-  NestedCollection,
+  CollectionSummary,
 } from './collectionTypes'
 import { parseCollection, parseCollectionDetail, parseCollectionsList } from './collectionTypes'
 import type { CollectionRefusal } from './collections'
@@ -105,7 +105,7 @@ export async function getCollection(cid: string): Promise<CollectionDetail> {
   return parseCollectionDetail(await json('GET', collectionPath(cid)))
 }
 
-export async function createCollection(input: CollectionCreate): Promise<NestedCollection> {
+export async function createCollection(input: CollectionCreate): Promise<CollectionSummary> {
   return parseCollection(await json('POST', COLLECTIONS_PATH, input))
 }
 

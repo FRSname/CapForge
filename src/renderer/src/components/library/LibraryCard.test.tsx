@@ -50,6 +50,9 @@ describe('LibraryCardMenu', () => {
             createdAt: '',
             updatedAt: '',
             members: 0,
+            parent_id: null,
+            total_members: 0,
+            path: ['UCK 26'],
           },
         ]}
         onAskMove={noop}
@@ -61,18 +64,19 @@ describe('LibraryCardMenu', () => {
     )
   }
 
-  test('offers Move to collection… beside the other record actions', () => {
+  test('offers Move to folder… beside the other record actions', () => {
     const html = menu()
-    expect(html).toContain('Move to collection…')
+    expect(html).toContain('Move to folder…')
+    expect(html).not.toMatch(/collection/i)
     expect(html).toContain('Remove from library')
     expect(html).not.toContain('role="menuitemradio"')
   })
 
-  test('moving swaps the actions for the collection sub-list', () => {
+  test('moving swaps the actions for the folder sub-list', () => {
     const html = menu({ moving: true })
     expect(html).toContain('>UCK 26<')
-    expect(html).toContain('>None<')
-    expect(html).toContain('New collection…')
+    expect(html).toContain('>Top level<')
+    expect(html).toContain('New folder…')
     expect(html).not.toContain('Remove from library')
   })
 

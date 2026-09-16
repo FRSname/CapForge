@@ -12,15 +12,18 @@
  * flag-guarded, so a remount costs one `app-state` read.
  *
  * It also owns the view state that must outlive a re-render but not the
- * screen: the remembered layout/size/sort (`useLibraryViewPrefs`), the search
- * field (`useLibrarySearch`, cleared on leaving), the channel names the list
- * view shows, and ⌘O → Import… (`useLibraryImportShortcut`), which is why that
- * shortcut does nothing on any other screen.
+ * screen: the remembered layout/size/sort/location/sidebar
+ * (`useLibraryViewPrefs`), the search field (`useLibrarySearch`, cleared on
+ * leaving), the channel names the list view shows, the folder actions
+ * (`useLibraryCollectionActions`, `useFolderActions`), and ⌘O → Import…
+ * (`useLibraryImportShortcut`), which is why that shortcut does nothing on any
+ * other screen.
  */
 
 import type { ImportPickMode } from '../../lib/libraryImport'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import { useCollections } from '../../hooks/useCollections'
+import { useFolderActions } from '../../hooks/useFolderActions'
 import { useImportChannels } from '../../hooks/useImportChannels'
 import { useLibraryActions } from '../../hooks/useLibraryActions'
 import { useLibraryChannels } from '../../hooks/useLibraryChannels'
@@ -58,7 +61,7 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
     inform: toast,
     askChannels: importChannels.ask,
   })
-  // Names for the collection filter and the card chips; re-read on every visit.
+  // The folder tree, its counts and the card chips; re-read on every visit.
   const { collections, refresh: refreshCollections } = useCollections({ notify })
   const collectionActions = useLibraryCollectionActions({
     collections,
@@ -66,6 +69,13 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
     refreshCollections,
     notify,
     inform: (message) => toast(message, 'success'),
+  })
+  const folderActions = useFolderActions({
+    collections,
+    refreshCollections,
+    notify,
+    inform: (message) => toast(message, 'success'),
+    explain: (message) => toast(message, 'info'),
   })
   const { prefs, setPrefs } = useLibraryViewPrefs({ notify })
   const search = useLibrarySearch({ notify })
@@ -92,8 +102,12 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
         onForceLocate={actions.forceLocate}
         onCreateCollection={collectionActions.createCollection}
         onMoveToCollection={(video, collectionId) =>
-          void collectionActions.moveToCollection(video, collectionId)
+          void collectionActions.moveVideos([video], collectionId)
         }
+        onMoveVideos={(moving, collectionId) =>
+          void collectionActions.moveVideos(moving, collectionId)
+        }
+        folderActions={folderActions}
         view={prefs}
         onViewChange={setPrefs}
         search={search}

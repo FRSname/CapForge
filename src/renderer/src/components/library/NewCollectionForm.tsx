@@ -1,7 +1,7 @@
 /**
- * Create a collection by name, inline: the library toolbar's popover, the
- * empty state, and a card's "Move to collection… → New collection…" all mount
- * this one form. Electron has no `window.prompt`, and a native dialog would be
+ * Create a folder (a collection) by name, inline: the sidebar's "New folder…"
+ * popover, a folder's "New folder inside", the empty state, and a card's
+ * "Move to folder… → New folder…" all mount this one form. Electron has no `window.prompt`, and a native dialog would be
  * untestable in the node test environment anyway.
  *
  * Enter submits (it is a real `<form>`), Esc cancels. What a failure means is
@@ -56,7 +56,7 @@ export function NewCollectionFormView({
       <input
         type="text"
         className="field-input placeholder-subtle"
-        aria-label="Collection name"
+        aria-label="Folder name"
         placeholder="e.g. UCK 26"
         maxLength={COLLECTION_NAME_MAX_LENGTH}
         value={name}
@@ -148,20 +148,36 @@ const POPOVER_ALIGN = {
   center: 'left-1/2 -translate-x-1/2',
 } as const
 
+const POPOVER_SIDE = {
+  below: 'top-full mt-2',
+  above: 'bottom-full mb-2',
+} as const
+
 export interface NewCollectionPopoverProps {
   onCreate: (name: string) => Promise<CreateCollectionResult>
   onCreated: (collection: CollectionSummary) => void
   /** Where the popover hangs from its button. */
   align?: keyof typeof POPOVER_ALIGN
+  /** Above the button at the foot of the sidebar, below it elsewhere. */
+  side?: keyof typeof POPOVER_SIDE
+  /** The button's text. */
+  label?: string
+  /** The button's tooltip — where the folder will be created. */
+  title?: string
+  className?: string
   /** Start open — for static-markup tests. */
   defaultOpen?: boolean
 }
 
-/** "New collection…" and the small popover it opens. */
+/** "New folder…" and the small popover it opens. */
 export function NewCollectionPopover({
   onCreate,
   onCreated,
   align = 'start',
+  side = 'below',
+  label = 'New folder…',
+  title,
+  className,
   defaultOpen = false,
 }: NewCollectionPopoverProps) {
   const [open, setOpen] = useState(defaultOpen)
@@ -169,18 +185,23 @@ export function NewCollectionPopover({
     <div className="relative">
       <Button
         variant="ghost"
-        className="whitespace-nowrap text-xs"
+        className={cn('whitespace-nowrap text-xs', className)}
         aria-haspopup="dialog"
         aria-expanded={open}
+        title={title}
         onClick={() => setOpen((was) => !was)}
       >
-        New collection…
+        {label}
       </Button>
       {open && (
         <div
           role="dialog"
-          aria-label="New collection"
-          className={cn('absolute top-full z-20 mt-2 w-64 rounded-lg p-3', POPOVER_ALIGN[align])}
+          aria-label="New folder"
+          className={cn(
+            'absolute z-20 w-64 rounded-lg p-3',
+            POPOVER_SIDE[side],
+            POPOVER_ALIGN[align]
+          )}
           style={{
             background: 'var(--color-surface-2)',
             border: '1px solid var(--color-border-2)',

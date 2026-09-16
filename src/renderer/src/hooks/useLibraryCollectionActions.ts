@@ -1,7 +1,8 @@
 /**
- * The library screen's collection actions: create one by name (the toolbar,
- * the empty state, a card's "New collection…") and move one video into a
- * collection from its card.
+ * The library screen's collection ("folder") actions: create one by name,
+ * inside a folder or at the top level (the sidebar, a folder's menu, the empty
+ * state, a card's "New folder…"), and move videos into one (a card's menu, a
+ * drop). A move of any size refreshes the list and the folders once.
  *
  * A separate hook rather than more of `useLibraryActions`, which is already a
  * screenful. This file only binds the transport and the refreshes; every
@@ -14,7 +15,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { api } from '../lib/api'
 import type { CreateCollectionResult } from '../lib/collectionCreate'
 import { runCreateCollection } from '../lib/collectionCreate'
-import { runMoveToCollection } from '../lib/collectionMove'
+import { runMoveVideos } from '../lib/collectionMove'
 import type { CollectionSummary } from '../lib/collectionTypes'
 import { createCollection } from '../lib/collectionsApi'
 import type { LibraryVideo } from '../lib/libraryTypes'
@@ -33,10 +34,10 @@ export interface LibraryCollectionActionsInput {
 }
 
 export interface LibraryCollectionActions {
-  /** Never rejects: failures are returned as `invalid` or toasted. */
-  createCollection: (name: string) => Promise<CreateCollectionResult>
-  /** Never rejects: failures are toasted. `null` takes the video out of any collection. */
-  moveToCollection: (video: LibraryVideo, collectionId: string | null) => Promise<void>
+  /** Never rejects: failures are returned as `invalid` or toasted. `parentId` null: top level. */
+  createCollection: (name: string, parentId?: string | null) => Promise<CreateCollectionResult>
+  /** Never rejects: failures are toasted as one summary. `null` takes them out of any folder. */
+  moveVideos: (videos: readonly LibraryVideo[], collectionId: string | null) => Promise<void>
 }
 
 export function useLibraryCollectionActions(
@@ -48,19 +49,23 @@ export function useLibraryCollectionActions(
   })
 
   const create = useCallback(
-    (name: string): Promise<CreateCollectionResult> =>
-      runCreateCollection(name, {
-        create: createCollection,
-        refreshCollections: () => inputRef.current.refreshCollections(),
-        notify: (message) => inputRef.current.notify(message),
-        inform: (message) => inputRef.current.inform(message),
-      }),
+    (name: string, parentId: string | null = null): Promise<CreateCollectionResult> =>
+      runCreateCollection(
+        name,
+        {
+          create: createCollection,
+          refreshCollections: () => inputRef.current.refreshCollections(),
+          notify: (message) => inputRef.current.notify(message),
+          inform: (message) => inputRef.current.inform(message),
+        },
+        parentId
+      ),
     []
   )
 
-  const moveToCollection = useCallback(
-    async (video: LibraryVideo, collectionId: string | null): Promise<void> => {
-      await runMoveToCollection(video, collectionId, inputRef.current.collections ?? [], {
+  const moveVideos = useCallback(
+    async (videos: readonly LibraryVideo[], collectionId: string | null): Promise<void> => {
+      await runMoveVideos(videos, collectionId, inputRef.current.collections ?? [], {
         read: (id) => api.getLibraryRecord(id),
         write: (id, patch, rev) => api.patchLibraryRecord(id, patch, rev),
         refresh: () => inputRef.current.refresh(),
@@ -71,5 +76,5 @@ export function useLibraryCollectionActions(
     []
   )
 
-  return { createCollection: create, moveToCollection }
+  return { createCollection: create, moveVideos }
 }

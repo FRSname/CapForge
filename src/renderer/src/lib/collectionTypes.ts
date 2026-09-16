@@ -53,22 +53,13 @@ export interface Collection {
   updatedAt: string
 }
 
-/** A list row, and what `POST` answers: the collection plus how many videos carry its id. */
+/**
+ * A list row, and what `POST` answers: the collection, how many videos carry
+ * its id, and where it sits in the folder tree. An older backend without the
+ * tree fields parses as a top-level collection (`parseCollection`).
+ */
 export interface CollectionSummary extends Collection {
   members: number
-}
-
-/** A `collection_id` records carry that names no collection — adoptable by creating it. */
-export interface CollectionOrphan {
-  id: string
-  members: number
-}
-
-/**
- * Where a collection sits in the tree. Kept beside `CollectionSummary` rather
- * than inside it, so a caller that only needs names and counts is unaffected.
- */
-export interface CollectionPlacement {
   /** The folder this one sits inside; null at the top level. */
   parent_id: string | null
   /** Members of this collection plus every subfolder's. */
@@ -77,28 +68,31 @@ export interface CollectionPlacement {
   path: string[]
 }
 
-/** A list row as the backend answers it: the summary plus where it sits. */
-export type NestedCollection = CollectionSummary & CollectionPlacement
+/** A `collection_id` records carry that names no collection — adoptable by creating it. */
+export interface CollectionOrphan {
+  id: string
+  members: number
+}
 
 /** `GET /api/library/collections`. */
 export interface CollectionsList {
-  collections: NestedCollection[]
+  collections: CollectionSummary[]
   orphans: CollectionOrphan[]
 }
 
 /** `GET|PATCH /api/library/collections/{cid}`: the brief every member's package is rendered with. */
-export type CollectionDetail = NestedCollection & {
+export type CollectionDetail = CollectionSummary & {
   effective_brief: Brief
 }
 
 export const COLLECTION_SHAPE_MESSAGE =
-  'A collection came back in an unexpected shape — the backend may be out of date.'
+  'A folder came back in an unexpected shape — the backend may be out of date.'
 
 export const COLLECTIONS_LIST_SHAPE_MESSAGE =
-  'The collections list came back in an unexpected shape — the backend may be out of date.'
+  'The folders list came back in an unexpected shape — the backend may be out of date.'
 
 export const COLLECTION_DETAIL_SHAPE_MESSAGE =
-  'The collection came back without its effective brief — the backend may be out of date.'
+  'The folder came back without its effective brief — the backend may be out of date.'
 
 function obj(value: unknown): Record<string, unknown> | null {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -140,7 +134,7 @@ function path(value: unknown, name: string): string[] {
 }
 
 /** A collection row. Throws only when there is no id to address it by. */
-export function parseCollection(value: unknown): NestedCollection {
+export function parseCollection(value: unknown): CollectionSummary {
   const row = obj(value)
   const id = str(row?.id).trim()
   if (!row || !id) throw new Error(COLLECTION_SHAPE_MESSAGE)

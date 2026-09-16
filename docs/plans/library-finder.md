@@ -157,12 +157,27 @@ Library                        12
 - A folder writes `name`. Its id does not change.
 - Empty names are refused inline, never sent.
 
+### 4.6 PR 3 as built: where it departs from §4.1–§4.3
+
+- **A single click opens a folder** (tile, row, sidebar entry). Double-click / Enter is PR 4, together with selection.
+- **"+ New folder" is the existing name popover** (`NewCollectionPopover`, now worded "folder"), not "untitled folder, then inline rename". It creates inside the folder on show (at the root, in All videos and in an orphan: the top level) and expands the parent so the new folder shows. "New folder inside…" in a folder's menu uses the same form.
+- **The location is a remembered pref** (`libraryView.location`, with `sidebarCollapsed` and `expanded`). A remembered folder that no longer exists shows the root **at render time without writing it back**: a prefs write before the stored value has been read would win over it. Nothing is decided before the folders list has loaded.
+- **Orphan ids are places, not just labels.** Opening one lists the videos carrying it; its only menu item is "Create folder" (a `POST` with that id adopts them). It is neither dragged nor a drop target, since nothing can move into a folder that does not exist.
+- **Search at the root and in All videos covers every video**; the scope toggle exists only inside a folder, and resets to "This folder" when the location changes.
+- **The Continue hero at the root** is still the last session wherever it is filed (not only among the unfiled videos).
+- **The empty-folder line is a drop target** for the folder on show, so "drop videos here" is true for an internal drag. A **file** dropped there still imports unfiled, like anywhere else on the screen.
+- **The sidebar toggle** sits at the left of the masthead, before the path bar, not among the right-hand view controls.
+- **"Folder settings…"** opens Settings → Folders with that folder selected: `requestSettingsCategory` gained an optional `{ collectionId }`, and `SettingsDialog` remounts the pane with `initialSelectedId`.
+- **Moving videos** always goes through `runMoveVideos`, even for a card's one-video "Move to folder…", so the sidebar counts (`total_members`) refresh with the list.
+- **The drag image** is the browser's default ghost of the dragged card, row or folder.
+- **Types:** `NestedCollection` / `CollectionPlacement` are folded into `CollectionSummary`; `deleteBlocker` moved to `lib/collections.ts`, shared by Settings and the library menu.
+
 ## 5. Pull requests
 
 | PR | Scope | Backend? | Risk |
 |---|---|---|---|
-| 1 | Open removed, grid/list, icon size, sort, search (unscoped), remembered prefs | no | low |
-| 2 | `parent_id`, integrity rules, `resolved_collection`, route fields, MCP, Settings tree + Location picker | yes | medium: the brief seam, byte-identity |
+| 1 | Open removed, grid/list, icon size, sort, search (unscoped), remembered prefs — **merged (#49)** | no | low |
+| 2 | `parent_id`, integrity rules, `resolved_collection`, route fields, MCP, Settings tree + Location picker — **merged (#50)** | yes | medium: the brief seam, byte-identity |
 | 3 | Sidebar, path bar, folder tiles/rows, New folder in place, folder menu, drag and drop, search scope; removes the collection `<select>` | no | medium: drag vs file drop |
 | 4 | Selection model, selection bar, bulk move/remove/delete, keyboard, inline rename, double-click to open | no | medium: changes how a card opens |
 

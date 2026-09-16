@@ -1,7 +1,7 @@
 /**
- * Creating a collection from the library screen: what the name form shows,
- * which failures stay inline under the input and which are toasted, and where
- * the "New collection…" affordance is offered.
+ * Creating a folder (a collection) from the library screen: what the name
+ * form shows, which failures stay inline under the input and which are
+ * toasted, and where the "New folder…" affordance is offered.
  */
 
 import { describe, expect, test, vi } from 'vitest'
@@ -24,6 +24,9 @@ const CREATED: CollectionSummary = {
   createdAt: '',
   updatedAt: '',
   members: 0,
+  parent_id: null,
+  total_members: 0,
+  path: ['UCK 26'],
 }
 
 function deps(create: () => Promise<CollectionSummary>) {
@@ -63,6 +66,13 @@ describe('createInlineError', () => {
   test('a 422 stays under the input, with the backend message', () => {
     const err = new CollectionInvalidError('name: String should have at most 120 characters')
     expect(createInlineError(err)).toBe('name: String should have at most 120 characters')
+  })
+
+  test('a place the tree cannot take stays under the input too', () => {
+    const deep = new CollectionRefusedError({ kind: 'collection_too_deep' })
+    expect(createInlineError(deep)).toContain('levels deep')
+    const gone = new CollectionRefusedError({ kind: 'unknown_parent' })
+    expect(createInlineError(gone)).toContain('no longer exists')
   })
 
   test('anything else is not inline (it is toasted)', () => {
@@ -106,6 +116,16 @@ describe('runCreateCollection', () => {
     expect(d.notify.mock.calls[0][0]).toContain('Failed to fetch')
   })
 
+  test('inside a folder, the parent rides the body; at the top level the key is absent', async () => {
+    const d = deps(() => Promise.resolve(CREATED))
+
+    await runCreateCollection('Day 1', d, 'uck-26')
+    await runCreateCollection('Day 2', d, null)
+
+    expect(d.create).toHaveBeenNthCalledWith(1, { name: 'Day 1', parent_id: 'uck-26' })
+    expect(d.create).toHaveBeenNthCalledWith(2, { name: 'Day 2' })
+  })
+
   test('a blank name never reaches the backend', async () => {
     const d = deps(() => Promise.resolve(CREATED))
 
@@ -117,15 +137,15 @@ describe('runCreateCollection', () => {
 })
 
 describe('newCollectionPlacement', () => {
-  test('beside the filter whenever the library has videos', () => {
-    expect(newCollectionPlacement(3, [])).toBe('toolbar')
-    expect(newCollectionPlacement(3, [CREATED])).toBe('toolbar')
-    expect(newCollectionPlacement(3, null)).toBe('toolbar')
+  test('in the sidebar whenever the library has videos', () => {
+    expect(newCollectionPlacement(3, [])).toBe('sidebar')
+    expect(newCollectionPlacement(3, [CREATED])).toBe('sidebar')
+    expect(newCollectionPlacement(3, null)).toBe('sidebar')
   })
 
-  test('in the empty state only once the list has loaded empty', () => {
+  test('with no videos: the sidebar if folders exist, the empty state once loaded empty', () => {
     expect(newCollectionPlacement(0, [])).toBe('empty-state')
     expect(newCollectionPlacement(0, null)).toBe('none')
-    expect(newCollectionPlacement(0, [CREATED])).toBe('none')
+    expect(newCollectionPlacement(0, [CREATED])).toBe('sidebar')
   })
 })

@@ -1,7 +1,7 @@
 /**
  * The Publish workspace's Collection card, rendered to static markup.
  *
- * What matters: the select offers None and every collection (and keeps an
+ * What matters: the select offers None and every folder by path (and keeps an
  * orphan id visible rather than showing "None" for it), the card says how much
  * of the channel brief the collection overrides, the backend's
  * `unknown_collection` refusal lands under the select, and the way to manage
@@ -28,6 +28,9 @@ const COLLECTIONS: CollectionSummary[] = [
     createdAt: '',
     updatedAt: '',
     members: 3,
+    parent_id: 'events',
+    total_members: 3,
+    path: ['Events', 'UCK 26'],
   },
   {
     id: 'solo',
@@ -37,6 +40,21 @@ const COLLECTIONS: CollectionSummary[] = [
     createdAt: '',
     updatedAt: '',
     members: 0,
+    parent_id: null,
+    total_members: 0,
+    path: ['Solo'],
+  },
+  {
+    id: 'events',
+    name: 'Events',
+    slots: {},
+    overrides: { ...EMPTY_OVERRIDES },
+    createdAt: '',
+    updatedAt: '',
+    members: 0,
+    parent_id: null,
+    total_members: 3,
+    path: ['Events'],
   },
 ]
 
@@ -94,21 +112,24 @@ function render(collectionId: string | null, violations: Violation[] = []): stri
 }
 
 describe('CollectionCardView', () => {
-  test('offers None and every collection, with the current one selected', () => {
+  test('offers None and every folder by path in tree order, the current one selected', () => {
     const html = render('uck26')
 
-    expect(html).toContain('aria-label="Collection"')
+    expect(html).toContain('aria-label="Folder"')
+    expect(html).toContain('>Folder<')
     expect(html).toContain('>None<')
-    expect(html).toMatch(/<option value="uck26" selected="">UCK 26<\/option>/)
+    expect(html).toMatch(/<option value="uck26" selected="">Events › UCK 26<\/option>/)
     expect(html).toContain('>Solo<')
+    expect(html.indexOf('>Events<')).toBeLessThan(html.indexOf('Events › UCK 26'))
+    expect(html.indexOf('Events › UCK 26')).toBeLessThan(html.indexOf('>Solo<'))
   })
 
-  test('says how many channel fields the collection overrides', () => {
+  test('says how many channel fields the folder overrides', () => {
     expect(render('uck26')).toContain('Uses 3 overrides from UCK 26')
     expect(render('solo')).toContain('Solo inherits the channel brief')
   })
 
-  test('with no collection it says the channel brief applies', () => {
+  test('with no folder it says the channel brief applies', () => {
     const html = render(null)
     expect(html).toMatch(/<option value="" selected="">None<\/option>/)
     expect(html).toContain('channel brief')
@@ -117,7 +138,7 @@ describe('CollectionCardView', () => {
   test('keeps an orphan id visible instead of pretending it is None', () => {
     const html = render('old-event')
     expect(html).toMatch(
-      /<option value="old-event" selected="">old-event \(no such collection\)<\/option>/
+      /<option value="old-event" selected="">old-event \(no such folder\)<\/option>/
     )
   })
 
@@ -133,14 +154,14 @@ describe('CollectionCardView', () => {
     expect(html).toContain('No collection named nope')
   })
 
-  test('links to Settings → Collections', () => {
-    expect(render(null)).toContain('Manage collections…')
+  test('links to Settings → Folders', () => {
+    expect(render(null)).toContain('Manage folders…')
   })
 })
 
 describe('CollectionCard', () => {
   test('renders before the collections load', () => {
     const html = renderToStaticMarkup(<CollectionCard publish={controller(null)} />)
-    expect(html).toContain('Manage collections…')
+    expect(html).toContain('Manage folders…')
   })
 })

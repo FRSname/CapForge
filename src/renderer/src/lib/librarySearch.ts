@@ -2,9 +2,9 @@
  * Library search, the pure half (docs/plans/library-finder.md §3.6). The
  * request is the existing `GET /api/library?q=` (FTS5 over title, description,
  * tags and transcript, with the backend's `LIKE` fallback); the renderer only
- * **intersects** the returned ids with the videos it is already showing, so the
- * collection filter and the sort still apply and a match can never add a video
- * the view hides.
+ * **intersects** the returned ids with the videos in the search scope (the
+ * folder with its subfolders, or every video — `libraryLocation.ts`), so the
+ * sort still applies and a match can never add a video the scope leaves out.
  *
  * Typing is debounced, so requests overlap: `createLatestOnly` tells the hook
  * which response is still wanted, and a stale one is dropped (its failure too).
@@ -67,12 +67,10 @@ export function createLatestOnly(): LatestOnly {
   }
 }
 
-/** The line shown when nothing on screen matched. */
-export function noMatchMessage(query: string, inCollection: boolean): string {
+/** The line shown when nothing in the search scope matched. */
+export function noMatchMessage(query: string, inFolder: boolean): string {
   const quoted = `“${normalizeQuery(query)}”`
-  return inCollection
-    ? `No videos in this collection match ${quoted}.`
-    : `No videos match ${quoted}.`
+  return inFolder ? `No videos in this folder match ${quoted}.` : `No videos match ${quoted}.`
 }
 
 export function searchFailedMessage(query: string, reason: string): string {

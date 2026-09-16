@@ -17,15 +17,14 @@ import type {
   BriefOverrideField,
   BriefOverrides,
   CollectionDetail,
-  NestedCollection,
+  CollectionSummary,
 } from '../../lib/collectionTypes'
 import { ancestorsOf } from '../../lib/collectionTree'
 import {
+  deleteBlocker,
   overriddenFields,
   overridesSummary,
   paletteSlots,
-  subfolderCount,
-  videoCount,
 } from '../../lib/collections'
 import type { CollectionPatch } from '../../lib/collectionsApi'
 import {
@@ -41,6 +40,9 @@ import { CollectionLocation } from './CollectionLocation'
 import { CollectionOverrides } from './CollectionOverrides'
 import { CollectionPreview } from './CollectionPreview'
 import { SlotRowsEditor } from './SlotFields'
+
+/** Re-exported: Settings → Folders and the library's folder menu share one copy. */
+export { deleteBlocker }
 
 export type DraftOverride = <K extends BriefOverrideField>(field: K, value: Brief[K]) => void
 export type CommitOverride = <K extends BriefOverrideField>(
@@ -66,7 +68,7 @@ function reasonOf(err: unknown): string {
 interface CollectionEditorProps {
   collectionId: string
   /** Every folder, flat: the Location options, the ancestors and the subfolder count. */
-  collections: readonly NestedCollection[]
+  collections: readonly CollectionSummary[]
   /** A write landed — the list's names, counts and tree may have changed. */
   onChanged: () => void
   onDeleted: () => void
@@ -159,7 +161,7 @@ export function CollectionEditor(props: CollectionEditorProps) {
 export interface CollectionEditorViewProps {
   detail: CollectionDetail
   /** Every folder, flat. */
-  collections: readonly NestedCollection[]
+  collections: readonly CollectionSummary[]
   previewKey: number
   /** The last refused move or delete, and which control it belongs under. */
   refusal: EditorRefusal | null
@@ -252,19 +254,6 @@ interface DeleteRowProps {
   /** The backend's refusal, when the list was stale and delete was allowed. */
   error: string | null
   onDelete: () => void
-}
-
-/** Why delete is disabled, or null. Videos first: the backend refuses them first too. */
-export function deleteBlocker(members: number, subfolders: number): string | null {
-  if (members > 0) {
-    return `${videoCount(members)} belong${members === 1 ? 's' : ''} to this folder — set their collection to None in the Publish workspace before deleting it.`
-  }
-  if (subfolders > 0) {
-    const verb = subfolders === 1 ? 'is' : 'are'
-    const them = subfolders === 1 ? 'it' : 'them'
-    return `${subfolderCount(subfolders)} ${verb} inside this folder — move or delete ${them} before deleting it.`
-  }
-  return null
 }
 
 /** Refused (and so disabled) while any video or subfolder is in the folder. */

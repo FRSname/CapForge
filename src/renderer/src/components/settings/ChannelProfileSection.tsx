@@ -18,7 +18,7 @@ import type { CommitProfile, DraftProfile } from './ChannelEditor'
 import { SlotRowsEditor } from './SlotFields'
 
 const SLOTS_HELP =
-  'Custom {{name}} values any description can use. A collection’s slots add to these, and win on a clash.'
+  'Custom {{name}} values any description can use. A folder’s slots add to these, and win on a clash.'
 
 interface ChannelProfileSectionProps {
   platform: Platform

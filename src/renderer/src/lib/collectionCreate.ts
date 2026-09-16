@@ -1,6 +1,7 @@
 /**
- * Creating a collection by name from the library screen (the toolbar popover,
- * the empty state and a card's "Move to collection… → New collection…").
+ * Creating a collection — a "folder" in the UI — by name from the library
+ * screen (the sidebar's "New folder…", a folder's "New folder inside", the
+ * empty state and a card's "Move to folder… → New folder…").
  *
  * Every decision the name form makes lives here so it can be tested without a
  * DOM: which refusals stay **inline** under the input (`collection_exists`, a
@@ -21,15 +22,22 @@ export type CreateCollectionResult =
   /** Already toasted; the form stays open so the user can retry. */
   | { kind: 'failed' }
 
-export const BLANK_NAME_MESSAGE = 'A collection needs a name.'
+export const BLANK_NAME_MESSAGE = 'A folder needs a name.'
 
 export function collectionCreatedMessage(name: string): string {
-  return `Created the collection ${name}`
+  return `Created the folder ${name}`
 }
 
 export function createCollectionFailedMessage(reason: string): string {
-  return `Could not create the collection: ${reason}`
+  return `Could not create the folder: ${reason}`
 }
+
+/** Refusals about the name or the place, which the user fixes in the form itself. */
+const INLINE_REFUSALS: ReadonlySet<string> = new Set([
+  'collection_exists',
+  'unknown_parent',
+  'collection_too_deep',
+])
 
 function reasonOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -48,7 +56,7 @@ export function canCreateCollection(name: string, busy: boolean): boolean {
 /** The message to show under the input, or null when the failure is a toast. */
 export function createInlineError(err: unknown): string | null {
   if (err instanceof CollectionRefusedError) {
-    return err.refusal.kind === 'collection_exists' ? collectionRefusalMessage(err.refusal) : null
+    return INLINE_REFUSALS.has(err.refusal.kind) ? collectionRefusalMessage(err.refusal) : null
   }
   if (err instanceof CollectionInvalidError) return err.message
   return null
@@ -64,16 +72,22 @@ export interface CreateCollectionDeps {
   inform: (message: string) => void
 }
 
-/** Create by name. Never rejects: every failure is inline or toasted. */
+/**
+ * Create by name, inside `parentId` (null: the top level, sent without the
+ * key). Never rejects: every failure is inline or toasted.
+ */
 export async function runCreateCollection(
   name: string,
-  deps: CreateCollectionDeps
+  deps: CreateCollectionDeps,
+  parentId: string | null = null
 ): Promise<CreateCollectionResult> {
   const trimmed = name.trim()
   if (!trimmed) return { kind: 'invalid', message: BLANK_NAME_MESSAGE }
   let collection: CollectionSummary
   try {
-    collection = await deps.create({ name: trimmed })
+    collection = await deps.create(
+      parentId === null ? { name: trimmed } : { name: trimmed, parent_id: parentId }
+    )
   } catch (err) {
     const inline = createInlineError(err)
     if (inline) return { kind: 'invalid', message: inline }
@@ -85,17 +99,18 @@ export async function runCreateCollection(
   return { kind: 'created', collection }
 }
 
-export type NewCollectionPlacement = 'toolbar' | 'empty-state' | 'none'
+export type NewCollectionPlacement = 'sidebar' | 'empty-state' | 'none'
 
 /**
- * Beside the collection filter whenever it shows (the library has videos);
- * otherwise in the empty state, once the collections list has loaded and is
- * empty. An empty library that already has collections offers it in Settings.
+ * At the foot of the sidebar whenever the sidebar shows: the library has
+ * videos, or folders to list. An empty library with no folders offers it in
+ * the empty state once the list has loaded; before that, nowhere.
  */
 export function newCollectionPlacement(
   videoCount: number,
   collections: readonly unknown[] | null
 ): NewCollectionPlacement {
-  if (videoCount > 0) return 'toolbar'
-  return collections !== null && collections.length === 0 ? 'empty-state' : 'none'
+  if (videoCount > 0) return 'sidebar'
+  if (collections === null) return 'none'
+  return collections.length === 0 ? 'empty-state' : 'sidebar'
 }

@@ -1,12 +1,12 @@
 /**
  * The library as a table (docs/plans/library-finder.md §3.4): thumbnail, Name,
- * Duration, Status, Collection (only under "All videos"), Published on and
- * Modified.
+ * Duration, Status, Folder (the full path; only in All videos and search
+ * results), Published on and Modified. Folder rows (`FolderRow`) come first.
  *
- * The caller hands the videos in already sorted (`sortVideos`); a header click
- * only reports the next sort (`toggledSort`: the active column reverses,
- * another starts in its natural direction). Collection and Published on are
- * not sort keys, so their headers are plain text.
+ * The caller hands the folders and videos in already sorted; a header click
+ * only reports the next video sort (`toggledSort`: the active column reverses,
+ * another starts in its natural direction) — folders stay on top by name.
+ * Folder and Published on are not sort keys, so their headers are plain text.
  *
  * The table scrolls sideways in its own container, so a narrow window never
  * squeezes the columns into each other. That container also clips vertically,
@@ -14,12 +14,16 @@
  */
 
 import type { CollectionSummary } from '../../lib/collectionTypes'
+import type { FolderEntry } from '../../lib/libraryLocation'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import type { LibrarySort, LibrarySortKey } from '../../lib/librarySort'
 import { toggledSort } from '../../lib/librarySort'
+import type { LibraryDrag } from '../../hooks/useLibraryDrag'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
 import type { ChannelNames } from '../../hooks/useLibraryChannels'
+import { FolderRow } from './FolderRow'
 import { LibraryListRow } from './LibraryListRow'
+import type { FolderItemUi } from './folderItemUi'
 
 export { LIST_THUMB_HEIGHT_PX, LIST_THUMB_WIDTH_PX } from './LibraryListRow'
 
@@ -27,30 +31,39 @@ export { LIST_THUMB_HEIGHT_PX, LIST_THUMB_WIDTH_PX } from './LibraryListRow'
 const TABLE_MIN_WIDTH_PX = 760
 /** Room under the last row for its `…` menu (`LibraryCardMenu`, four items). */
 const MENU_CLEARANCE_PX = 160
+/** The video columns a folder row's summary spans: Duration, Status, Published on, Modified. */
+const SUMMARY_COLUMNS = 4
 
 const ARROW = { asc: '▲', desc: '▼' } as const
 const ARIA_SORT = { asc: 'ascending', desc: 'descending' } as const
 
 export interface LibraryListProps extends RecordMenuActions {
+  /** Folder rows, before the videos, in display order. */
+  folders: readonly FolderEntry[]
   /** In display order — the caller sorts. */
   videos: readonly LibraryVideo[]
   collections: readonly CollectionSummary[]
   /** Channel names for "Published on"; null shows the ids. */
   channels: ChannelNames | null
-  /** The Collection column: only when the collection filter is "All videos". */
-  showCollection: boolean
+  /** The Folder column: All videos and search results. */
+  showFolder: boolean
   sort: LibrarySort
   onSortChange: (sort: LibrarySort) => void
+  folderUi: FolderItemUi
+  drag: LibraryDrag
   onOpen: (video: LibraryVideo) => void
 }
 
 export function LibraryList({
+  folders,
   videos,
   collections,
   channels,
-  showCollection,
+  showFolder,
   sort,
   onSortChange,
+  folderUi,
+  drag,
   onOpen,
   ...actions
 }: LibraryListProps) {
@@ -77,7 +90,7 @@ export function LibraryList({
             {sortable('Name', 'name')}
             {sortable('Duration', 'duration', 'text-right')}
             {sortable('Status', 'status')}
-            {showCollection && <PlainHeader label="Collection" />}
+            {showFolder && <PlainHeader label="Folder" />}
             <PlainHeader label="Published on" />
             {sortable('Modified', 'modified')}
             <th scope="col" className="w-0 py-2">
@@ -86,13 +99,22 @@ export function LibraryList({
           </tr>
         </thead>
         <tbody>
+          {folders.map((folder) => (
+            <FolderRow
+              key={folder.id}
+              folder={folder}
+              ui={folderUi}
+              summarySpan={SUMMARY_COLUMNS + (showFolder ? 1 : 0)}
+            />
+          ))}
           {videos.map((video) => (
             <LibraryListRow
               key={video.id}
               video={video}
               collections={collections}
               channels={channels}
-              showCollection={showCollection}
+              showFolder={showFolder}
+              dragSource={drag.videoSource(video)}
               onOpen={onOpen}
               {...actions}
             />

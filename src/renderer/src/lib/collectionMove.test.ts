@@ -13,12 +13,14 @@ import {
   moveFailureOf,
   moveMenuOptions,
   moveTargetLabel,
+  moveVideosFailedMessage,
   runMoveToCollection,
+  runMoveVideos,
 } from './collectionMove'
 
 const VIDEO = { id: 'vid_1', title: 'Keynote', sourcePath: '/media/Keynote.mp4' }
 
-function collection(id: string, name: string): CollectionSummary {
+function collection(id: string, name: string, parent_id: string | null = null): CollectionSummary {
   return {
     id,
     name,
@@ -27,6 +29,9 @@ function collection(id: string, name: string): CollectionSummary {
     createdAt: '',
     updatedAt: '',
     members: 0,
+    parent_id,
+    total_members: 0,
+    path: [name],
   }
 }
 
@@ -147,26 +152,33 @@ describe('moveFailureOf', () => {
 })
 
 describe('moveTargetLabel', () => {
-  test('None, a named collection, or the bare id', () => {
-    expect(moveTargetLabel(COLLECTIONS, null)).toBe('no collection')
+  test('the Library root, a named folder, or the bare id', () => {
+    expect(moveTargetLabel(COLLECTIONS, null)).toBe('Library')
     expect(moveTargetLabel(COLLECTIONS, 'uck26')).toBe('UCK 26')
     expect(moveTargetLabel(COLLECTIONS, 'gone')).toBe('gone')
   })
 })
 
 describe('moveMenuOptions', () => {
-  test('None first, then every collection, with the current one checked', () => {
-    expect(moveMenuOptions(COLLECTIONS, 'meetup')).toEqual([
-      { id: null, label: 'None', checked: false },
-      { id: 'uck26', label: 'UCK 26', checked: false },
-      { id: 'meetup', label: 'Meetup', checked: true },
+  const TREE = [
+    collection('uck26', 'UCK 26', 'events'),
+    collection('meetup', 'Meetup'),
+    collection('events', 'Events'),
+  ]
+
+  test('Top level first, then the tree by name, indented, the current one checked', () => {
+    expect(moveMenuOptions(TREE, 'meetup')).toEqual([
+      { id: null, label: 'Top level', title: 'Library — in no folder', depth: 0, checked: false },
+      { id: 'events', label: 'Events', title: 'Events', depth: 1, checked: false },
+      { id: 'uck26', label: 'UCK 26', title: 'Events › UCK 26', depth: 2, checked: false },
+      { id: 'meetup', label: 'Meetup', title: 'Meetup', depth: 1, checked: true },
     ])
   })
 
-  test('a record in no collection has None checked', () => {
-    expect(moveMenuOptions(COLLECTIONS, null)[0]).toEqual({
+  test('a record in no folder has Top level checked', () => {
+    expect(moveMenuOptions(COLLECTIONS, null)[0]).toMatchObject({
       id: null,
-      label: 'None',
+      label: 'Top level',
       checked: true,
     })
   })
@@ -176,7 +188,9 @@ describe('moveMenuOptions', () => {
     expect(options).toHaveLength(4)
     expect(options[3]).toEqual({
       id: 'old-event',
-      label: 'old-event (no such collection)',
+      label: 'old-event (no such folder)',
+      title: 'old-event',
+      depth: 1,
       checked: true,
     })
   })
@@ -218,7 +232,102 @@ describe('runMoveToCollection', () => {
 
     expect(await runMoveToCollection(VIDEO, null, COLLECTIONS, d)).toBe(false)
 
-    expect(d.notify.mock.calls[0][0]).toBe('Could not move Keynote to no collection: 404 Not Found')
+    expect(d.notify.mock.calls[0][0]).toBe('Could not move Keynote to Library: 404 Not Found')
     expect(d.refreshCollections).not.toHaveBeenCalled()
+  })
+})
+
+describe('runMoveVideos', () => {
+  const KEYNOTE = { id: 'vid_1', title: 'Keynote', sourcePath: '/m/k.mp4' }
+  const PANEL = { id: 'vid_2', title: 'Panel', sourcePath: '/m/p.mp4' }
+  const QA = { id: 'vid_3', title: 'Q&A', sourcePath: '/m/q.mp4' }
+
+  function batchDeps() {
+    const calls: string[] = []
+    return {
+      calls,
+      read: vi.fn((id: string) => {
+        calls.push(`read ${id}`)
+        return Promise.resolve({ rev: 1, collection_id: null })
+      }),
+      write: vi.fn((id: string) => {
+        calls.push(`write ${id}`)
+        return Promise.resolve({})
+      }),
+      refresh: vi.fn(() => {
+        calls.push('refresh')
+        return Promise.resolve()
+      }),
+      refreshCollections: vi.fn(() => {
+        calls.push('refreshCollections')
+        return Promise.resolve()
+      }),
+      notify: vi.fn(),
+    }
+  }
+
+  test('moves each video in turn, then refreshes the list and the folders once', async () => {
+    const d = batchDeps()
+
+    expect(await runMoveVideos([KEYNOTE, PANEL, QA], 'uck26', COLLECTIONS, d)).toBe(3)
+
+    expect(d.calls).toEqual([
+      'read vid_1',
+      'write vid_1',
+      'read vid_2',
+      'write vid_2',
+      'read vid_3',
+      'write vid_3',
+      'refresh',
+      'refreshCollections',
+    ])
+    expect(d.notify).not.toHaveBeenCalled()
+  })
+
+  test('a failure does not stop the rest, and is summed up in one toast', async () => {
+    const d = batchDeps()
+    d.write.mockImplementation((id: string) =>
+      id === 'vid_2' ? Promise.reject(new Error('Failed to fetch')) : Promise.resolve({})
+    )
+
+    expect(await runMoveVideos([KEYNOTE, PANEL, QA], 'uck26', COLLECTIONS, d)).toBe(2)
+
+    expect(d.write).toHaveBeenCalledTimes(3)
+    expect(d.refresh).toHaveBeenCalledTimes(1)
+    expect(d.refreshCollections).toHaveBeenCalledTimes(1)
+    expect(d.notify).toHaveBeenCalledTimes(1)
+    expect(d.notify.mock.calls[0][0]).toBe(
+      "Couldn't move 1 of 3: Could not move Panel to UCK 26: Failed to fetch"
+    )
+  })
+
+  test('a deleted target folder refreshes the folders once, not once per video', async () => {
+    const d = batchDeps()
+    d.write.mockImplementation(() => Promise.reject(unknownCollection()))
+
+    expect(await runMoveVideos([KEYNOTE, PANEL], 'uck26', COLLECTIONS, d)).toBe(0)
+
+    expect(d.refreshCollections).toHaveBeenCalledTimes(1)
+    expect(d.notify).toHaveBeenCalledTimes(1)
+  })
+
+  test('nothing to move does nothing', async () => {
+    const d = batchDeps()
+    expect(await runMoveVideos([], 'uck26', COLLECTIONS, d)).toBe(0)
+    expect(d.calls).toEqual([])
+  })
+})
+
+describe('moveVideosFailedMessage', () => {
+  test('one video alone keeps its own message', () => {
+    expect(moveVideosFailedMessage(['Could not move Keynote to UCK 26: nope'], 1)).toBe(
+      'Could not move Keynote to UCK 26: nope'
+    )
+  })
+
+  test('a batch counts the failures and names the first', () => {
+    expect(moveVideosFailedMessage(['first', 'second'], 5)).toBe(
+      "Couldn't move 2 of 5: first (and 1 more)"
+    )
   })
 })

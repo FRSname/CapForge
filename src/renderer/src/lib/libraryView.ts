@@ -10,7 +10,6 @@
  * Pure module: no React, no `window`, no I/O.
  */
 
-import type { CollectionSummary } from './collectionTypes'
 import { frameAssetPath } from './framesApi'
 import type { LibraryStatus, LibraryVideo } from './libraryTypes'
 
@@ -193,49 +192,4 @@ export function isMediaPath(name: string): boolean {
   if (dot < 0) return false
   const ext = name.slice(dot + 1).toLowerCase()
   return (MEDIA_EXTENSIONS as readonly string[]).includes(ext)
-}
-
-/**
- * The library's collection filter, as the `<select>` value it is: a collection
- * id, or one of two sentinels. Both start with `:`, which `COLLECTION_ID_RE`
- * (`^[a-z0-9]…`) can never match, so a sentinel is never mistaken for an id.
- */
-export type CollectionFilter = string
-
-export const ALL_COLLECTIONS: CollectionFilter = ':all'
-export const NO_COLLECTION: CollectionFilter = ':none'
-
-/** Client-side over the loaded list. Returns a NEW array. */
-export function filterByCollection(
-  videos: readonly LibraryVideo[],
-  filter: CollectionFilter
-): LibraryVideo[] {
-  if (filter === ALL_COLLECTIONS) return [...videos]
-  if (filter === NO_COLLECTION) return videos.filter((v) => v.collection_id === null)
-  return videos.filter((v) => v.collection_id === filter)
-}
-
-export interface CollectionFilterOption {
-  value: CollectionFilter
-  label: string
-}
-
-/**
- * All, each collection by name, then any id a record carries that names no
- * collection (an orphan, shown by its id), then No collection.
- */
-export function collectionFilterOptions(
-  collections: ReadonlyArray<Pick<CollectionSummary, 'id' | 'name'>>,
-  videos: readonly LibraryVideo[]
-): CollectionFilterOption[] {
-  const known = new Set(collections.map((c) => c.id))
-  const orphanIds = [
-    ...new Set(videos.map((v) => v.collection_id).filter((id): id is string => id !== null)),
-  ].filter((id) => !known.has(id))
-  return [
-    { value: ALL_COLLECTIONS, label: 'All videos' },
-    ...collections.map((c) => ({ value: c.id, label: c.name })),
-    ...orphanIds.map((id) => ({ value: id, label: id })),
-    { value: NO_COLLECTION, label: 'No collection' },
-  ]
 }

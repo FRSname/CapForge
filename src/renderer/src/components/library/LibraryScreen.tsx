@@ -1,58 +1,61 @@
 /**
- * The library home screen — where CapForge opens (v3 §4).
+ * The library home screen — where CapForge opens (v3 §4), laid out like a
+ * Finder window (docs/plans/library-finder.md §4): a folder sidebar
+ * (`LibrarySidebar`) beside the main column (`LibraryMain`: path bar, toolbar,
+ * then the location's folders and videos in the remembered layout).
  *
- * Composition: a masthead with the toolbar (`LibraryToolbar`), then the
- * videos in the remembered layout (docs/plans/library-finder.md §3):
- *   - **grid** (`LibraryGrid`): a "Continue" hero (`ContinueHero`) for the most
- *     recent record that has a session to resume, then the rest as cards. The
- *     hero is deliberately *not* repeated in the grid: it is the same record
- *     promoted, not a second one;
- *   - **list** (`LibraryList`): every video as a table row, no hero.
- * Both follow the chosen sort. While a search is on, the backend's matches
- * narrow what the collection filter shows (`matchingVideos`) and the hero is
- * hidden. Search state and the view prefs are owned by `LibraryHome`; the
- * collection filter is local.
+ * The screen shows one **location** (`lib/libraryLocation.ts`): All videos,
+ * the Library root, or a folder. It is remembered with the view prefs, and a
+ * remembered folder that is gone resolves to the root here, at render time,
+ * without writing the prefs back (a write before the stored prefs are read
+ * would win over them).
  *
- * The whole screen is a drop target, and what a drop means is decided by
- * `droppedImport` (lib/libraryImport.ts), which sorts it exactly like an
- * Import… pick: one video opens in the editor as before; folders, several
- * files and `.capforge` projects are imported together. The handler runs in
- * the **capture** phase and stops the event there, so the empty state's own
- * DropZoneScreen never also handles it (it would open a dropped folder as if
- * it were a media file, and open a file twice).
+ * Two kinds of drop land on this screen, and they must never mix:
+ *   - **files from the OS** anywhere on the screen import. What a drop means
+ *     is `droppedImport` (lib/libraryImport.ts), which sorts it exactly like
+ *     an Import… pick: one video opens in the editor; folders, several files
+ *     and `.capforge` projects are imported together. The handler runs in the
+ *     **capture** phase and stops the event there, so the empty state's own
+ *     DropZoneScreen never also handles it;
+ *   - **cards, rows and folders** dragged onto a folder, "Library" or a path
+ *     crumb move there (`useLibraryDrag`). `dragKind` tells them apart, and the
+ *     capture handler and its highlight act on `'files'` only, so an internal
+ *     drag never reaches the import.
+ *
+ * Folder menus and inline renames are screen-wide state (`useFolderMenu`):
+ * the same folder can be in the sidebar and the main area at once.
  */
 
 import { useState } from 'react'
+import type { DragEvent } from 'react'
+import type { FolderActions } from '../../hooks/useFolderActions'
+import type { FolderMenuState, FolderSurface } from '../../hooks/useFolderMenu'
+import { useFolderMenu } from '../../hooks/useFolderMenu'
+import type { ChannelNames } from '../../hooks/useLibraryChannels'
+import type { LibraryDrag } from '../../hooks/useLibraryDrag'
+import { useLibraryDrag } from '../../hooks/useLibraryDrag'
+import { useLibraryLocation } from '../../hooks/useLibraryLocation'
+import type { LibrarySearchView } from '../../hooks/useLibrarySearch'
 import type { CreateCollectionResult } from '../../lib/collectionCreate'
 import { newCollectionPlacement } from '../../lib/collectionCreate'
+import type { CollectionSummary } from '../../lib/collectionTypes'
+import { dragKind } from '../../lib/libraryDrag'
 import type { DropPlan, ImportPickMode, ImportPlan, LocateOutcome } from '../../lib/libraryImport'
 import { droppedImport, droppedItemsOf, droppedSkippedMessage } from '../../lib/libraryImport'
-import type { CollectionSummary } from '../../lib/collectionTypes'
+import { folderLocation, resolveLocation } from '../../lib/libraryLocation'
 import type { LibraryViewPrefs } from '../../lib/libraryPrefs'
-import { isSearching, matchingVideos, noMatchMessage } from '../../lib/librarySearch'
-import { sortVideos } from '../../lib/librarySort'
-import type { CollectionFilter } from '../../lib/libraryView'
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import {
-  ALL_COLLECTIONS,
-  collectionFilterOptions,
-  continueCandidate,
-  filterByCollection,
-} from '../../lib/libraryView'
-import type { ChannelNames } from '../../hooks/useLibraryChannels'
-import type { LibrarySearchView } from '../../hooks/useLibrarySearch'
 import { warmForFile } from '../screens/DropZoneScreen'
-import { ContinueHero } from './ContinueHero'
-import { LibraryEmptyState } from './LibraryEmptyState'
-import { LibraryGrid } from './LibraryGrid'
-import { LibraryList } from './LibraryList'
-import { LibraryToolbar } from './LibraryToolbar'
+import type { FolderItemUi } from './folderItemUi'
+import { LibraryFolderMenu } from './LibraryFolderMenu'
+import { LibraryMain } from './LibraryMain'
+import { LibrarySidebar } from './LibrarySidebar'
 
 export { droppedNotMediaMessage } from '../../lib/libraryImport'
 
 export interface LibraryScreenProps {
   videos: LibraryVideo[]
-  /** Names for the filter and the card chips; null/absent until they load. */
+  /** The folders (collections), flat; null/absent until they load. */
   collections?: readonly CollectionSummary[] | null
   /** Channel names for the list's "Published on"; null/absent shows the ids. */
   channels?: ChannelNames | null
@@ -75,11 +78,15 @@ export interface LibraryScreenProps {
   onLocate: (video: LibraryVideo) => Promise<LocateOutcome>
   /** Card: link a different file anyway, after the inline confirm. */
   onForceLocate: (video: LibraryVideo, path: string) => void
-  /** Create a collection by name. Never rejects: failures are inline or toasted. */
-  onCreateCollection: (name: string) => Promise<CreateCollectionResult>
-  /** Card: put one video in a collection (null: in none). */
+  /** Create a folder by name, inside `parentId` (absent/null: top level). Never rejects. */
+  onCreateCollection: (name: string, parentId?: string | null) => Promise<CreateCollectionResult>
+  /** Card: put one video in a folder (null: in none). */
   onMoveToCollection: (video: LibraryVideo, collectionId: string | null) => void
-  /** Layout, icon size and sort (remembered by `useLibraryViewPrefs`). */
+  /** A drop: move these videos into a folder (null: the Library root). */
+  onMoveVideos: (videos: LibraryVideo[], collectionId: string | null) => void
+  /** Rename, move, delete, adopt, Folder settings… (`useFolderActions`). */
+  folderActions: FolderActions
+  /** Layout, icon size, sort, location and sidebar (remembered by `useLibraryViewPrefs`). */
   view: LibraryViewPrefs
   onViewChange: (next: LibraryViewPrefs) => void
   /** The search field and the backend's matches (`useLibrarySearch`). */
@@ -88,21 +95,27 @@ export interface LibraryScreenProps {
 }
 
 export function LibraryScreen(props: LibraryScreenProps) {
-  const { videos, collections, loading, view, search } = props
+  const { videos, view } = props
+  const collections = props.collections ?? null
   const [dragging, setDragging] = useState(false)
   // Bumped per drop to remount the empty state's DropZoneScreen: the capture
   // handler stops the event before that zone can clear its own highlight.
   const [dropCount, setDropCount] = useState(0)
-  const [filter, setFilter] = useState<CollectionFilter>(ALL_COLLECTIONS)
+  const menu = useFolderMenu()
+  const drag = useLibraryDrag({
+    collections: collections ?? [],
+    videos,
+    onMoveVideos: props.onMoveVideos,
+    onMoveFolder: props.folderActions.moveFolder,
+  })
+  const location = resolveLocation(view.location, collections, videos)
+  const place = useLibraryLocation({ ...props, location })
+  const placement = newCollectionPlacement(videos.length, collections)
+  const folderUi = (surface: FolderSurface) => folderItemUi(surface, props, drag, menu)
 
-  const known = collections ?? []
-  const searching = isSearching(search.query)
-  const inFilter = filterByCollection(videos, filter)
-  const shown = searching ? matchingVideos(inFilter, search.matchIds) : inFilter
-  const placement = newCollectionPlacement(videos.length, collections ?? null)
-  const hasVideos = videos.length > 0
-
-  function handleDrop(e: React.DragEvent) {
+  function handleDrop(e: DragEvent) {
+    // An internal drag (a card, a folder) belongs to the folder targets.
+    if (dragKind(e.dataTransfer.types) !== 'files') return
     e.preventDefault()
     e.stopPropagation()
     setDragging(false)
@@ -116,53 +129,74 @@ export function LibraryScreen(props: LibraryScreenProps) {
   return (
     <section
       aria-label="Library"
-      className="screen-in flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto"
+      className="screen-in flex min-h-0 min-w-0 flex-1"
       style={{
         background: dragging ? 'var(--color-accent-subtle)' : 'transparent',
         transition: 'background 150ms',
       }}
       onDragOver={(e) => {
+        if (dragKind(e.dataTransfer.types) !== 'files') return
         e.preventDefault()
         setDragging(true)
       }}
       onDragLeave={() => setDragging(false)}
       onDropCapture={handleDrop}
     >
-      <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 px-8 pb-4 pt-7">
-        <Masthead
-          countLabel={
-            loading
-              ? 'loading…'
-              : countLabel(shown.length, videos.length, filter !== ALL_COLLECTIONS || searching)
-          }
+      {placement === 'sidebar' && !view.sidebarCollapsed && (
+        <LibrarySidebar
+          location={location}
+          collections={collections}
+          videos={videos}
+          expanded={view.expanded}
+          ui={folderUi('sidebar')}
+          onNavigate={place.navigate}
+          onToggleExpanded={place.toggleExpanded}
+          onCreateFolder={place.createFolder}
+          onFolderCreated={place.revealCreated}
+          newFolderTitle={place.newFolderTitle}
         />
-        <LibraryToolbar
-          filterOptions={placement === 'toolbar' ? collectionFilterOptions(known, videos) : null}
-          filter={filter}
-          onFilterChange={setFilter}
-          onCreateCollection={props.onCreateCollection}
-          onImport={props.onImport}
-          onAddVideo={props.onAddVideo}
-          view={hasVideos ? view : null}
-          onViewChange={props.onViewChange}
-          searchQuery={search.query}
-          onSearchChange={props.onSearchChange}
-        />
-      </header>
-
-      {hasVideos ? (
-        <LibraryBody {...props} shown={shown} filter={filter} searching={searching} />
-      ) : (
-        <LibraryEmptyState
-          dropZoneKey={dropCount}
-          onFileSelected={props.onFileDropped}
-          onStart={props.onAddVideo}
-          onImport={props.onImport}
-          onCreateCollection={placement === 'empty-state' ? props.onCreateCollection : undefined}
+      )}
+      <LibraryMain
+        {...props}
+        location={location}
+        drag={drag}
+        folderUi={folderUi('main')}
+        sidebarToggle={
+          placement === 'sidebar'
+            ? { collapsed: view.sidebarCollapsed, onToggle: place.toggleSidebar }
+            : null
+        }
+        dropZoneKey={dropCount}
+        emptyStateCreates={placement === 'empty-state'}
+      />
+      {menu.menu && (
+        <LibraryFolderMenu
+          key={`${menu.menu.folder.id}:${menu.menu.x}:${menu.menu.y}`}
+          anchor={menu.menu}
+          collections={collections ?? []}
+          menu={menu}
+          actions={props.folderActions}
+          onCreateInside={place.createInside}
         />
       )}
     </section>
   )
+}
+
+function folderItemUi(
+  surface: FolderSurface,
+  props: LibraryScreenProps,
+  drag: LibraryDrag,
+  menu: FolderMenuState
+): FolderItemUi {
+  return {
+    drag,
+    renamingId: menu.renaming?.surface === surface ? menu.renaming.id : null,
+    onOpen: (folder) => props.onViewChange({ ...props.view, location: folderLocation(folder.id) }),
+    onOpenMenu: (folder, point) => menu.openMenu(folder, surface, point),
+    onRename: props.folderActions.renameFolder,
+    onStopRename: menu.stopRename,
+  }
 }
 
 function runDropPlan(plan: DropPlan, props: LibraryScreenProps) {
@@ -178,94 +212,4 @@ function runDropPlan(plan: DropPlan, props: LibraryScreenProps) {
   if (plan.skipped.length > 0) props.onDropRejected(droppedSkippedMessage(plan.skipped))
   props.onFileDropped(plan.path)
   warmForFile()
-}
-
-function Masthead({ countLabel }: { countLabel: string }) {
-  return (
-    <div className="flex shrink-0 items-baseline gap-3">
-      <h1
-        className="text-3xl leading-none"
-        style={{
-          fontFamily: 'var(--cf-font-display)',
-          fontStyle: 'italic',
-          color: 'var(--color-text)',
-        }}
-      >
-        Library
-      </h1>
-      <span
-        className="whitespace-nowrap text-[11px] uppercase tracking-widest"
-        style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
-      >
-        {countLabel}
-      </span>
-    </div>
-  )
-}
-
-interface LibraryBodyProps extends LibraryScreenProps {
-  /** The videos after the collection filter and the search. */
-  shown: LibraryVideo[]
-  filter: CollectionFilter
-  searching: boolean
-}
-
-/** The videos in the chosen layout, with the hero and the empty-result lines. */
-function LibraryBody({ shown, filter, searching, ...props }: LibraryBodyProps) {
-  const { view, search } = props
-  const known = props.collections ?? []
-  const filtering = filter !== ALL_COLLECTIONS
-  const hero = view.layout === 'grid' && !searching ? continueCandidate(shown) : null
-  const sorted = sortVideos(shown, view.sort).filter((v) => v.id !== hero?.id)
-  const actions = {
-    onOpen: props.onOpen,
-    onRemove: props.onRemove,
-    onDelete: props.onDelete,
-    onLocate: props.onLocate,
-    onForceLocate: props.onForceLocate,
-    onMoveToCollection: props.onMoveToCollection,
-    onCreateCollection: props.onCreateCollection,
-  }
-
-  return (
-    <div className="flex flex-col gap-8 px-8 pb-10">
-      {shown.length === 0 && (
-        <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-          {searching && search.matchIds !== null
-            ? noMatchMessage(search.query, filtering)
-            : 'No videos match this collection filter.'}
-        </p>
-      )}
-      {hero && <ContinueHero video={hero} onOpen={props.onOpen} />}
-      {sorted.length > 0 && (
-        <div className="flex flex-col gap-3">
-          <h2
-            className="text-[11px] uppercase tracking-widest"
-            style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
-          >
-            {searching ? 'Search results' : 'All videos'}
-          </h2>
-          {view.layout === 'list' ? (
-            <LibraryList
-              videos={sorted}
-              collections={known}
-              channels={props.channels ?? null}
-              showCollection={!filtering}
-              sort={view.sort}
-              onSortChange={(sort) => props.onViewChange({ ...view, sort })}
-              {...actions}
-            />
-          ) : (
-            <LibraryGrid videos={sorted} collections={known} tileSize={view.tileSize} {...actions} />
-          )}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** "3 videos", or "2 of 3 videos" while a collection filter or a search is on. */
-function countLabel(shown: number, total: number, narrowed: boolean): string {
-  const noun = `video${total === 1 ? '' : 's'}`
-  return narrowed ? `${shown} of ${total} ${noun}` : `${total} ${noun}`
 }
