@@ -54,7 +54,6 @@ export interface SubforgeApi {
   exportPreset: (name: string) => Promise<ExportPresetResult | null>
   importPreset: () => Promise<ImportPresetResult | null>
   saveProject: (projectData: unknown) => Promise<string | null>
-  openProject: () => Promise<unknown | null>
   getState: <T>(key: string, fallback: T) => Promise<T>
   setState: (key: string, value: unknown) => Promise<void>
   autosaveWrite: (data: unknown) => Promise<void>
@@ -73,7 +72,6 @@ export interface SubforgeApi {
    *  main) to a file the user picks; `title` only names it. Null when cancelled. */
   saveLibraryFrame: (videoId: string, name: string, title: string) => Promise<string | null>
   /** Multi-select `.capforge` picker; resolves to the chosen paths (empty when cancelled). */
-  openProjectFiles: () => Promise<string[]>
   openLogsFolder: () => Promise<void>
   openLogFile: () => Promise<void>
   showInFolder: (filePath: string) => Promise<void>
@@ -208,7 +206,6 @@ contextBridge.exposeInMainWorld('subforge', {
   exportPreset: (name: string) => ipcRenderer.invoke('presets:export', name),
   importPreset: () => ipcRenderer.invoke('presets:import'),
   saveProject: (projectData: unknown) => ipcRenderer.invoke('project:save', projectData),
-  openProject: () => ipcRenderer.invoke('project:open'),
   getState: <T>(key: string, fallback: T) => ipcRenderer.invoke('state:get', key, fallback),
   setState: (key: string, value: unknown) => ipcRenderer.invoke('state:set', key, value),
   autosaveWrite: (data: unknown) => ipcRenderer.invoke('autosave:write', data),
@@ -221,7 +218,6 @@ contextBridge.exposeInMainWorld('subforge', {
   pickImport: (mode: ImportPickMode) => ipcRenderer.invoke('library:pick-import', mode),
   saveLibraryFrame: (videoId: string, name: string, title: string) =>
     ipcRenderer.invoke('library:save-frame', videoId, name, title),
-  openProjectFiles: () => ipcRenderer.invoke('dialog:open-projects'),
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),
   showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),

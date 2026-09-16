@@ -375,16 +375,10 @@ export function App() {
     classifications,
   })
 
-  // ── Project open ────────────────────────────────────────────────
-  const handleOpen = useCallback(async () => {
-    const raw = await window.subforge.openProject()
-    if (raw) await restoreFromProjectFile(raw)
-  }, [restoreFromProjectFile])
-
   // ── Crash recovery ──────────────────────────────────────────────
   // An autosave snapshot left on disk by a session that didn't end via an
   // explicit Save or New (i.e. a crash or accidental close); restored through
-  // the same path an Open takes.
+  // the same path a library record's project restore takes.
   const {
     snapshot: recoverySnapshot,
     recover: handleRecover,
@@ -413,7 +407,6 @@ export function App() {
   // ── Global keyboard shortcuts ───────────────────────────────────
   useGlobalShortcuts({
     onSave: handleSave,
-    onOpen: handleOpen,
     onUndo: settingsUndo.undo,
     onRedo: settingsUndo.redo,
     onToggleShortcutOverlay: toggleShortcuts,
@@ -443,7 +436,6 @@ export function App() {
           onLibrary={nav.goToLibrary}
           onNew={nav.handleNew}
           onSave={handleSave}
-          onOpen={handleOpen}
           onSettingsToggle={() => setSettingsOpen((o) => !o)}
           onUndo={subtitleUndo?.undo}
           onRedo={subtitleUndo?.redo}

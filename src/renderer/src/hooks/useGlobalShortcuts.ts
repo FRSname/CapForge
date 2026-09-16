@@ -1,6 +1,7 @@
 /**
- * The window-level shortcuts App owns: Save, Open, settings undo/redo and the
- * shortcut overlay.
+ * The window-level shortcuts App owns: Save, settings undo/redo and the
+ * shortcut overlay. ⌘O is not here: it is the library's Import…, owned by the
+ * library screen (`useLibraryImportShortcut`), and does nothing elsewhere.
  *
  * Moved out of `App.tsx` verbatim when the library screen landed (App is at its
  * size ceiling, §9.3). The behaviour is unchanged, including the two rules that
@@ -13,14 +14,13 @@ import { useEffect } from 'react'
 
 export interface GlobalShortcutHandlers {
   onSave: () => void
-  onOpen: () => void
   onUndo: () => void
   onRedo: () => void
   onToggleShortcutOverlay: () => void
 }
 
 export function useGlobalShortcuts(handlers: GlobalShortcutHandlers): void {
-  const { onSave, onOpen, onUndo, onRedo, onToggleShortcutOverlay } = handlers
+  const { onSave, onUndo, onRedo, onToggleShortcutOverlay } = handlers
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -33,9 +33,6 @@ export function useGlobalShortcuts(handlers: GlobalShortcutHandlers): void {
       if (mod && e.key === 's') {
         e.preventDefault()
         onSave()
-      } else if (mod && e.key === 'o') {
-        e.preventDefault()
-        onOpen()
       } else if (mod && e.key === 'z' && !editable) {
         e.preventDefault()
         if (e.shiftKey) onRedo()
@@ -49,5 +46,5 @@ export function useGlobalShortcuts(handlers: GlobalShortcutHandlers): void {
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [onSave, onOpen, onUndo, onRedo, onToggleShortcutOverlay])
+  }, [onSave, onUndo, onRedo, onToggleShortcutOverlay])
 }

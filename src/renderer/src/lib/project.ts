@@ -1,11 +1,12 @@
 /**
  * Project (.capforge) file shape + helpers.
- * Ports saveProject()/openProject() from app.js:3778-3864.
+ * Ports the save/open project helpers from the legacy app.js:3778-3864.
  *
  * A project snapshot captures everything needed to reopen a working session:
  * the source file path, the transcription result, the studio settings, and
  * any manual group edits the user has made. The actual file I/O happens in
- * the main process (window.subforge.saveProject / openProject).
+ * the main process (window.subforge.saveProject); a `.capforge` comes back in
+ * through the library's Import… or a library record's stored snapshot.
  *
  * **Version 2 is additive.** Every v1 key keeps its v1 meaning — they describe
  * the *source* caption track — and translated tracks ride alongside in `tracks`.
@@ -66,7 +67,7 @@ export interface ProjectFile {
   tracks?: TranslatedTrackFile[]
   /** v2+: which tab was open. Absent (or unknown) means the source track. */
   activeTrackId?: string
-  /** Populated by the main process on read so we know what path to save back to. */
+  /** Written on read by the removed Open dialog; a snapshot saved back then may still carry it. */
   _filePath?: string
 }
 
@@ -198,7 +199,7 @@ export function migrateProjectFile(raw: unknown): ProjectFile {
   const tracks = ((raw.tracks as unknown[]) ?? []).map(readTrackFile)
   const known = new Set<string>([SOURCE_TRACK_ID, ...tracks.map((t) => t.id)])
 
-  // Unknown future keys (and `_filePath`, written by the main process on read)
+  // Unknown future keys (and a legacy `_filePath`)
   // ride through untouched — this is a migration, not a rewrite.
   const file = {
     ...raw,

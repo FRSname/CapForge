@@ -20,7 +20,6 @@ interface TitleBarProps {
   onLibrary: () => void
   onNew: () => void
   onSave: () => void
-  onOpen: () => void
   onSettingsToggle: () => void
   onExport?: () => void
   onUndo?: () => void
@@ -36,7 +35,6 @@ export function TitleBar({
   onLibrary,
   onNew,
   onSave,
-  onOpen,
   onSettingsToggle,
   onExport,
   onUndo,
@@ -176,10 +174,6 @@ export function TitleBar({
             </Button>
           </>
         )}
-
-        <Button variant="titlebar" title="Open Project (Ctrl+O)" onClick={onOpen}>
-          Open
-        </Button>
 
         {/* Settings gear */}
         <IconButton

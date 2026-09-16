@@ -157,7 +157,7 @@ npm run dist:dir        # unpacked build (debug)
 | **Enter** (Groups view) | Split focused group in half |
 | **Ctrl+Z** / **Ctrl+Shift+Z** | Undo / redo edits |
 | **Ctrl+S** | Save project |
-| **Ctrl+O** | Open project |
+| **Ctrl+O** | Import… (library screen) |
 | **Enter** | Start transcription (file screen) |
 | **Escape** | Cancel job |
 | **Ctrl+Wheel** (timeline) | Zoom |

@@ -72,9 +72,6 @@ contextBridge.exposeInMainWorld('subforge', {
   /** Save a project file. Returns saved path or null. */
   saveProject: (projectData) => ipcRenderer.invoke('project:save', projectData),
 
-  /** Open a project file. Returns parsed data or null. */
-  openProject: () => ipcRenderer.invoke('project:open'),
-
   /** Read a persisted UI preference. Returns stored value or `fallback`. */
   getState: (key, fallback) => ipcRenderer.invoke('state:get', key, fallback),
 
@@ -109,9 +106,6 @@ contextBridge.exposeInMainWorld('subforge', {
    *  Returns the saved path, or null when cancelled. */
   saveLibraryFrame: (videoId, name, title) =>
     ipcRenderer.invoke('library:save-frame', videoId, name, title),
-
-  /** Multi-select .capforge picker. Returns the chosen paths ([] when cancelled). */
-  openProjectFiles: () => ipcRenderer.invoke('dialog:open-projects'),
 
   /** Open the folder containing backend logs in the OS file manager. */
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
