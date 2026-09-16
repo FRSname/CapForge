@@ -183,6 +183,6 @@ def test_init_skill_interviews_and_never_invents() -> None:
     assert "a list is replaced whole" in text.lower()
     assert "confirm before every write" in text.lower()
     assert "`delete_channel` only when the user asks" in text
-    assert "include_recent_posts=True only when the user says yes" in text
+    assert "include_recent_posts=True)` only when the user says yes" in text
     # The profile is pasted verbatim, so an event's boilerplate belongs on a folder.
     assert "folder" in text.lower() and "publish_guide(\"collections\")" in text

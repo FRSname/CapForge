@@ -99,7 +99,7 @@ is the part worth the user's time. Start with the primary channel. For each chan
   the voice. Ask ("same audience as your YouTube channel?") instead of copying.
 - **Older posts are opt-in.** If the channel already has published videos in CapForge,
   you may offer to read them to draft the style, and call `get_channel(channel_id,
-  include_recent_posts=True)` with include_recent_posts=True only when the user says yes.
+  include_recent_posts=True)` only when the user says yes.
 
 Write it as `set_channel(channel_id, context={…})` with the fields they answered.
 

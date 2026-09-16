@@ -178,7 +178,7 @@ class PrimaryNotYoutube(LibraryError):
     def __init__(self, channel_id: str, platform: str) -> None:
         super().__init__(
             f"Channel {channel_id!r} is on {platform}, and the primary channel "
-            "is always a YouTube channel"
+            "is always a YouTube channel."
         )
         self.channel_id = channel_id
         self.platform = platform
