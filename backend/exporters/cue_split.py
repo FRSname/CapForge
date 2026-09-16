@@ -32,7 +32,7 @@ The two exceptions are both bounded and one-directional:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from backend.models.schemas import Segment, WordSegment
 
@@ -61,12 +61,21 @@ _ABBREVIATIONS = frozenset({
 
 @dataclass(frozen=True)
 class Cue:
-    """One subtitle entry: a time span and its already-wrapped lines."""
+    """One subtitle entry: a time span and its already-wrapped lines.
+
+    ``words`` are the aligned ``WordSegment``s the cue was cut from, the very
+    objects from the segment, for callers that time text inside a cue (ASS
+    karaoke). It is empty when the segment arrived without word timings: the
+    character-count interpolation places cue boundaries, it is not word timing.
+    It is excluded from equality and hashing, so a cue compares exactly as it
+    did before it carried words.
+    """
 
     start: float
     end: float
     lines: tuple[str, ...]
     speaker: str | None = None
+    words: tuple[WordSegment, ...] = field(default=(), compare=False, repr=False)
 
 
 # --- Text helpers ---------------------------------------------------------
@@ -276,7 +285,8 @@ def split_segments(segments: list[Segment]) -> list[Cue]:
     """Return the readable subtitle cues for ``segments``."""
     cues: list[Cue] = []
     for segment in segments:
-        words = segment.words or _synthetic_words(segment)
+        timed = bool(segment.words)
+        words = segment.words if timed else _synthetic_words(segment)
         if not words:
             continue
         for sentence in _sentence_chunks(words):
@@ -289,5 +299,6 @@ def split_segments(segments: list[Segment]) -> list[Cue]:
                     end=max(chunk[-1].end, chunk[0].start),
                     lines=_wrap(text),
                     speaker=segment.speaker,
+                    words=tuple(chunk) if timed else (),
                 ))
     return _extend_short(cues)

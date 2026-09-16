@@ -45,3 +45,51 @@ def transcription_result() -> TranscriptionResult:
 @pytest.fixture
 def empty_result() -> TranscriptionResult:
     return TranscriptionResult()
+
+
+def _timed_words(text: str, start: float) -> list[WordSegment]:
+    """Words spoken at a steady pace: 0.25 s each with a 0.07 s pause between,
+    so karaoke has real inter-word gaps to fold."""
+    return [
+        WordSegment(word=token, start=round(start + i * 0.32, 3), end=round(start + i * 0.32 + 0.25, 3))
+        for i, token in enumerate(text.split())
+    ]
+
+
+@pytest.fixture
+def multi_sentence_result() -> TranscriptionResult:
+    """Two WhisperX segments carrying four sentences between them.
+
+    A segment is a VAD chunk, not a sentence: the first holds two sentences, one
+    of them long enough to wrap and split; the second opens with a one-word
+    sentence short enough to trigger the minimum-duration extension.
+    """
+    first = (
+        "Welcome back to the channel. Today we are going to look at how "
+        "subtitles get split into readable cues, and why a single segment "
+        "is never the right unit for a caption."
+    )
+    second = "Okay. It matters more than you would think, especially on a phone."
+    first_words = _timed_words(first, 0.5)
+    second_words = _timed_words(second, 14.0)
+    return TranscriptionResult(
+        segments=[
+            Segment(
+                start=first_words[0].start,
+                end=first_words[-1].end,
+                text=first,
+                words=first_words,
+                speaker="SPEAKER_00",
+            ),
+            Segment(
+                start=second_words[0].start,
+                end=second_words[-1].end,
+                text=second,
+                words=second_words,
+                speaker="SPEAKER_01",
+            ),
+        ],
+        language="en",
+        audio_path="/tmp/audio.wav",
+        duration=20.0,
+    )
