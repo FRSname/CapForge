@@ -618,6 +618,7 @@ export function ResultsScreen({
       <div className="flex flex-col shrink-0 overflow-hidden" style={{ width: editorWidth }}>
         {/* View tabs — roving tabIndex + arrow keys (pattern from ui/SegmentedControl) */}
         <div
+          data-tour="editor-view-tabs"
           role="tablist"
           aria-label="Editor view"
           className="flex items-center gap-1 px-3 pt-2 border-b border-[var(--color-border)] shrink-0"

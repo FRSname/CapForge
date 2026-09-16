@@ -78,7 +78,10 @@ export function PublishPanelView(props: PublishPanelViewProps) {
   const hasTabs = record !== null && channels.tabs.length > 0
 
   return (
-    <aside className="w-[380px] shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]">
+    <aside
+      data-tour="publish-panel"
+      className="w-[380px] shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]"
+    >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 shrink-0 border-b border-[var(--color-border)]">
         <span className="label-xs">Publish</span>

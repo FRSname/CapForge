@@ -338,7 +338,10 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   const tlHeight = selectedGroupId ? TIMELINE_HEIGHT_EXPANDED : TIMELINE_HEIGHT
 
   return (
-    <div className="flex flex-col flex-1 min-h-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] select-none">
+    <div
+      data-tour="player"
+      className="flex flex-col flex-1 min-h-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] select-none"
+    >
       {/* ── Video / audio preview area ──────────────────────────── */}
       {/* container-type: size lets the aspect wrapper letterbox-fit via cqw/cqh
           units — the wrapper keeps the exact video aspect (SafeZoneOverlay

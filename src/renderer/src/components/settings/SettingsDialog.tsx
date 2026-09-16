@@ -25,7 +25,7 @@ import {
   filterAppSettings,
   type AppSettingsCategoryId,
 } from '../../lib/appSettingsIndex'
-import { onSettingsCategoryRequested } from '../../lib/settingsNavigation'
+import { onSettingsCategoryRequested, onSettingsCloseRequested } from '../../lib/settingsNavigation'
 import { IconButton } from '../ui/IconButton'
 import { ChannelsSettings } from './ChannelsSettings'
 import { ClaudeSettings } from './ClaudeSettings'
@@ -116,6 +116,11 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
     setFolderFocus(null)
     onClose()
   }
+
+  // The coach-mark tour opened Settings for a step and is putting it back.
+  // No dependency list on purpose: `close` is rebuilt every render, so the
+  // subscription has to be too, or the tour would call a stale one.
+  useEffect(() => onSettingsCloseRequested(close))
 
   // Escape closes.
   useEffect(() => {

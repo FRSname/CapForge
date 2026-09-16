@@ -42,6 +42,7 @@ import { usePublishRecord } from './hooks/usePublishRecord'
 import { PublishRecordProvider } from './hooks/usePublishRecordContext'
 import { useSourceTimingLink } from './hooks/useSourceTimingLink'
 import { usePublishWorkspace } from './hooks/usePublishWorkspace'
+import { useTourNavigator } from './hooks/useTourNavigator'
 import { useUiStateMirror } from './hooks/useUiStateMirror'
 import { useUserPresets } from './hooks/useUserPresets'
 import {
@@ -354,6 +355,7 @@ export function App() {
   // `workspace` is an axis over the open record, not a fifth screen: both
   // asides stay mounted and the player is shared (vision §4).
   const publishWorkspace = usePublishWorkspace({ activeVideoId: session.activeVideoId })
+  useTourNavigator({ setWorkspace: publishWorkspace.setWorkspace })
   const publish = usePublishRecord({
     videoId: session.activeVideoId,
     segments: sourceTrack.segments,
@@ -575,7 +577,7 @@ export function App() {
 
         <SettingsDialog open={settingsOpen} onClose={settingsTo(false)} onOpen={settingsTo(true)} />
         <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
-        <StartupPrompts active={screen === 'library'} />
+        <StartupPrompts screen={screen} />
         {importChannels.sheet}
         <AgentLiveSync
           resultsActive={screen === 'results'}

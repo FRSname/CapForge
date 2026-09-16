@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { TUTORIAL_EMBED_URL, TUTORIAL_URL } from '../../lib/startupGuide'
+import { TUTORIAL_EMBED_URL, TUTORIAL_URL } from '../../lib/tutorial'
 import { TutorialPlayer } from './TutorialPlayer'
 
 function player(expanded: boolean): string {

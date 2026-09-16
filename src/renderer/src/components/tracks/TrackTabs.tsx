@@ -82,6 +82,7 @@ export function TrackTabs({ tracks, activeTrackId, onSelect, onAdd, onClose }: T
   return (
     <div
       ref={containerRef}
+      data-tour="track-tabs"
       role="tablist"
       aria-label="Caption tracks"
       className="app-no-drag flex shrink-0 items-center gap-1 border-b border-[var(--color-border)] px-3 pt-1.5"

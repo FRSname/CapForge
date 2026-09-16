@@ -1,15 +1,15 @@
 /**
- * The tutorial video, inside the startup guide.
+ * The tutorial video, inside the getting-around tour's welcome card.
  *
  * Click to load: while it is collapsed there is no iframe in the tree at all,
- * so simply opening the guide never talks to YouTube. Expanding mounts the
+ * so simply starting the tour never talks to YouTube. Expanding mounts the
  * nocookie player, which is the one origin `index.html`'s CSP allows in a
  * frame. "Open in browser" stays for anyone who would rather watch it there,
  * and goes through the main process allowlist like every other link.
  */
 
 import type { ReactNode } from 'react'
-import { TUTORIAL_EMBED_URL, TUTORIAL_URL } from '../../lib/startupGuide'
+import { TUTORIAL_EMBED_URL, TUTORIAL_URL } from '../../lib/tutorial'
 
 export interface TutorialPlayerProps {
   expanded: boolean

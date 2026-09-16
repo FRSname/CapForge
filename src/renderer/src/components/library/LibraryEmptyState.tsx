@@ -69,7 +69,10 @@ export function LibraryEmptyState({
         onFileSelected={onFileSelected}
         onStart={onStart}
       />
-      <div className="flex flex-wrap items-center justify-center gap-2">
+      <div
+        data-tour="library-add-video"
+        className="flex flex-wrap items-center justify-center gap-2"
+      >
         <ImportButton onImport={onImport} align="center" />
         {onCreateCollection && (
           <NewCollectionPopover

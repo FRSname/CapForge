@@ -41,7 +41,7 @@ export function ChannelsSettings() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div data-tour="settings-channels" className="flex flex-col gap-5">
       <ChannelsSettingsView
         channels={list}
         platforms={platforms}

@@ -232,9 +232,17 @@ export function AboutBlock({ version, onShow }: AboutBlockProps) {
         >
           Startup guide
         </Button>
+        <Button
+          variant="ghost"
+          className="flex-1 text-xs justify-center"
+          onClick={() => onShow('first-video')}
+        >
+          Editor guide
+        </Button>
       </div>
       <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
-        The release highlights, and the walkthrough shown on a fresh install.
+        The tours shown on a fresh install and after the first video, and the release highlights.
+        The startup guide runs on the library, the editor guide with a video open.
       </p>
     </div>
   )

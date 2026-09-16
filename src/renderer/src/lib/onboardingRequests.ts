@@ -7,7 +7,13 @@
  * back up. No `window`, no DOM events, testable in the node environment.
  */
 
-export type OnboardingKind = 'guide' | 'whats-new'
+/**
+ * `guide` is the getting-around tour, `first-video` the editor tour, and
+ * `whats-new` the release-notes card. The first two are only meaningful on the
+ * screen they walk, which is why `StartupPrompts` and not this module decides
+ * what a request turns into.
+ */
+export type OnboardingKind = 'guide' | 'whats-new' | 'first-video'
 
 type Listener = (kind: OnboardingKind) => void
 

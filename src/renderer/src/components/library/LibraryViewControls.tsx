@@ -50,6 +50,7 @@ export function LibraryViewControls({
     <>
       <input
         type="search"
+        data-tour="library-view-controls"
         className="field-input placeholder-subtle shrink-0 text-xs"
         aria-label="Search the library"
         style={{ width: SEARCH_WIDTH }}

@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, test } from 'vitest'
-import { TUTORIAL_EMBED_URL } from './startupGuide'
+import { TUTORIAL_EMBED_URL } from './tutorial'
 
 const INDEX_HTML = readFileSync(resolve(__dirname, '../../index.html'), 'utf8')
 

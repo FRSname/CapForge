@@ -2,16 +2,18 @@
  * Which one-shot prompt a start deserves: the startup guide, the release
  * notes, or nothing.
  *
- * A fresh install has nothing to compare against, so it gets the guide. An
- * update gets "What's new". Existing users predate the `lastSeenVersion` key
- * entirely, so they are told apart from a fresh install by evidence of use in
- * `app-state` (a path they picked, a model they chose).
+ * A fresh install has nothing to compare against, so it gets the guide, which
+ * is the `getting-around` coach-mark tour rather than a dialog (`TOURS` in
+ * `lib/tourSteps.ts`). An update gets "What's new". Existing users predate the
+ * `lastSeenVersion` key entirely, so they are told apart from a fresh install
+ * by evidence of use in `app-state` (a path they picked, a model they chose).
  */
 
 import { compareVersions } from './version'
 
 export type StartupPrompt =
   | { kind: 'none' }
+  /** Start the `getting-around` tour; `StartupPrompts` turns it into one. */
   | { kind: 'guide' }
   | { kind: 'whats-new'; lastSeen: string | null }
 

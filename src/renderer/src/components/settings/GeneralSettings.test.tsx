@@ -57,12 +57,13 @@ describe('WatchFolderRow', () => {
     expect(html).toContain('Checking…')
   })
 
-  test('the pane ends with the About block and both prompts', () => {
+  test('the pane ends with the About block and all three prompts', () => {
     const html = renderToStaticMarkup(
       <GeneralSettings lightMode={false} onLightModeChange={() => {}} />
     )
     expect(html).toContain('About')
     expect(html).toContain('Startup guide')
+    expect(html).toContain('Editor guide')
     // Apostrophes arrive HTML-escaped.
     expect(html).toContain('What&#x27;s new')
   })
@@ -83,9 +84,14 @@ describe('AboutBlock', () => {
     expect(html).not.toContain('CapForge 2')
   })
 
-  test('offers both prompts', () => {
+  test('offers all three prompts', () => {
     const html = about('2.6.0')
     expect(html).toContain('Startup guide')
+    expect(html).toContain('Editor guide')
     expect(html).toContain('What&#x27;s new')
+  })
+
+  test('says where each tour runs, so a disabled button is never a mystery', () => {
+    expect(about('2.6.0')).toContain('The startup guide runs on the library')
   })
 })

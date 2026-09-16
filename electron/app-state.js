@@ -24,11 +24,16 @@
  *                               seeded by first-run setup, edited in Settings
  *   lastSeenVersion  string   — the version whose "What's new" / startup guide
  *                               the user has dismissed. The onboarding prompts
- *                               write this key and no other; they only *read*
- *                               lastInputPath / lastProjectPath / lastOutputDir
- *                               as evidence that this install has been used
- *                               before (not whisper_model: first-run setup
- *                               can write it before the library is seen)
+ *                               only *read* lastInputPath / lastProjectPath /
+ *                               lastOutputDir as evidence that this install has
+ *                               been used before (not whisper_model: first-run
+ *                               setup can write it before the library is seen)
+ *   toursSeen        string[] — the coach-mark tours already walked
+ *                               ('getting-around', 'first-video'), so neither
+ *                               starts by itself twice. Written when a tour
+ *                               ends, however it ends; unknown entries are
+ *                               dropped when it is read
+ *                               (src/renderer/src/lib/tourEngine.ts)
  *
  * Missing keys return `undefined`; callers should have their own defaults.
  */

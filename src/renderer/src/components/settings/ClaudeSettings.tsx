@@ -79,7 +79,7 @@ export function ClaudeSettings() {
             Finish first-run setup to enable this.
           </p>
         )}
-        <div className="flex gap-2">
+        <div data-tour="settings-claude-connect" className="flex gap-2">
           <Button
             variant="ghost"
             className="flex-1 text-xs justify-center"

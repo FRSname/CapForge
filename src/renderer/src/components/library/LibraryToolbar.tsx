@@ -44,10 +44,13 @@ export function LibraryToolbar({
           onSearchChange={onSearchChange}
         />
       )}
-      <ImportButton onImport={onImport} align="end" />
-      <Button variant="primary" className="whitespace-nowrap text-xs" onClick={onAddVideo}>
-        Add video
-      </Button>
+      {/* The coach-mark tour points at the pair, not at either button. */}
+      <span data-tour="library-add-video" className="flex items-center gap-2">
+        <ImportButton onImport={onImport} align="end" />
+        <Button variant="primary" className="whitespace-nowrap text-xs" onClick={onAddVideo}>
+          Add video
+        </Button>
+      </span>
     </div>
   )
 }

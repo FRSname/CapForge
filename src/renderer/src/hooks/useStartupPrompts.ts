@@ -1,6 +1,8 @@
 /**
  * Gathers the evidence for the one-shot startup prompts and owns which one is
- * showing.
+ * showing. Two of the three are tours now, so what this hook still *renders*
+ * is the "What's new" card; the `guide` answer is a cue `StartupPrompts` turns
+ * into the getting-around tour.
  *
  * Everything that can be decided without the bridge lives in
  * `lib/startupPrompts.ts`; this hook is the IO around it. A missing bridge (an
@@ -85,7 +87,10 @@ export function useStartupPrompts(active: boolean): StartupPromptsState {
   }, [])
 
   const show = useCallback((kind: OnboardingKind) => {
-    setForced(kind === 'guide' ? { kind: 'guide' } : { kind: 'whats-new', lastSeen: null })
+    // The two guides are coach-mark tours, started by `StartupPrompts` on the
+    // screen they walk; the only prompt this hook can force open is the card.
+    if (kind !== 'whats-new') return
+    setForced({ kind: 'whats-new', lastSeen: null })
   }, [])
 
   useEffect(() => onOnboardingRequested(show), [show])
