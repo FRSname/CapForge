@@ -14,7 +14,7 @@ describe('APP_SETTINGS_CATEGORIES', () => {
   test('is the six panes in rail order', () => {
     expect(APP_SETTINGS_CATEGORIES.map((c) => c.id)).toEqual([
       'general',
-      'channel',
+      'channels',
       'collections',
       'transcription',
       'claude',
@@ -38,13 +38,44 @@ describe('filterAppSettings', () => {
     // Assert
     expect(res.categories).toEqual([
       'general',
-      'channel',
+      'channels',
       'collections',
       'transcription',
       'claude',
       'shortcuts',
     ])
     expect(res.entries).toEqual([])
+  })
+
+  test('the words a user would type for a channel lead to Channels', () => {
+    for (const query of [
+      'channel',
+      'platform',
+      'youtube',
+      'tiktok',
+      'instagram',
+      'linkedin',
+      'about',
+      'title style',
+      'example titles',
+      'naming',
+      'slugs',
+      'keywords',
+      'audience',
+      'voice',
+      'footer',
+      'hashtag',
+      'house rules',
+      'template',
+      'speaker',
+    ]) {
+      expect(filterAppSettings(query).categories).toContain('channels')
+    }
+  })
+
+  test('there is no singular Channel category any more', () => {
+    expect(APP_SETTINGS_CATEGORIES.map((c) => c.id)).not.toContain('channel')
+    expect(APP_SETTINGS_CATEGORIES.find((c) => c.id === 'channels')?.label).toBe('Channels')
   })
 
   test('"collection" and "event" lead to Collections', () => {
@@ -54,7 +85,7 @@ describe('filterAppSettings', () => {
 
   test('"template" finds the template in both places it lives', () => {
     const { categories } = filterAppSettings('template')
-    expect(categories).toContain('channel')
+    expect(categories).toContain('channels')
     expect(categories).toContain('collections')
   })
 

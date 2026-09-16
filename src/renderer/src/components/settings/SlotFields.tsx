@@ -1,5 +1,5 @@
 /**
- * The two template editors shared by Settings → Channel and Settings →
+ * The two template editors shared by Settings → Channels and Settings →
  * Collections: the description template (a textarea with a slot palette that
  * inserts `{{name}}` at the cursor) and the custom slot rows.
  *

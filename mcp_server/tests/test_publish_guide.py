@@ -41,6 +41,9 @@ NOT_TOOLS = KINDS | PROMPT_NAMES | {
     "chapter_titles", "shorts_caption", "localized_lang_code", "localized_is_source",
     "localized_chapter_count", "title_max_chars", "description_max_bytes",
     "tags_max_chars", "no_angle_brackets",
+    # channels: context/profile fields, a list key, the refusal reasons (channel_tools.py)
+    "title_style", "example_titles", "example_slugs", "primary_id", "channel_is_primary",
+    "primary_not_youtube",
     # platform post findings (backend/library/platform_posts.py)
     "video_url_missing", "linkedin_max_chars", "x_max_chars", "instagram_max_chars",
 }
@@ -71,7 +74,7 @@ def test_the_topics_of_the_plan() -> None:
     publish-editors Part B adds `localized`; a topic added or dropped is a plan change."""
     assert list(publish_guide.TOPICS) == [
         "workflow", "breakdown", "description", "chapters", "thumbnails", "shorts", "batch",
-        "collections", "localized",
+        "collections", "channels", "localized",
     ]
 
 

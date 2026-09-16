@@ -196,11 +196,12 @@ def effective_brief(brief: Brief, collection: Optional[Collection]) -> Brief:
     return brief.model_copy(update=update)
 
 
-def slugify(name: str) -> str:
-    """A legal collection id from a display name (accents folded, ASCII only)."""
+def slugify(name: str, fallback: str = FALLBACK_SLUG) -> str:
+    """A legal id from a display name (accents folded, ASCII only); ``fallback``
+    when the name has no ASCII letter or digit."""
     folded = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii")
     slug = _NON_SLUG_RUN.sub("-", folded.lower()).strip("-")
-    return slug[:COLLECTION_ID_MAX_CHARS].rstrip("-") or FALLBACK_SLUG
+    return slug[:COLLECTION_ID_MAX_CHARS].rstrip("-") or fallback
 
 
 def unique_id(base: str, taken: set[str]) -> str:

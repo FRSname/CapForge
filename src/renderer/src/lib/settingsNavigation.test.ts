@@ -20,7 +20,7 @@ describe('settingsNavigation', () => {
     expect(listener).toHaveBeenCalledWith('collections')
 
     off()
-    expect(requestSettingsCategory('channel')).toBe(false)
+    expect(requestSettingsCategory('channels')).toBe(false)
     expect(listener).toHaveBeenCalledTimes(1)
   })
 })

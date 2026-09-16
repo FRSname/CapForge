@@ -185,10 +185,12 @@ def agent(**kw):
 
 
 def test_get_brief_answers_defaults_before_anything_is_saved(client):
+    """The brief is the primary channel's view (multi-channel PR 1): an empty
+    library bootstraps a channel named "YouTube channel", the accepted delta."""
     r = client.get("/api/library/brief", headers=agent())
 
     assert r.status_code == 200
-    assert r.json() == Brief().model_dump(mode="json")
+    assert r.json() == Brief(channel="YouTube channel").model_dump(mode="json")
 
 
 def test_patch_brief_round_trips(client, home):
@@ -208,7 +210,9 @@ def test_patch_brief_round_trips(client, home):
     assert body["house_rules"]["description_chars"] == [1800, 2200]
     assert body["link_rows"] == [{"label": "Site", "url": "https://capforge.app"}]
     assert client.get("/api/library/brief", headers=agent()).json() == body
-    assert (home / "library" / BRIEF_FILE).is_file()
+    # PATCH /brief writes the primary channel (multi-channel PR 1), never brief.json.
+    assert (home / "library" / "channels.json").is_file()
+    assert not (home / "library" / BRIEF_FILE).exists()
 
 
 def test_patch_brief_merges_with_what_is_already_stored(client):
