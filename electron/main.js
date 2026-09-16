@@ -21,6 +21,7 @@ const { isBoundsVisibleOnAnyDisplay } = require('./window-bounds')
 const { firstMediaArg } = require('./single-instance')
 const { assertTrashable, libraryRoot } = require('./library-fs')
 const { registerLibraryDialogs, mediaFileFilters } = require('./library-dialogs')
+const { isAllowedExternalUrl } = require('./external-links')
 
 let mainWindow = null
 let setupWindow = null
@@ -514,6 +515,25 @@ function registerIpcHandlers() {
     openLogFile()
     return true
   })
+  // IPC: the app's own version, for the onboarding prompts (the startup guide
+  // and "What's new") and the About block in Settings -> General.
+  ipcMain.handle('app:version', () => app.getVersion())
+
+  // IPC: open a link in the user's browser. The renderer supplies a string, so
+  // the allowlist in external-links.js decides: https only, a known host, no
+  // embedded credentials. A refusal is reported back, never opened.
+  ipcMain.handle('shell:open-external', async (_event, url) => {
+    if (!isAllowedExternalUrl(url)) {
+      return { ok: false, error: 'That link is not one CapForge is allowed to open.' }
+    }
+    try {
+      await shell.openExternal(url)
+      return { ok: true }
+    } catch (err) {
+      return { ok: false, error: err.message || 'Could not open the link.' }
+    }
+  })
+
   ipcMain.handle('shell:showInFolder', (_event, filePath) => {
     const result = resolveExistingFile(filePath, { fs, path })
     if (!result.ok) return { error: result.error }

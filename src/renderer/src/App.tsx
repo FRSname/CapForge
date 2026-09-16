@@ -22,6 +22,7 @@ import { ProgressScreen } from './components/screens/ProgressScreen'
 import { ResultsScreen } from './components/screens/ResultsScreen'
 import { SettingsDialog } from './components/settings/SettingsDialog'
 import { ShortcutOverlay } from './components/ShortcutOverlay'
+import { StartupPrompts } from './components/onboarding/StartupPrompts'
 import type { StudioSettings } from './components/studio/StudioPanel'
 import { PublishAside } from './components/publish/PublishAside'
 import { WorkspaceToggle } from './components/publish/WorkspaceToggle'
@@ -574,6 +575,7 @@ export function App() {
 
         <SettingsDialog open={settingsOpen} onClose={settingsTo(false)} onOpen={settingsTo(true)} />
         <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+        <StartupPrompts active={screen === 'library'} />
         {importChannels.sheet}
         <AgentLiveSync
           resultsActive={screen === 'results'}
