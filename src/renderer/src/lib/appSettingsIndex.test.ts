@@ -30,6 +30,15 @@ describe('APP_SETTINGS_CATEGORIES', () => {
   })
 })
 
+describe('APP_SETTINGS_ENTRIES', () => {
+  test('the About block is searchable by what it offers', () => {
+    const about = APP_SETTINGS_ENTRIES.find((entry) => entry.label === 'About')
+    expect(about?.category).toBe('general')
+    expect(about?.keywords).toContain('version')
+    expect(about?.keywords).toContain('changelog')
+  })
+})
+
 describe('filterAppSettings', () => {
   test('an empty query lists every category in rail order and no entries', () => {
     // Act

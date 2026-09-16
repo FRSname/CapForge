@@ -55,6 +55,11 @@ export const APP_SETTINGS_ENTRIES: ReadonlyArray<AppSettingsEntry> = [
     keywords: ['log', 'folder', 'debug', 'diagnostics', 'troubleshoot'],
   },
   {
+    category: 'general',
+    label: 'About',
+    keywords: ['version', 'changelog', 'release', 'notes', 'new', 'guide', 'welcome', 'tutorial'],
+  },
+  {
     category: 'channels',
     label: 'Channels',
     keywords: [

@@ -22,6 +22,9 @@ export type ImportPresetResult =
   | { name: string; fontStatus: 'embedded' | 'bundled' | 'missing' | 'none' }
   | { error: string }
 
+/** `openExternal`'s answer: refused links carry the reason, never the URL. */
+export type OpenExternalResult = { ok: true } | { ok: false; error: string }
+
 /** What the library's Import… picker opens: both (macOS only), files, or folders. */
 export type ImportPickMode = 'any' | 'files' | 'folder'
 
@@ -75,6 +78,10 @@ export interface SubforgeApi {
   openLogsFolder: () => Promise<void>
   openLogFile: () => Promise<void>
   showInFolder: (filePath: string) => Promise<void>
+  /** The running app's version, e.g. '2.6.0'. */
+  getVersion: () => Promise<string>
+  /** Open a link in the browser; the main process allowlists the URL. */
+  openExternal: (url: string) => Promise<OpenExternalResult>
   openStudio: (projectDir: string) => Promise<{ url?: string; error?: string }>
   stopStudio: () => Promise<boolean>
   claude: ClaudeConnectApi
@@ -221,6 +228,8 @@ contextBridge.exposeInMainWorld('subforge', {
   openLogsFolder: () => ipcRenderer.invoke('logs:openFolder'),
   openLogFile: () => ipcRenderer.invoke('logs:openFile'),
   showInFolder: (filePath: string) => ipcRenderer.invoke('shell:showInFolder', filePath),
+  getVersion: () => ipcRenderer.invoke('app:version'),
+  openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
   openStudio: (projectDir: string) => ipcRenderer.invoke('studio:open', projectDir),
   stopStudio: () => ipcRenderer.invoke('studio:stop'),
   claude: {

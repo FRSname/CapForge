@@ -116,6 +116,14 @@ contextBridge.exposeInMainWorld('subforge', {
   /** Reveal a file/folder in the OS file manager. */
   showInFolder: (filePath) => ipcRenderer.invoke('shell:showInFolder', filePath),
 
+  /** The running app's version, e.g. '2.6.0'. Used by the onboarding prompts
+   *  and Settings -> General's About block. */
+  getVersion: () => ipcRenderer.invoke('app:version'),
+
+  /** Open a link in the user's browser. The main process refuses anything that
+   *  is not https on an allowlisted host: {ok: true} | {ok: false, error}. */
+  openExternal: (url) => ipcRenderer.invoke('shell:open-external', url),
+
   /** Launch the HyperFrames Studio (local preview webapp) for a project folder
    *  and open it in the browser. Returns {url} or {error}. */
   openStudio: (projectDir) => ipcRenderer.invoke('studio:open', projectDir),

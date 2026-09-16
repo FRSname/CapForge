@@ -1,14 +1,18 @@
 /**
- * Settings → General: Appearance, the library folder, the watch folder and Logs.
+ * Settings → General: Appearance, the library folder, the watch folder, Logs
+ * and About (the version, and the two onboarding prompts).
  *
  * Theme state is *not* owned here. It arrives as props from `SettingsDialog`,
  * which is always mounted (see `hooks/useTheme.ts`) — this pane only exists
  * while the General category is selected.
  */
 
+import { useEffect, useState } from 'react'
 import { useLibraryWatch } from '../../hooks/useLibraryWatch'
 import { useToast } from '../../hooks/useToast'
 import { WATCH_FOLDER_HELP, watchFolderView } from '../../lib/libraryImport'
+import type { OnboardingKind } from '../../lib/onboardingRequests'
+import { requestOnboarding } from '../../lib/onboardingRequests'
 import type { WatchStatus } from '../../lib/libraryTypes'
 import { Button } from '../ui/Button'
 import { Toggle } from '../ui/Toggle'
@@ -21,6 +25,9 @@ import { Toggle } from '../ui/Toggle'
  */
 const LIBRARY_FOLDER_LABEL = '~/.capforge/library'
 
+/** Stands in for the version until the main process answers. */
+const UNKNOWN_VERSION = '…'
+
 interface GeneralSettingsProps {
   lightMode: boolean
   onLightModeChange: (light: boolean) => void
@@ -29,6 +36,13 @@ interface GeneralSettingsProps {
 export function GeneralSettings({ lightMode, onLightModeChange }: GeneralSettingsProps) {
   const { toast } = useToast()
   const watch = useLibraryWatch({ notify: (message) => toast(message, 'error') })
+  const version = useAppVersion()
+
+  /** The dialogs live in `StartupPrompts`, which paints above this one. */
+  function showPrompt(kind: OnboardingKind) {
+    if (!requestOnboarding(kind)) toast('That is not available right now.', 'error')
+  }
+
   return (
     <div className="flex flex-col gap-5">
       {/* Theme */}
@@ -94,6 +108,9 @@ export function GeneralSettings({ lightMode, onLightModeChange }: GeneralSetting
           </Button>
         </div>
       </div>
+
+      {/* About */}
+      <AboutBlock version={version} onShow={showPrompt} />
     </div>
   )
 }
@@ -153,6 +170,79 @@ export function WatchFolderRow({ status, busy, onChoose, onStop }: WatchFolderRo
       )}
       <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
         {WATCH_FOLDER_HELP}
+      </p>
+    </div>
+  )
+}
+
+/**
+ * `app.getVersion()` over the bridge. Null until it answers, and null forever
+ * on a build whose preload predates the channel (CLAUDE.md, "Dual preload
+ * gotcha") — the About line shows a placeholder rather than an error.
+ */
+function useAppVersion(): string | null {
+  const [version, setVersion] = useState<string | null>(null)
+  useEffect(() => {
+    if (typeof window.subforge?.getVersion !== 'function') return
+    let cancelled = false
+    window.subforge
+      .getVersion()
+      .then((value) => {
+        if (!cancelled) setVersion(value ?? null)
+      })
+      .catch((err: unknown) => {
+        console.warn('[CapForge] Could not read the app version:', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+  return version
+}
+
+export interface AboutBlockProps {
+  /** Null while unknown. */
+  version: string | null
+  onShow: (kind: OnboardingKind) => void
+}
+
+/** Settings → General's last block: the version, and the two one-shot prompts. */
+export function AboutBlock({ version, onShow }: AboutBlockProps) {
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="label-xs">About</label>
+      <span
+        className="text-xs"
+        style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-2)' }}
+      >
+        CapForge {version ?? UNKNOWN_VERSION}
+      </span>
+      <div className="flex gap-2">
+        <Button
+          variant="ghost"
+          className="flex-1 text-xs justify-center"
+          onClick={() => onShow('whats-new')}
+        >
+          What's new
+        </Button>
+        <Button
+          variant="ghost"
+          className="flex-1 text-xs justify-center"
+          onClick={() => onShow('guide')}
+        >
+          Startup guide
+        </Button>
+        <Button
+          variant="ghost"
+          className="flex-1 text-xs justify-center"
+          onClick={() => onShow('first-video')}
+        >
+          Editor guide
+        </Button>
+      </div>
+      <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
+        The tours shown on a fresh install and after the first video, and the release highlights.
+        The startup guide runs on the library, the editor guide with a video open.
       </p>
     </div>
   )

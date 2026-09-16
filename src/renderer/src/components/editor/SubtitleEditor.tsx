@@ -244,7 +244,7 @@ export function SubtitleEditor({
       </div>
 
       {/* Segment list */}
-      <div className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
+      <div data-tour="editor-body" className="flex-1 overflow-y-auto p-3 flex flex-col gap-2">
         {segments.map((seg, si) => {
           if (lowerQuery && !seg.text.toLowerCase().includes(lowerQuery)) return null
           return (

@@ -119,7 +119,7 @@ export function TranscriptionSettings() {
       </div>
 
       {/* Transcription model */}
-      <div className="flex flex-col gap-2">
+      <div data-tour="settings-transcription-model" className="flex flex-col gap-2">
         <label className="label-xs">Transcription Model</label>
         <Select value={whisperModel} onChange={(e) => handleWhisperModelChange(e.target.value)}>
           <option value="">Auto (match my hardware)</option>

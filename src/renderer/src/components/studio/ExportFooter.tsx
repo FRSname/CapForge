@@ -50,7 +50,7 @@ export function ExportFooter({ audioPath, sourceVideoInfo, render, outputDir }: 
   }
 
   return (
-    <div className="flex flex-col gap-1.5">
+    <div data-tour="export-footer" className="flex flex-col gap-1.5">
       {/* Quick render buttons — source resolution/fps + max bitrate. */}
       <div className="grid grid-cols-2 gap-2">
         <QuickRenderBtn

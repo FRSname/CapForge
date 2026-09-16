@@ -370,7 +370,10 @@ export function StudioPanel({
   const sectionProps = { s, defaults: DEFAULTS, filter, set, setMany, cardProps }
 
   return (
-    <aside className="w-[380px] shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]">
+    <aside
+      data-tour="studio-panel"
+      className="w-[380px] shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]"
+    >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 shrink-0 border-b border-[var(--color-border)]">
         <span className="label-xs">Custom Settings</span>

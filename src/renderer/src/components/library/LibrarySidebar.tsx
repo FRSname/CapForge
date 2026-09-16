@@ -56,6 +56,7 @@ export function LibrarySidebar(props: LibrarySidebarProps) {
   const rows = sidebarRows(props.collections, videos, props.expanded, location)
   return (
     <nav
+      data-tour="library-sidebar"
       aria-label="Library locations"
       className="app-no-drag flex shrink-0 flex-col gap-3 overflow-y-auto px-2 pb-3 pt-7"
       style={{

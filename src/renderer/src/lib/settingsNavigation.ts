@@ -42,3 +42,27 @@ export function onSettingsCategoryRequested(listener: Listener): () => void {
     listeners.delete(listener)
   }
 }
+
+type CloseListener = () => void
+
+const closeListeners = new Set<CloseListener>()
+
+/**
+ * Ask Settings to close again. The coach-mark tour opens Settings for its
+ * three settings steps and has to put it back the way it found it; a separate
+ * channel rather than a `null` category, so neither side has to special-case
+ * the other. False when the dialog is not mounted.
+ */
+export function requestSettingsClose(): boolean {
+  if (closeListeners.size === 0) return false
+  for (const listener of [...closeListeners]) listener()
+  return true
+}
+
+/** Subscribe; the returned function unsubscribes. */
+export function onSettingsCloseRequested(listener: CloseListener): () => void {
+  closeListeners.add(listener)
+  return () => {
+    closeListeners.delete(listener)
+  }
+}
