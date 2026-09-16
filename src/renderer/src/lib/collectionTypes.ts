@@ -9,6 +9,10 @@
  * `lib/publishTypes.ts`: only a body with no `id` throws; anything the backend
  * has not grown degrades to a defined empty value.
  *
+ * Collections nest (docs/plans/library-finder.md §2): every row carries its
+ * `parent_id`, `path` and `total_members`. An older backend without them still
+ * parses — as a top-level collection whose path is its own name.
+ *
  * Pure module: no React, no `window`, no I/O.
  */
 
@@ -60,14 +64,30 @@ export interface CollectionOrphan {
   members: number
 }
 
+/**
+ * Where a collection sits in the tree. Kept beside `CollectionSummary` rather
+ * than inside it, so a caller that only needs names and counts is unaffected.
+ */
+export interface CollectionPlacement {
+  /** The folder this one sits inside; null at the top level. */
+  parent_id: string | null
+  /** Members of this collection plus every subfolder's. */
+  total_members: number
+  /** Names from the top level down, this collection's own last. */
+  path: string[]
+}
+
+/** A list row as the backend answers it: the summary plus where it sits. */
+export type NestedCollection = CollectionSummary & CollectionPlacement
+
 /** `GET /api/library/collections`. */
 export interface CollectionsList {
-  collections: CollectionSummary[]
+  collections: NestedCollection[]
   orphans: CollectionOrphan[]
 }
 
 /** `GET|PATCH /api/library/collections/{cid}`: the brief every member's package is rendered with. */
-export interface CollectionDetail extends CollectionSummary {
+export type CollectionDetail = NestedCollection & {
   effective_brief: Brief
 }
 
@@ -107,19 +127,37 @@ export function parseBriefOverrides(value: unknown): BriefOverrides {
   return out as BriefOverrides
 }
 
+/** A non-empty id, or null for the top level (absent, null or malformed). */
+function parentId(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value.trim() : null
+}
+
+/** The backend's path when it is a non-empty list of names, else `[name]`. */
+function path(value: unknown, name: string): string[] {
+  if (!Array.isArray(value)) return [name]
+  const names = value.filter((part): part is string => typeof part === 'string' && part !== '')
+  return names.length > 0 ? names : [name]
+}
+
 /** A collection row. Throws only when there is no id to address it by. */
-export function parseCollection(value: unknown): CollectionSummary {
+export function parseCollection(value: unknown): NestedCollection {
   const row = obj(value)
   const id = str(row?.id).trim()
   if (!row || !id) throw new Error(COLLECTION_SHAPE_MESSAGE)
+  const name = str(row.name).trim() || id
+  const members = count(row.members)
   return {
     id,
-    name: str(row.name).trim() || id,
+    name,
     slots: BRIEF_FIELD_READERS.slots(row.slots),
     overrides: parseBriefOverrides(row.overrides),
     createdAt: str(row.createdAt),
     updatedAt: str(row.updatedAt),
-    members: count(row.members),
+    members,
+    parent_id: parentId(row.parent_id),
+    // An older backend sends no total: with no nesting, it is the member count.
+    total_members: row.total_members === undefined ? members : count(row.total_members),
+    path: path(row.path, name),
   }
 }
 

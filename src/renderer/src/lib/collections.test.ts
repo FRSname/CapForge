@@ -20,6 +20,7 @@ import {
   collectionLabel,
   collectionRefusal,
   collectionRefusalMessage,
+  inheritedFrom,
   insertSlotToken,
   overriddenFields,
   overridesSummary,
@@ -29,6 +30,7 @@ import {
   slotRows,
   slotsFromRows,
   slugPreview,
+  subfolderCount,
 } from './collections'
 
 const BUILTIN_SLOTS_FIXTURE = join(process.cwd(), 'backend/tests/fixtures/builtin_slots.json')
@@ -159,6 +161,19 @@ describe('collectionRefusal', () => {
       { detail: { reason: 'collection_in_use', members: 2 } },
       { kind: 'collection_in_use', members: 2 },
     ],
+    [
+      409,
+      { reason: 'collection_has_children', children: 3 },
+      { kind: 'collection_has_children', children: 3 },
+    ],
+    [
+      409,
+      { detail: { reason: 'collection_has_children', children: 1 } },
+      { kind: 'collection_has_children', children: 1 },
+    ],
+    [422, { reason: 'unknown_parent', detail: 'x' }, { kind: 'unknown_parent' }],
+    [422, { detail: { reason: 'collection_cycle' } }, { kind: 'collection_cycle' }],
+    [422, { reason: 'collection_too_deep', max_depth: 8 }, { kind: 'collection_too_deep' }],
   ])('%s %j', (status, body, refusal) => {
     expect(collectionRefusal(status, body)).toEqual(refusal)
   })
@@ -166,6 +181,20 @@ describe('collectionRefusal', () => {
   test('anything else is not a refusal', () => {
     expect(collectionRefusal(409, { detail: 'nope' })).toBeNull()
     expect(collectionRefusal(422, { reason: 'collection_exists' })).toBeNull()
+    expect(collectionRefusal(409, { reason: 'unknown_parent' })).toBeNull()
+    expect(collectionRefusal(422, { detail: [{ loc: ['body'], msg: 'bad' }] })).toBeNull()
+  })
+
+  test('the folder refusals speak of folders and say what to do', () => {
+    expect(collectionRefusalMessage({ kind: 'collection_has_children', children: 1 })).toBe(
+      '1 subfolder is still inside this folder — move or delete it first.'
+    )
+    expect(collectionRefusalMessage({ kind: 'collection_has_children', children: 2 })).toContain(
+      '2 subfolders are still inside'
+    )
+    expect(collectionRefusalMessage({ kind: 'unknown_parent' })).toContain('pick another location')
+    expect(collectionRefusalMessage({ kind: 'collection_cycle' })).toContain('inside itself')
+    expect(collectionRefusalMessage({ kind: 'collection_too_deep' })).toContain('8 levels')
   })
 
   test('messages say what to do', () => {
@@ -174,6 +203,40 @@ describe('collectionRefusal', () => {
     expect(collectionRefusalMessage({ kind: 'collection_in_use', members: 3 })).toContain(
       '3 videos'
     )
+  })
+})
+
+describe('subfolderCount', () => {
+  test('is singular for one', () => {
+    expect(subfolderCount(1)).toBe('1 subfolder')
+    expect(subfolderCount(0)).toBe('0 subfolders')
+  })
+})
+
+describe('inheritedFrom', () => {
+  const folder = (name: string, footer: string | null = null) => ({
+    name,
+    overrides: { ...EMPTY_OVERRIDES, footer },
+  })
+
+  test('names the deepest folder above that sets the field, by its path', () => {
+    const ancestors = [folder('Events', 'E'), folder('UCK 2026', 'U'), folder('Day 1')]
+    expect(inheritedFrom(ancestors, 'footer')).toBe('Events › UCK 2026')
+  })
+
+  test('skips folders that inherit, through two levels', () => {
+    expect(inheritedFrom([folder('Events', 'E'), folder('UCK'), folder('Day 1')], 'footer')).toBe(
+      'Events'
+    )
+  })
+
+  test('is null when the value comes from the channel', () => {
+    expect(inheritedFrom([folder('Events'), folder('UCK')], 'footer')).toBeNull()
+    expect(inheritedFrom([], 'footer')).toBeNull()
+  })
+
+  test('an empty override is still a source', () => {
+    expect(inheritedFrom([folder('Events', '')], 'footer')).toBe('Events')
   })
 })
 

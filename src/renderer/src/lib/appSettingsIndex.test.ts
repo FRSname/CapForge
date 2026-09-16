@@ -83,6 +83,13 @@ describe('filterAppSettings', () => {
     expect(filterAppSettings('event').categories).toContain('collections')
   })
 
+  test('the collections pane is labelled Folders, and folder words find it', () => {
+    expect(APP_SETTINGS_CATEGORIES.find((c) => c.id === 'collections')?.label).toBe('Folders')
+    for (const query of ['folder', 'subfolder', 'location', 'move']) {
+      expect(filterAppSettings(query).categories).toContain('collections')
+    }
+  })
+
   test('"template" finds the template in both places it lives', () => {
     const { categories } = filterAppSettings('template')
     expect(categories).toContain('channels')

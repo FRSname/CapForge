@@ -21,11 +21,11 @@ import { FieldHeader } from './FieldHeader'
 import { FieldViolations } from './FieldViolations'
 
 /** Said when Settings could not be opened for us. */
-export const MANAGE_COLLECTIONS_FALLBACK = 'Open Settings (⌘,) → Collections to manage collections.'
+export const MANAGE_COLLECTIONS_FALLBACK = 'Open Settings (⌘,) → Folders to manage collections.'
 
 const NO_COLLECTION_TEXT = 'No collection — the channel brief applies as it is.'
 const ORPHAN_TEXT =
-  'No collection has this id, so the channel brief applies. Create it in Settings → Collections to adopt it.'
+  'No collection has this id, so the channel brief applies. Create it in Settings → Folders to adopt it.'
 
 interface CollectionCardProps {
   publish: PublishController

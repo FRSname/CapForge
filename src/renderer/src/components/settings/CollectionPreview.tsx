@@ -50,7 +50,7 @@ export function CollectionPreview({ collectionId, refreshKey }: CollectionPrevie
       .then((videos) => {
         if (!cancelled) setMembers(filterByCollection(videos, collectionId))
       })
-      .catch((err) => toast(`Could not list this collection’s videos: ${reasonOf(err)}`, 'error'))
+      .catch((err) => toast(`Could not list this folder’s videos: ${reasonOf(err)}`, 'error'))
     return () => {
       cancelled = true
     }
@@ -101,15 +101,15 @@ export function CollectionPreviewView(props: CollectionPreviewViewProps) {
   if (members === null) {
     return (
       <p className="text-xs" style={muted}>
-        Finding this collection’s videos…
+        Finding this folder’s videos…
       </p>
     )
   }
   if (members.length === 0) {
     return (
       <p className="text-xs" style={muted}>
-        No video belongs to this collection yet — pick it on a video’s Collection card in the
-        Publish workspace to preview its package here.
+        No video is in this folder yet — pick it on a video’s Collection card in the Publish
+        workspace to preview its package here.
       </p>
     )
   }

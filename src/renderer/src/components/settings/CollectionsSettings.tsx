@@ -1,23 +1,33 @@
 /**
- * Settings → Collections (docs/plans/library-collections.md): events and
- * series that share boilerplate. A collection overrides fields of the channel
- * brief and adds template slots; every member video's package is rendered from
- * that effective brief at read time, so changing it here changes all of them.
+ * Settings → Folders (docs/plans/library-collections.md,
+ * docs/plans/library-finder.md §2.6): events and series that share
+ * boilerplate. A folder is a collection — the code, the wire and the agent say
+ * "collection", a person reads "folder". It overrides fields of the channel
+ * brief and adds template slots, inherits both from the folders above it, and
+ * every member video's package is rendered from that effective brief at read
+ * time, so changing it here changes all of them.
  *
- * This file is the list: member counts, orphan ids to adopt, and create by
- * name. The selected collection opens in `CollectionEditor`. Every failure is
- * toasted; the backend decides ids and slot names.
+ * This file is the list: the tree indented with each folder's video count
+ * (subfolders included), orphan ids to adopt, and create by name at the top
+ * level. The selected folder opens in `CollectionEditor`, where its Location
+ * moves it. Every failure is toasted; the backend decides ids and slot names.
  */
 
 import { useCallback, useState } from 'react'
 import { useCollections } from '../../hooks/useCollections'
 import { useToast } from '../../hooks/useToast'
-import type { CollectionOrphan, CollectionSummary } from '../../lib/collectionTypes'
+import type { CollectionOrphan, NestedCollection } from '../../lib/collectionTypes'
+import { buildTree, flattenTree } from '../../lib/collectionTree'
 import { slugPreview, videoCount } from '../../lib/collections'
 import type { CollectionCreate } from '../../lib/collectionsApi'
 import { createCollection } from '../../lib/collectionsApi'
 import { Button } from '../ui/Button'
 import { CollectionEditor } from './CollectionEditor'
+
+/** Left padding per level of nesting, in rem, on top of the row's own. */
+const INDENT_REM_PER_LEVEL = 1
+/** The row's own left padding, in rem (Tailwind `px-2`). */
+const ROW_PADDING_REM = 0.5
 
 function reasonOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
@@ -36,7 +46,7 @@ export function CollectionsSettings() {
         setSelectedId(created.id)
         void refresh()
       })
-      .catch((err) => notify(`Could not create the collection: ${reasonOf(err)}`))
+      .catch((err) => notify(`Could not create the folder: ${reasonOf(err)}`))
   }
 
   return (
@@ -55,6 +65,7 @@ export function CollectionsSettings() {
         <CollectionEditor
           key={selectedId}
           collectionId={selectedId}
+          collections={collections ?? []}
           onChanged={() => void refresh()}
           onDeleted={() => {
             setSelectedId(null)
@@ -67,7 +78,7 @@ export function CollectionsSettings() {
 }
 
 export interface CollectionsSettingsViewProps {
-  collections: readonly CollectionSummary[]
+  collections: readonly NestedCollection[]
   orphans: readonly CollectionOrphan[]
   loading: boolean
   selectedId: string | null
@@ -78,22 +89,24 @@ export interface CollectionsSettingsViewProps {
 
 export function CollectionsSettingsView(props: CollectionsSettingsViewProps) {
   const { collections, orphans, loading, selectedId, onSelect } = props
+  const rows = flattenTree(buildTree(collections))
   return (
     <div className="flex flex-col gap-3">
       <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
-        A collection is an event or a series whose videos share boilerplate. It can override any
-        field of the channel brief and add template slots; a video joins one from its Publish
-        workspace.
+        A folder is an event or a series whose videos share boilerplate. It can override any field
+        of the channel brief and add template slots, and a folder inside another inherits both; a
+        video joins one from its Publish workspace.
       </p>
 
-      <ul className="flex flex-col gap-0.5" aria-label="Collections">
-        {collections.map((c) => (
-          <li key={c.id}>
+      <ul className="flex flex-col gap-0.5" aria-label="Folders">
+        {rows.map(({ item: c, depth }) => (
+          <li key={c.id} aria-level={depth}>
             <button
               type="button"
               aria-current={c.id === selectedId ? 'true' : undefined}
-              className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs hover:bg-[var(--color-surface-2)]"
+              className="flex w-full items-center gap-2 rounded py-1.5 pr-2 text-left text-xs hover:bg-[var(--color-surface-2)]"
               style={{
+                paddingLeft: `${ROW_PADDING_REM + (depth - 1) * INDENT_REM_PER_LEVEL}rem`,
                 background: c.id === selectedId ? 'var(--color-surface-2)' : 'transparent',
                 color: 'var(--color-text)',
               }}
@@ -107,7 +120,7 @@ export function CollectionsSettingsView(props: CollectionsSettingsViewProps) {
                 {c.id}
               </span>
               <span className="ml-auto shrink-0 text-2xs" style={{ color: 'var(--color-text-3)' }}>
-                {videoCount(c.members)}
+                {videoCount(c.total_members)}
               </span>
             </button>
           </li>
@@ -116,7 +129,7 @@ export function CollectionsSettingsView(props: CollectionsSettingsViewProps) {
 
       {collections.length === 0 && (
         <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-          {loading ? 'Reading collections…' : 'No collections yet.'}
+          {loading ? 'Reading folders…' : 'No folders yet.'}
         </p>
       )}
 
@@ -146,15 +159,15 @@ function OrphanRow({
         <code style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text)' }}>
           {orphan.id}
         </code>
-        {' — no collection has that id'}
+        {' — no folder has that id'}
       </span>
       <Button
         variant="ghost"
         className="ml-auto shrink-0 text-xs"
-        aria-label={`Create collection ${orphan.id}`}
+        aria-label={`Create folder ${orphan.id}`}
         onClick={() => onAdopt(orphan.id)}
       >
-        Create collection
+        Create folder
       </Button>
     </div>
   )
@@ -177,8 +190,8 @@ function CreateCollectionRow({ onCreate }: { onCreate: (name: string) => void })
         <input
           type="text"
           className="field-input"
-          aria-label="New collection name"
-          placeholder="New collection — e.g. UCK 26"
+          aria-label="New folder name"
+          placeholder="New folder — e.g. UCK 26"
           value={name}
           onChange={(e) => setName(e.target.value)}
           onKeyDown={(e) => {
@@ -191,7 +204,7 @@ function CreateCollectionRow({ onCreate }: { onCreate: (name: string) => void })
       </div>
       {slug && (
         <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
-          {`Its id will likely be ${slug} — the backend decides, and adds -2 on a clash.`}
+          {`Its id will likely be ${slug} — the backend decides, and adds -2 on a clash. Set its Location to put it inside another folder.`}
         </p>
       )}
     </div>

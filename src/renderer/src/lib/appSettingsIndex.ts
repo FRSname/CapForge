@@ -35,7 +35,8 @@ export interface AppSettingsEntry {
 export const APP_SETTINGS_CATEGORIES: ReadonlyArray<AppSettingsCategory> = [
   { id: 'general', label: 'General' },
   { id: 'channels', label: 'Channels' },
-  { id: 'collections', label: 'Collections' },
+  // The id stays `collections` (the wire and the agent's word); people read "Folders".
+  { id: 'collections', label: 'Folders' },
   { id: 'transcription', label: 'Transcription' },
   { id: 'claude', label: 'Claude & Skills' },
   { id: 'shortcuts', label: 'Shortcuts' },
@@ -117,8 +118,23 @@ export const APP_SETTINGS_ENTRIES: ReadonlyArray<AppSettingsEntry> = [
   },
   {
     category: 'collections',
-    label: 'Collections',
-    keywords: ['collection', 'event', 'conference', 'series', 'playlist', 'group'],
+    label: 'Folders',
+    keywords: [
+      'folder',
+      'collection',
+      'event',
+      'conference',
+      'series',
+      'playlist',
+      'group',
+      'nest',
+      'subfolder',
+    ],
+  },
+  {
+    category: 'collections',
+    label: 'Folder location',
+    keywords: ['location', 'parent', 'move', 'inside', 'subfolder', 'nest', 'collection'],
   },
   {
     category: 'collections',
@@ -127,8 +143,8 @@ export const APP_SETTINGS_ENTRIES: ReadonlyArray<AppSettingsEntry> = [
   },
   {
     category: 'collections',
-    label: 'Collection template and slots',
-    keywords: ['template', 'slots', 'placeholder', 'variables', 'preview', 'package'],
+    label: 'Folder template and slots',
+    keywords: ['template', 'slots', 'placeholder', 'variables', 'preview', 'package', 'collection'],
   },
   {
     category: 'transcription',

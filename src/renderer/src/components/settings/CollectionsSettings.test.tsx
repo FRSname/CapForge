@@ -1,26 +1,28 @@
 /**
- * Settings → Collections, rendered to static markup (node env: no effects, no
- * events). The containers load over REST, so what is asserted is the
- * presentational half each container hands its state to — the list with its
- * orphans, the editor's inherit toggles and delete guard, the slot rows and
- * the package preview.
+ * Settings → Folders (collections), rendered to static markup (node env: no
+ * effects, no events). The containers load over REST, so what is asserted is
+ * the presentational half each container hands its state to — the indented
+ * tree with its orphans, the editor's Location, inherit toggles and delete
+ * guard, the slot rows and the package preview.
  */
 
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { CollectionDetail, CollectionSummary } from '../../lib/collectionTypes'
+import type { CollectionDetail, NestedCollection } from '../../lib/collectionTypes'
 import { EMPTY_OVERRIDES } from '../../lib/collectionTypes'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import type { UploadPackage } from '../../lib/publishTypes'
 import { parseBrief } from '../../lib/publishTypes'
 import { CollectionsSettings, CollectionsSettingsView } from './CollectionsSettings'
-import { CollectionEditorView } from './CollectionEditor'
+import type { EditorRefusal } from './CollectionEditor'
+import { CollectionEditorView, deleteBlocker } from './CollectionEditor'
+import { CollectionLocation } from './CollectionLocation'
 import { CollectionPreviewView } from './CollectionPreview'
 import { SlotRowsEditor } from './SlotFields'
 
 const noop = () => {}
 
-function summary(over: Partial<CollectionSummary> = {}): CollectionSummary {
+function summary(over: Partial<NestedCollection> = {}): NestedCollection {
   return {
     id: 'uck26',
     name: 'UCK 26',
@@ -29,9 +31,20 @@ function summary(over: Partial<CollectionSummary> = {}): CollectionSummary {
     createdAt: '',
     updatedAt: '',
     members: 3,
+    parent_id: null,
+    total_members: 3,
+    path: ['UCK 26'],
     ...over,
   }
 }
+
+/** events › uck26 › day-1, and a top-level solo. */
+const TREE: NestedCollection[] = [
+  summary({ id: 'solo', name: 'Solo', members: 1, total_members: 1, path: ['Solo'] }),
+  summary({ id: 'day-1', name: 'Day 1', parent_id: 'uck26', members: 2, total_members: 2 }),
+  summary({ id: 'events', name: 'Events', members: 0, total_members: 5, path: ['Events'] }),
+  summary({ parent_id: 'events', members: 3, total_members: 5 }),
+]
 
 function detail(over: Partial<CollectionDetail> = {}): CollectionDetail {
   return {
@@ -45,7 +58,10 @@ describe('CollectionsSettingsView', () => {
   function render(props: Partial<React.ComponentProps<typeof CollectionsSettingsView>> = {}) {
     return renderToStaticMarkup(
       <CollectionsSettingsView
-        collections={[summary(), summary({ id: 'solo', name: 'Solo', members: 1 })]}
+        collections={[
+          summary(),
+          summary({ id: 'solo', name: 'Solo', members: 1, total_members: 1 }),
+        ]}
         orphans={[{ id: 'old-event', members: 2 }]}
         loading={false}
         selectedId={null}
@@ -57,7 +73,7 @@ describe('CollectionsSettingsView', () => {
     )
   }
 
-  test('lists every collection with its member count', () => {
+  test('lists every folder with its video count', () => {
     const html = render()
 
     expect(html).toContain('UCK 26')
@@ -71,41 +87,71 @@ describe('CollectionsSettingsView', () => {
 
     expect(html).toContain('2 videos use')
     expect(html).toContain('old-event')
-    expect(html).toContain('aria-label="Create collection old-event"')
+    expect(html).toContain('aria-label="Create folder old-event"')
+    expect(html).toContain('no folder has that id')
   })
 
   test('creates by name', () => {
     const html = render()
 
-    expect(html).toContain('aria-label="New collection name"')
+    expect(html).toContain('aria-label="New folder name"')
     expect(html).toContain('>Create<')
   })
 
-  test('marks the selected collection', () => {
+  test('marks the selected folder', () => {
     const html = render({ selectedId: 'solo' })
     expect(html.match(/aria-current="true"/g)).toHaveLength(1)
   })
 
   test('says so when there are none yet', () => {
     const html = render({ collections: [], orphans: [] })
-    expect(html).toContain('No collections yet')
+    expect(html).toContain('No folders yet')
+  })
+
+  test('speaks of folders, never collections', () => {
+    const html = render({ collections: [], orphans: [{ id: 'old', members: 1 }] })
+    expect(html).toContain('aria-label="Folders"')
+    expect(html).not.toMatch(/[Cc]ollection/)
+  })
+
+  test('lists the tree in order, indented by depth, counting subfolders', () => {
+    const html = render({ collections: TREE, orphans: [] })
+
+    const names = [...html.matchAll(/<span class="truncate">([^<]+)<\/span>/g)].map((m) => m[1])
+    expect(names).toEqual(['Solo', 'Events', 'UCK 26', 'Day 1'])
+    expect(html.match(/aria-level="(\d)"/g)).toEqual([
+      'aria-level="1"',
+      'aria-level="1"',
+      'aria-level="2"',
+      'aria-level="3"',
+    ])
+    expect(html).toContain('padding-left:2.5rem')
+    // Events holds no video itself but counts its subfolders'.
+    expect(html).toContain('5 videos')
   })
 })
 
 describe('CollectionsSettings', () => {
   test('renders its empty state before the list loads', () => {
-    expect(renderToStaticMarkup(<CollectionsSettings />)).toContain('New collection name')
+    expect(renderToStaticMarkup(<CollectionsSettings />)).toContain('New folder name')
   })
 })
 
 describe('CollectionEditorView', () => {
-  function render(value: CollectionDetail = detail()) {
+  function render(
+    value: CollectionDetail = detail(),
+    collections: NestedCollection[] = [summary()],
+    refusal: EditorRefusal | null = null
+  ) {
     return renderToStaticMarkup(
       <CollectionEditorView
         detail={value}
+        collections={collections}
         previewKey={0}
+        refusal={refusal}
         onDraftName={noop}
         onCommitName={noop}
+        onMove={noop}
         onCommitSlots={noop}
         onDraftOverride={noop}
         onCommitOverride={noop}
@@ -151,13 +197,104 @@ describe('CollectionEditorView', () => {
   test('delete is disabled while videos belong to it, and says how many', () => {
     const html = render()
 
-    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Delete collection<\/button>/)
-    expect(html).toContain('3 videos belong to this collection')
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Delete folder<\/button>/)
+    expect(html).toContain('3 videos belong to this folder')
   })
 
-  test('delete is enabled for an empty collection', () => {
+  test('delete is enabled for an empty folder', () => {
     const html = render(detail({ members: 0 }))
-    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Delete collection<\/button>/)
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Delete folder<\/button>/)
+  })
+
+  test('delete is disabled while subfolders are inside, and says how many', () => {
+    const tree = [...TREE, summary({ id: 'day-2', name: 'Day 2', parent_id: 'uck26' })]
+    const html = render(detail({ members: 0, parent_id: 'events' }), tree)
+
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*>Delete folder<\/button>/)
+    expect(html).toContain('2 subfolders are inside this folder')
+  })
+
+  test('a refused delete is shown under the delete button', () => {
+    const html = render(detail({ members: 0 }), [summary()], {
+      place: 'delete',
+      message: '1 subfolder is still inside this folder — move or delete it first.',
+    })
+
+    expect(html).toMatch(/role="alert"[^>]*>1 subfolder is still inside this folder/)
+  })
+
+  test('a nested folder names where each inherited value comes from', () => {
+    const tree = [
+      summary({ id: 'events', name: 'Events', overrides: { ...EMPTY_OVERRIDES, footer: 'E' } }),
+      summary({ parent_id: 'events' }),
+    ]
+    const html = render(
+      detail({
+        parent_id: 'events',
+        effective_brief: parseBrief({ channel: 'CapForge', footer: 'Events footer' }),
+      }),
+      tree
+    )
+
+    expect(html).toContain('From Events: Events footer')
+    expect(html).toContain('Channel: CapForge')
+    expect(html).toContain('>Inherit<')
+    expect(html).not.toContain('Inherit from channel')
+  })
+
+  test('renders the Location picker at the folder’s parent', () => {
+    const html = render(detail({ parent_id: 'events' }), TREE)
+
+    expect(html).toContain('>Location<')
+    expect(html).toMatch(/<option value="events" selected="">Events<\/option>/)
+  })
+})
+
+describe('CollectionLocation', () => {
+  function render(over: Partial<React.ComponentProps<typeof CollectionLocation>> = {}) {
+    return renderToStaticMarkup(
+      <CollectionLocation
+        collectionId="uck26"
+        parentId="events"
+        collections={TREE}
+        error={null}
+        onMove={noop}
+        {...over}
+      />
+    )
+  }
+
+  test('offers the top level and every other folder by its path, never itself or a subfolder', () => {
+    const html = render()
+    const options = [...html.matchAll(/<option value="([^"]*)"[^>]*>([^<]+)<\/option>/g)].map(
+      (m) => [m[1], m[2]]
+    )
+
+    expect(options).toEqual([
+      ['', 'Top level'],
+      ['solo', 'Solo'],
+      ['events', 'Events'],
+    ])
+  })
+
+  test('labels a nested target by its full path', () => {
+    const html = render({ collectionId: 'solo', parentId: null })
+
+    expect(html).toContain('>Events › UCK 26 › Day 1</option>')
+    expect(html).toMatch(/<option value="" selected="">Top level<\/option>/)
+  })
+
+  test('a refusal is shown under the select', () => {
+    const html = render({ error: 'A folder can’t move inside itself or one of its subfolders.' })
+    expect(html).toMatch(/role="alert"[^>]*>A folder can’t move inside itself/)
+  })
+})
+
+describe('deleteBlocker', () => {
+  test('videos are named before subfolders, and nothing blocks an empty folder', () => {
+    expect(deleteBlocker(2, 1)).toContain('2 videos belong to this folder')
+    expect(deleteBlocker(0, 1)).toContain('1 subfolder is inside this folder — move or delete it')
+    expect(deleteBlocker(0, 0)).toBeNull()
   })
 })
 
@@ -257,6 +394,6 @@ describe('CollectionPreviewView', () => {
 
   test('explains an empty collection', () => {
     const html = renderPreview({ members: [], selectedId: null, pkg: null })
-    expect(html).toContain('No video belongs to this collection yet')
+    expect(html).toContain('No video is in this folder yet')
   })
 })

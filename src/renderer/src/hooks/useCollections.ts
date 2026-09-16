@@ -11,7 +11,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { CollectionOrphan, CollectionSummary, CollectionsList } from '../lib/collectionTypes'
+import type { CollectionOrphan, CollectionsList, NestedCollection } from '../lib/collectionTypes'
 import { listCollections } from '../lib/collectionsApi'
 
 export interface CollectionsInput {
@@ -20,7 +20,8 @@ export interface CollectionsInput {
 }
 
 export interface CollectionsState {
-  collections: CollectionSummary[] | null
+  /** Flat, with each row's `parent_id`: build the tree with `lib/collectionTree.ts`. */
+  collections: NestedCollection[] | null
   orphans: CollectionOrphan[]
   loading: boolean
   refresh: () => Promise<void>

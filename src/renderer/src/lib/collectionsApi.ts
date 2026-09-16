@@ -4,17 +4,19 @@
  * A sibling of `api.ts` rather than more methods on it, because that file is
  * past its size ceiling — the `libraryApi.ts` pattern. Every call goes through
  * `api.sendWithLocalToken`, so the bridge and the local token are handled in
- * exactly one place. The two `409`s the UI acts on (`collection_exists`,
- * `collection_in_use`) throw `CollectionRefusedError`; anything else is the
- * usual `ApiError` with the backend's message.
+ * exactly one place. The refusals the UI acts on — the `409`s
+ * `collection_exists`, `collection_in_use` and `collection_has_children`, and
+ * the nesting `422`s `unknown_parent`, `collection_cycle` and
+ * `collection_too_deep` — throw `CollectionRefusedError`; any other `422` is a
+ * `CollectionInvalidError`, and anything else the usual `ApiError`.
  */
 
 import { api } from './api'
 import type {
   BriefOverrides,
   CollectionDetail,
-  CollectionSummary,
   CollectionsList,
+  NestedCollection,
 } from './collectionTypes'
 import { parseCollection, parseCollectionDetail, parseCollectionsList } from './collectionTypes'
 import type { CollectionRefusal } from './collections'
@@ -24,6 +26,8 @@ import { collectionRefusal, collectionRefusalMessage } from './collections'
 export interface CollectionCreate {
   id?: string
   name: string
+  /** The folder to create it inside; omitted or null is the top level. */
+  parent_id?: string | null
   slots?: Record<string, string>
   overrides?: Partial<BriefOverrides>
 }
@@ -31,9 +35,12 @@ export interface CollectionCreate {
 /**
  * `PATCH /api/library/collections/{cid}`. `slots` replaces the collection's
  * slot map; `overrides` merges per field, and a `null` field inherits again.
+ * `parent_id` moves it: a folder id, or `null` for the top level; omitted, it
+ * stays where it is.
  */
 export interface CollectionPatch {
   name?: string
+  parent_id?: string | null
   slots?: Record<string, string>
   overrides?: Partial<BriefOverrides>
 }
@@ -98,7 +105,7 @@ export async function getCollection(cid: string): Promise<CollectionDetail> {
   return parseCollectionDetail(await json('GET', collectionPath(cid)))
 }
 
-export async function createCollection(input: CollectionCreate): Promise<CollectionSummary> {
+export async function createCollection(input: CollectionCreate): Promise<NestedCollection> {
   return parseCollection(await json('POST', COLLECTIONS_PATH, input))
 }
 
