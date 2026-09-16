@@ -55,6 +55,22 @@ def _id_problem(channel_id: Any) -> Optional[str]:
     return "Pass the 'channel_id' (e.g. \"update-conf\"): lowercase letters, digits and hyphens."
 
 
+#: The bounds of `get_channel(limit=…)`, mirroring the route's `limit` query.
+RECENT_POSTS_MIN = 1
+RECENT_POSTS_MAX = 50
+
+
+def _recent_posts_problem(include_recent_posts: Any, limit: Any) -> Optional[str]:
+    """Why the `recent_posts` arguments cannot be sent, or None."""
+    if not isinstance(include_recent_posts, bool):
+        return "'include_recent_posts' must be true or false (leave it out unless the user asked)."
+    in_range = (isinstance(limit, int) and not isinstance(limit, bool)
+                and RECENT_POSTS_MIN <= limit <= RECENT_POSTS_MAX)
+    if not in_range:
+        return f"'limit' must be a whole number from {RECENT_POSTS_MIN} to {RECENT_POSTS_MAX}."
+    return None
+
+
 def _argument_problem(platform: Any, name: Any, strings: dict, blocks: dict, primary: Any) -> Optional[str]:
     """Why the arguments cannot be sent, or None. The backend stays the authority
     on ids, platforms and field names; this only refuses wrong *types*."""
@@ -141,7 +157,7 @@ def list_channels() -> dict:
     return channel_call(_call, "")
 
 
-def get_channel(channel_id: str) -> dict:
+def get_channel(channel_id: str, include_recent_posts: bool = False, limit: int = 10) -> dict:
     """Read one channel. This is the main read before writing any text for a channel.
 
     Treat `context` as the style reference for everything you draft for this
@@ -154,13 +170,23 @@ def get_channel(channel_id: str) -> dict:
     `profile` (footer, recorded-at line, speaker block, default hashtags, link
     rows, house rules, description template, slots) is what the upload package
     pastes on its own: never copy it into a video's text, or it prints twice.
+
+    Set `include_recent_posts=True` **only when the user explicitly asks** to
+    take inspiration from older videos. By default every post is written from
+    this video alone: a description should be specific to this video, and old
+    posts pull a draft toward a copy of them. With it, the answer gains
+    `recent_posts`: this channel's latest published posts, newest first, each
+    `{video_id, title, text, hashtags, url, at}` (`text` cut to 500 characters).
+    `limit` (1 to 50, default 10) caps how many.
     """
-    problem = _id_problem(channel_id)
+    problem = _id_problem(channel_id) or _recent_posts_problem(include_recent_posts, limit)
     if problem:
         return _fail(problem)
+    extra = {"include_recent_posts": True, "limit": limit} if include_recent_posts else {}
 
     def _call() -> dict:
-        return {"status": _OK, "channel": _capforge().library_channel_get(channel_id) or {}}
+        return {"status": _OK,
+                "channel": _capforge().library_channel_get(channel_id, **extra) or {}}
 
     return channel_call(_call, channel_id)
 

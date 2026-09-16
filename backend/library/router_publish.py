@@ -20,12 +20,15 @@ the **primary channel's brief view** (``channels.brief_from_channel``), so
 :func:`read_brief` is the one seam every brief reader goes through, and
 ``PATCH /brief`` writes to the primary channel. ``brief.json`` is only the
 bootstrap source; see ``channels.py`` for the accepted ``{{channel}}`` delta.
+
+Posts (docs/plans/multi-channel-pr2-contract.md): the ``PATCH`` refusal also
+covers ``posts``, and ``/validate`` and the package take ``channel``; that glue,
+and the helpers it shares with this module, are ``publish_channels.py``.
 """
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import Any, Callable, ContextManager, Optional
+from typing import Any, Callable, ContextManager, Optional, Union
 
 from fastapi import APIRouter, HTTPException
 from fastapi.encoders import jsonable_encoder
@@ -37,28 +40,33 @@ from backend.library.channels import brief_from_channel, channel_patch_from_brie
 from backend.library.collection_store import Collection, effective_brief
 from backend.library.errors import CollectionNotFound, CollectionsUnreadable
 from backend.library.localized import (
-    UnknownLanguage,
-    draft_record,
     inherit_localized,
     localize_record,
-    localized_notes,
     merge_localized_fields,
-    resolve_language,
 )
-from backend.library.package import assemble_description, render_youtube_package
-from backend.library.paths import record_dir
 from backend.library.platform_package import (
     PACKAGE_PLATFORMS, YOUTUBE, platform_package, unsupported_platform_detail,
+)
+from backend.library.publish_channels import (  # the first three are re-exported
+    diarized_speakers,
+    language_or_404,
+    record_duration,
+    CHANNEL_NEEDS_RECORD,
+    CHANNEL_WITH_PLATFORM,
+    channel_package,
+    channel_validation,
+    language_findings,
+    posts_refusal_findings,
+    record_wide_post_findings,
+    youtube_package,
 )
 from backend.library.schemas import RecordPatch, VideoRecord
 from backend.library.validate import (
     Violation,
-    assembled_violations,
     authored_fields,
     hard_violations,
     unknown_collection_violation,
     validate_fields,
-    validate_record,
 )
 from backend.library.validate_media import (
     candidates_findings,
@@ -66,13 +74,11 @@ from backend.library.validate_media import (
     inherit_thumbnail,
     merge_thumbnail_fields,
 )
-from backend.library.validate_localized import view_findings
 
 #: The ``detail`` a refused write answers with; the findings ride beside it.
 VIOLATION_DETAIL = "{count} rule(s) violated"
 BRIEF_UNREADABLE_STATUS = 500
 COLLECTIONS_UNREADABLE_STATUS = 500
-LANG_NEEDS_RECORD = "'lang' validates a record's localized view; pass a video_id with it"
 
 
 class ValidateRequest(BaseModel):
@@ -91,6 +97,8 @@ class ValidateRequest(BaseModel):
     video_id: Optional[str] = None
     collection_id: Optional[str] = None
     lang: Optional[str] = None
+    #: Judge this channel's post; ``fields`` are then that post's draft fields.
+    channel: Optional[str] = None
 
 
 def register_publish_routes(
@@ -134,25 +142,6 @@ def read_collection(store: Any, collection_id: Optional[str]) -> Optional[Collec
         ) from exc
 
 
-def record_duration(store: Any, record: VideoRecord) -> Optional[float]:
-    """The video's length: the record's own value, else the transcript's."""
-    if record.duration is not None:
-        return record.duration
-    transcript = store.get_transcript(record.id, segments_only=True)
-    return transcript.get("duration") if transcript else None
-
-
-def diarized_speakers(store: Any, record: VideoRecord) -> list[str]:
-    """Distinct speaker ids in the stored transcript, in order of first appearance."""
-    transcript = store.get_transcript(record.id, segments_only=True)
-    seen: list[str] = []
-    for segment in (transcript or {}).get("segments", []):
-        speaker = segment.get("speaker")
-        if isinstance(speaker, str) and speaker and speaker not in seen:
-            seen.append(speaker)
-    return seen
-
-
 def violation_refusal(
     store: Any, record: VideoRecord, patch: RecordPatch
 ) -> Optional[JSONResponse]:
@@ -173,6 +162,7 @@ def violation_refusal(
         ),
         *candidates_findings(record.thumbnail.candidates, patch),
         *_collection_findings(store, record, patch),
+        *posts_refusal_findings(store, record, patch, completed),
     ]
     if not found:
         return None
@@ -202,6 +192,7 @@ def locked_refusal(
     if "localized" in patch.model_fields_set:
         found += hard_violations({"localized": completed.localized}, duration=None,
                                  source_language=fresh.language)
+    found += posts_refusal_findings(store, fresh, patch, completed)
     return (_violations_response(found) if found else None), completed
 
 
@@ -256,30 +247,6 @@ def _requested_collection(
         ) from exc
 
 
-def language_or_404(record: VideoRecord, lang: Optional[str]) -> Optional[str]:
-    """The language to localize into (None for the source), or a 404."""
-    try:
-        return resolve_language(record, lang)
-    except UnknownLanguage as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-
-def _language_findings(
-    record: Optional[VideoRecord], fields: dict, lang: str, *,
-    duration: Optional[float], brief: Brief,
-) -> list[Violation]:
-    """``/validate`` with ``lang``: the draft laid over the record, localized."""
-    if record is None:
-        raise HTTPException(status_code=422, detail=LANG_NEEDS_RECORD)
-    draft = draft_record(record, fields)
-    code = language_or_404(draft, lang)
-    if code is None:
-        return validate_fields(fields, duration=duration, brief=brief,
-                               source_language=record.language)
-    view = localize_record(draft, code)
-    return view_findings(validate_record(view, duration=duration, brief=brief), draft, code)
-
-
 # --- routes ------------------------------------------------------------------
 
 def _register_brief_routes(router: APIRouter, get_store: Callable) -> None:
@@ -315,8 +282,15 @@ def _register_validate_route(
 
     @router.post("/validate")
     def validate(body: ValidateRequest) -> dict:
-        """Run the rules over a draft, a stored record, or a mix of the two."""
+        """Run the rules over a draft, a stored record, or a mix of the two.
+
+        With ``channel`` the answer is that channel's post (``_channel_findings``).
+        A stored record judged whole (a ``video_id``, no ``fields``, no ``lang``)
+        is followed by its visible non-primary posts' findings.
+        """
         store = get_store()
+        if body.channel is not None:
+            return {"violations": _dump(_channel_findings(store, body, library_errors))}
         fields, duration = body.fields, body.duration
         record: Optional[VideoRecord] = None
         if body.video_id is not None:
@@ -330,13 +304,12 @@ def _register_validate_route(
                 )
             if duration is None:
                 duration = record_duration(store, record)
-        brief = effective_brief(
-            read_brief(store), _requested_collection(store, body, record)
-        )
+        collection = _requested_collection(store, body, record)
+        brief = effective_brief(read_brief(store), collection)
         source = record.language if record is not None else None
         try:
             if body.lang is not None:
-                found = _language_findings(
+                found = language_findings(
                     record, fields or {}, body.lang, duration=duration, brief=brief
                 )
             else:
@@ -345,68 +318,77 @@ def _register_validate_route(
                 )
         except ValueError as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
+        if record is not None and body.fields is None and body.lang is None:
+            found += record_wide_post_findings(
+                store, record, collection=collection, duration=duration
+            )
         return {"violations": _dump(found)}
+
+
+def _channel_findings(
+    store: Any, body: ValidateRequest, library_errors: Callable
+) -> list[Violation]:
+    """``/validate`` with ``channel``: the post draft laid over the stored post."""
+    if body.video_id is None:
+        raise HTTPException(status_code=422, detail=CHANNEL_NEEDS_RECORD)
+    with library_errors():
+        record = store.get(body.video_id)
+    duration = body.duration if body.duration is not None else record_duration(store, record)
+    try:
+        return channel_validation(
+            store, record, body.channel, body.fields or {}, lang=body.lang,
+            collection=_requested_collection(store, body, record), duration=duration,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 def _register_package_route(
     router: APIRouter, get_store: Callable, library_errors: Callable
 ) -> None:
 
-    @router.get("/{video_id}/package")
+    @router.get("/{video_id}/package", response_model=None)
     def get_package(
-        video_id: str, platform: str = YOUTUBE, lang: Optional[str] = None
-    ) -> dict:
+        video_id: str,
+        platform: Optional[str] = None,
+        lang: Optional[str] = None,
+        channel: Optional[str] = None,
+    ) -> Union[dict, JSONResponse]:
         """The pasteable text plus whatever is still open on the record.
 
-        The package is rendered *even with* violations — the user is mid-edit
-        and hiding the text would be worse than showing the findings beside it.
-        ``violations`` holds the record's own findings (under the effective
-        brief) followed by the assembled description's (``package.description``).
-        ``description`` is that assembled DESCRIPTION body on its own (no header,
-        no rule lines) — exactly the text those ``package.description`` rules
-        measured, so a preview never scrapes it out of ``text``.
-
-        ``lang`` renders the localized view (Part B, decision 4): an unknown one is
-        a 404, and no ``lang`` or the source language is the source package.
-        ``linkedin``/``x``/``instagram`` answer one clipboard post from the same
-        view, with ``description: null`` (``platform_package.py``, C1).
+        Rendered *even with* violations (the user is mid-edit): the record's own
+        findings under the effective brief, then ``package.description``'s, and
+        ``description`` is the assembled DESCRIPTION body those rules measured.
+        ``lang`` renders the localized view (an unknown one is a 404);
+        ``linkedin``/``x``/``instagram`` answer one clipboard post from it with
+        ``description: null`` (``platform_package.py``). ``channel`` renders that
+        channel's post (``publish_channels.channel_package``), never with
+        ``platform`` (422); without it this is the primary channel's package.
         """
-        if platform not in PACKAGE_PLATFORMS:
-            raise HTTPException(status_code=400, detail=unsupported_platform_detail(platform))
+        if channel is not None and platform is not None:
+            raise HTTPException(status_code=422, detail=CHANNEL_WITH_PLATFORM)
+        wanted = YOUTUBE if platform is None else platform
+        if wanted not in PACKAGE_PLATFORMS:
+            raise HTTPException(status_code=400, detail=unsupported_platform_detail(wanted))
         store = get_store()
         with library_errors():
             record = store.get(video_id)
+
+        def speakers() -> list[str]:
+            return diarized_speakers(store, record)
+        if channel is not None:
+            return channel_package(
+                store, record, channel, lang=lang, speakers=speakers,
+                collection=read_collection(store, record.collection_id),
+                duration=record_duration(store, record),
+            )
         code = language_or_404(record, lang)
-        view = record if code is None else localize_record(record, code)
         brief = read_brief(store)
         collection = read_collection(store, record.collection_id)
         duration = record_duration(store, record)
-        if platform != YOUTUBE:
+        if wanted != YOUTUBE:
+            view = record if code is None else localize_record(record, code)
             return platform_package(record, view, code, brief, collection=collection,
-                                    duration=duration, platform=platform)
-        effective = effective_brief(brief, collection)
-        speakers = diarized_speakers(store, record)
-        text = render_youtube_package(
-            view, brief, duration=duration,
-            source_name=Path(record.sourcePath).name,
-            diarized_ids=speakers, collection=collection,
-            record_folder=record_dir(record.id, scratch=record.scratch, root=store.root).absolute(),
-            extra_notes=() if code is None else localized_notes(
-                record, code, footer=effective.footer
-            ),
-        )
-        assembled = assemble_description(
-            view, brief, collection=collection, diarized_ids=speakers
-        )
-        violations = [
-            *validate_record(view, duration=duration, brief=effective),
-            *assembled_violations(assembled),
-        ]
-        if code is not None:
-            violations = view_findings(violations, record, code)
-        return {
-            "platform": platform,
-            "text": text,
-            "violations": _dump(violations),
-            "description": assembled.body,
-        }
+                                    duration=duration, platform=wanted)
+        return youtube_package(store, record, brief, lang_code=code, collection=collection,
+                               duration=duration, speakers=speakers)

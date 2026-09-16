@@ -1,6 +1,6 @@
 ---
 name: capforge-publish
-description: "Turn a video CapForge knows about into a copy-ready YouTube upload package: title options, a description with chapters, tags, hashtags, a short description, a Shorts caption and clip candidates, thumbnail ideas. The text is written onto the video's library record, so it survives the session and the user can edit it in the Publish workspace. Use when the user asks for a YouTube description, title ideas, chapters, tags, a Shorts caption, or an upload package."
+description: "Turn a video CapForge knows about into a copy-ready YouTube upload package: title options, a description with chapters, tags, hashtags, a short description, a Shorts caption and clip candidates, thumbnail ideas. The text is written onto the video's library record, so it survives the session and the user can edit it in the Publish workspace. Use when the user asks for a YouTube description, title ideas, chapters, tags, a Shorts caption, or an upload package, including the post for each of the video's other channels (TikTok, Instagram, LinkedIn, X)."
 ---
 
 # CapForge publish package
@@ -16,8 +16,10 @@ field.
 
 Channel-level style — audience, voice, footer, default hashtags, house rules — lives
 in the **brief**, not in this file. The user edits it in CapForge under
-Settings → Channel; you read it with `get_brief()` (and only change it with
-`set_brief(patch)` when the user states a channel-wide rule).
+Settings → Channels; you read it with `get_brief()` (and only change it with
+`set_brief(patch)` when the user states a channel-wide rule). The brief is the
+primary channel's view; every channel, the primary included, is read in full with
+`get_channel(channel_id)`.
 
 ## Requirements
 
@@ -32,6 +34,7 @@ tools come from the `capforge` MCP server.
 - `find_video_moments(video_id, kind=…)` for timestamps; `find_semantic_moments(kind)`
   and `find_moments(phrase)` do the same against the open session.
 - `set_video_meta`, `validate_video`, `get_upload_package`, `mark_published`.
+- `get_channel(channel_id)` for each channel the video has a post for (see Channels).
 
 If you have no record and no transcript, say so and stop. Do not invent content from
 a title alone. `list_videos()` and `search_library(q)` find the record when the user
@@ -74,6 +77,46 @@ brief's fields such as the footer and the recorded-at line.
   re-read each member's `get_upload_package`. No description is rewritten.
 - `publish_guide("collections")` covers setting up an event, the built-in slots and
   adopting orphan ids.
+
+## Channels (one post per channel)
+
+A video can go to more than one channel: a YouTube channel, a TikTok or Instagram
+account, a LinkedIn page, an X account. `get_video` returns posts: the video's text per
+channel, keyed by channel id. The root fields (description, short_description, tags,
+hashtags, localized, publish.youtube) are the **primary channel's** post. When the
+record has no posts, or only the primary channel's, follow the single YouTube flow in
+the rest of this file: root fields, `get_brief()`, no channel argument anywhere.
+
+For each channel the video has a post for, skipping posts with hidden: true:
+
+1. Call `get_channel(channel_id)` first and treat its context as the style reference for
+   that post: about, audience, voice, title style and example titles, naming, keywords,
+   notes. Match the examples' shape; never reuse an example. Its profile (footer, links,
+   default hashtags) is pasted by the package, so never copy it into the post.
+2. Never write a post for a channel whose context you have not read in this session,
+   and never carry one channel's voice into another channel's post.
+3. Never pass include_recent_posts to get_channel unless the user asked you to take
+   inspiration from older videos. By default each post is written from this video
+   alone: old posts pull a draft toward a copy of them.
+4. Write the post with `set_video_meta(video_id, {"posts": {"<channel id>": {...}}}, rev)`,
+   using only the fields that platform has:
+
+   ```
+   YouTube            title, description, short_description, tags, hashtags, localized
+   TikTok, Instagram  caption, hashtags
+   LinkedIn, X        text, hashtags
+   ```
+
+   Posts merge per channel and per field: send only what you change, one channel per
+   call is fine. A channel set to null removes its post; hidden: true hides it and keeps
+   the text, so never do either unless the user asked. Never send a root field and the
+   same field under the primary channel's post in one patch.
+5. `validate_video(video_id, channel="<channel id>")`: fix every hard finding (they name
+   posts.<channel id>.<field>) and write again.
+6. `get_upload_package(video_id, channel="<channel id>")`: show each post's text under
+   its channel's name. Pass channel alone, never together with platform.
+7. When the user says where a post went live:
+   `mark_published(video_id, url, channel="<channel id>")`.
 
 ## Hard rules
 
@@ -162,7 +205,9 @@ Notes on the content, not the shape:
   window, a keyword count, a hook in the first 150 characters). Fix them unless the
   user told you otherwise in this conversation; they never block a write.
 
-Only `ok: true` means the record is ready to hand over.
+Only `ok: true` means the record is ready to hand over. With more than one channel,
+also run `validate_video(video_id, channel="<channel id>")` for every other channel's
+post (see Channels).
 
 ## Present
 
@@ -179,7 +224,9 @@ Only `ok: true` means the record is ready to hand over.
 ## Later
 
 - When the user pastes the published URL, call `mark_published(video_id, url)`. That
-  is what moves the record to `published`; CapForge uploads nothing.
+  is what moves the record to `published`; CapForge uploads nothing. That records the
+  primary channel's post; for any other channel's post it is
+  `mark_published(video_id, url, channel="<channel id>")`.
 - A later run starts by reading the record again (`get_video`), not by regenerating.
   Fill the placeholder the user has now answered, or change the one field they asked
   about, and read the package again.

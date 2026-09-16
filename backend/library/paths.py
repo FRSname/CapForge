@@ -25,6 +25,9 @@ TRASH_DIR_NAME = ".trash"
 STUDIO_DIR_NAME = "studio"
 INDEX_DB_NAME = "library.db"
 RECORD_FILE = "record.json"
+#: The schema-1 file as it was, kept once beside ``record.json`` by the first
+#: write that upgrades it (``record_io.backup_v1``). Reads never write it.
+RECORD_V1_FILE = "record.v1.json"
 PROJECT_FILE = "project.capforge"
 TRANSCRIPT_FILE = "transcript.json"
 #: Thumbnail frames (``frames.py``) live in this sub-folder of the record.

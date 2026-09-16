@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Awaitable, Callable, Iterator, Optional
+from typing import Awaitable, Callable, Iterator, Optional, Union
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Response
 from starlette import status as http_status
@@ -32,6 +32,7 @@ from backend.library.errors import (
     RecordNotFound,
     ScratchReadOnly,
     StaleRevision,
+    UnknownChannel,
 )
 from backend.library.paths import library_root, record_dir, resolve_asset
 from backend.library.router_admin import register_admin_routes
@@ -39,7 +40,11 @@ from backend.library.router_channels import register_channel_routes
 from backend.library.router_collections import register_collection_routes
 from backend.library.router_derived import LiveSession, register_derived_routes
 from backend.library.router_frames import register_frame_routes
-from backend.library.router_import import register_import_routes
+from backend.library.router_import import (
+    register_import_routes,
+    unknown_channel_refusal,
+    unknown_channel_response,
+)
 from backend.library.router_publish import (
     locked_refusal,
     register_publish_routes,
@@ -147,6 +152,8 @@ def record_id_for_media(path: str) -> Optional[str]:
 class CreateVideoRequest(BaseModel):
     source_path: str
     scratch: bool = False
+    #: Channels a *new* record gets an empty post for; an existing one is left alone.
+    channels: Optional[list[str]] = None
 
 
 @contextmanager
@@ -274,15 +281,24 @@ def _register_library_routes(router: APIRouter) -> None:
             )
         }
 
-    @router.post("")
-    def create_video(body: CreateVideoRequest, response: Response) -> dict:
+    @router.post("", response_model=None)
+    def create_video(body: CreateVideoRequest, response: Response) -> Union[dict, JSONResponse]:
         """Create-or-return: 201 for a new record, 200 for a fingerprint hit.
 
         A new record's duration and poster come from the store's ``on_created``
-        hook (off this thread), announced as ``library_changed`` ``updated``."""
+        hook (off this thread), announced as ``library_changed`` ``updated``.
+        ``channels`` naming no channel is a 422 ``unknown_channel``."""
         store = get_store()
+        refusal = unknown_channel_refusal(store, body.channels)
+        if refusal is not None:
+            return refusal
         with _library_errors():
-            record, created = store.create_or_get(body.source_path, scratch=body.scratch)
+            try:
+                record, created = store.create_or_get(
+                    body.source_path, scratch=body.scratch, channels=body.channels or ()
+                )
+            except UnknownChannel as exc:  # a channel deleted since the check above
+                return unknown_channel_response(exc)
         response.status_code = (
             http_status.HTTP_201_CREATED if created else http_status.HTTP_200_OK
         )

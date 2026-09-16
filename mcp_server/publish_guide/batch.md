@@ -9,7 +9,8 @@ run recoverable.
 `list_videos(status="transcribed")` — status is derived at read time and climbs
 `imported → transcribed → captioned → drafted → published`, so `transcribed` and
 `captioned` are the ones without a description, `drafted` the ones waiting for an
-upload URL. `list_videos(q=…)` and `search_library(q)` narrow by text;
+upload URL. Status reads every post that is not hidden: `drafted` once any post has
+text, `published` once any post has a published URL. `list_videos(q=…)` and `search_library(q)` narrow by text;
 `list_videos(collection="uck26")` by collection.
 
 ## The loop
@@ -24,16 +25,24 @@ For each video, in order:
    of `get_brief`. Its `effective_brief` is the brief that collection's packages
    render with. Write only each video's own paragraph; the collection's template
    renders the boilerplate (see `publish_guide("collections")`).
+   Channels are read once too: `get_channel` once per channel that a video in the
+   batch has a post for (skip hidden posts), before the first post you write for it.
+   Leave `include_recent_posts` off unless the user asked for inspiration from older
+   videos.
 3. The workflow (`publish_guide("workflow")`): transcript, moments, breakdown,
    description, chapters, shorts, thumbnails — each written with `set_video_meta`
-   against the rev you last read. A stale rev means someone edited the record
-   between your read and your write: re-read, re-apply, write again, once.
-4. `validate_video`. Fix hard findings before moving on; note style findings.
-5. Read `get_upload_package` only if the user wants the text now; the package is
-   rendered on demand and the record is what persists.
+   against the rev you last read. The root fields are the primary channel's post;
+   each other channel's post is its own write under `posts`, with only the fields its
+   platform has. A stale rev means someone edited the record between your read and
+   your write: re-read, re-apply, write again, once.
+4. `validate_video`, and `validate_video(video_id, channel=…)` for each other
+   channel's post. Fix hard findings before moving on; note style findings.
+5. Read `get_upload_package` only if the user wants the text now (with `channel=…`
+   for one channel's post); the package is rendered on demand and the record is what
+   persists.
 
-Do not call `mark_published` in a batch — the URL exists only after the user
-uploads.
+Do not call `mark_published` in a batch, with or without `channel` — the URL exists
+only after the user uploads.
 
 ## Regenerating an event's footers
 
@@ -47,7 +56,7 @@ user and remove it only when they agree, one video per call.
 ## Report
 
 Finish with one table: video, chosen title, status after the run, findings still
-open (or "clean"). Then the one thing the user has to do next for each: upload,
+open (or "clean"), with the channel named on every finding that belongs to a post. Then the one thing the user has to do next for each: upload,
 name a speaker, choose a title.
 
 ## Scratch runs

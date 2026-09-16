@@ -25,8 +25,14 @@ and renders one plain-text package the user pastes into YouTube Studio.
   be typing in the Publish workspace while you work; the field under their cursor
   wins.
 - **A patch replaces whole fields.** A list is the new list, not an append; the
-  `publish` block must be sent whole or its YouTube half is dropped. The one
-  exception is `localized`, which merges per language.
+  `publish` block must be sent whole or its YouTube half is dropped. The two
+  exceptions are `localized`, which merges per language, and `posts`, which merges
+  per channel and per field.
+- **One post per channel.** `get_video` returns `posts`: the video's text per
+  channel, keyed by channel id. The root description, tags, hashtags and `localized`
+  are the **primary channel's** post. Read `get_channel` before writing any other
+  channel's post, and pass `include_recent_posts` only when the user asks for
+  inspiration from older videos.
 - **Hard rules are refused, style rules are advice.** A write that breaks a YouTube
   limit never lands; `validate_video` names the field and the rule. A house-rule
   finding is fixed unless the user said otherwise, and never blocks a write.
@@ -49,10 +55,10 @@ and renders one plain-text package the user pastes into YouTube Studio.
 | the transcript | `get_video_transcript(video_id)` from the library; `get_transcript(segments_only=True)` when the video is open in the app |
 | timestamps | `find_video_moments(video_id, query=…)` or `kind="pause" \| "speaker_change" \| "numbers" \| "cta"`; `find_moments`, `find_semantic_moments` against the open session |
 | write | `set_video_meta(video_id, patch, rev)` |
-| check | `validate_video(video_id)`, or `validate_video(video_id, lang="pl")` for one language; `check_chapters(video_id, chapters)` before a chapter list |
+| check | `validate_video(video_id)`, or `validate_video(video_id, lang="pl")` for one language, `validate_video(video_id, channel=…)` for one channel's post; `check_chapters(video_id, chapters)` before a chapter list |
 | a thumbnail frame | `grab_frames(video_id, times)`; the cover is then set with `set_video_meta` |
-| the text | `get_upload_package(video_id)`, or `get_upload_package(video_id, lang="pl")` |
-| after upload | `mark_published(video_id, url)` |
+| the text | `get_upload_package(video_id)`, or `get_upload_package(video_id, lang="pl")`, or `get_upload_package(video_id, channel=…)` |
+| after upload | `mark_published(video_id, url)`, or `mark_published(video_id, url, channel=…)` for another channel's post |
 
 ## Topics — pull one at a time with `publish_guide(topic)`
 
@@ -66,7 +72,7 @@ and renders one plain-text package the user pastes into YouTube Studio.
 | `shorts` | The Shorts caption and 2–3 clip candidates; the under-60-seconds rule; what a clip is checked against. |
 | `batch` | A set of videos: list by status, one record per call, what to report, scratch runs. |
 | `collections` | An event's shared boilerplate: slots, brief overrides, the description template, assigning videos, adopting orphan ids. |
-| `channels` | What a channel is: read `get_channel` before drafting for it, use its context, leave its profile to the package; the primary channel is the brief. |
+| `channels` | What a channel is and the video's post per channel: read `get_channel` before drafting for it, use its context, leave its profile to the package, write posts per field, recent posts only when asked; the primary channel is the brief and the root fields. |
 | `localized` | The title, description, tags, chapter titles and Shorts caption in another language: one language per call, the merge, validating and packaging with `lang`. |
 
 The same workflow is reachable as slash commands in Claude Desktop — **breakdown**,

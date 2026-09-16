@@ -82,7 +82,9 @@ class ThumbnailStoreMixin:
     def remove_thumbnail_candidate(
         self: "LibraryStore", video_id: str, name: str, *, by: Actor
     ) -> VideoRecord:
-        """Drop one name; a cover that was that frame is cleared with it."""
+        """Drop one name; a cover that was that frame is cleared with it, on the
+        root and on **every** post. Both sides are cleared together, so the
+        projection is unchanged and a hidden primary post stays hidden."""
         record = self.get(video_id)
         require_editable(record)
         stored = record.thumbnail.candidates
@@ -93,4 +95,9 @@ class ThumbnailStoreMixin:
             "candidates": [candidate for candidate in stored if candidate != name],
             "cover": None if cover == name else cover,
         })
-        return self._persist(_with_thumbnail(record, thumbnail, by))
+        posts = {
+            cid: post.model_copy(update={"cover": None}) if post.cover == name else post
+            for cid, post in record.posts.items()
+        }
+        cleared = record.model_copy(update={"posts": posts})
+        return self._persist(_with_thumbnail(cleared, thumbnail, by))

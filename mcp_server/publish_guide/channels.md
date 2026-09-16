@@ -30,6 +30,55 @@ upload package renders them on its own around the video's own text, so **never c
 any of it into a video's fields**: it would print twice. The house rules are what
 `validate_video` reports as style findings.
 
+## Posts — the video's text, one post per channel
+
+A record keeps the video's text **per channel** under `posts`, keyed by channel id;
+`get_video` returns it. Each post has only the fields its platform has:
+
+| platform | fields |
+|---|---|
+| YouTube | `title`, `description`, `short_description`, `tags`, `hashtags`, `localized` |
+| TikTok, Instagram | `caption`, `hashtags` |
+| LinkedIn, X | `text`, `hashtags` |
+
+Every post also carries `cover` (one of the record's thumbnail frames), `language`
+(empty means the channel's), `published` `{url, id, at}` and `hidden`.
+
+- **Read the context per channel.** For each channel the video has a post for, call
+  `get_channel(channel_id)` first and write that post in that channel's voice. Never
+  write a post for a channel whose context you have not read this session, and never
+  carry one channel's voice into another channel's post.
+- **Skip hidden posts.** `hidden: true` means the user set the post aside. Leave it
+  alone unless they ask.
+- **Write** with `set_video_meta(video_id, {"posts": {"<channel id>": {…}}}, rev)`.
+  Posts merge per channel and per field: send only the fields you change, one channel
+  per call is fine, and every channel you omit is kept. `{"posts": {"<channel id>":
+  null}}` removes a post, while `{"hidden": true}` hides it and keeps its text. A field
+  the platform does not have (a TikTok `title`) is refused with `field_not_on_platform`,
+  and an id that is not a channel with `unknown_channel`. `localized` inside a YouTube
+  post merges per language, like the root one.
+- **The root fields are the primary channel's post.** The root `description`,
+  `short_description`, `tags`, `hashtags`, `localized`, `thumbnail.cover` and
+  `publish.youtube` read and write the primary channel's post, so everything written
+  without a channel keeps working. Never send a root field and the same field under the
+  primary's post in one patch: that is refused with `ambiguous_post_field`.
+- **Check and read per channel.** `validate_video(video_id, channel="<channel id>")`
+  judges that post by its platform's limits, measured on the pasted text (findings name
+  `posts.<channel id>.<field>`), and `get_upload_package(video_id, channel="<channel
+  id>")` renders the text the user pastes. Pass either `channel` or `platform`, never
+  both. A channel the video has no post for answers `no_post`.
+- **After upload.** `mark_published(video_id, url, channel="<channel id>")` records
+  where that post went live.
+
+## Older posts — only when the user asks
+
+`get_channel(channel_id, include_recent_posts=True, limit=10)` adds `recent_posts`: the
+channel's latest published posts, newest first (`limit` runs 1 to 50). Set it **only
+when the user explicitly asks** to take inspiration from older videos. By default every
+post is written from this video alone: a description should say what is specific to
+this video, and a draft written beside old posts drifts toward a copy of them. When you
+do read them, borrow structure and tone, never sentences.
+
 ## The primary channel is the brief
 
 There is always exactly one **primary** channel, and it is always a YouTube channel

@@ -286,15 +286,25 @@ class CapForgeClient:
         return self._request("PATCH", BRIEF_PATH, json=patch)
 
     def library_validate(self, body: dict) -> Any:
-        """Run the publish rules. Body: `{fields?, duration?, video_id?, lang?}` —
-        with a `video_id`, whatever is missing is read from the record."""
+        """Run the publish rules. Body: `{fields?, duration?, video_id?, lang?,
+        channel?}` — with a `video_id`, whatever is missing is read from the
+        record; with a `channel` too, that channel's post is judged."""
         return self._request("POST", f"{LIBRARY_PATH}/validate", json=body)
 
     def library_package(
-        self, video_id: str, platform: str = "youtube", lang: Optional[str] = None
+        self,
+        video_id: str,
+        platform: str = "youtube",
+        lang: Optional[str] = None,
+        channel: Optional[str] = None,
     ) -> Any:
-        """The upload package; `lang` renders one localized language's view."""
-        query = _query({"platform": platform, "lang": lang})
+        """The upload package; `lang` renders one localized language's view.
+
+        With a `channel` the default platform is not sent (the route refuses
+        both together), but a non-default one still is, so the backend's 422
+        answers it rather than the argument being dropped here."""
+        sent_platform = None if channel is not None and platform == "youtube" else platform
+        query = _query({"platform": sent_platform, "lang": lang, "channel": channel})
         return self._request(
             "GET", f"{LIBRARY_PATH}/{quote(video_id)}/package?{query}"
         )
@@ -340,9 +350,17 @@ class CapForgeClient:
         """`{primary_id, channels: [channel & {primary}]}` in file order."""
         return self._request("GET", CHANNELS_PATH)
 
-    def library_channel_get(self, channel_id: str) -> Any:
-        """The channel plus `primary`; 404 when unknown."""
-        return self._request("GET", f"{CHANNELS_PATH}/{quote(channel_id)}")
+    def library_channel_get(
+        self, channel_id: str, include_recent_posts: bool = False, limit: int = 10
+    ) -> Any:
+        """The channel plus `primary`; 404 when unknown. With
+        `include_recent_posts` it also carries `recent_posts` (at most `limit`);
+        without it no query string is sent at all."""
+        path = f"{CHANNELS_PATH}/{quote(channel_id)}"
+        if not include_recent_posts:
+            return self._request("GET", path)
+        query = _query({"include_recent_posts": True, "limit": limit})
+        return self._request("GET", f"{path}?{query}")
 
     def library_channel_create(self, body: dict) -> Any:
         """POST `{id?, platform, name, handle?, url?, language?, context?, profile?}`; 201."""

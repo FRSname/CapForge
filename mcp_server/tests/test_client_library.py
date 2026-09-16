@@ -331,3 +331,44 @@ def test_library_grab_frames_posts_the_times(capforge, monkeypatch):
     assert rec.last["url"] == f"{BASE}/api/library/abc%20123/frames"
     assert rec.last["json"] == {"times": [61.25, 3.0]}
     assert rec.last["headers"][AGENT_TOKEN_HEADER] == TOKEN
+
+
+# --- multi-channel PR 2: a channel's package, a channel's recent posts --------
+
+def test_library_package_for_a_channel_sends_the_channel_not_the_default_platform(
+    capforge, monkeypatch
+):
+    rec = _record(monkeypatch)
+
+    capforge.library_package("abc123", channel="filip-ig")
+    assert rec.last["url"] == f"{BASE}/api/library/abc123/package?channel=filip-ig"
+
+    capforge.library_package("abc123", lang="pl", channel="update-conf")
+    assert rec.last["url"] == f"{BASE}/api/library/abc123/package?lang=pl&channel=update-conf"
+
+
+def test_library_package_never_drops_a_non_default_platform_beside_a_channel(
+    capforge, monkeypatch
+):
+    """The route answers that with a 422; the client does not hide it."""
+    rec = _record(monkeypatch)
+
+    capforge.library_package("abc123", platform="x", channel="filip-ig")
+
+    assert rec.last["url"] == f"{BASE}/api/library/abc123/package?platform=x&channel=filip-ig"
+
+
+def test_library_channel_get_sends_recent_posts_only_when_asked(capforge, monkeypatch):
+    rec = _record(monkeypatch)
+
+    capforge.library_channel_get("update-conf")
+    assert rec.last["url"] == f"{BASE}/api/library/channels/update-conf"
+
+    capforge.library_channel_get("update-conf", include_recent_posts=False, limit=20)
+    assert rec.last["url"] == f"{BASE}/api/library/channels/update-conf"
+
+    capforge.library_channel_get("update-conf", include_recent_posts=True, limit=20)
+    assert rec.last["method"] == "GET"
+    assert rec.last["url"] == (
+        f"{BASE}/api/library/channels/update-conf?include_recent_posts=true&limit=20"
+    )

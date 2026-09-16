@@ -112,6 +112,16 @@ def get_video(video_id: Optional[str] = None, path: Optional[str] = None) -> dic
     The `rev` you get back is what `set_video_meta` needs — it is how CapForge
     refuses a blind overwrite of something the user edited in the meantime.
     `status` is the pipeline stage, derived fresh at read time, never authored.
+
+    `posts` holds the video's text **per channel**, keyed by channel id (see
+    `list_channels`): one post per channel the video goes to, each with only the
+    fields its platform has — YouTube `title`, `description`,
+    `short_description`, `tags`, `hashtags`, `localized`; TikTok and Instagram
+    `caption`, `hashtags`; LinkedIn and X `text`, `hashtags` — plus `cover`,
+    `language`, `published` `{url, id, at}` and `hidden`. A post with
+    `hidden: true` is set aside by the user: skip it. The root `description`,
+    `short_description`, `tags`, `hashtags`, `localized`, `thumbnail.cover` and
+    `publish.youtube` are the **primary channel's** post, shown at the root.
     """
     if (video_id is None) == (path is None):
         return _fail("Pass exactly one of 'video_id' or 'path'.")
@@ -181,6 +191,18 @@ def set_video_meta(video_id: str, patch: dict, rev: int) -> dict:
     `{"localized": {"pl": null}}` removes `pl`. Keys are language codes ("pl",
     "pt-BR"), never the source language. See `publish_guide("localized")`.
 
+    `posts` merges **per channel and per field**: send only what you change,
+    one channel per call is fine. `{"posts": {"filip-ig": {"caption": "…"}}}`
+    replaces that post's `caption` and keeps its other fields and every other
+    channel's post; a channel with no post yet gets one. `{"posts": {"filip-ig":
+    null}}` removes the post, while `{"hidden": true}` hides it and keeps its
+    text. Write only the fields the channel's platform has (a TikTok `title` is
+    refused). `localized` inside a post merges per language, as above, and
+    `published` `{url, at}` is written here too (`mark_published(…, channel=…)`
+    does it for you). The root fields are the primary channel's post: a root
+    `description` write is a write to it, so never send the same field both at
+    the root and under the primary's post in one patch.
+
     This CANNOT fix transcript text — the transcript is derived from the session
     and is read-only here. Use `open_video(video_id)` and then `update_words`.
 
@@ -228,11 +250,48 @@ def youtube_id_from_url(url: str) -> Optional[str]:
     return None
 
 
+def _channel_problem(channel: Any, youtube_video_id: Optional[str]) -> Optional[str]:
+    """Why a per-channel `mark_published` cannot be sent, or None."""
+    if not isinstance(channel, str) or not channel.strip():
+        return "Pass 'channel' as a channel id from list_channels, or leave it out."
+    if youtube_video_id is not None:
+        return (
+            "Leave out 'youtube_video_id' when you pass 'channel': CapForge reads a "
+            "YouTube channel's video id from the URL itself."
+        )
+    return None
+
+
+def _mark_channel_published(
+    video_id: str, url: str, channel: str, published_at: Optional[str]
+) -> dict:
+    """Write `posts.<channel>.published` from a fresh read of the record and its rev."""
+    def _call() -> dict:
+        client = _capforge()
+        record = client.library_get(video_id)
+        post = (record.get("posts") or {}).get(channel) or {}
+        existing_at = (post.get("published") or {}).get("at")
+        # Like the root write: a re-run to correct the URL keeps the real date.
+        published = {"url": url, "at": published_at or existing_at or _now_iso()}
+        patch = {"posts": {channel: {"published": published}}}
+        updated = client.library_patch(video_id, patch, record.get("rev"))
+        stored = ((updated.get("posts") or {}).get(channel) or {}).get("published")
+        return {
+            "status": _OK,
+            "rev": updated.get("rev"),
+            "channel": channel,
+            "published": stored or published,
+        }
+
+    return _library_call(_call)
+
+
 def mark_published(
     video_id: str,
     url: str,
     youtube_video_id: Optional[str] = None,
     published_at: Optional[str] = None,
+    channel: Optional[str] = None,
 ) -> dict:
     """Record that a video went live — the last step of a publish run.
 
@@ -246,9 +305,21 @@ def mark_published(
     the URL (`youtu.be/<id>`, `watch?v=<id>`, `/shorts/<id>`, `/live/<id>`);
     a URL it cannot be read from is refused, because `published` status keys
     on the id.
+
+    Pass `channel` (an id from `list_channels`) to record where that channel's
+    post went live: it writes `posts.<channel>.published` `{url, at}`, so the
+    URL may be a TikTok, Instagram, LinkedIn or X link. For a YouTube channel
+    CapForge reads the video id from the URL, so leave `youtube_video_id` out.
+    Without `channel` it writes the root `publish.youtube` block, which is the
+    primary channel's post. One channel per call.
     """
     if not isinstance(url, str) or not url.strip():
         return _fail("Pass the published video's 'url'.")
+    if channel is not None:
+        problem = _channel_problem(channel, youtube_video_id)
+        if problem:
+            return _fail(problem)
+        return _mark_channel_published(video_id, url, channel, published_at)
     # The record's status flips to `published` on `videoId`, not on the URL, so
     # the id is required: an explicit argument, else the one inside the URL.
     resolved_id = youtube_video_id or youtube_id_from_url(url)

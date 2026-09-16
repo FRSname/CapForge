@@ -42,6 +42,7 @@ from backend.library.channels import (
 from backend.library.collection_store import slugify, unique_id
 from backend.library.errors import (
     ChannelExists,
+    ChannelInUse,
     ChannelIsPrimary,
     ChannelNotFound,
     ChannelsUnreadable,
@@ -119,6 +120,21 @@ class ChannelStoreMixin:
         logger.info("Bootstrapped %s with primary channel %s", CHANNELS_FILE, book.primary_id)
         return book
 
+    def record_primary_id(self) -> str:
+        """The primary channel id the records project from, without writing.
+
+        With no ``channels.json`` yet this is the id the bootstrap *will* give the
+        primary (slugged from ``brief.json``'s name), so reading or writing a
+        record never bootstraps the file. Raises what ``load_channels`` and
+        ``load_brief`` raise for a corrupt file.
+        """
+        return self.channel_book_readonly().primary_id
+
+    def channel_book_readonly(self) -> ChannelBook:
+        """The stored channels, or the book the bootstrap would write; never writes."""
+        book = load_channels(self.root)
+        return book if book is not None else bootstrap_book(load_brief(self.root))
+
     def get_channel(self, channel_id: str) -> Channel:
         return _require(self.list_channels(), channel_id)
 
@@ -157,11 +173,15 @@ class ChannelStoreMixin:
 
     @writes
     def delete_channel(self, channel_id: str) -> None:
-        """Remove a channel; the primary raises :class:`ChannelIsPrimary`."""
+        """Remove a channel; the primary raises :class:`ChannelIsPrimary`, and one
+        any record (scratch included) holds a post for :class:`ChannelInUse`."""
         book = self.list_channels()
         _require(book, channel_id)
         if channel_id == book.primary_id:
             raise ChannelIsPrimary(channel_id)
+        posts = self.count_posts_for_channel(channel_id)
+        if posts:
+            raise ChannelInUse(channel_id, posts)
         save_channels(self.root, _with_channels(book, [c for c in book.channels if c.id != channel_id]))
         logger.info("Deleted channel %s", channel_id)
 

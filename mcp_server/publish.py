@@ -89,6 +89,16 @@ def _lang_refusal(lang: Any) -> Optional[dict]:
     )
 
 
+def _channel_refusal(channel: Any) -> Optional[dict]:
+    """An error dict for a `channel` that cannot be a channel id, else None."""
+    if channel is None or (isinstance(channel, str) and channel.strip()):
+        return None
+    return _fail(
+        "Pass 'channel' as a channel id from list_channels (e.g. \"update-conf\"), or "
+        "leave it out for the primary channel."
+    )
+
+
 def _validate(body: dict) -> dict:
     """POST one validate body and group what comes back."""
     def _call() -> dict:
@@ -131,7 +141,7 @@ def set_brief(patch: dict) -> dict:
 
     Use this only for what the user tells you about the *channel* (its audience,
     voice, footer, default hashtags, house rules), and prefer letting them edit
-    it in Settings → Channel. A list field is replaced wholesale by the list you
+    it in Settings → Channels. A list field is replaced wholesale by the list you
     send, so read `get_brief()` first and send back the whole list.
 
     Never park a single video's title, description or chapters here — those are
@@ -145,7 +155,9 @@ def set_brief(patch: dict) -> dict:
     )
 
 
-def validate_video(video_id: str, lang: Optional[str] = None) -> dict:
+def validate_video(
+    video_id: str, lang: Optional[str] = None, channel: Optional[str] = None
+) -> dict:
     """Check a record's authored fields against the publish rules.
 
     Run it after writing fields with `set_video_meta` and before reading the
@@ -169,12 +181,25 @@ def validate_video(video_id: str, lang: Optional[str] = None) -> dict:
     field still in the source language keeps its root name. The source
     language, or no `lang`, checks the record as written. See
     `publish_guide("localized")`.
+
+    Pass `channel` (an id from `list_channels`) to judge that channel's post
+    (`get_video` → `posts.<channel>`) against its platform's rules: a YouTube
+    post by the rules above under that channel's brief, a TikTok, Instagram,
+    LinkedIn or X post by that platform's limits on the pasted text. Findings
+    then name `posts.<channel>.<field>`, and a field the platform does not have
+    (a TikTok `title`) is a hard `field_not_on_platform`. No `channel` checks
+    the root fields, which are the primary channel's post. See
+    `publish_guide("channels")`.
     """
-    refusal = _lang_refusal(lang)
+    refusal = _lang_refusal(lang) or _channel_refusal(channel)
     if refusal is not None:
         return refusal
-    body = {"video_id": video_id}
-    return _validate(body if lang is None else {**body, "lang": lang})
+    body: dict = {"video_id": video_id}
+    if lang is not None:
+        body = {**body, "lang": lang}
+    if channel is not None:
+        body = {**body, "channel": channel}
+    return _validate(body)
 
 
 def check_chapters(video_id: str, chapters: list[dict]) -> dict:
@@ -201,7 +226,10 @@ def check_chapters(video_id: str, chapters: list[dict]) -> dict:
 
 
 def get_upload_package(
-    video_id: str, platform: str = "youtube", lang: Optional[str] = None
+    video_id: str,
+    platform: str = "youtube",
+    lang: Optional[str] = None,
+    channel: Optional[str] = None,
 ) -> dict:
     """Render the record into one copy-ready block of text for the user.
 
@@ -251,15 +279,32 @@ def get_upload_package(
     findings, then the post's (field `package.<platform>`); a hard
     `<platform>_max_chars` means the text won't paste as-is, so shorten the
     field it came from and read the post again.
+
+    **Per channel** (`channel`, an id from `list_channels`): renders that
+    channel's own post (`get_video` → `posts.<channel>`) instead of deriving one
+    from the root fields. A YouTube channel gets the layout above with that
+    channel's brief; a TikTok, Instagram, LinkedIn or X channel gets the pasted
+    text (its caption or text, then its hashtags line). The answer carries the
+    `channel` and its `platform`. A channel names its platform already, so
+    `channel` together with a `platform` other than "youtube" is refused. A
+    channel the video has no post for is an error (`no_post`). No `channel` is
+    the primary channel's package, exactly as before.
     """
     if platform not in SUPPORTED_PLATFORMS:
         supported = ", ".join(SUPPORTED_PLATFORMS)
         return _fail(
             f"CapForge has no {platform!r} package layout — supported: {supported}."
         )
-    refusal = _lang_refusal(lang)
+    refusal = _lang_refusal(lang) or _channel_refusal(channel)
     if refusal is not None:
         return refusal
+    if channel is not None and platform != "youtube":
+        return _fail(
+            f"Pass either 'channel' or 'platform', not both: channel {channel!r} already "
+            f"names its platform. Drop platform={platform!r} to render that channel's post."
+        )
+    if channel is not None:
+        return _channel_package(video_id, channel, lang)
     extra = {} if lang is None else {"lang": lang}
 
     def _call() -> dict:
@@ -267,6 +312,24 @@ def get_upload_package(
         return {
             "status": _OK,
             "platform": rendered.get("platform", platform),
+            "text": rendered.get("text", ""),
+            "violations": rendered.get("violations") or [],
+        }
+
+    return _library_call(_call)
+
+
+def _channel_package(video_id: str, channel: str, lang: Optional[str]) -> dict:
+    """One channel's package, relaying the `channel` and `platform` the backend
+    answers with (the platform is the channel's, so it is never assumed here)."""
+    extra = {} if lang is None else {"lang": lang}
+
+    def _call() -> dict:
+        rendered = _capforge().library_package(video_id, channel=channel, **extra) or {}
+        return {
+            "status": _OK,
+            "channel": rendered.get("channel", channel),
+            "platform": rendered.get("platform"),
             "text": rendered.get("text", ""),
             "violations": rendered.get("violations") or [],
         }

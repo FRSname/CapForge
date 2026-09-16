@@ -13,7 +13,7 @@ asks the user to confirm with ``force``; ``media_in_use`` names the owner.
 from __future__ import annotations
 
 import logging
-from typing import Any, Awaitable, Callable, ContextManager, Optional
+from typing import Any, Awaitable, Callable, ContextManager, Optional, Sequence, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -28,6 +28,7 @@ from backend.library.errors import (
     MediaMismatch,
     MediaNotFound,
     RecordNotFound,
+    UnknownChannel,
 )
 from backend.library.folder_import import (
     FolderImport,
@@ -44,6 +45,8 @@ RecordChanged = Callable[[str, int, str], Awaitable[None]]
 REASON_MEDIA_NOT_FOUND = "media_not_found"
 REASON_DIFFERENT_MEDIA = "different_media"
 REASON_MEDIA_IN_USE = "media_in_use"
+REASON_UNKNOWN_CHANNEL = "unknown_channel"
+UNKNOWN_CHANNEL_STATUS = 422
 
 
 class ImportFolderRequest(BaseModel):
@@ -51,6 +54,8 @@ class ImportFolderRequest(BaseModel):
 
     path: str
     recursive: bool = True
+    #: Channels each *created* record gets an empty post for.
+    channels: Optional[list[str]] = None
 
 
 class ImportPathsRequest(BaseModel):
@@ -59,6 +64,8 @@ class ImportPathsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     paths: list[str] = Field(..., min_length=1, max_length=SCAN_MAX_FILES)
+    #: Channels each *created* record gets an empty post for.
+    channels: Optional[list[str]] = None
 
 
 class RelinkRequest(BaseModel):
@@ -100,25 +107,46 @@ def _refusal(status_code: int, reason: str, exc: LibraryError, **extra: Any) -> 
     )
 
 
+def unknown_channel_response(exc: UnknownChannel) -> JSONResponse:
+    return _refusal(UNKNOWN_CHANNEL_STATUS, REASON_UNKNOWN_CHANNEL, exc)
+
+
+def unknown_channel_refusal(store: Any, channels: Optional[Sequence[str]]) -> Optional[JSONResponse]:
+    """The 422 for ``channels`` naming a channel that does not exist, or None.
+
+    Checked before anything is imported; the store checks again under its lock.
+    """
+    if not channels:
+        return None
+    known = store.channel_platforms()
+    unknown = [cid for cid in dict.fromkeys(channels) if cid not in known]
+    return unknown_channel_response(UnknownChannel(unknown)) if unknown else None
+
+
 def _register_folder_import(
     router: APIRouter,
     get_store: Callable,
     actor_dep: Callable,
     on_changed: Optional[RecordChanged],
 ) -> None:
-    @router.post("/import-folder")
+    @router.post("/import-folder", response_model=None)
     async def import_media_folder(
         body: ImportFolderRequest, actor: str = Depends(actor_dep)
-    ) -> dict:
+    ) -> Union[dict, JSONResponse]:
         """Import every media file in a folder: ids by outcome, failures, the cap.
 
-        422 when the path is not an absolute, existing, readable directory.
+        422 when the path is not an absolute, existing, readable directory, and
+        422 ``unknown_channel`` for a ``channels`` id that names no channel.
         """
         store = get_store()
+        refusal = unknown_channel_refusal(store, body.channels)
+        if refusal is not None:
+            return refusal
         try:
             folder = require_import_folder(body.path)
             result = await run_in_threadpool(
-                import_folder, store, folder, recursive=body.recursive, by=actor
+                import_folder, store, folder, recursive=body.recursive, by=actor,
+                channels=tuple(body.channels or ()),
             )
         except (ValueError, OSError) as exc:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
@@ -133,16 +161,21 @@ def _register_paths_import(
     actor_dep: Callable,
     on_changed: Optional[RecordChanged],
 ) -> None:
-    @router.post("/import-paths")
+    @router.post("/import-paths", response_model=None)
     async def import_media_paths(
         body: ImportPathsRequest, actor: str = Depends(actor_dep)
-    ) -> dict:
+    ) -> Union[dict, JSONResponse]:
         """A multi-file drop, one request: the import-folder body (``truncated``
         always false). Per path, not a regular file is ``media_not_found`` and a
-        non-media suffix is ``not_media``; neither is imported."""
+        non-media suffix is ``not_media``; neither is imported. An unknown
+        ``channels`` id is a 422 ``unknown_channel`` before anything is imported."""
         store = get_store()
+        refusal = unknown_channel_refusal(store, body.channels)
+        if refusal is not None:
+            return refusal
         result = await run_in_threadpool(
-            import_dropped_paths, store, body.paths, by=actor
+            import_dropped_paths, store, body.paths, by=actor,
+            channels=tuple(body.channels or ()),
         )
         _log_import(f"Import of {len(body.paths)} dropped path(s)", result)
         await _announce_relinked(store, result, actor, on_changed)

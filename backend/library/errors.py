@@ -131,6 +131,29 @@ class PrimaryNotYoutube(LibraryError):
         self.platform = platform
 
 
+class ChannelInUse(LibraryError):
+    """Delete refused while records hold posts for the channel (409 ``channel_in_use``).
+
+    ``posts`` is how many records (scratch included) hold one, hidden or not.
+    """
+
+    def __init__(self, channel_id: str, posts: int) -> None:
+        super().__init__(
+            f"Channel {channel_id!r} still has posts on {posts} video(s); remove those "
+            "posts (posts.<channel>: null) before deleting it"
+        )
+        self.channel_id = channel_id
+        self.posts = posts
+
+
+class UnknownChannel(LibraryError, ValueError):
+    """Channel ids that name no channel (422 ``unknown_channel``)."""
+
+    def __init__(self, channel_ids: "list[str]") -> None:
+        super().__init__(f"No channel has the id(s) {', '.join(repr(c) for c in channel_ids)}")
+        self.channel_ids = channel_ids
+
+
 class ChannelsUnreadable(LibraryError, ValueError):
     """``channels.json`` exists but cannot be read as channels (500).
 
