@@ -17,6 +17,11 @@ Rules this module holds:
   (``@writes`` on :class:`CollectionStoreMixin`). The member count a delete
   refuses on is taken inside that lock. Reads stay unlocked: the file is swapped
   in with ``os.replace``.
+* **Collections nest** (docs/plans/library-finder.md §2): ``parent_id`` names the
+  folder a collection sits in, ``None`` the top level. The tree's rules live in
+  ``collection_tree.py`` and are checked inside the same lock. Every brief reader
+  takes :func:`resolved_collection`, the ancestor chain folded into one
+  collection, so a top-level collection resolves to itself byte-identically.
 """
 
 from __future__ import annotations
@@ -41,8 +46,16 @@ from pydantic import (
 
 from backend.library import fs
 from backend.library.brief import Brief, HouseRules
+from backend.library.collection_tree import (  # noqa: F401 - MAX_COLLECTION_DEPTH re-exported
+    MAX_COLLECTION_DEPTH,
+    ancestry,
+    check_placement,
+    children_of,
+    tree_problem,
+)
 from backend.library.errors import (
     CollectionExists,
+    CollectionHasChildren,
     CollectionInUse,
     CollectionNotFound,
     CollectionsUnreadable,
@@ -130,6 +143,8 @@ class Collection(BaseModel):
 
     id: CollectionId
     name: CollectionName
+    #: The collection this one sits inside; ``None`` is the top level.
+    parent_id: Optional[CollectionId] = None
     slots: SlotMap = Field(default_factory=dict)
     overrides: BriefOverrides = Field(default_factory=BriefOverrides)
     createdAt: str
@@ -143,17 +158,20 @@ class CollectionCreate(BaseModel):
 
     id: Optional[CollectionId] = None
     name: CollectionName
+    parent_id: Optional[CollectionId] = None
     slots: SlotMap = Field(default_factory=dict)
     overrides: BriefOverrides = Field(default_factory=BriefOverrides)
 
 
 class CollectionPatch(BaseModel):
     """``PATCH /collections/{id}``: ``slots`` replaces the dict, ``overrides``
-    merges per field (an override sent as ``null`` goes back to inheriting)."""
+    merges per field (an override sent as ``null`` goes back to inheriting).
+    ``parent_id`` sent as ``null`` moves to the top level; left out, it stays."""
 
     model_config = ConfigDict(extra="forbid")
 
     name: Optional[CollectionName] = None
+    parent_id: Optional[CollectionId] = None
     slots: Optional[SlotMap] = None
     overrides: Optional[BriefOverrides] = None
 
@@ -166,7 +184,8 @@ class CollectionPatch(BaseModel):
 
 
 class CollectionsFile(BaseModel):
-    """The file's shape; duplicate ids make it unreadable, not "last one wins"."""
+    """The file's shape; duplicate ids make it unreadable, not "last one wins",
+    and so does a ``parent_id`` that dangles or loops (never a flattened tree)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -178,6 +197,9 @@ class CollectionsFile(BaseModel):
         ids = [collection.id for collection in self.collections]
         if len(ids) != len(set(ids)):
             raise ValueError("two collections share an id")
+        problem = tree_problem(self.collections)
+        if problem is not None:
+            raise ValueError(problem)
         return self
 
 
@@ -194,6 +216,34 @@ def effective_brief(brief: Brief, collection: Optional[Collection]) -> Brief:
     update = collection.overrides.overridden()
     update["slots"] = {**brief.slots, **collection.slots}
     return brief.model_copy(update=update)
+
+
+def resolved_collection(
+    collections: Sequence[Collection], collection_id: Optional[str]
+) -> Optional[Collection]:
+    """The collection with its ancestors folded in, root first; None for no id or
+    an orphan id.
+
+    ``slots`` merge key-wise (deeper wins) and each override is the deepest
+    non-null value (``null`` inherits), so ``effective_brief`` over the result is
+    the brief under the whole chain. Identity fields are the leaf's own. A
+    top-level collection is returned as it is. Pure: the stored ones are never
+    touched.
+    """
+    chain = ancestry(collections, collection_id) if collection_id is not None else ()
+    if not chain:
+        return None
+    if len(chain) == 1:
+        return chain[0]
+    slots: dict[str, str] = {}
+    overridden: dict[str, Any] = {}
+    for level in chain:
+        slots = {**slots, **level.slots}
+        overridden = {**overridden, **level.overrides.overridden()}
+    leaf = chain[-1]
+    return leaf.model_copy(update={
+        "slots": slots, "overrides": BriefOverrides().model_copy(update=overridden),
+    })
 
 
 def slugify(name: str, fallback: str = FALLBACK_SLUG) -> str:
@@ -220,7 +270,7 @@ def unique_id(base: str, taken: set[str]) -> str:
 def new_collection(collection_id: str, body: CollectionCreate) -> Collection:
     now = now_iso()
     return Collection(
-        id=collection_id, name=body.name, slots=dict(body.slots),
+        id=collection_id, name=body.name, parent_id=body.parent_id, slots=dict(body.slots),
         overrides=body.overrides.model_copy(deep=True), createdAt=now, updatedAt=now,
     )
 
@@ -231,6 +281,8 @@ def patched_collection(current: Collection, patch: CollectionPatch) -> Collectio
     update: dict[str, Any] = {}
     if "name" in sent:
         update["name"] = patch.name
+    if "parent_id" in sent:
+        update["parent_id"] = patch.parent_id
     if "slots" in sent and patch.slots is not None:
         update["slots"] = dict(patch.slots)
     if "overrides" in sent and patch.overrides is not None:
@@ -280,10 +332,20 @@ def load_collections(root: Path) -> tuple[Collection, ...]:
         ) from exc
 
 
+def _stored_row(row: dict[str, Any]) -> dict[str, Any]:
+    """A top-level collection is written without ``parent_id``: a file with no
+    nesting stays exactly the pre-nesting shape, which an older build (whose
+    ``Collection`` forbids unknown keys) can still read."""
+    if row.get("parent_id") is not None:
+        return row
+    return {key: value for key, value in row.items() if key != "parent_id"}
+
+
 def save_collections(root: Path, collections: Sequence[Collection]) -> None:
     """Write the whole file atomically. The caller holds the store's write lock."""
-    body = CollectionsFile(collections=list(collections))
-    fs.write_json_atomic(Path(root) / COLLECTIONS_FILE, body.model_dump(mode="json"))
+    body = CollectionsFile(collections=list(collections)).model_dump(mode="json")
+    stored = {**body, "collections": [_stored_row(row) for row in body["collections"]]}
+    fs.write_json_atomic(Path(root) / COLLECTIONS_FILE, stored)
 
 
 def _require(collections: Sequence[Collection], collection_id: str) -> Collection:
@@ -314,6 +376,12 @@ class CollectionStoreMixin:
     def get_collection(self, collection_id: str) -> Collection:
         return _require(load_collections(self.root), collection_id)
 
+    def resolve_collection(self, collection_id: Optional[str]) -> Optional[Collection]:
+        """:func:`resolved_collection` over the stored tree — what a brief reader takes."""
+        if collection_id is None:
+            return None
+        return resolved_collection(load_collections(self.root), collection_id)
+
     def member_counts(self) -> dict[str, int]:
         """Library records per ``collection_id``, defined or not. Scratch records
         are hidden, read-only and pruned, so they neither hold a collection open
@@ -334,8 +402,10 @@ class CollectionStoreMixin:
     @writes
     def create_collection(self, body: CollectionCreate) -> Collection:
         """Add a collection. A taken explicit id raises ``CollectionExists``; an
-        explicit id an orphan uses adopts its videos (decision 6)."""
+        explicit id an orphan uses adopts its videos (decision 6). A ``parent_id``
+        the tree cannot take raises a ``CollectionNestingRefused``."""
         existing = load_collections(self.root)
+        check_placement(existing, None, body.parent_id)
         taken = {collection.id for collection in existing}
         if body.id is not None:
             if body.id in taken:
@@ -351,9 +421,15 @@ class CollectionStoreMixin:
 
     @writes
     def patch_collection(self, collection_id: str, patch: CollectionPatch) -> Collection:
-        """Merge ``patch``; a patch that changes nothing writes nothing."""
+        """Merge ``patch``; a patch that changes nothing writes nothing.
+
+        A ``parent_id`` that differs from the stored one is a move, checked
+        before anything is written; re-sending the current parent is not a move.
+        """
         existing = load_collections(self.root)
         current = _require(existing, collection_id)
+        if "parent_id" in patch.model_fields_set and patch.parent_id != current.parent_id:
+            check_placement(existing, collection_id, patch.parent_id)
         updated = patched_collection(current, patch)
         if updated is not current:
             save_collections(
@@ -363,11 +439,19 @@ class CollectionStoreMixin:
 
     @writes
     def delete_collection(self, collection_id: str) -> None:
-        """Remove an empty collection; one with members raises ``CollectionInUse``."""
+        """Remove an empty collection.
+
+        Members are refused first (``CollectionInUse``, the pre-nesting refusal,
+        unchanged), then subfolders (``CollectionHasChildren``), so a client that
+        predates nesting still meets the refusal it knows before the new one.
+        """
         existing = load_collections(self.root)
         _require(existing, collection_id)
         members = self.members_of(collection_id)
         if members:
             raise CollectionInUse(collection_id, members)
+        children = len(children_of(existing, collection_id))
+        if children:
+            raise CollectionHasChildren(collection_id, children)
         save_collections(self.root, tuple(c for c in existing if c.id != collection_id))
         logger.info("Deleted collection %s", collection_id)

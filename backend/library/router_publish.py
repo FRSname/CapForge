@@ -126,14 +126,19 @@ def read_brief(store: Any) -> Brief:
 
 
 def read_collection(store: Any, collection_id: Optional[str]) -> Optional[Collection]:
-    """The named collection, or None for no id or an orphan id.
+    """The named collection resolved through its ancestors, or None for no id or
+    an orphan id.
 
-    A corrupt ``collections.json`` is a 500 with the parse message, never "none".
+    Every brief reader (the package, the validators, platform drafts) gets its
+    collection here, so a nested collection always arrives with its parents'
+    slots and overrides folded in (``resolved_collection``); a top-level one is
+    itself. A corrupt ``collections.json`` is a 500 with the parse message,
+    never "none".
     """
     if collection_id is None:
         return None
     try:
-        return store.find_collection(collection_id)
+        return store.resolve_collection(collection_id)
     except CollectionsUnreadable as exc:
         raise HTTPException(
             status_code=COLLECTIONS_UNREADABLE_STATUS, detail=str(exc)
@@ -236,7 +241,8 @@ def _requested_collection(
     if body.collection_id is None:
         return None
     try:
-        return store.get_collection(body.collection_id)
+        store.get_collection(body.collection_id)  # an explicit unknown id is a 404
+        return store.resolve_collection(body.collection_id)
     except CollectionNotFound as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except CollectionsUnreadable as exc:

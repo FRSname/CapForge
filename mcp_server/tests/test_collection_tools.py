@@ -295,6 +295,75 @@ def test_a_422_with_an_object_detail_uses_its_message(stub) -> None:
     assert out["reason"] == "invalid_id"
 
 
+# --- set_collection: parent_id (folders inside folders) ----------------------
+
+def test_set_collection_creates_inside_a_folder(monkeypatch) -> None:
+    client = StubClient(stored={})
+    monkeypatch.setattr(server, "_client", client)
+
+    out = collection_tools.set_collection("day-1", name="Day 1", parent_id=EVENT_ID)
+
+    assert out["status"] == "ok" and out["created"] is True
+    assert client.calls[1][1] == {"id": "day-1", "name": "Day 1", "parent_id": EVENT_ID}
+
+
+def test_set_collection_moves_with_only_parent_id(stub) -> None:
+    out = collection_tools.set_collection(EVENT_ID, parent_id="events")
+
+    assert out["status"] == "ok" and out["created"] is False
+    assert stub.calls[1][1] == (EVENT_ID, {"parent_id": "events"})
+
+
+@pytest.mark.parametrize("top_level", ["", "  "])
+def test_an_empty_parent_id_moves_to_the_top_level_as_null(stub, top_level) -> None:
+    out = collection_tools.set_collection(EVENT_ID, parent_id=top_level)
+
+    assert out["status"] == "ok"
+    assert stub.calls[1][1] == (EVENT_ID, {"parent_id": None})
+
+
+def test_an_omitted_parent_id_is_never_sent(stub) -> None:
+    collection_tools.set_collection(EVENT_ID, name="UCK 26")
+
+    assert "parent_id" not in stub.calls[1][1][1]
+
+
+@pytest.mark.parametrize("bad", [7, ["events"], {"id": "events"}, True])
+def test_a_parent_id_that_is_not_a_string_is_refused_without_a_call(stub, bad) -> None:
+    out = collection_tools.set_collection(EVENT_ID, parent_id=bad)
+
+    assert out["status"] == "error" and "parent_id" in out["error"]
+    assert stub.calls == []
+
+
+@pytest.mark.parametrize("reason,hint", [
+    ("unknown_parent", "list_collections"),
+    ("collection_cycle", "not this one or inside it"),
+    ("collection_too_deep", "higher up"),
+])
+def test_nesting_refusals_keep_the_backends_sentence_and_add_the_way_out(stub, reason, hint) -> None:
+    detail = "No collection has the id 'nope' to hold this one"
+    stub.raises["patch"] = http_error(422, {"reason": reason, "detail": detail}, "PATCH")
+
+    out = collection_tools.set_collection(EVENT_ID, parent_id="nope")
+
+    assert out["status"] == "error" and out["reason"] == reason
+    assert out["error"].startswith(detail + ". ") and hint in out["error"]
+
+
+def test_set_collection_docstring_explains_parent_id() -> None:
+    doc = " ".join((collection_tools.set_collection.__doc__ or "").split())
+
+    assert "`parent_id`" in doc and '`""` moves it to the top level' in doc
+    assert "`None`" in doc and "8 levels" in doc
+
+
+def test_list_and_get_docstrings_name_the_tree_fields() -> None:
+    for fn in (collection_tools.list_collections, collection_tools.get_collection):
+        doc = fn.__doc__ or ""
+        assert "parent_id" in doc and "path" in doc and "total_members" in doc
+
+
 # --- delete_collection ------------------------------------------------------
 
 def test_delete_collection_confirms_the_id(stub) -> None:
@@ -338,6 +407,19 @@ def test_delete_in_use_accepts_a_member_list(stub) -> None:
     out = collection_tools.delete_collection(EVENT_ID)
 
     assert out["members"] == 2 and "2 videos" in out["error"]
+
+
+@pytest.mark.parametrize("count,words", [(2, "2 subfolders"), (1, "1 subfolder,")])
+def test_delete_with_subfolders_names_the_count_and_how_to_move_them(stub, count, words) -> None:
+    stub.raises["delete"] = http_error(
+        409, {"reason": "collection_has_children", "children": count, "detail": "x"}, "DELETE",
+    )
+
+    out = collection_tools.delete_collection(EVENT_ID)
+
+    assert out["status"] == "error" and out["reason"] == "collection_has_children"
+    assert out["children"] == count and words in out["error"]
+    assert 'parent_id="")' in out["error"]
 
 
 def test_delete_unknown_collection_is_the_not_found_sentence(stub) -> None:
@@ -393,10 +475,12 @@ def test_every_collection_tool_is_registered_on_the_server() -> None:
 
 
 def test_set_collection_signature_is_the_planned_one() -> None:
+    """`parent_id` joined last (docs/plans/library-finder.md §2.5), so positional
+    callers of the first four are unaffected."""
     params = inspect.signature(collection_tools.set_collection).parameters
 
-    assert list(params) == ["collection_id", "name", "slots", "overrides"]
-    assert all(params[p].default is None for p in ("name", "slots", "overrides"))
+    assert list(params) == ["collection_id", "name", "slots", "overrides", "parent_id"]
+    assert all(params[p].default is None for p in ("name", "slots", "overrides", "parent_id"))
 
 
 def test_set_collection_docstring_states_the_merge_rules() -> None:

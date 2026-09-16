@@ -134,6 +134,57 @@ describe('collectionsApi', () => {
     expect(header(init, 'X-CapForge-Local-Token')).toBe(TOKEN)
   })
 
+  test.each([
+    [{ parent_id: 'events' }, { parent_id: 'events' }],
+    [{ parent_id: null }, { parent_id: null }],
+  ])('patchCollection sends a move %j as-is', async (patch, body) => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...DETAIL, parent_id: patch.parent_id }))
+
+    const detail = await patchCollection('uck26', patch)
+
+    expect(JSON.parse(String(lastCall().init.body))).toEqual(body)
+    expect(detail.parent_id).toBe(patch.parent_id)
+  })
+
+  test('createCollection sends parent_id to create inside a folder', async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ ...COLLECTION, parent_id: 'events' }, 201))
+
+    const created = await createCollection({ name: 'UCK 26', parent_id: 'events' })
+
+    expect(JSON.parse(String(lastCall().init.body))).toEqual({
+      name: 'UCK 26',
+      parent_id: 'events',
+    })
+    expect(created.parent_id).toBe('events')
+  })
+
+  test.each(['unknown_parent', 'collection_cycle', 'collection_too_deep'] as const)(
+    'a 422 %s is a typed refusal, not an invalid body',
+    async (reason) => {
+      fetchMock.mockResolvedValue(jsonResponse({ reason, detail: 'refused' }, 422))
+
+      const err = await patchCollection('uck26', { parent_id: 'x' }).catch((e: unknown) => e)
+
+      expect(err).toBeInstanceOf(CollectionRefusedError)
+      expect((err as CollectionRefusedError).refusal).toEqual({ kind: reason })
+    }
+  )
+
+  test('deleteCollection maps "has children" to a typed refusal with the count', async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ reason: 'collection_has_children', children: 2, detail: 'x' }, 409)
+    )
+
+    const err = await deleteCollection('events').catch((e: unknown) => e)
+
+    expect(err).toBeInstanceOf(CollectionRefusedError)
+    expect((err as CollectionRefusedError).refusal).toEqual({
+      kind: 'collection_has_children',
+      children: 2,
+    })
+    expect((err as Error).message).toContain('2 subfolders')
+  })
+
   test('patchCollection rejects a detail without an effective brief', async () => {
     fetchMock.mockResolvedValue(jsonResponse(COLLECTION))
     await expect(patchCollection('uck26', { name: 'n' })).rejects.toThrow(/effective brief/)

@@ -96,6 +96,40 @@ describe('parseCollection', () => {
     expect(collection.slots).toEqual({})
   })
 
+  test('reads where a nested collection sits', () => {
+    const collection = parseCollection({
+      ...RAW,
+      parent_id: 'events',
+      total_members: 7,
+      path: ['Events', 'UCK 26'],
+    })
+
+    expect(collection.parent_id).toBe('events')
+    expect(collection.total_members).toBe(7)
+    expect(collection.path).toEqual(['Events', 'UCK 26'])
+  })
+
+  test('an older backend without tree fields parses as a top-level collection', () => {
+    const collection = parseCollection(RAW)
+
+    expect(collection.parent_id).toBeNull()
+    expect(collection.total_members).toBe(3)
+    expect(collection.path).toEqual(['UCK 26'])
+  })
+
+  test('malformed tree fields degrade to the top level, a zero total and the own name', () => {
+    const collection = parseCollection({
+      ...RAW,
+      parent_id: '  ',
+      total_members: 'many',
+      path: [7, ''],
+    })
+
+    expect(collection.parent_id).toBeNull()
+    expect(collection.total_members).toBe(0)
+    expect(collection.path).toEqual(['UCK 26'])
+  })
+
   test('throws when there is no id to address it by', () => {
     expect(() => parseCollection({ name: 'n' })).toThrow(COLLECTION_SHAPE_MESSAGE)
     expect(() => parseCollection(null)).toThrow(COLLECTION_SHAPE_MESSAGE)

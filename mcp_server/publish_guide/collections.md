@@ -47,6 +47,34 @@ Ask the user for the facts. Do not invent a sponsor, a city or a URL.
 5. Read one member's `get_upload_package` and show the user its DESCRIPTION before
    assigning the rest.
 
+## Folders inside folders
+
+Collections nest like folders: an event can hold a folder per day, a series a
+folder per season. `list_collections` stays a flat list; each row's `parent_id`
+names the folder it sits in (`null` is the top level), `path` spells out where it
+is (`["Events", "UCK 2026", "Day 1"]`, the words to use with the user), and
+`total_members` counts its videos plus every subfolder's.
+
+A video still belongs to exactly one collection, and **inherits from every folder
+above it**, top level first:
+
+- **Slots merge down the chain.** A day's `{{day}}` is added to the event's
+  `{{event}}` and `{{sponsor}}`; a slot set lower down beats the same name higher up.
+- **Each override is the deepest one set.** A day that overrides `footer` uses its
+  own; a day that leaves `footer` `null` uses the event's, and an event that leaves
+  it `null` too uses the channel's. Lists and blocks still replace whole.
+- `get_collection` on the inner folder answers the `effective_brief` of the whole
+  chain, so read that one for its members.
+
+Create a folder inside another with
+`set_collection("uck26-day-1", name="Day 1", parent_id="uck26")`. Move one (with
+all its subfolders) by passing a different `parent_id`; `parent_id=""` moves it to
+the top level, and leaving `parent_id` out keeps it where it is. Moving a folder
+changes its members' packages the same way editing it does, with no video write,
+so say so before you move one. A folder cannot go inside itself or one of its own
+subfolders, and folders nest at most 8 levels deep. `delete_collection` is refused
+while a folder holds videos, and then while it holds subfolders.
+
 ## Template slots
 
 `description_template` lays out the DESCRIPTION block with `{{slot}}` placeholders.
@@ -134,6 +162,7 @@ write per video, never a side effect.
 
 ## In the app
 
-The user edits the same collections under Settings → Collections, and picks a
+The app calls collections **folders**. The user edits them under Settings →
+Folders (the tree, each folder's Location, its slots and overrides), and picks a
 video's collection on the Publish workspace's Collection card. Tell them that is
 where the template preview lives.

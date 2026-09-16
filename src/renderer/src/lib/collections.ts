@@ -11,8 +11,14 @@
  * Pure module: no React, no `window`, no I/O.
  */
 
-import type { BriefOverrideField, BriefOverrides, CollectionSummary } from './collectionTypes'
+import type {
+  BriefOverrideField,
+  BriefOverrides,
+  Collection,
+  CollectionSummary,
+} from './collectionTypes'
 import { BRIEF_OVERRIDE_FIELDS } from './collectionTypes'
+import { MAX_COLLECTION_DEPTH, PATH_SEPARATOR } from './collectionTree'
 import type { Brief, Violation } from './publishTypes'
 
 /**
@@ -116,6 +122,26 @@ export function overriddenFields(overrides: BriefOverrides): BriefOverrideField[
   return BRIEF_OVERRIDE_FIELDS.filter((field) => overrides[field] !== null)
 }
 
+/**
+ * Where an inheriting field's value comes from: the path of the deepest folder
+ * above that sets it (`Events › UCK 2026`), or null when it is the channel's.
+ * `ancestors` are the folders above, top level first (`ancestorsOf`).
+ */
+export function inheritedFrom(
+  ancestors: ReadonlyArray<Pick<Collection, 'name' | 'overrides'>>,
+  field: BriefOverrideField
+): string | null {
+  for (let i = ancestors.length - 1; i >= 0; i -= 1) {
+    if (ancestors[i].overrides[field] !== null) {
+      return ancestors
+        .slice(0, i + 1)
+        .map((folder) => folder.name)
+        .join(PATH_SEPARATOR)
+    }
+  }
+  return null
+}
+
 /** "Uses 3 overrides from UCK 26". */
 export function overridesSummary(count: number, collectionName: string): string {
   if (count === 0) return `${collectionName} inherits the channel brief`
@@ -169,38 +195,84 @@ export function collectionLabel(
   return collections.find((c) => c.id === id)?.name ?? id
 }
 
-/** A `409` the Collections UI acts on. */
+/** A nesting `422`: a `parent_id` the tree cannot take. */
+export type CollectionNestingReason = 'unknown_parent' | 'collection_cycle' | 'collection_too_deep'
+
+/** A refusal the Collections UI acts on: a `409`, or a nesting `422`. */
 export type CollectionRefusal =
   | { kind: 'collection_exists' }
   | { kind: 'collection_in_use'; members: number }
+  | { kind: 'collection_has_children'; children: number }
+  | { kind: CollectionNestingReason }
 
 const HTTP_CONFLICT = 409
+const HTTP_UNPROCESSABLE = 422
+
+const NESTING_REASONS: ReadonlySet<string> = new Set<CollectionNestingReason>([
+  'unknown_parent',
+  'collection_cycle',
+  'collection_too_deep',
+])
+
+/** Folder copy for the nesting refusals (Settings → Folders is where they happen). */
+const NESTING_MESSAGES: Record<CollectionNestingReason, string> = {
+  unknown_parent: 'That folder no longer exists — pick another location.',
+  collection_cycle: 'A folder can’t move inside itself or one of its subfolders.',
+  collection_too_deep: `Folders nest at most ${MAX_COLLECTION_DEPTH} levels deep — pick a location higher up.`,
+}
 
 function objectOf(value: unknown): Record<string, unknown> {
   return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {}
 }
 
+function wholeCount(value: unknown): number {
+  return typeof value === 'number' && value > 0 ? Math.floor(value) : 0
+}
+
 /** Read a refusal wherever FastAPI put it: top level, or under `detail`. */
 export function collectionRefusal(status: number, body: unknown): CollectionRefusal | null {
-  if (status !== HTTP_CONFLICT) return null
   const top = objectOf(body)
   const detail = objectOf(top.detail)
   const reason = top.reason ?? detail.reason
-  if (reason === 'collection_exists') return { kind: 'collection_exists' }
-  if (reason !== 'collection_in_use') return null
-  const members = top.members ?? detail.members
-  return {
-    kind: 'collection_in_use',
-    members: typeof members === 'number' && members > 0 ? Math.floor(members) : 0,
+  if (status === HTTP_UNPROCESSABLE) {
+    return typeof reason === 'string' && NESTING_REASONS.has(reason)
+      ? { kind: reason as CollectionNestingReason }
+      : null
   }
+  if (status !== HTTP_CONFLICT) return null
+  if (reason === 'collection_exists') return { kind: 'collection_exists' }
+  if (reason === 'collection_in_use') {
+    return { kind: 'collection_in_use', members: wholeCount(top.members ?? detail.members) }
+  }
+  if (reason === 'collection_has_children') {
+    return {
+      kind: 'collection_has_children',
+      children: wholeCount(top.children ?? detail.children),
+    }
+  }
+  return null
+}
+
+/** "1 subfolder" / "3 subfolders". */
+export function subfolderCount(n: number): string {
+  return `${n} subfolder${n === 1 ? '' : 's'}`
 }
 
 export function collectionRefusalMessage(refusal: CollectionRefusal): string {
-  if (refusal.kind === 'collection_exists') {
-    return 'A collection with that id already exists — pick another name or id.'
+  switch (refusal.kind) {
+    case 'collection_exists':
+      return 'A collection with that id already exists — pick another name or id.'
+    case 'collection_in_use': {
+      const n = refusal.members
+      return `${n} video${n === 1 ? '' : 's'} still belong${n === 1 ? 's' : ''} to this collection — set their collection to None in the Publish workspace first.`
+    }
+    case 'collection_has_children': {
+      const n = refusal.children
+      return `${subfolderCount(n)} ${n === 1 ? 'is' : 'are'} still inside this folder — move or delete ${n === 1 ? 'it' : 'them'} first.`
+    }
+    default:
+      return NESTING_MESSAGES[refusal.kind]
   }
-  const n = refusal.members
-  return `${n} video${n === 1 ? '' : 's'} still belong${n === 1 ? 's' : ''} to this collection — set their collection to None in the Publish workspace first.`
 }
 
 /** The findings on the assembled description — what the Collections preview draws. */
