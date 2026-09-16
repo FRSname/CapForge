@@ -21,6 +21,8 @@ import { ChannelEditor } from './ChannelEditor'
 import { PlatformBadge } from './PlatformBadge'
 
 const DEFAULT_NEW_PLATFORM: Platform = 'youtube'
+/** The platform picker's width in the "New channel…" row (see the note at its use). */
+const PLATFORM_PICKER_WIDTH = '8rem'
 
 export function ChannelsSettings() {
   const { toast } = useToast()
@@ -168,9 +170,13 @@ function CreateChannelRow({ platforms, onCreate }: CreateChannelRowProps) {
     <div className="flex flex-col gap-1">
       <span className="label-xs">New channel…</span>
       <div className="flex items-center gap-1.5">
+        {/* `.field-input` sets `width: 100%`, which outranks the `w-32` utility, so
+            the picker's width has to be inline — without it the name field and the
+            Create button are pushed off the edge of the Settings dialog. */}
         <Select
           aria-label="New channel platform"
           className="w-32 shrink-0"
+          style={{ width: PLATFORM_PICKER_WIDTH }}
           value={platform}
           onChange={(e) => {
             const next = options.find((o) => o.id === e.target.value)
