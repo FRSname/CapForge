@@ -19,7 +19,6 @@ import { ensureWordIds } from '../../lib/wordIds'
 import { DEFAULT_PAD_V } from '../../lib/renderConstants'
 import type { ProjectIOHandle, WordOverrideEdit } from '../../lib/project'
 import { syncSegmentsIntoTrack } from '../../lib/tracks'
-import { setWordSpan } from '../../lib/wordTiming'
 import { sameSentenceSegments, sentenceSegmentsFor } from '../../lib/trackSentences'
 import type { CaptionTrack, TrackEditorState, TrackGroupState } from '../../lib/tracks'
 import { useUndoRedo } from '../../hooks/useUndoRedo'
@@ -454,12 +453,13 @@ export function ResultsScreen({
     setFocusSegmentId(newSeg.id)
   }, [currentTime, pushUndo, commitSegments])
 
-  // A word-lane drag places a source word. The same span goes into the segment
-  // — the truth for a source word's timing — so the Text view shows it and the
-  // next segments commit does not snap the group word back (`setWordSpan`).
-  const handleSourceWordPlaced = useCallback(
-    (wid: string, span: { start: number; end: number }) => {
-      commitSegments((prev) => setWordSpan(prev, wid, span))
+  // A timeline word gesture (drag, popup text fix) edits a source word. The
+  // segments are the truth for a source word, so the same change is committed
+  // there too — the Text view shows it and the next segments commit does not
+  // restore the group word from its old segment twin.
+  const commitSourceSegments = useCallback(
+    (update: (prev: Segment[]) => Segment[]) => {
+      commitSegments(update)
       setSegmentsEdited(true)
     },
     [commitSegments]
@@ -489,7 +489,7 @@ export function ResultsScreen({
     // `autoGroup` is exactly `track.isSource` (see the prop's doc), so its
     // inverse is "this editor is mounted on a translated track".
     translated: !autoGroup,
-    onSourceWordPlaced: handleSourceWordPlaced,
+    commitSourceSegments,
   })
 
   // Re-run WhisperX forced alignment on one segment. The backend re-fits word
