@@ -16,7 +16,7 @@ import { useToast } from '../../hooks/useToast'
 import { api } from '../../lib/api'
 import { packageDescriptionViolations } from '../../lib/collections'
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { displayTitle, filterByCollection } from '../../lib/libraryView'
+import { displayTitle } from '../../lib/libraryView'
 import type { UploadPackage } from '../../lib/publishTypes'
 import { FieldViolations } from '../publish/FieldViolations'
 import { Button } from '../ui/Button'
@@ -48,7 +48,7 @@ export function CollectionPreview({ collectionId, refreshKey }: CollectionPrevie
     api
       .listLibrary()
       .then((videos) => {
-        if (!cancelled) setMembers(filterByCollection(videos, collectionId))
+        if (!cancelled) setMembers(videos.filter((v) => v.collection_id === collectionId))
       })
       .catch((err) => toast(`Could not list this folder’s videos: ${reasonOf(err)}`, 'error'))
     return () => {

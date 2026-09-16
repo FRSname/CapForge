@@ -10,17 +10,28 @@
 
 import type { AppSettingsCategoryId } from './appSettingsIndex'
 
-type Listener = (category: AppSettingsCategoryId) => void
+/** What to show once the category is open. */
+export interface SettingsFocus {
+  /** Settings → Folders: select this folder (a collection id). */
+  collectionId?: string
+}
+
+type Listener = (category: AppSettingsCategoryId, focus: SettingsFocus) => void
 
 const listeners = new Set<Listener>()
 
 /**
- * Ask Settings to open on `category`. Returns false when nothing is listening
- * (the dialog is not mounted), so the caller can say where to go instead.
+ * Ask Settings to open on `category`, optionally on one thing inside it (the
+ * library's "Folder settings…" selects its folder). Returns false when nothing
+ * is listening (the dialog is not mounted), so the caller can say where to go
+ * instead.
  */
-export function requestSettingsCategory(category: AppSettingsCategoryId): boolean {
+export function requestSettingsCategory(
+  category: AppSettingsCategoryId,
+  focus: SettingsFocus = {}
+): boolean {
   if (listeners.size === 0) return false
-  for (const listener of [...listeners]) listener(category)
+  for (const listener of [...listeners]) listener(category, focus)
   return true
 }
 

@@ -8,7 +8,7 @@
 
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { CollectionDetail, NestedCollection } from '../../lib/collectionTypes'
+import type { CollectionDetail, CollectionSummary } from '../../lib/collectionTypes'
 import { EMPTY_OVERRIDES } from '../../lib/collectionTypes'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import type { UploadPackage } from '../../lib/publishTypes'
@@ -22,7 +22,7 @@ import { SlotRowsEditor } from './SlotFields'
 
 const noop = () => {}
 
-function summary(over: Partial<NestedCollection> = {}): NestedCollection {
+function summary(over: Partial<CollectionSummary> = {}): CollectionSummary {
   return {
     id: 'uck26',
     name: 'UCK 26',
@@ -39,7 +39,7 @@ function summary(over: Partial<NestedCollection> = {}): NestedCollection {
 }
 
 /** events › uck26 › day-1, and a top-level solo. */
-const TREE: NestedCollection[] = [
+const TREE: CollectionSummary[] = [
   summary({ id: 'solo', name: 'Solo', members: 1, total_members: 1, path: ['Solo'] }),
   summary({ id: 'day-1', name: 'Day 1', parent_id: 'uck26', members: 2, total_members: 2 }),
   summary({ id: 'events', name: 'Events', members: 0, total_members: 5, path: ['Events'] }),
@@ -134,13 +134,19 @@ describe('CollectionsSettingsView', () => {
 describe('CollectionsSettings', () => {
   test('renders its empty state before the list loads', () => {
     expect(renderToStaticMarkup(<CollectionsSettings />)).toContain('New folder name')
+    expect(renderToStaticMarkup(<CollectionsSettings />)).not.toContain('Opening the folder')
+  })
+
+  test('opened on a folder (the library’s Folder settings…), its editor is already open', () => {
+    const html = renderToStaticMarkup(<CollectionsSettings initialSelectedId="uck26" />)
+    expect(html).toContain('Opening the folder…')
   })
 })
 
 describe('CollectionEditorView', () => {
   function render(
     value: CollectionDetail = detail(),
-    collections: NestedCollection[] = [summary()],
+    collections: CollectionSummary[] = [summary()],
     refusal: EditorRefusal | null = null
   ) {
     return renderToStaticMarkup(

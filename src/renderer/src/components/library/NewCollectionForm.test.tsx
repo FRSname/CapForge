@@ -1,5 +1,5 @@
 /**
- * The name form and its toolbar popover, as static markup (node environment):
+ * The folder name form and its popover, as static markup (node environment):
  * the slug hint, the inline error, Create disabled until there is a name, and
  * the popover closed by default.
  */
@@ -28,7 +28,7 @@ function view(overrides: Partial<React.ComponentProps<typeof NewCollectionFormVi
 describe('NewCollectionFormView', () => {
   test('a name input with Create and Cancel', () => {
     const html = view()
-    expect(html).toContain('aria-label="Collection name"')
+    expect(html).toContain('aria-label="Folder name"')
     expect(html).toContain('maxLength="120"')
     expect(html).toContain('>Create<')
     expect(html).toContain('>Cancel<')
@@ -44,11 +44,11 @@ describe('NewCollectionFormView', () => {
   })
 
   test('an inline error sits under the input and marks it invalid', () => {
-    const html = view({ name: 'x', error: 'A collection with that id already exists' })
+    const html = view({ name: 'x', error: 'A folder with that id already exists' })
     expect(html).toContain('role="alert"')
-    expect(html).toContain('A collection with that id already exists')
+    expect(html).toContain('A folder with that id already exists')
     expect(html).toContain('aria-invalid="true"')
-    expect(html.indexOf('Collection name')).toBeLessThan(html.indexOf('role="alert"'))
+    expect(html.indexOf('Folder name')).toBeLessThan(html.indexOf('role="alert"'))
   })
 
   test('busy disables Create', () => {
@@ -65,10 +65,10 @@ describe('NewCollectionPopover', () => {
     const html = renderToStaticMarkup(
       <NewCollectionPopover onCreate={neverCreates} onCreated={noop} />
     )
-    expect(html).toContain('New collection…')
+    expect(html).toContain('New folder…')
     expect(html).toContain('whitespace-nowrap')
     expect(html).toContain('aria-expanded="false"')
-    expect(html).not.toContain('Collection name')
+    expect(html).not.toContain('Folder name')
   })
 
   test('open: the form in a dialog', () => {
@@ -76,7 +76,25 @@ describe('NewCollectionPopover', () => {
       <NewCollectionPopover onCreate={neverCreates} onCreated={noop} defaultOpen />
     )
     expect(html).toContain('role="dialog"')
+    expect(html).toContain('aria-label="New folder"')
     expect(html).toContain('aria-expanded="true"')
-    expect(html).toContain('Collection name')
+    expect(html).toContain('Folder name')
+    expect(html).toMatch(/role="dialog"[^>]*class="[^"]*top-full/)
+  })
+
+  test('at the foot of the sidebar it opens upwards, with its own label and tooltip', () => {
+    const html = renderToStaticMarkup(
+      <NewCollectionPopover
+        onCreate={neverCreates}
+        onCreated={noop}
+        side="above"
+        label="+ New folder"
+        title="Inside Events"
+        defaultOpen
+      />
+    )
+    expect(html).toContain('>+ New folder<')
+    expect(html).toContain('title="Inside Events"')
+    expect(html).toMatch(/role="dialog"[^>]*class="[^"]*bottom-full/)
   })
 })

@@ -13,8 +13,7 @@ import {
   LIBRARY_TILE_MAX_PX,
   LIBRARY_TILE_MIN_PX,
 } from '../../lib/libraryPrefs'
-import { ALL_COLLECTIONS } from '../../lib/libraryView'
-import { LibraryToolbar } from './LibraryToolbar'
+import { LibraryToolbar, SidebarToggle } from './LibraryToolbar'
 
 function render(
   view: LibraryViewPrefs | null = DEFAULT_LIBRARY_VIEW_PREFS,
@@ -23,10 +22,6 @@ function render(
   const noop = () => {}
   return renderToStaticMarkup(
     <LibraryToolbar
-      filterOptions={[{ value: ALL_COLLECTIONS, label: 'All videos' }]}
-      filter={ALL_COLLECTIONS}
-      onFilterChange={noop}
-      onCreateCollection={() => Promise.resolve({ kind: 'failed' as const })}
       onImport={noop}
       onAddVideo={noop}
       view={view}
@@ -96,5 +91,25 @@ describe('LibraryToolbar view controls', () => {
     const html = render()
     const at = html.indexOf('aria-label="Sort descending"')
     expect(html.slice(html.lastIndexOf('<button', at), at)).toContain('whitespace-nowrap')
+  })
+})
+
+describe('LibraryToolbar without the collection filter', () => {
+  test('no filter select, no New collection…: the sidebar owns the location', () => {
+    const html = render()
+    expect(html).not.toContain('Filter by collection')
+    expect(html).not.toMatch(/collection/i)
+    expect(html).not.toContain('New folder')
+  })
+})
+
+describe('SidebarToggle', () => {
+  test('says what it does and whether the sidebar is showing', () => {
+    const shown = renderToStaticMarkup(<SidebarToggle collapsed={false} onToggle={() => {}} />)
+    expect(shown).toContain('aria-label="Hide sidebar"')
+    expect(shown).toContain('aria-pressed="true"')
+    const hidden = renderToStaticMarkup(<SidebarToggle collapsed onToggle={() => {}} />)
+    expect(hidden).toContain('aria-label="Show sidebar"')
+    expect(hidden).toContain('aria-pressed="false"')
   })
 })

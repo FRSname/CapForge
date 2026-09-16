@@ -16,7 +16,7 @@
 import { useCallback, useState } from 'react'
 import { useCollections } from '../../hooks/useCollections'
 import { useToast } from '../../hooks/useToast'
-import type { CollectionOrphan, NestedCollection } from '../../lib/collectionTypes'
+import type { CollectionOrphan, CollectionSummary } from '../../lib/collectionTypes'
 import { buildTree, flattenTree } from '../../lib/collectionTree'
 import { slugPreview, videoCount } from '../../lib/collections'
 import type { CollectionCreate } from '../../lib/collectionsApi'
@@ -33,11 +33,16 @@ function reasonOf(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-export function CollectionsSettings() {
+export interface CollectionsSettingsProps {
+  /** Open with this folder selected (the library's "Folder settings…"). */
+  initialSelectedId?: string | null
+}
+
+export function CollectionsSettings({ initialSelectedId = null }: CollectionsSettingsProps = {}) {
   const { toast } = useToast()
   const notify = useCallback((message: string) => toast(message, 'error'), [toast])
   const { collections, orphans, refresh } = useCollections({ notify })
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(initialSelectedId)
 
   function create(input: CollectionCreate) {
     createCollection(input)
@@ -78,7 +83,7 @@ export function CollectionsSettings() {
 }
 
 export interface CollectionsSettingsViewProps {
-  collections: readonly NestedCollection[]
+  collections: readonly CollectionSummary[]
   orphans: readonly CollectionOrphan[]
   loading: boolean
   selectedId: string | null

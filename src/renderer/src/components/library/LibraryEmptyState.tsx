@@ -11,9 +11,8 @@
  * itself.
  *
  * A creator's recordings live in folders, so the toolbar's Import… (files,
- * folders and projects) is offered right here too. So is "New collection…",
- * when the library has no collections yet (the toolbar only offers it beside
- * the filter, which an empty library does not show).
+ * folders and projects) is offered right here too. So is "New folder…", when
+ * the library has no folders yet (otherwise the sidebar shows, and offers it).
  */
 
 import type { CreateCollectionResult } from '../../lib/collectionCreate'
@@ -29,13 +28,13 @@ export interface LibraryEmptyStateProps {
   onStart: () => void
   /** Import… — the same action as the toolbar's. */
   onImport: (mode: ImportPickMode) => void
-  /** Offers "New collection…" when given. The create itself confirms with a toast. */
+  /** Offers "New folder…" when given. The create itself confirms with a toast. */
   onCreateCollection?: (name: string) => Promise<CreateCollectionResult>
   /** Changes per drop on the library, remounting the drop zone. */
   dropZoneKey?: number
 }
 
-/** Nothing to show after a create here: the success toast says it, and no filter is visible. */
+/** Nothing to show after a create here: the success toast says it, and the sidebar appears. */
 function ignoreCreated(): void {}
 
 export function LibraryEmptyState({

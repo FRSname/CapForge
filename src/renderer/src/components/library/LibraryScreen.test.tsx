@@ -6,35 +6,18 @@
  * cumulative), a record whose media is gone says so, the newest resumable
  * record is promoted out of the grid exactly once, Import… and Add video are
  * always reachable, and a portrait poster is not forced into a 16:9 box.
+ * Locations, the sidebar and folders: `LibraryScreen.folders.test.tsx`.
  */
 
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
-import type { LibraryVideo } from '../../lib/libraryTypes'
 import { DEFAULT_LIBRARY_VIEW_PREFS } from '../../lib/libraryPrefs'
 import { LibraryScreen, droppedNotMediaMessage } from './LibraryScreen'
+import { NOOP_FOLDER_ACTIONS, libraryVideo } from './libraryScreenFixtures.testutil'
 
 const LIT = 'background:var(--color-brand)'
 
-function video(overrides: Partial<LibraryVideo> = {}): LibraryVideo {
-  return {
-    id: 'a'.repeat(32),
-    title: '',
-    sourcePath: '/media/Talk.mp4',
-    duration: 125,
-    language: 'en',
-    status: 'imported',
-    collection_id: null,
-    scratch: false,
-    createdAt: '2026-09-01T10:00:00Z',
-    updatedAt: '2026-09-01T10:00:00Z',
-    missing_media: false,
-    hasProject: false,
-    poster: false,
-    cover: null,
-    ...overrides,
-  }
-}
+const video = libraryVideo
 
 function render(props: Partial<React.ComponentProps<typeof LibraryScreen>> = {}): string {
   const noop = () => {}
@@ -54,6 +37,8 @@ function render(props: Partial<React.ComponentProps<typeof LibraryScreen>> = {})
       onForceLocate={noop}
       onCreateCollection={() => Promise.resolve({ kind: 'failed' as const })}
       onMoveToCollection={noop}
+      onMoveVideos={noop}
+      folderActions={NOOP_FOLDER_ACTIONS}
       view={DEFAULT_LIBRARY_VIEW_PREFS}
       onViewChange={noop}
       search={{ query: '', matchIds: null }}
@@ -193,67 +178,11 @@ describe('LibraryScreen', () => {
   })
 })
 
-describe('LibraryScreen collections', () => {
-  const collections = [
-    {
-      id: 'uck26',
-      name: 'UCK 26',
-      slots: {},
-      overrides: {} as never,
-      createdAt: '',
-      updatedAt: '',
-      members: 1,
-    },
-  ]
-
-  test('the toolbar filters by collection', () => {
-    const html = render({ videos: [video({ collection_id: 'uck26' })], collections })
-
-    expect(html).toContain('aria-label="Filter by collection"')
-    expect(html).toContain('All videos')
-    expect(html).toContain('>UCK 26<')
-    expect(html).toContain('No collection')
-  })
-
-  test('a card wears its collection chip, named', () => {
-    const html = render({ videos: [video({ title: 'Talk', collection_id: 'uck26' })], collections })
-    expect(html).toContain('title="Collection: UCK 26"')
-  })
-
-  test('a record with no collection has no chip', () => {
-    const html = render({ videos: [video()], collections })
-    expect(html).not.toContain('title="Collection:')
-  })
-
-  test('New collection… sits beside the filter, then Import…, then Add video', () => {
-    const html = render({ videos: [video()], collections: [] })
-    const filterAt = html.indexOf('Filter by collection')
-    const newAt = html.indexOf('New collection…')
-    expect(newAt).toBeGreaterThan(filterAt)
-    expect(newAt).toBeLessThan(html.indexOf('>Import…<'))
-    expect(html.indexOf('>Import…<')).toBeLessThan(html.indexOf('Add video'))
-    // Closed until clicked: no form in the markup.
-    expect(html).not.toContain('aria-label="Collection name"')
-  })
-
-  test('an empty library offers New collection… in the empty state once none exist', () => {
-    const html = render({ videos: [], collections: [] })
-    expect(html).not.toContain('Filter by collection')
-    expect(html.split('New collection…').length - 1).toBe(1)
-    expect(html.indexOf('New collection…')).toBeGreaterThan(html.indexOf('Your library is empty'))
-  })
-
-  test('an empty library does not offer it before the list loads, or when some exist', () => {
-    expect(render({ videos: [], collections: null })).not.toContain('New collection…')
-    expect(render({ videos: [], collections })).not.toContain('New collection…')
-  })
-})
-
 describe('LibraryScreen toolbar layout', () => {
   const html = render({ videos: [video()] })
 
   test('the toolbar buttons never wrap their labels', () => {
-    for (const label of ['Import…', 'Add video', 'New collection…']) {
+    for (const label of ['Import…', 'Add video']) {
       const button = html.slice(
         html.lastIndexOf('<button', html.indexOf(label)),
         html.indexOf(label)
@@ -263,13 +192,15 @@ describe('LibraryScreen toolbar layout', () => {
   })
 
   test('the toolbar wraps as a row, inside the no-drag region', () => {
-    const toolbar = html.slice(html.lastIndexOf('<div', html.indexOf('Filter by collection')))
+    const toolbar = html.slice(html.lastIndexOf('<div', html.indexOf('Search the library')))
     expect(toolbar).toMatch(/^<div class="[^"]*app-no-drag[^"]*flex-wrap[^"]*gap-2/)
     expect(html).toMatch(/<header class="[^"]*flex-wrap/)
   })
 
-  test('the filter keeps a bounded width, inline (field-input would override a utility)', () => {
-    expect(html).toMatch(/<select[^>]*style="[^"]*width:auto[^"]*max-width:\d/)
+  test('the collection filter and "No collection" are gone', () => {
+    expect(html).not.toContain('Filter by collection')
+    expect(html).not.toContain('No collection')
+    expect(html).not.toMatch(/collection/i)
   })
 })
 
@@ -331,13 +262,18 @@ describe('LibraryScreen views', () => {
     expect(html).toContain('Open Resume me')
     expect(html).toContain('Open Other one')
     expect(html).not.toContain('--library-tile')
-    expect(html).toContain('>Collection<')
+    // At the Library root every video shown is unfiled: no Folder column.
+    expect(html).not.toContain('>Folder<')
   })
 
   test('list rows follow the sort', () => {
     const html = render({
       videos,
-      view: { layout: 'list', tileSize: 230, sort: { key: 'duration', direction: 'asc' } },
+      view: {
+        ...DEFAULT_LIBRARY_VIEW_PREFS,
+        layout: 'list',
+        sort: { key: 'duration', direction: 'asc' },
+      },
     })
     expect(html.indexOf('Open Other one')).toBeLessThan(html.indexOf('Open Resume me'))
   })

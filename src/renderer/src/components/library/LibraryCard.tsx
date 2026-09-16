@@ -10,8 +10,11 @@
  * no native dialog, because the renderer's tests have no DOM and a
  * `window.confirm` would be untestable as well as ugly. A record whose media
  * is missing also gets "Locate…"; if the picked file is different media, the
- * same inline pattern asks before linking it anyway. "Move to collection…"
- * swaps the actions for `MoveToCollectionMenu`.
+ * same inline pattern asks before linking it anyway. "Move to folder…" swaps
+ * the actions for `MoveToCollectionMenu`.
+ *
+ * The card drags as `application/x-capforge-videos` onto a folder
+ * (`useLibraryDrag`); the caller hands in its drag-source props.
  */
 
 import type { CreateCollectionResult } from '../../lib/collectionCreate'
@@ -20,6 +23,7 @@ import { cn } from '../../lib/cn'
 import { pathBaseName } from '../../lib/libraryImport'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import { displayTitle, formatShortDate, statusPips } from '../../lib/libraryView'
+import type { DragSourceProps } from '../../hooks/useLibraryDrag'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
 import { useRecordMenu } from '../../hooks/useRecordMenu'
 import { InlineConfirm, MenuItem } from './LibraryMenuParts'
@@ -71,33 +75,43 @@ export function LanguageChip({ lang }: { lang: string | null }) {
   )
 }
 
-/** The collection a record belongs to, by name — nothing for a record in none. */
-export function CollectionChip({ name }: { name: string | null | undefined }) {
-  if (!name) return null
+/** The folder a record is in, by name, its path in the tooltip — nothing for an unfiled one. */
+export function CollectionChip({ folder }: { folder: FolderChip | null | undefined }) {
+  if (!folder) return null
   return (
     <span
       className="max-w-[96px] truncate rounded px-1 text-2xs"
       style={{ color: 'var(--color-brand)', background: 'var(--color-surface-3)' }}
-      title={`Collection: ${name}`}
+      title={`Folder: ${folder.path}`}
     >
-      {name}
+      {folder.name}
     </span>
   )
 }
 
+/** What the card's folder chip shows. */
+export interface FolderChip {
+  name: string
+  /** `Events › UCK26`; an orphan's bare id. */
+  path: string
+}
+
 export interface LibraryCardProps extends RecordMenuActions {
   video: LibraryVideo
-  /** The name of the record's collection (or its bare id when none is defined). */
-  collectionName?: string | null
-  /** Every collection, for "Move to collection…". */
+  /** The record's folder, for the chip; absent or null hides it. */
+  folder?: FolderChip | null
+  /** Every folder, for "Move to folder…". */
   collections: readonly CollectionSummary[]
+  /** Drag the card onto a folder; absent, it does not drag. */
+  dragSource?: DragSourceProps
   onOpen: (video: LibraryVideo) => void
 }
 
 export function LibraryCard({
   video,
-  collectionName,
+  folder,
   collections,
+  dragSource,
   onOpen,
   ...actions
 }: LibraryCardProps) {
@@ -105,7 +119,7 @@ export function LibraryCard({
   const title = displayTitle(video)
 
   return (
-    <div className="group relative flex flex-col gap-2.5">
+    <div className="group relative flex flex-col gap-2.5" {...dragSource}>
       <button
         type="button"
         className="flex flex-col gap-2.5 rounded-xl p-2 text-left transition-transform duration-150 hover:-translate-y-0.5 focus-visible:-translate-y-0.5"
@@ -125,7 +139,7 @@ export function LibraryCard({
           <div className="flex min-w-0 items-center gap-2">
             <StatusRail video={video} />
             <LanguageChip lang={video.language} />
-            <CollectionChip name={collectionName} />
+            <CollectionChip folder={folder} />
             <span
               className="ml-auto shrink-0 whitespace-nowrap text-2xs"
               style={{ color: 'var(--color-text-3)' }}
@@ -179,7 +193,7 @@ export interface LibraryCardMenuProps {
   confirmingDelete: boolean
   /** A different-media file awaiting "link anyway?"; null when none. */
   pendingLinkPath: string | null
-  /** "Move to collection…" was clicked; the sub-list shows instead of the actions. */
+  /** "Move to folder…" was clicked; the sub-list shows instead of the actions. */
   moving: boolean
   collections: readonly CollectionSummary[]
   onRemove: () => void
@@ -243,7 +257,7 @@ export function LibraryCardMenu(props: LibraryCardMenuProps) {
                 onClick={props.onLocate}
               />
             ))}
-          <MenuItem label="Move to collection…" onClick={props.onAskMove} />
+          <MenuItem label="Move to folder…" onClick={props.onAskMove} />
           <MenuItem label="Remove from library" onClick={props.onRemove} />
           {confirmingDelete ? (
             <InlineConfirm

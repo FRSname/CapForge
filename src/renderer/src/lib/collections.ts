@@ -1,6 +1,6 @@
 /**
- * Collections: every pure decision the Settings editor, the Publish card and
- * the library filter make about one (docs/plans/library-collections.md).
+ * Collections ("folders" in the UI): every pure decision the Settings editor,
+ * the Publish card and the library make about one (docs/plans/library-collections.md).
  *
  * The backend is the authority on all of it — slot names, ids, the template
  * and what a package violates. What lives here are **hints** that must never
@@ -261,10 +261,10 @@ export function subfolderCount(n: number): string {
 export function collectionRefusalMessage(refusal: CollectionRefusal): string {
   switch (refusal.kind) {
     case 'collection_exists':
-      return 'A collection with that id already exists — pick another name or id.'
+      return 'A folder with that id already exists — pick another name or id.'
     case 'collection_in_use': {
       const n = refusal.members
-      return `${n} video${n === 1 ? '' : 's'} still belong${n === 1 ? 's' : ''} to this collection — set their collection to None in the Publish workspace first.`
+      return `${videoCount(n)} ${n === 1 ? 'is' : 'are'} still in this folder — move ${n === 1 ? 'it' : 'them'} out first.`
     }
     case 'collection_has_children': {
       const n = refusal.children
@@ -273,6 +273,25 @@ export function collectionRefusalMessage(refusal: CollectionRefusal): string {
     default:
       return NESTING_MESSAGES[refusal.kind]
   }
+}
+
+/**
+ * Why a folder cannot be deleted yet, or null. Videos first: the backend
+ * refuses them first too. `members` are its own videos, `subfolders` its
+ * direct subfolders. Shared by Settings → Folders and the library's folder menu.
+ */
+export function deleteBlocker(members: number, subfolders: number): string | null {
+  if (members > 0) {
+    const verb = members === 1 ? 'belongs' : 'belong'
+    const them = members === 1 ? 'it' : 'them'
+    return `${videoCount(members)} ${verb} to this folder — move ${them} to another folder before deleting it.`
+  }
+  if (subfolders > 0) {
+    const verb = subfolders === 1 ? 'is' : 'are'
+    const them = subfolders === 1 ? 'it' : 'them'
+    return `${subfolderCount(subfolders)} ${verb} inside this folder — move or delete ${them} before deleting it.`
+  }
+  return null
 }
 
 /** The findings on the assembled description — what the Collections preview draws. */

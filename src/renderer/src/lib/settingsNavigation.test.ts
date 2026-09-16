@@ -17,10 +17,20 @@ describe('settingsNavigation', () => {
     const off = onSettingsCategoryRequested(listener)
 
     expect(requestSettingsCategory('collections')).toBe(true)
-    expect(listener).toHaveBeenCalledWith('collections')
+    expect(listener).toHaveBeenCalledWith('collections', {})
 
     off()
     expect(requestSettingsCategory('channels')).toBe(false)
     expect(listener).toHaveBeenCalledTimes(1)
+  })
+
+  test('a focus rides along: the folder to select in Settings → Folders', () => {
+    const listener = vi.fn()
+    const off = onSettingsCategoryRequested(listener)
+
+    expect(requestSettingsCategory('collections', { collectionId: 'uck26' })).toBe(true)
+    expect(listener).toHaveBeenCalledWith('collections', { collectionId: 'uck26' })
+
+    off()
   })
 })

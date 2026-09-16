@@ -26,14 +26,34 @@ describe('the stored key and defaults', () => {
       layout: 'grid',
       tileSize: 230,
       sort: { key: 'modified', direction: 'desc' },
+      location: { kind: 'root' },
+      sidebarCollapsed: false,
+      expanded: [],
     })
   })
 })
 
 describe('parseLibraryViewPrefs', () => {
   test('a well-formed value comes back as it was', () => {
-    const stored = { layout: 'list', tileSize: 300, sort: { key: 'name', direction: 'asc' } }
+    const stored = {
+      layout: 'list',
+      tileSize: 300,
+      sort: { key: 'name', direction: 'asc' },
+      location: { kind: 'folder', id: 'uck26' },
+      sidebarCollapsed: true,
+      expanded: ['events', 'uck26'],
+    }
     expect(parseLibraryViewPrefs(stored)).toEqual(stored)
+  })
+
+  test('a PR 1 value (no sidebar fields) keeps its view and gains the defaults', () => {
+    const stored = { layout: 'list', tileSize: 300, sort: { key: 'name', direction: 'asc' } }
+    expect(parseLibraryViewPrefs(stored)).toEqual({
+      ...stored,
+      location: { kind: 'root' },
+      sidebarCollapsed: false,
+      expanded: [],
+    })
   })
 
   test.each([undefined, null, 'grid', 7, [], true])('%s is the defaults', (stored) => {
@@ -42,8 +62,16 @@ describe('parseLibraryViewPrefs', () => {
 
   test('an unknown layout falls back alone', () => {
     expect(
-      parseLibraryViewPrefs({ layout: 'columns', tileSize: 200, sort: { key: 'name', direction: 'desc' } })
-    ).toEqual({ layout: 'grid', tileSize: 200, sort: { key: 'name', direction: 'desc' } })
+      parseLibraryViewPrefs({
+        layout: 'columns',
+        tileSize: 200,
+        sort: { key: 'name', direction: 'desc' },
+      })
+    ).toEqual({
+      ...DEFAULT_LIBRARY_VIEW_PREFS,
+      tileSize: 200,
+      sort: { key: 'name', direction: 'desc' },
+    })
   })
 
   test('the tile size is clamped to the slider range and rounded', () => {
@@ -76,11 +104,44 @@ describe('parseLibraryViewPrefs', () => {
     expect(parseLibraryViewPrefs({ sort: 'name' }).sort).toEqual(DEFAULT_LIBRARY_VIEW_PREFS.sort)
   })
 
-  test('keys it does not know (a later build’s sidebar state) are dropped, not fatal', () => {
-    expect(parseLibraryViewPrefs({ layout: 'list', sidebarCollapsed: true })).toEqual({
+  test('keys it does not know (a later build’s state) are dropped, not fatal', () => {
+    expect(parseLibraryViewPrefs({ layout: 'list', selection: ['a'] })).toEqual({
       ...DEFAULT_LIBRARY_VIEW_PREFS,
       layout: 'list',
     })
+  })
+
+  test.each([
+    'uck26',
+    null,
+    { kind: 'folder' },
+    { kind: 'folder', id: '' },
+    { kind: 'folder', id: 7 },
+    { kind: 'recents' },
+  ])('a location of %j is the root', (location) => {
+    expect(parseLibraryViewPrefs({ location }).location).toEqual({ kind: 'root' })
+  })
+
+  test('All videos and a folder are remembered', () => {
+    expect(parseLibraryViewPrefs({ location: { kind: 'all' } }).location).toEqual({ kind: 'all' })
+    expect(
+      parseLibraryViewPrefs({ location: { kind: 'folder', id: 'x', extra: 1 } }).location
+    ).toEqual({
+      kind: 'folder',
+      id: 'x',
+    })
+  })
+
+  test.each(['true', 1, null])('sidebarCollapsed of %j is false', (sidebarCollapsed) => {
+    expect(parseLibraryViewPrefs({ sidebarCollapsed }).sidebarCollapsed).toBe(false)
+  })
+
+  test('expanded keeps non-empty string ids, each once, and drops the rest', () => {
+    expect(parseLibraryViewPrefs({ expanded: ['a', 7, '', 'b', 'a', null] }).expanded).toEqual([
+      'a',
+      'b',
+    ])
+    expect(parseLibraryViewPrefs({ expanded: 'a' }).expanded).toEqual([])
   })
 })
 
