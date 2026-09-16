@@ -13,6 +13,7 @@ import { classifyTrack, buildSourceIndex } from './trackStaleness'
 import { bakeTranslation } from './trackTiming'
 import { buildStudioGroups } from './groups'
 import { chunkTranslatedGroups } from './trackChunking'
+import { setWordSpan } from './wordTiming'
 import { STUDIO_DEFAULTS } from '../components/studio/StudioPanel'
 import {
   makeSourceTrack,
@@ -578,4 +579,73 @@ describe('trackToMirrorEntry', () => {
 test('the fixture source chunks the way the tables assume', () => {
   const groups: Segment[] = buildStudioGroups([sourceSegment()], 3)
   expect(groups.map((g) => g.words.length)).toEqual([3, 3])
+})
+
+// ── Hand-placed word timing vs. a later text edit ────────────────
+//
+// The timeline word lane places one word by hand. The bug this pins: that
+// placement lived in the group only, and the next Text-view edit — which
+// commits the segments — made `reconcileGroups` refresh the word from its
+// segment twin, snapping it back to the WhisperX timing.
+
+describe('syncSegmentsIntoTrack — hand-placed word timing', () => {
+  /** 'brown' (s1w2) nudged 0.1 s later, as a word-lane drag would. */
+  const placed = { start: 1.1, end: 1.6 }
+
+  /** The Text view's edit: 'fox' → 'lis', every other word keeping its timing. */
+  const editFox = (segments: Segment[]): Segment[] =>
+    segments.map((s) => {
+      const words = s.words.map((w) => (w.word === 'fox' ? { ...w, word: 'lis' } : w))
+      return { ...s, words, text: words.map((w) => w.word).join(' ') }
+    })
+
+  const dragInGroups = (track: CaptionTrack): CaptionTrack => ({
+    ...track,
+    groupsEdited: true,
+    groups: track.groups.map((g) => ({
+      ...g,
+      words: g.words.map((w) => (w.wid === 's1w2' ? { ...w, ...placed } : w)),
+    })),
+  })
+
+  test('a word span written through to the segment survives a later text edit', () => {
+    // Arrange — the drag lands in the group AND in the segment.
+    const dragged = dragInGroups(source)
+    const segments = setWordSpan(dragged.segments, 's1w2', placed)
+
+    // Act
+    const next = syncSegmentsIntoTrack({ ...dragged, segments }, editFox(segments), 3, false)
+
+    // Assert
+    const brown = next.groups.flatMap((g) => g.words).find((w) => w.wid === 's1w2')!
+    expect(brown.start).toBe(placed.start)
+    expect(brown.end).toBe(placed.end)
+    expect(next.groups.map((g) => g.text)).toEqual(['the quick brown', 'lis jumps over'])
+  })
+
+  test('the segment is the source of a group word’s timing — a group-only placement is lost', () => {
+    // Arrange — the drag reaches the group only (the pre-fix state).
+    const dragged = dragInGroups(source)
+
+    // Act
+    const next = syncSegmentsIntoTrack(dragged, editFox(dragged.segments), 3, false)
+
+    // Assert — pinned so the write-through is understood as load-bearing.
+    const brown = next.groups.flatMap((g) => g.words).find((w) => w.wid === 's1w2')!
+    expect(brown.start).toBe(1.0)
+    expect(brown.end).toBe(1.5)
+  })
+
+  test('the write-through also holds across the automatic rebuild', () => {
+    // Arrange — groups untouched by hand, so the sync rebuilds from the segments.
+    const segments = setWordSpan(source.segments, 's1w2', placed)
+
+    // Act
+    const next = syncSegmentsIntoTrack({ ...source, segments }, editFox(segments), 3, false)
+
+    // Assert
+    const brown = next.groups.flatMap((g) => g.words).find((w) => w.wid === 's1w2')!
+    expect(brown.start).toBe(placed.start)
+    expect(brown.end).toBe(placed.end)
+  })
 })

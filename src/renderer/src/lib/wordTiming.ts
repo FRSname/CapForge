@@ -17,7 +17,7 @@
  * its neighbour's slot.
  */
 
-import type { Word } from '../types/app'
+import type { Segment, Word } from '../types/app'
 
 /** Minimum duration a retimed word may occupy, in seconds. */
 export const MIN_WORD_DUR = 0.04
@@ -272,4 +272,38 @@ export function joinWords(words: readonly Word[]): string {
     .map((w) => w.word)
     .filter((w) => w.trim())
     .join(' ')
+}
+
+/**
+ * Place one source word by hand: the word carrying `wid` takes `span`, and the
+ * segment that owns it widens if the span leaves its bounds. Nothing else
+ * changes — every other word and segment comes back by reference.
+ *
+ * This is the write-through behind the timeline word lane. A group is not the
+ * home of a source word's timing: `reconcileGroups` (lib/groups.ts) refreshes
+ * every group word from its segment twin on the next segments commit, so a
+ * placement that reached the group alone was silently undone by the next text
+ * edit. The segments are the truth; the group is told the same thing.
+ *
+ * Returns the input array itself when no word carries `wid`, so a caller can
+ * hand the result to a state setter without forcing a write.
+ */
+export function setWordSpan(
+  segments: Segment[],
+  wid: string,
+  span: { start: number; end: number }
+): Segment[] {
+  const si = segments.findIndex((s) => s.words.some((w) => w.wid === wid))
+  if (si === -1) return segments
+  const seg = segments[si]
+  const words = seg.words.map((w) =>
+    w.wid === wid ? { ...w, start: span.start, end: span.end } : w
+  )
+  const placed: Segment = {
+    ...seg,
+    words,
+    start: Math.min(seg.start, span.start),
+    end: Math.max(seg.end, span.end),
+  }
+  return segments.map((s, i) => (i === si ? placed : s))
 }
