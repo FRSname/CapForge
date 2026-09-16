@@ -69,7 +69,6 @@ NO_POST_DETAIL = (
     "Record {video_id} has no post for channel {channel_id!r}; write one with "
     "posts.{channel_id} first"
 )
-CHANNEL_WITH_PLATFORM = "Pass either 'channel' or 'platform', not both: a channel has a platform"
 CHANNEL_NEEDS_RECORD = "'channel' judges a video's post for that channel; pass a video_id with it"
 BAD_POST_FIELDS = "Not a set of post fields: {error}"
 LANG_NEEDS_RECORD = "'lang' validates a record's localized view; pass a video_id with it"

@@ -294,20 +294,17 @@ class CapForgeClient:
     def library_package(
         self,
         video_id: str,
-        platform: str = "youtube",
         lang: Optional[str] = None,
         channel: Optional[str] = None,
     ) -> Any:
-        """The upload package; `lang` renders one localized language's view.
+        """The upload package; `lang` renders one localized language's view and
+        `channel` that channel's own post.
 
-        With a `channel` the default platform is not sent (the route refuses
-        both together), but a non-default one still is, so the backend's 422
-        answers it rather than the argument being dropped here."""
-        sent_platform = None if channel is not None and platform == "youtube" else platform
-        query = _query({"platform": sent_platform, "lang": lang, "channel": channel})
-        return self._request(
-            "GET", f"{LIBRARY_PATH}/{quote(video_id)}/package?{query}"
-        )
+        There is no `platform`: a channel names its platform, and the route
+        dropped the parameter with multi-channel PR 4."""
+        query = _query({"lang": lang, "channel": channel})
+        path = f"{LIBRARY_PATH}/{quote(video_id)}/package"
+        return self._request("GET", f"{path}?{query}" if query else path)
 
     def library_grab_frames(self, video_id: str, times: list) -> Any:
         """`{frames: [{time_s, name}], failed: [{time_s, reason}], rev}`. The

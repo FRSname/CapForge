@@ -14,6 +14,7 @@
 
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import { useCollections } from '../../hooks/useCollections'
+import { useImportChannels } from '../../hooks/useImportChannels'
 import { useLibraryActions } from '../../hooks/useLibraryActions'
 import { useLibraryCollectionActions } from '../../hooks/useLibraryCollectionActions'
 import { useToast } from '../../hooks/useToast'
@@ -38,7 +39,14 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
   // LibraryHome renders inside ToastProvider, so the one import summary is
   // toasted with its own tone here; App's `notify` relay always shows an error.
   const { toast } = useToast()
-  const actions = useLibraryActions({ refresh, notify, inform: toast })
+  // Asked once per import, before any request: the sheet is mounted below.
+  const importChannels = useImportChannels({ inform: (message) => toast(message, 'info') })
+  const actions = useLibraryActions({
+    refresh,
+    notify,
+    inform: toast,
+    askChannels: importChannels.ask,
+  })
   // Names for the collection filter and the card chips; re-read on every visit.
   const { collections, refresh: refreshCollections } = useCollections({ notify })
   const collectionActions = useLibraryCollectionActions({
@@ -50,24 +58,27 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
   })
 
   return (
-    <LibraryScreen
-      videos={videos}
-      collections={collections}
-      loading={loading}
-      onOpen={onOpen}
-      onAddVideo={onAddVideo}
-      onImport={(mode) => void actions.pickAndImport(mode)}
-      onImportDropped={(plan) => void actions.runImport(plan)}
-      onFileDropped={onFileDropped}
-      onDropRejected={notify}
-      onRemove={actions.removeRecord}
-      onDelete={actions.deleteRecord}
-      onLocate={actions.locate}
-      onForceLocate={actions.forceLocate}
-      onCreateCollection={collectionActions.createCollection}
-      onMoveToCollection={(video, collectionId) =>
-        void collectionActions.moveToCollection(video, collectionId)
-      }
-    />
+    <>
+      <LibraryScreen
+        videos={videos}
+        collections={collections}
+        loading={loading}
+        onOpen={onOpen}
+        onAddVideo={onAddVideo}
+        onImport={(mode) => void actions.pickAndImport(mode)}
+        onImportDropped={(plan) => void actions.runImport(plan)}
+        onFileDropped={onFileDropped}
+        onDropRejected={notify}
+        onRemove={actions.removeRecord}
+        onDelete={actions.deleteRecord}
+        onLocate={actions.locate}
+        onForceLocate={actions.forceLocate}
+        onCreateCollection={collectionActions.createCollection}
+        onMoveToCollection={(video, collectionId) =>
+          void collectionActions.moveToCollection(video, collectionId)
+        }
+      />
+      {importChannels.sheet}
+    </>
   )
 }

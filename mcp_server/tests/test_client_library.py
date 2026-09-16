@@ -240,18 +240,16 @@ def test_library_validate_posts_the_body_verbatim(capforge, monkeypatch):
     assert rec.last["json"] == body
 
 
-def test_library_package_defaults_to_youtube(capforge, monkeypatch):
+def test_library_package_sends_no_platform(capforge, monkeypatch):
+    """Multi-channel PR 4 dropped `?platform=`, so a bare package is a bare path."""
     rec = _record(monkeypatch)
 
     capforge.library_package("abc 123")
     assert rec.last["method"] == "GET"
-    assert rec.last["url"] == f"{BASE}/api/library/abc%20123/package?platform=youtube"
-
-    capforge.library_package("abc123", platform="youtube")
-    assert rec.last["url"] == f"{BASE}/api/library/abc123/package?platform=youtube"
+    assert rec.last["url"] == f"{BASE}/api/library/abc%20123/package"
 
     capforge.library_package("abc123", lang="pt-BR")
-    assert rec.last["url"] == f"{BASE}/api/library/abc123/package?platform=youtube&lang=pt-BR"
+    assert rec.last["url"] == f"{BASE}/api/library/abc123/package?lang=pt-BR"
 
 
 # --- collections ------------------------------------------------------------
@@ -335,9 +333,7 @@ def test_library_grab_frames_posts_the_times(capforge, monkeypatch):
 
 # --- multi-channel PR 2: a channel's package, a channel's recent posts --------
 
-def test_library_package_for_a_channel_sends_the_channel_not_the_default_platform(
-    capforge, monkeypatch
-):
+def test_library_package_for_a_channel_sends_the_channel(capforge, monkeypatch):
     rec = _record(monkeypatch)
 
     capforge.library_package("abc123", channel="filip-ig")
@@ -347,15 +343,6 @@ def test_library_package_for_a_channel_sends_the_channel_not_the_default_platfor
     assert rec.last["url"] == f"{BASE}/api/library/abc123/package?lang=pl&channel=update-conf"
 
 
-def test_library_package_never_drops_a_non_default_platform_beside_a_channel(
-    capforge, monkeypatch
-):
-    """The route answers that with a 422; the client does not hide it."""
-    rec = _record(monkeypatch)
-
-    capforge.library_package("abc123", platform="x", channel="filip-ig")
-
-    assert rec.last["url"] == f"{BASE}/api/library/abc123/package?platform=x&channel=filip-ig"
 
 
 def test_library_channel_get_sends_recent_posts_only_when_asked(capforge, monkeypatch):

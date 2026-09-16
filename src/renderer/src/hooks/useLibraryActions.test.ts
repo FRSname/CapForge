@@ -5,7 +5,8 @@
  * environment is plain node, with no renderer to mount it in.
  */
 
-import { describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { api } from '../lib/api'
 import { RelinkRefusedError } from '../lib/libraryApi'
 import type { ImportPlan } from '../lib/libraryImport'
 import { importSummary, importTone } from '../lib/libraryImportSummary'
@@ -14,6 +15,7 @@ import type { ImportRequests } from './useLibraryActions'
 import {
   executeImportPlan,
   importPickerFailedMessage,
+  importRequests,
   locateFailedMessage,
   locateOutcomeOf,
 } from './useLibraryActions'
@@ -138,5 +140,72 @@ describe('executeImportPlan', () => {
     const { calls, requests } = fakeRequests()
     await executeImportPlan(plan({ projects: ['/r/p.capforge'] }), requests)
     expect(calls).toEqual(['project:/r/p.capforge'])
+  })
+})
+
+/**
+ * The real requests the plan runs, against a mocked `fetch`: the channels the
+ * user ticked must reach **every** create route, so a mixed batch never lands
+ * half of its records on a channel and half not.
+ */
+describe('importRequests', () => {
+  const FOLDER_ANSWER = {
+    created: [],
+    existing: [],
+    relinked: [],
+    failed: [],
+    truncated: false,
+  }
+  let fetchMock: ReturnType<typeof vi.fn>
+
+  beforeEach(() => {
+    fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: '',
+      json: () => Promise.resolve(FOLDER_ANSWER),
+    } as unknown as Response)
+    vi.stubGlobal('fetch', fetchMock)
+    api.setPort(53421)
+    api.setLocalToken('local-token')
+    api.resetBridge()
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function bodyOf(index: number): unknown {
+    const [, init] = fetchMock.mock.calls[index] as [string, RequestInit]
+    return JSON.parse(String(init.body))
+  }
+
+  test('every create route carries the ticked ids', async () => {
+    const requests = importRequests(['uck', 'filip-ig'])
+
+    await requests.importFolder('/Volumes/Rec')
+    await requests.importPaths(['/r/a.mp4'])
+    // The record's own shape is api.test.ts's business; this pins the request.
+    await requests.importProject('/r/p.capforge').catch(() => {})
+
+    expect(bodyOf(0)).toEqual({
+      path: '/Volumes/Rec',
+      recursive: true,
+      channels: ['uck', 'filip-ig'],
+    })
+    expect(bodyOf(1)).toEqual({ paths: ['/r/a.mp4'], channels: ['uck', 'filip-ig'] })
+    expect(bodyOf(2)).toEqual({ path: '/r/p.capforge', channels: ['uck', 'filip-ig'] })
+  })
+
+  test('an empty choice sends no `channels` key on any route', async () => {
+    const requests = importRequests([])
+
+    await requests.importFolder('/Volumes/Rec')
+    await requests.importPaths(['/r/a.mp4'])
+    await requests.importProject('/r/p.capforge').catch(() => {})
+
+    expect(bodyOf(0)).toEqual({ path: '/Volumes/Rec', recursive: true })
+    expect(bodyOf(1)).toEqual({ paths: ['/r/a.mp4'] })
+    expect(bodyOf(2)).toEqual({ path: '/r/p.capforge' })
   })
 })

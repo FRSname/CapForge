@@ -19,6 +19,7 @@
 
 import { useCallback, useRef } from 'react'
 import { api } from '../lib/api'
+import { importWhatLabel } from '../lib/importChannels'
 import {
   RelinkRefusedError,
   importLibraryFolder,
@@ -53,6 +54,11 @@ export interface LibraryActionsInput {
   notify: (message: string) => void
   /** The import summary, shown with the tone it earned (success / info / error). */
   inform: (message: string, tone: ImportTone) => void
+  /**
+   * Ask which channels this import publishes to, once per batch and before any
+   * request is made. `null` cancels the whole import — nothing is sent.
+   */
+  askChannels: (what: string) => Promise<readonly string[] | null>
 }
 
 export interface LibraryActions {
@@ -134,10 +140,17 @@ export async function executeImportPlan(
   return tally
 }
 
-const IMPORT_REQUESTS: ImportRequests = {
-  importFolder: (path) => importLibraryFolder(path),
-  importPaths: (paths) => importLibraryPaths(paths),
-  importProject: (path) => api.importLibraryProject(path),
+/**
+ * The real requests, every one carrying the chosen channels so a mixed batch
+ * (media + a `.capforge`) applies the choice to all of its records. An empty
+ * choice sends no `channels` key at all (`lib/importChannels.ts`).
+ */
+export function importRequests(channels: readonly string[]): ImportRequests {
+  return {
+    importFolder: (path) => importLibraryFolder(path, true, channels),
+    importPaths: (paths) => importLibraryPaths(paths, channels),
+    importProject: (path) => api.importLibraryProject(path, channels),
+  }
 }
 
 export interface LocateResult {
@@ -169,13 +182,9 @@ export function locateOutcomeOf(
   return { outcome: { kind: 'failed' }, message: locateFailedMessage(title, reasonOf(err)) }
 }
 
-export function useLibraryActions({
-  refresh,
-  notify,
-  inform,
-}: LibraryActionsInput): LibraryActions {
-  const inputRef = useRef({ refresh, notify, inform })
-  inputRef.current = { refresh, notify, inform }
+export function useLibraryActions(input: LibraryActionsInput): LibraryActions {
+  const inputRef = useRef(input)
+  inputRef.current = input
 
   const removeRecord = useCallback(async (video: LibraryVideo): Promise<void> => {
     try {
@@ -199,7 +208,10 @@ export function useLibraryActions({
 
   const runImport = useCallback(async (plan: ImportPlan): Promise<void> => {
     if (isEmptyPlan(plan)) return
-    const tally = await executeImportPlan(plan, IMPORT_REQUESTS)
+    // Asked once, before the first request: cancelling imports nothing at all.
+    const channels = await inputRef.current.askChannels(importWhatLabel(plan))
+    if (channels === null) return
+    const tally = await executeImportPlan(plan, importRequests(channels))
     inputRef.current.inform(importSummary(tally), importTone(tally))
     await inputRef.current.refresh()
   }, [])

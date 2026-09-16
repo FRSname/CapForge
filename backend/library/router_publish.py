@@ -39,20 +39,13 @@ from backend.library.brief import Brief, BriefPatch
 from backend.library.channels import brief_from_channel, channel_patch_from_brief
 from backend.library.collection_store import Collection, effective_brief
 from backend.library.errors import CollectionNotFound, CollectionsUnreadable
-from backend.library.localized import (
-    inherit_localized,
-    localize_record,
-    merge_localized_fields,
-)
-from backend.library.platform_package import (
-    PACKAGE_PLATFORMS, YOUTUBE, platform_package, unsupported_platform_detail,
-)
+from backend.library.localized import inherit_localized, merge_localized_fields
+from backend.library.post_drafts import register_draft_route
 from backend.library.publish_channels import (  # the first three are re-exported
     diarized_speakers,
     language_or_404,
     record_duration,
     CHANNEL_NEEDS_RECORD,
-    CHANNEL_WITH_PLATFORM,
     channel_package,
     channel_validation,
     language_findings,
@@ -107,10 +100,15 @@ def register_publish_routes(
     get_store: Callable,
     library_errors: Callable[[], ContextManager[None]],
 ) -> None:
-    """Register ``/brief``, ``/validate`` and ``/{video_id}/package``."""
+    """Register ``/brief``, ``/validate``, ``/{video_id}/package`` and the
+    ``/{video_id}/posts/{channel_id}/draft`` renderer (PR 4 Part A)."""
     _register_brief_routes(router, get_store)
     _register_validate_route(router, get_store, library_errors)
     _register_package_route(router, get_store, library_errors)
+    register_draft_route(
+        router, get_store=get_store, library_errors=library_errors,
+        read_collection=read_collection,
+    )
 
 
 # --- shared helpers ----------------------------------------------------------
@@ -350,7 +348,6 @@ def _register_package_route(
     @router.get("/{video_id}/package", response_model=None)
     def get_package(
         video_id: str,
-        platform: Optional[str] = None,
         lang: Optional[str] = None,
         channel: Optional[str] = None,
     ) -> Union[dict, JSONResponse]:
@@ -359,17 +356,14 @@ def _register_package_route(
         Rendered *even with* violations (the user is mid-edit): the record's own
         findings under the effective brief, then ``package.description``'s, and
         ``description`` is the assembled DESCRIPTION body those rules measured.
-        ``lang`` renders the localized view (an unknown one is a 404);
-        ``linkedin``/``x``/``instagram`` answer one clipboard post from it with
-        ``description: null`` (``platform_package.py``). ``channel`` renders that
-        channel's post (``publish_channels.channel_package``), never with
-        ``platform`` (422); without it this is the primary channel's package.
+        ``lang`` renders the localized view (an unknown one is a 404).
+        ``channel`` renders that channel's post
+        (``publish_channels.channel_package``); without it this is the primary
+        channel's package.
+
+        There is no ``platform`` any more (PR 4 Part B): a tab's text is its own
+        post, and ``…/posts/{channel_id}/draft`` starts one from another tab.
         """
-        if channel is not None and platform is not None:
-            raise HTTPException(status_code=422, detail=CHANNEL_WITH_PLATFORM)
-        wanted = YOUTUBE if platform is None else platform
-        if wanted not in PACKAGE_PLATFORMS:
-            raise HTTPException(status_code=400, detail=unsupported_platform_detail(wanted))
         store = get_store()
         with library_errors():
             record = store.get(video_id)
@@ -383,12 +377,8 @@ def _register_package_route(
                 duration=record_duration(store, record),
             )
         code = language_or_404(record, lang)
-        brief = read_brief(store)
-        collection = read_collection(store, record.collection_id)
-        duration = record_duration(store, record)
-        if wanted != YOUTUBE:
-            view = record if code is None else localize_record(record, code)
-            return platform_package(record, view, code, brief, collection=collection,
-                                    duration=duration, platform=wanted)
-        return youtube_package(store, record, brief, lang_code=code, collection=collection,
-                               duration=duration, speakers=speakers)
+        return youtube_package(
+            store, record, read_brief(store), lang_code=code,
+            collection=read_collection(store, record.collection_id),
+            duration=record_duration(store, record), speakers=speakers,
+        )

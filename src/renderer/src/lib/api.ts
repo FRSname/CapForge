@@ -6,14 +6,8 @@
 import type { TranscriptionResult as AppTranscriptionResult } from '../types/app'
 import type { LibraryChangedEvent, LibraryRecord, LibraryVideo } from './libraryTypes'
 import { parseLibraryChangedEvent, parseLibraryList, parseLibraryRecord } from './libraryTypes'
-import type {
-  Brief,
-  Moment,
-  PublishPlatform,
-  PublishRecord,
-  UploadPackage,
-  Violation,
-} from './publishTypes'
+import type { Brief, Moment, PublishRecord, UploadPackage, Violation } from './publishTypes'
+import { channelsBody } from './importChannels'
 import {
   parseBrief,
   parseMoments,
@@ -692,8 +686,12 @@ class CapForgeAPI {
    * Create-or-return the record for a media file (`201` new, `200` known) —
    * the create-on-drop path taken by Start, `load_video` and a project restore.
    */
-  createLibraryRecord(sourcePath: string): Promise<LibraryRecord> {
-    return this.post<unknown>('/api/library', { source_path: sourcePath }).then(parseLibraryRecord)
+  /** `channels` gives the new record a post per channel; an empty choice sends no key. */
+  createLibraryRecord(sourcePath: string, channels?: readonly string[]): Promise<LibraryRecord> {
+    return this.post<unknown>('/api/library', {
+      source_path: sourcePath,
+      ...channelsBody(channels),
+    }).then(parseLibraryRecord)
   }
 
   /**
@@ -719,8 +717,11 @@ class CapForgeAPI {
   }
 
   /** Adopt a `.capforge` file on disk as a record (Import project files…). */
-  importLibraryProject(path: string): Promise<LibraryRecord> {
-    return this.post<unknown>('/api/library/import-project', { path }).then(parseLibraryRecord)
+  importLibraryProject(path: string, channels?: readonly string[]): Promise<LibraryRecord> {
+    return this.post<unknown>('/api/library/import-project', {
+      path,
+      ...channelsBody(channels),
+    }).then(parseLibraryRecord)
   }
 
   /** First-launch migration of pre-v3 studio workspaces into records. */
@@ -777,14 +778,10 @@ class CapForgeAPI {
    * `lang` renders a stored localized language (404 for one with no entry);
    * `platform` picks the YouTube package or a LinkedIn / X / Instagram post.
    */
-  getUploadPackage(
-    id: string,
-    platform: PublishPlatform = 'youtube',
-    lang?: string
-  ): Promise<UploadPackage> {
-    const langQuery = lang ? `&lang=${encodeURIComponent(lang)}` : ''
+  getUploadPackage(id: string, lang?: string): Promise<UploadPackage> {
+    const langQuery = lang ? `?lang=${encodeURIComponent(lang)}` : ''
     return this.getWithLocalToken<unknown>(
-      `/api/library/${encodeURIComponent(id)}/package?platform=${encodeURIComponent(platform)}${langQuery}`
+      `/api/library/${encodeURIComponent(id)}/package${langQuery}`
     ).then(parseUploadPackage)
   }
 

@@ -12,6 +12,7 @@ from backend.library.validate import TITLE_MAX_CHARS
 # The route fixtures (stubbed-ML app, both tokens) — imported so pytest sees them.
 from backend.tests.test_library_routes import (  # noqa: F401
     agent,
+    capforge_file,
     client,
     home,
     main_module,
@@ -150,11 +151,10 @@ def package(client, video_id: str, **params):
     return client.get(f"{BASE}/{video_id}/package", params=params, headers=agent())
 
 
-def test_the_package_refuses_channel_with_platform_and_unknown_or_missing_posts(client, media):
+def test_the_package_refuses_an_unknown_channel_or_a_missing_post(client, media):
     tt = new_channel(client, "tiktok", "Clips")
     video_id = new_record(client, media)["id"]
 
-    assert package(client, video_id, channel=tt, platform="youtube").status_code == 422
     assert package(client, video_id, channel="nowhere").status_code == 404
     missing = package(client, video_id, channel=tt)
     assert missing.status_code == 404 and missing.json()["reason"] == "no_post"
@@ -281,6 +281,29 @@ def test_an_unknown_import_channel_is_refused_before_anything_is_imported(client
         assert r.status_code == 422 and r.json()["reason"] == "unknown_channel", path
 
     assert client.get(BASE, headers=agent()).json()["videos"] == []
+
+
+def test_import_project_passes_channels_and_refuses_an_unknown_one(client, media, tmp_path):
+    """The one create route PR 4 had to close (contract Part C → Backend gap)."""
+    tt = new_channel(client, "tiktok", "Clips")
+    path = capforge_file(tmp_path, media)
+
+    refused = client.post(f"{BASE}/import-project",
+                          json={"path": str(path), "channels": ["nowhere"]}, headers=agent())
+    created = client.post(f"{BASE}/import-project", json={"path": str(path), "channels": [tt]},
+                          headers=agent())
+
+    assert refused.status_code == 422 and refused.json()["reason"] == "unknown_channel"
+    assert created.status_code == 201 and list(created.json()["posts"]) == [tt]
+    assert client.get(BASE, headers=agent()).json()["videos"] != []
+
+
+def test_import_project_without_channels_is_unchanged(client, media, tmp_path):
+    path = capforge_file(tmp_path, media)
+
+    created = client.post(f"{BASE}/import-project", json={"path": str(path)}, headers=agent())
+
+    assert created.status_code == 201 and created.json()["posts"] == {}
 
 
 def test_import_paths_and_folder_pass_channels_to_created_records(client, media, tmp_path):

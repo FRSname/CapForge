@@ -136,6 +136,7 @@ def create(client, media, **body) -> dict:
     ("patch", "/api/library/brief"),
     ("post", "/api/library/validate"),
     ("get", "/api/library/abc/package"),
+    ("post", "/api/library/abc/posts/xyz/draft?from=abc"),
 ])
 def test_every_route_401s_without_a_token(client, method, path):
     # httpx's delete() takes no body, so the bodyless methods are grouped.
@@ -704,15 +705,6 @@ def test_package_uses_the_stored_brief(client, media):
                  headers=agent(**{"If-Match": "2"}))
 
     assert "Made with CapForge." in package(client, video_id).json()["text"]
-
-
-def test_package_refuses_any_platform_but_youtube(client, media):
-    video_id = transcribed_record(client, media)
-
-    r = package(client, video_id, platform="tiktok")
-
-    assert r.status_code == 400
-    assert "youtube" in r.json()["detail"]
 
 
 def test_package_without_a_transcript_still_renders(client, media):

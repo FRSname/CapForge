@@ -18,7 +18,9 @@ import type { ChannelPublishController, ChannelTab } from '../../lib/channelPubl
 import { channelPublishController, unclaimedPostViolations } from '../../lib/channelPublishView'
 import type { PostField } from '../../lib/publishPosts'
 import { bodyFieldFor, hasCoverField } from '../../lib/platformSpecs'
+import { writeStartFromDraft } from '../../lib/publishStartFrom'
 import { ChannelLanguageChip } from './ChannelLanguageChip'
+import { StartFromStrip } from './StartFromStrip'
 import { DescriptionCard } from './DescriptionCard'
 import { FieldViolations } from './FieldViolations'
 import { LocalizedCard } from './LocalizedCard'
@@ -94,6 +96,19 @@ export function ChannelSection({ publish, tab, channels }: ChannelSectionProps) 
   return (
     <>
       <ChannelLanguageChip view={view} />
+      {publish.record && (
+        <StartFromStrip
+          videoId={publish.record.id}
+          tab={tab}
+          platform={platform}
+          record={publish.record}
+          body={view.post[bodyFieldFor(platform)]}
+          channels={channels.channels}
+          platforms={channels.platforms}
+          onDraft={(patch) => writeStartFromDraft(patch, view.setPostField)}
+          notify={channels.notify}
+        />
+      )}
       {platform === 'youtube' ? (
         <YoutubeCards view={view} />
       ) : (

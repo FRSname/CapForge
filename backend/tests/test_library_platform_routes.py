@@ -1,7 +1,11 @@
-"""``GET /api/library/{id}/package?platform=linkedin|x|instagram`` (publish-editors C1).
+"""``POST /api/library/{id}/posts/{channel}/draft?from=<channel>`` — "Start from…".
 
-Same record, effective brief and ``lang`` view as the YouTube package; the
-answer is ``{platform, text, violations, description: null}``.
+docs/plans/multi-channel-pr4-contract.md Part A. One tab's text rendered as
+another tab's draft: the same three platform layouts the package route used to
+serve under ``?platform=``, now reached as "start an Instagram post from the
+YouTube tab". The route **never stores anything** — no write, no ``rev`` bump,
+no history — and the target channel's default hashtags stay out of the body,
+because ``pasted_text`` adds them when the post is copied.
 """
 
 from __future__ import annotations
@@ -9,7 +13,6 @@ from __future__ import annotations
 import pytest
 
 from backend.library import posters
-from backend.library.package import FULL_VIDEO_URL_PLACEHOLDER
 
 # The route fixtures (stubbed-ML app, both tokens) — imported so pytest sees them.
 from backend.tests.test_library_routes import (  # noqa: F401
@@ -21,14 +24,26 @@ from backend.tests.test_library_routes import (  # noqa: F401
     main_module,
     media,
     project,
-    transcribed_record,
 )
 
+BASE = "/api/library"
+PRIMARY = "youtube-channel"
+DURATION_S = 600.0
 URL = "https://youtu.be/abc123"
-SOCIAL = ("linkedin", "x", "instagram")
+TITLE = "Captions without a render farm"
+SHORT = "How CapForge renders captions locally."
 #: Longer than the 150-character hook, so the paragraph break trips no house rule.
 FIRST_PARAGRAPH = " ".join(["The render farm was the bottleneck."] * 5)
 DESCRIPTION = f"{FIRST_PARAGRAPH}\n\nHere is what we run instead."
+HASHTAGS = ["captions", "whisper", "ffmpeg"]
+MOMENTS = "In this video:\n00:00 Intro\n01:00 Middle\n03:00 End"
+
+#: platform → (the post field its body lands in, the body a YouTube tab becomes).
+SOCIAL_DRAFTS = {
+    "linkedin": ("text", f"{SHORT}\n\n{DESCRIPTION}\n\n{MOMENTS}\n\nWatch: {URL}"),
+    "x": ("text", f"{TITLE}\n\n{URL}"),
+    "instagram": ("caption", f"{SHORT}\n\nLink in bio"),
+}
 
 
 @pytest.fixture(autouse=True)
@@ -36,161 +51,187 @@ def _no_poster_grabs(monkeypatch):
     monkeypatch.setattr(posters, "start_grab", lambda store, record, on_changed=None: None)
 
 
-def package(client, video_id: str, **params):
-    return client.get(f"/api/library/{video_id}/package", params=params, headers=agent())
+def new_channel(client, platform: str, name: str, **body) -> str:
+    r = client.post(f"{BASE}/channels", json={"platform": platform, "name": name, **body},
+                    headers=agent())
+    assert r.status_code == 201, r.text
+    return r.json()["id"]
 
 
 def patched(client, video_id: str, body: dict) -> dict:
-    rev = client.get(f"/api/library/{video_id}", headers=agent()).json()["rev"]
-    r = client.patch(f"/api/library/{video_id}", json=body,
-                     headers=agent(**{"If-Match": str(rev)}))
+    rev = client.get(f"{BASE}/{video_id}", headers=agent()).json()["rev"]
+    r = client.patch(f"{BASE}/{video_id}", json=body, headers=agent(**{"If-Match": str(rev)}))
     assert r.status_code == 200, r.text
     return r.json()
 
 
-def rules(body: dict) -> list[tuple[str, str]]:
-    return [(v["field"], v["rule"]) for v in body["violations"]]
-
-
-def published_record(client, media, **extra) -> str:
-    video_id = transcribed_record(client, media)
-    patched(client, video_id, {
-        "title": "Captions without a render farm",
-        "short_description": "How CapForge renders captions locally.",
+def published_record(client, media, *, channels=(), **extra) -> str:
+    """A record with a filled primary (YouTube) post, and an empty post per channel."""
+    rec = create(client, media, channels=list(channels))
+    client.put(f"{BASE}/{rec['id']}/project", json=project(duration=DURATION_S), headers=agent())
+    patched(client, rec["id"], {
+        "title": TITLE,
+        "short_description": SHORT,
         "description": DESCRIPTION,
         "chapters": LEGAL_CHAPTERS,
-        "hashtags": ["captions", "whisper", "ffmpeg"],
+        "hashtags": list(HASHTAGS),
         "publish": {"youtube": {"url": URL}},
         **extra,
     })
-    return video_id
+    return rec["id"]
 
 
-@pytest.mark.parametrize("platform", SOCIAL)
-def test_each_platform_answers_the_package_shape_with_no_description(client, media, platform) -> None:
-    video_id = published_record(client, media)
+def draft(client, video_id: str, channel_id: str, source: str):
+    return client.post(f"{BASE}/{video_id}/posts/{channel_id}/draft",
+                       params={"from": source}, headers=agent())
 
-    r = package(client, video_id, platform=platform)
+
+# --- the shapes ---------------------------------------------------------------------
+
+@pytest.mark.parametrize("platform", sorted(SOCIAL_DRAFTS))
+def test_each_platform_drafts_its_own_post_from_the_youtube_tab(client, media, platform) -> None:
+    field, body = SOCIAL_DRAFTS[platform]
+    target = new_channel(client, platform, f"Filip {platform}")
+    video_id = published_record(client, media, channels=[target])
+
+    r = draft(client, video_id, target, PRIMARY)
 
     assert r.status_code == 200, r.text
-    body = r.json()
-    assert set(body) == {"platform", "text", "violations", "description"}
-    assert body["platform"] == platform
-    assert body["description"] is None
-    assert body["violations"] == []
-    assert "\r" not in body["text"] and not body["text"].endswith("\n")
+    answer = r.json()
+    assert set(answer) == {"channel", "from", "platform", "fields"}
+    assert (answer["channel"], answer["from"], answer["platform"]) == (target, PRIMARY, platform)
+    assert answer["fields"] == {field: body, "hashtags": HASHTAGS}
 
 
-def test_the_three_posts_as_rendered(client, media) -> None:
+def test_a_draft_carries_no_findings(client, media) -> None:
+    """The text is a draft the user has not accepted; ``POST /validate`` judges it
+    once it lands — an over-limit body is still handed back."""
+    target = new_channel(client, "linkedin", "Filip LI")
+    long_description = "D " * 1600  # legal on the record, past LinkedIn's 3000
+    video_id = published_record(client, media, channels=[target],
+                                description=long_description)
+
+    answer = draft(client, video_id, target, PRIMARY).json()
+
+    assert "violations" not in answer
+    assert len(answer["fields"]["text"]) > 3000
+
+
+def test_the_targets_default_hashtags_are_neither_pasted_twice_nor_in_the_body(
+    client, media
+) -> None:
+    target = new_channel(client, "instagram", "Filip IG",
+                         profile={"default_hashtags": ["FilipIG"]})
+    video_id = published_record(client, media, channels=[target])
+
+    fields = draft(client, video_id, target, PRIMARY).json()["fields"]
+
+    assert "FilipIG" not in fields["caption"] and "#" not in fields["caption"]
+    assert fields["hashtags"] == HASHTAGS
+
+
+def test_a_youtube_target_takes_the_source_body_and_never_a_title(client, media) -> None:
+    second = new_channel(client, "youtube", "Second")
+    video_id = published_record(client, media, channels=[second])
+
+    fields = draft(client, video_id, second, PRIMARY).json()["fields"]
+
+    assert fields == {"description": DESCRIPTION, "short_description": SHORT,
+                      "hashtags": HASHTAGS}
+
+
+def test_a_non_youtube_source_maps_its_body_onto_the_draft(client, media) -> None:
+    source = new_channel(client, "linkedin", "Filip LI")
+    target = new_channel(client, "instagram", "Filip IG")
+    video_id = published_record(client, media, channels=[source, target])
+    patched(client, video_id, {"posts": {source: {"text": "A LinkedIn post.\n\nTwo paragraphs.",
+                                                  "hashtags": ["devops"]}}})
+
+    to_youtube = draft(client, video_id, PRIMARY, source).json()["fields"]
+    to_instagram = draft(client, video_id, target, source).json()["fields"]
+
+    assert to_youtube == {"description": "A LinkedIn post.\n\nTwo paragraphs.",
+                          "short_description": "", "hashtags": ["devops"]}
+    # Instagram's own layout, over the LinkedIn body: no short description, so the
+    # first paragraph is the caption.
+    assert to_instagram == {"caption": "A LinkedIn post.\n\nLink in bio",
+                            "hashtags": ["devops"]}
+
+
+def test_a_tiktok_target_has_no_layout_and_takes_the_source_body(client, media) -> None:
+    """TikTok is a channel platform with no post layout (``platform_posts.PLATFORMS``),
+    so the draft is the plain adaptation rather than a 500."""
+    target = new_channel(client, "tiktok", "Clips")
+    video_id = published_record(client, media, channels=[target])
+
+    fields = draft(client, video_id, target, PRIMARY).json()["fields"]
+
+    assert fields == {"caption": DESCRIPTION, "hashtags": HASHTAGS}
+
+
+# --- it never stores ----------------------------------------------------------------
+
+def test_a_draft_leaves_the_record_exactly_as_it_was(client, media) -> None:
+    target = new_channel(client, "linkedin", "Filip LI")
+    video_id = published_record(client, media, channels=[target])
+    before = client.get(f"{BASE}/{video_id}", headers=agent()).json()
+
+    assert draft(client, video_id, target, PRIMARY).status_code == 200
+
+    after = client.get(f"{BASE}/{video_id}", headers=agent()).json()
+    assert after == before
+    assert after["rev"] == before["rev"]
+    assert after["posts"][target] == {**after["posts"][target], "text": "", "hashtags": []}
+
+
+# --- refusals -----------------------------------------------------------------------
+
+def test_an_unknown_record_is_404(client, media) -> None:
+    target = new_channel(client, "x", "Filip X")
+
+    assert draft(client, "nope", target, PRIMARY).status_code == 404
+
+
+@pytest.mark.parametrize("target,source", [("nowhere", PRIMARY), (PRIMARY, "nowhere")])
+def test_an_unknown_channel_on_either_side_is_404(client, media, target, source) -> None:
     video_id = published_record(client, media)
-    tags = "#captions #whisper #ffmpeg"
 
-    linkedin = package(client, video_id, platform="linkedin").json()["text"]
-    x = package(client, video_id, platform="x").json()["text"]
-    instagram = package(client, video_id, platform="instagram").json()["text"]
+    r = draft(client, video_id, target, source)
 
-    assert linkedin == (
-        "How CapForge renders captions locally.\n\n"
-        f"{DESCRIPTION}\n\n"
-        "In this video:\n00:00 Intro\n01:00 Middle\n03:00 End\n\n"
-        f"Watch: {URL}\n\n{tags}"
-    )
-    assert x == f"Captions without a render farm\n\n{URL}\n\n{tags}"
-    assert instagram == f"How CapForge renders captions locally.\n\nLink in bio\n\n{tags}"
+    assert r.status_code == 404
+    assert r.json().get("reason") != "no_post"
 
 
-def test_the_youtube_package_is_unchanged_and_keeps_its_description(client, media) -> None:
+@pytest.mark.parametrize("swap", [False, True])
+def test_a_channel_with_no_post_on_either_side_is_404_no_post(client, media, swap) -> None:
+    other = new_channel(client, "instagram", "Filip IG")
+    video_id = published_record(client, media)  # only the primary has a post
+    target, source = (PRIMARY, other) if swap else (other, PRIMARY)
+
+    r = draft(client, video_id, target, source)
+
+    assert r.status_code == 404
+    assert r.json()["reason"] == "no_post" and other in r.json()["detail"]
+
+
+def test_a_tab_cannot_start_from_itself(client, media) -> None:
+    target = new_channel(client, "linkedin", "Filip LI")
+    video_id = published_record(client, media, channels=[target])
+
+    r = draft(client, video_id, target, target)
+
+    assert r.status_code == 422
+    assert "itself" in r.json()["detail"]
+
+
+def test_the_package_route_no_longer_takes_a_platform(client, media) -> None:
+    """Part B: ``?platform=`` is gone; an unknown query param is simply ignored."""
     video_id = published_record(client, media)
 
-    default = package(client, video_id)
-    explicit = package(client, video_id, platform="youtube")
+    plain = client.get(f"{BASE}/{video_id}/package", headers=agent())
+    with_param = client.get(f"{BASE}/{video_id}/package", params={"platform": "linkedin"},
+                            headers=agent())
 
-    assert default.status_code == explicit.status_code == 200
-    assert explicit.json() == default.json()
-    assert default.json()["platform"] == "youtube"
-    assert default.json()["description"].startswith("The render farm was the bottleneck.")
-    assert default.json()["text"].startswith("TITLE OPTIONS\n")
-
-
-def test_an_unknown_platform_is_still_400_and_names_the_supported_ones(client, media) -> None:
-    video_id = published_record(client, media)
-
-    r = package(client, video_id, platform="tiktok")
-
-    assert r.status_code == 400
-    detail = r.json()["detail"]
-    assert "tiktok" in detail
-    assert all(name in detail for name in ("youtube", "linkedin", "'x'", "instagram"))
-
-
-def test_an_unknown_lang_is_still_404_on_a_platform_post(client, media) -> None:
-    video_id = published_record(client, media)
-
-    assert package(client, video_id, platform="linkedin", lang="fr").status_code == 404
-
-
-def test_a_missing_url_prints_the_placeholder_and_reports_it(client, media) -> None:
-    video_id = published_record(client, media, publish={"youtube": {"url": None}})
-
-    for platform, expected in (("linkedin", ["video_url_missing"]), ("x", ["video_url_missing"]),
-                               ("instagram", [])):
-        body = package(client, video_id, platform=platform).json()
-        assert [rule for _, rule in rules(body)] == expected, platform
-        assert (FULL_VIDEO_URL_PLACEHOLDER in body["text"]) is bool(expected)
-
-
-def test_the_record_findings_ride_first_then_the_posts(client, media) -> None:
-    video_id = published_record(client, media, hashtags=[], publish={"youtube": {"url": None}},
-                                description="A talk — with an em dash.")
-    client.patch("/api/library/brief", json={"house_rules": {"no_em_dashes": True}},
-                 headers=agent())
-
-    body = package(client, video_id, platform="linkedin").json()
-
-    assert rules(body) == [
-        ("description", "no_em_dashes"),
-        ("package.linkedin", "video_url_missing"),
-        ("package.linkedin", "linkedin_hashtags"),
-    ]
-
-
-def test_the_assembled_description_findings_are_youtube_only(client, media) -> None:
-    video_id = published_record(client, media)
-    client.patch("/api/library/brief", json={"description_template": "{{description}} {{nope}}"},
-                 headers=agent())
-
-    youtube = package(client, video_id).json()
-    linkedin = package(client, video_id, platform="linkedin").json()
-
-    assert ("package.description", "unknown_slot") in rules(youtube)
-    assert rules(linkedin) == []
-
-
-def test_an_over_limit_post_is_still_rendered_with_its_hard_finding(client, media) -> None:
-    video_id = published_record(client, media, title="T" * 100, short_description="S" * 200,
-                                description="D " * 1400)
-
-    x = package(client, video_id, platform="x").json()
-    linkedin = package(client, video_id, platform="linkedin").json()
-
-    assert x["text"].startswith("T" * 100) and rules(x) == []
-    assert linkedin["text"].startswith("S" * 200)
-    assert rules(linkedin) == [("package.linkedin", "linkedin_max_chars")]
-    assert linkedin["violations"][0]["severity"] == "hard"
-
-
-def test_lang_renders_the_localized_view_and_names_its_findings(client, media) -> None:
-    video_id = published_record(client, media, localized={"de": {
-        "title": "Untertitel — ohne Renderfarm",
-        "short_description": "Wie CapForge lokal rendert.",
-        "hashtags": ["Untertitel", "Lokal", "Schnell"],
-    }})
-    client.patch("/api/library/brief", json={"house_rules": {"no_em_dashes": True}},
-                 headers=agent())
-
-    x = package(client, video_id, platform="x", lang="de").json()
-    instagram = package(client, video_id, platform="instagram", lang="de").json()
-
-    assert x["text"] == f"Untertitel — ohne Renderfarm\n\n{URL}\n\n#Untertitel #Lokal #Schnell"
-    assert rules(x) == [("localized.de.title", "no_em_dashes")]
-    assert instagram["text"].startswith("Wie CapForge lokal rendert.\n\nLink in bio")
+    assert plain.status_code == with_param.status_code == 200
+    assert with_param.json() == plain.json()
+    assert plain.json()["platform"] == "youtube"

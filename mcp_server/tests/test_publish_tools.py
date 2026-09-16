@@ -27,9 +27,6 @@ EXPECTED_TOOL_COUNT = 61
 
 PACKAGE_TEXT = "TITLE OPTIONS\n1. Kubernetes on a budget\n"
 
-#: A sentinel for "the tool did not pass this argument".
-_UNSET = object()
-
 #: A non-primary channel id (multi-channel PR 2).
 IG_ID = "filip-ig"
 
@@ -100,14 +97,13 @@ class StubClient:
         self.validate_bodies.append(copy.deepcopy(body))
         return {"violations": copy.deepcopy(self.violations)}
 
-    def library_package(self, video_id: str, platform: Any = _UNSET,
-                        lang: Optional[str] = None, channel: Optional[str] = None) -> dict:
-        """Records only the arguments the tool actually passed, so a channel
-        call can be seen to send no platform."""
+    def library_package(self, video_id: str, lang: Optional[str] = None,
+                        channel: Optional[str] = None, **unexpected: Any) -> dict:
+        """Records only the arguments the tool actually passed. ``**unexpected``
+        catches a resurrected `platform` as a recorded call rather than a
+        TypeError, so the test that none is ever sent reads plainly."""
         self._check()
-        call: dict = {"video_id": video_id}
-        if platform is not _UNSET:
-            call = {**call, "platform": platform}
+        call: dict = {"video_id": video_id, **unexpected}
         if lang is not None:
             call = {**call, "lang": lang}
         if channel is not None:
@@ -122,7 +118,7 @@ class StubClient:
                 "description": None,
             }
         return {
-            "platform": platform if platform is not _UNSET else "youtube",
+            "platform": "youtube",
             "text": PACKAGE_TEXT,
             "violations": copy.deepcopy(self.violations),
         }
@@ -280,37 +276,30 @@ def test_get_upload_package_returns_the_text_and_its_violations(monkeypatch) -> 
     assert out["text"] == PACKAGE_TEXT
     assert out["violations"] == [HARD_VIOLATION]
     assert out["platform"] == "youtube"
-    assert stub.package_calls == [{"video_id": VIDEO_ID, "platform": "youtube"}]
+    assert stub.package_calls == [{"video_id": VIDEO_ID}]
 
 
-def test_get_upload_package_rejects_an_unknown_platform_without_a_call(
-    stub: StubClient,
-) -> None:
-    out = publish.get_upload_package(VIDEO_ID, platform="tiktok")
+def test_the_tool_takes_no_platform_and_never_sends_one(stub: StubClient) -> None:
+    """Multi-channel PR 4 Part B: the route dropped `platform`, so the tool did too."""
+    assert not hasattr(publish, "SUPPORTED_PLATFORMS")
+    assert "platform" not in inspect.signature(publish.get_upload_package).parameters
 
-    assert out["status"] == "error"
-    assert "tiktok" in out["error"] and "youtube" in out["error"]
-    assert stub.package_calls == []
+    publish.get_upload_package(VIDEO_ID)
+    publish.get_upload_package(VIDEO_ID, lang="de")
+    publish.get_upload_package(VIDEO_ID, channel=IG_ID)
 
-
-@pytest.mark.parametrize("platform", ["linkedin", "x", "instagram"])
-def test_get_upload_package_renders_the_other_platforms(stub: StubClient, platform: str) -> None:
-    out = publish.get_upload_package(VIDEO_ID, platform=platform, lang="de")
-
-    assert out["status"] == "ok"
-    assert out["platform"] == platform
-    assert stub.package_calls == [{"video_id": VIDEO_ID, "platform": platform, "lang": "de"}]
+    assert stub.package_calls == [
+        {"video_id": VIDEO_ID},
+        {"video_id": VIDEO_ID, "lang": "de"},
+        {"video_id": VIDEO_ID, "channel": IG_ID},
+    ]
 
 
-def test_the_supported_platforms_are_the_four_the_backend_renders() -> None:
-    assert publish.SUPPORTED_PLATFORMS == ("youtube", "linkedin", "x", "instagram")
-
-
-def test_get_upload_package_explains_each_post_and_that_nothing_is_posted() -> None:
+def test_get_upload_package_explains_the_channel_posts_and_that_nothing_is_posted() -> None:
     doc = " ".join((publish.get_upload_package.__doc__ or "").split())
 
-    for words in ("LinkedIn", "X", "Instagram", "Link in bio", "3000", "280", "2200",
-                  "23", "nothing is posted", "emoji", "[FULL VIDEO URL]"):
+    for words in ("TikTok, Instagram, LinkedIn or X", "clipboard text",
+                  "nothing is posted", "no `platform` argument", "no_post"):
         assert words in doc, words
 
 
@@ -318,7 +307,7 @@ def test_get_upload_package_passes_a_language_through(stub: StubClient) -> None:
     out = publish.get_upload_package(VIDEO_ID, lang="pl")
 
     assert out["status"] == "ok"
-    assert stub.package_calls == [{"video_id": VIDEO_ID, "platform": "youtube", "lang": "pl"}]
+    assert stub.package_calls == [{"video_id": VIDEO_ID, "lang": "pl"}]
 
 
 def test_validate_video_sends_lang_only_when_given(stub: StubClient) -> None:
@@ -523,7 +512,7 @@ def test_get_upload_package_for_a_channel_relays_channel_and_platform(stub: Stub
 
     assert out == {"status": "ok", "channel": IG_ID, "platform": "tiktok",
                    "text": PACKAGE_TEXT, "violations": []}
-    # No platform is sent beside a channel: the route refuses both together.
+    # The platform in the answer is the channel's, never one the tool sent.
     assert stub.package_calls == [{"video_id": VIDEO_ID, "channel": IG_ID}]
 
 
@@ -536,24 +525,6 @@ def test_get_upload_package_for_a_youtube_channel_relays_its_platform(monkeypatc
     assert out["platform"] == "youtube" and out["channel"] == "update-conf"
     assert out["violations"] == [HARD_VIOLATION]
     assert stub.package_calls == [{"video_id": VIDEO_ID, "lang": "pl", "channel": "update-conf"}]
-
-
-@pytest.mark.parametrize("platform", ["linkedin", "x", "instagram"])
-def test_a_channel_with_a_non_default_platform_is_refused_without_a_call(
-    stub: StubClient, platform: str
-) -> None:
-    out = publish.get_upload_package(VIDEO_ID, platform=platform, channel=IG_ID)
-
-    assert out["status"] == "error"
-    assert "'channel' or 'platform', not both" in out["error"] and platform in out["error"]
-    assert stub.package_calls == []
-
-
-def test_an_explicit_youtube_platform_beside_a_channel_is_the_default(stub: StubClient) -> None:
-    out = publish.get_upload_package(VIDEO_ID, platform="youtube", channel=IG_ID)
-
-    assert out["status"] == "ok"
-    assert stub.package_calls == [{"video_id": VIDEO_ID, "channel": IG_ID}]
 
 
 def test_a_channel_with_no_post_comes_back_as_the_backends_sentence(monkeypatch) -> None:
@@ -576,8 +547,7 @@ def test_the_channel_parameters_are_the_contracts() -> None:
     validate = inspect.signature(publish.validate_video).parameters
     assert list(validate) == ["video_id", "lang", "channel"]
     package = inspect.signature(publish.get_upload_package).parameters
-    assert list(package) == ["video_id", "platform", "lang", "channel"]
-    assert package["platform"].default == "youtube"
+    assert list(package) == ["video_id", "lang", "channel"]
     assert validate["channel"].default is None and package["channel"].default is None
 
 
@@ -587,5 +557,6 @@ def test_the_channel_docstrings_name_the_post_and_the_refusal() -> None:
                   "primary channel's post"):
         assert words in validate, words
     package = " ".join((publish.get_upload_package.__doc__ or "").split())
-    for words in ("channel", "platform", "is refused", "no_post", "primary channel's package"):
+    for words in ("channel", "a channel names its platform", "no_post",
+                  "primary channel's package"):
         assert words in package, words

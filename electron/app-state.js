@@ -11,6 +11,10 @@
  *   lastPreset       string   — last selected style preset name
  *   lastInputPath    string   — last audio/video file opened
  *   favoriteFonts    string[] — font families pinned to the top of the picker
+ *   lastPublishChannels
+ *                    string[] — channel ids the last import published to; the
+ *                               import "Publish to:" sheet pre-ticks them, and
+ *                               drops any the Settings list no longer has
  *   whisper_model    string   — chosen Whisper model id ('' = auto-detect);
  *                               seeded by first-run setup, edited in Settings
  *

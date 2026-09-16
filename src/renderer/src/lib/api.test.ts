@@ -527,8 +527,23 @@ describe('CapForgeAPI', () => {
       const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
       expect(url).toBe('http://127.0.0.1:53421/api/library')
       expect(init.method).toBe('POST')
+      // No channel picked: byte-identical to the request before PR 4.
       expect(init.body).toBe(JSON.stringify({ source_path: '/media/Talk.mp4' }))
       expect(record.rev).toBe(5)
+    })
+
+    test('createLibraryRecord carries the picked channels, and an empty choice no key', async () => {
+      fetchMock.mockResolvedValue(jsonResponse(ROW))
+      await api.createLibraryRecord('/media/Talk.mp4', ['uck', 'filip-ig'])
+      expect(JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body))).toEqual(
+        { source_path: '/media/Talk.mp4', channels: ['uck', 'filip-ig'] }
+      )
+
+      fetchMock.mockResolvedValue(jsonResponse(ROW))
+      await api.createLibraryRecord('/media/Talk.mp4', [])
+      expect(JSON.parse(String((fetchMock.mock.calls[1] as [string, RequestInit])[1].body))).toEqual(
+        { source_path: '/media/Talk.mp4' }
+      )
     })
 
     test('putLibraryProject PUTs the snapshot into the record', async () => {
@@ -559,7 +574,7 @@ describe('CapForgeAPI', () => {
       fetchMock.mockResolvedValueOnce(jsonResponse(ROW))
       fetchMock.mockResolvedValueOnce(jsonResponse({ imported: ['a'], skipped: [] }))
 
-      await api.importLibraryProject('/p/x.capforge')
+      await api.importLibraryProject('/p/x.capforge', [])
       const migration = await api.migrateStudioWorkspaces()
 
       expect((fetchMock.mock.calls[0] as [string, RequestInit])[0]).toBe(
@@ -827,40 +842,34 @@ describe('publish routes', () => {
     expect(violations[0].severity).toBe('hard')
   })
 
-  test('getUploadPackage asks for a platform and keeps the violations riding along', async () => {
+  test('getUploadPackage asks for the record’s package and keeps the violations riding along', async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ platform: 'youtube', text: 'TITLE OPTIONS', violations: [] })
     )
 
     const pkg = await api.getUploadPackage('vid_1')
 
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'http://127.0.0.1:53421/api/library/vid_1/package?platform=youtube'
-    )
+    // No `platform=`: the route lost it in PR 4, and a channel names its own.
+    expect(fetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:53421/api/library/vid_1/package')
     expect(pkg.text).toBe('TITLE OPTIONS')
   })
 
   test('getUploadPackage asks for a language when one is given', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ platform: 'youtube', text: 'TYTUŁ', violations: [] }))
 
-    await api.getUploadPackage('vid_1', 'youtube', 'pt-BR')
+    await api.getUploadPackage('vid_1', 'pt-BR')
 
     expect(fetchMock.mock.calls[0][0]).toBe(
-      'http://127.0.0.1:53421/api/library/vid_1/package?platform=youtube&lang=pt-BR'
+      'http://127.0.0.1:53421/api/library/vid_1/package?lang=pt-BR'
     )
   })
 
-  test('getUploadPackage asks for another platform, with a language', async () => {
+  test('a package without a description parses as null rather than throwing', async () => {
     fetchMock.mockResolvedValue(
-      jsonResponse({ platform: 'linkedin', text: 'Hook', violations: [], description: null })
+      jsonResponse({ platform: 'youtube', text: 'Hook', violations: [], description: null })
     )
 
-    const pkg = await api.getUploadPackage('vid_1', 'linkedin', 'de')
-
-    expect(fetchMock.mock.calls[0][0]).toBe(
-      'http://127.0.0.1:53421/api/library/vid_1/package?platform=linkedin&lang=de'
-    )
-    expect(pkg.description).toBeNull()
+    expect((await api.getUploadPackage('vid_1')).description).toBeNull()
   })
 
   test('getLibraryMoments returns the usable matches only', async () => {
