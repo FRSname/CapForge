@@ -3,6 +3,7 @@
  */
 
 import type { FolderActions } from '../../hooks/useFolderActions'
+import type { LibrarySelectionActions } from '../../hooks/useLibraryItems'
 import type { CollectionSummary } from '../../lib/collectionTypes'
 import { EMPTY_OVERRIDES } from '../../lib/collectionTypes'
 import type { LibraryVideo } from '../../lib/libraryTypes'
@@ -54,4 +55,11 @@ export const NOOP_FOLDER_ACTIONS: FolderActions = {
   deleteFolder: () => {},
   adoptOrphan: () => {},
   openFolderSettings: () => {},
+}
+
+export const NOOP_SELECTION_ACTIONS: Omit<LibrarySelectionActions, 'onOpen'> = {
+  onRenameVideo: () => Promise.resolve({ kind: 'renamed' }),
+  onRemoveVideos: () => {},
+  onDeleteVideos: () => {},
+  onMoveSelection: () => {},
 }

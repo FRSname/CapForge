@@ -21,6 +21,8 @@ export interface FolderItemUi {
   /** Never rejects. */
   onRename: (folderId: string, name: string) => Promise<RenameFolderResult>
   onStopRename: () => void
+  /** Turn this folder's name into an input on this surface. */
+  onStartRename: (folderId: string) => void
 }
 
 /** Does nothing — for static markup. */
@@ -31,6 +33,7 @@ export const INERT_FOLDER_ITEM_UI: FolderItemUi = {
   onOpenMenu: () => {},
   onRename: () => Promise.resolve({ kind: 'renamed' }),
   onStopRename: () => {},
+  onStartRename: () => {},
 }
 
 /** The drop affordance: the accent border and a subtle accent fill. */

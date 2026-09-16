@@ -186,19 +186,23 @@ export function moveVideosFailedMessage(failures: readonly string[], total: numb
   return `Couldn't move ${failures.length} of ${total}: ${failures[0]}${more}`
 }
 
+export interface MoveEachResult {
+  moved: number
+  /** One message per video that did not move, in order. */
+  failures: string[]
+}
+
 /**
- * Move a batch (a drop, a card's menu) one video at a time through
- * `runMoveToCollection`, then refresh the list and the folders (their counts
- * changed) **once**, and toast every failure as one summary. One failure never
- * stops the rest. Never rejects; returns how many moved.
+ * Move each video through `runMoveToCollection` with no refresh and no toast:
+ * the failures are collected for the caller's one summary. One failure never
+ * stops the rest. Never rejects.
  */
-export async function runMoveVideos(
+export async function moveEachVideo(
   videos: ReadonlyArray<Pick<LibraryVideo, 'id' | 'title' | 'sourcePath'>>,
   collectionId: string | null,
   collections: ReadonlyArray<Pick<CollectionSummary, 'id' | 'name'>>,
-  deps: MoveDeps
-): Promise<number> {
-  if (videos.length === 0) return 0
+  deps: AssignDeps
+): Promise<MoveEachResult> {
   const failures: string[] = []
   const quiet: MoveDeps = {
     ...deps,
@@ -210,6 +214,22 @@ export async function runMoveVideos(
   for (const video of videos) {
     if (await runMoveToCollection(video, collectionId, collections, quiet)) moved += 1
   }
+  return { moved, failures }
+}
+
+/**
+ * Move a batch (a drop, a card's menu) one video at a time (`moveEachVideo`),
+ * then refresh the list and the folders (their counts changed) **once**, and
+ * toast every failure as one summary. Never rejects; returns how many moved.
+ */
+export async function runMoveVideos(
+  videos: ReadonlyArray<Pick<LibraryVideo, 'id' | 'title' | 'sourcePath'>>,
+  collectionId: string | null,
+  collections: ReadonlyArray<Pick<CollectionSummary, 'id' | 'name'>>,
+  deps: MoveDeps
+): Promise<number> {
+  if (videos.length === 0) return 0
+  const { moved, failures } = await moveEachVideo(videos, collectionId, collections, deps)
   await deps.refresh()
   await deps.refreshCollections()
   if (failures.length > 0) deps.notify(moveVideosFailedMessage(failures, videos.length))

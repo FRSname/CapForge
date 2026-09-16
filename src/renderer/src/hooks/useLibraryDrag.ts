@@ -49,7 +49,11 @@ export interface DropTargetBinding {
 }
 
 export interface LibraryDrag {
-  videoSource: (video: LibraryVideo) => DragSourceProps
+  /**
+   * `ids`: what the drag carries, asked for when it starts (the selected videos
+   * when this one is among them); absent, the video alone.
+   */
+  videoSource: (video: LibraryVideo, ids?: () => readonly string[]) => DragSourceProps
   folderSource: (folderId: string) => DragSourceProps
   /** `targetId`: a folder, or null for the Library root. `key` tells same-id targets apart. */
   target: (targetId: string | null, key: string) => DropTargetBinding
@@ -122,9 +126,9 @@ export function useLibraryDrag(input: LibraryDragInput): LibraryDrag {
   }
 
   return {
-    videoSource: (video) => ({
+    videoSource: (video, ids) => ({
       draggable: true,
-      onDragStart: (e) => start(e, { kind: 'videos', ids: [video.id] }),
+      onDragStart: (e) => start(e, { kind: 'videos', ids: ids ? ids() : [video.id] }),
       onDragEnd: end,
     }),
     folderSource: (folderId) => ({

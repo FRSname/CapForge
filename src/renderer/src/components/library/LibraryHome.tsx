@@ -15,7 +15,8 @@
  * screen: the remembered layout/size/sort/location/sidebar
  * (`useLibraryViewPrefs`), the search field (`useLibrarySearch`, cleared on
  * leaving), the channel names the list view shows, the folder actions
- * (`useLibraryCollectionActions`, `useFolderActions`), and ⌘O → Import…
+ * (`useLibraryCollectionActions`, `useFolderActions`), the selection's bulk
+ * Remove / Delete / Move to… and the video rename (`useRecordRename`), and ⌘O → Import…
  * (`useLibraryImportShortcut`), which is why that shortcut does nothing on any
  * other screen.
  */
@@ -34,6 +35,7 @@ import { useLibraryImportShortcut } from '../../hooks/useLibraryImportShortcut'
 import { useLibraryMigration } from '../../hooks/useLibraryMigration'
 import { useLibrarySearch } from '../../hooks/useLibrarySearch'
 import { useLibraryViewPrefs } from '../../hooks/useLibraryViewPrefs'
+import { useRecordRename } from '../../hooks/useRecordRename'
 import { LibraryScreen } from './LibraryScreen'
 
 export interface LibraryHomeProps {
@@ -55,14 +57,16 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
   const { toast } = useToast()
   // Asked once per import, before any request: the sheet is mounted below.
   const importChannels = useImportChannels({ inform: (message) => toast(message, 'info') })
+  // The folder tree, its counts and the card chips; re-read on every visit.
+  const { collections, refresh: refreshCollections } = useCollections({ notify })
   const actions = useLibraryActions({
     refresh,
+    refreshCollections,
     notify,
     inform: toast,
     askChannels: importChannels.ask,
   })
-  // The folder tree, its counts and the card chips; re-read on every visit.
-  const { collections, refresh: refreshCollections } = useCollections({ notify })
+  const renameVideo = useRecordRename({ refresh, notify })
   const collectionActions = useLibraryCollectionActions({
     collections,
     refresh,
@@ -107,6 +111,12 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
         onMoveVideos={(moving, collectionId) =>
           void collectionActions.moveVideos(moving, collectionId)
         }
+        onMoveSelection={(moving, folderIds, targetId) =>
+          void collectionActions.moveSelection(moving, folderIds, targetId)
+        }
+        onRemoveVideos={(removing) => void actions.removeRecords(removing)}
+        onDeleteVideos={(deleting) => void actions.deleteRecords(deleting)}
+        onRenameVideo={renameVideo}
         folderActions={folderActions}
         view={prefs}
         onViewChange={setPrefs}

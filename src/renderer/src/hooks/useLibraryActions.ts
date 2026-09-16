@@ -15,11 +15,16 @@
  * it earned (`libraryImportSummary.ts`). A request that fails is named inside
  * that summary rather than toasted on its own; one failure never stops the rest.
  * Every other failure is toasted through `notify`; none is swallowed.
+ *
+ * A multi-selection's Remove / Delete runs the same one-record requests
+ * (`removeOne`, `deleteOne`) through `runBulkRecords` (`lib/libraryBulk.ts`):
+ * one refresh and one failure summary for the whole batch.
  */
 
 import { useCallback, useRef } from 'react'
 import { api } from '../lib/api'
 import { importWhatLabel } from '../lib/importChannels'
+import { deleteFailedMessage, removeFailedMessage, runBulkRecords } from '../lib/libraryBulk'
 import {
   RelinkRefusedError,
   importLibraryFolder,
@@ -50,6 +55,8 @@ import { displayTitle } from '../lib/libraryView'
 export interface LibraryActionsInput {
   /** Re-read the list after a record appears or disappears. */
   refresh: () => Promise<void>
+  /** Re-read the folders (their counts) after a batch; absent, only the list is re-read. */
+  refreshCollections?: () => Promise<void>
   /** App's toast relay — every failure here is reported, none swallowed. */
   notify: (message: string) => void
   /** The import summary, shown with the tone it earned (success / info / error). */
@@ -66,6 +73,10 @@ export interface LibraryActions {
   removeRecord: (video: LibraryVideo) => Promise<void>
   /** Un-index the record and move its folder to the Trash. */
   deleteRecord: (video: LibraryVideo) => Promise<void>
+  /** Remove a batch: one refresh, one failure summary. Never rejects. */
+  removeRecords: (videos: readonly LibraryVideo[]) => Promise<void>
+  /** Delete a batch: one refresh, one failure summary. Never rejects. */
+  deleteRecords: (videos: readonly LibraryVideo[]) => Promise<void>
   /** Import…: open the picker in `mode`, then import everything picked. */
   pickAndImport: (mode: ImportPickMode) => Promise<void>
   /** Run an import plan (a drop), toast one summary, refresh once. */
@@ -76,12 +87,18 @@ export interface LibraryActions {
   forceLocate: (video: LibraryVideo, path: string) => Promise<void>
 }
 
-export function removeFailedMessage(title: string, reason: string): string {
-  return `Could not remove ${title} from the library: ${reason}`
+export { deleteFailedMessage, removeFailedMessage }
+
+/** Hide one record; every file it holds is kept. Rejects on failure. */
+export async function removeOne(video: Pick<LibraryVideo, 'id'>): Promise<void> {
+  await api.deleteLibraryRecord(video.id, 'remove')
 }
 
-export function deleteFailedMessage(title: string, reason: string): string {
-  return `Could not delete ${title}: ${reason}`
+/** Un-index one record, then trash its folder (the backend never deletes files). Rejects on failure. */
+export async function deleteOne(video: Pick<LibraryVideo, 'id'>): Promise<void> {
+  const { folder } = await api.deleteLibraryRecord(video.id, 'detach')
+  // The record is already gone from the index; the folder is ours to trash.
+  if (folder) await window.subforge.trashLibraryFolder(folder)
 }
 
 export function importPickerFailedMessage(reason: string): string {
@@ -188,7 +205,7 @@ export function useLibraryActions(input: LibraryActionsInput): LibraryActions {
 
   const removeRecord = useCallback(async (video: LibraryVideo): Promise<void> => {
     try {
-      await api.deleteLibraryRecord(video.id, 'remove')
+      await removeOne(video)
       await inputRef.current.refresh()
     } catch (err) {
       inputRef.current.notify(removeFailedMessage(video.title || video.id, reasonOf(err)))
@@ -197,14 +214,25 @@ export function useLibraryActions(input: LibraryActionsInput): LibraryActions {
 
   const deleteRecord = useCallback(async (video: LibraryVideo): Promise<void> => {
     try {
-      const { folder } = await api.deleteLibraryRecord(video.id, 'detach')
-      // The record is already gone from the index; the folder is ours to trash.
-      if (folder) await window.subforge.trashLibraryFolder(folder)
+      await deleteOne(video)
       await inputRef.current.refresh()
     } catch (err) {
       inputRef.current.notify(deleteFailedMessage(video.title || video.id, reasonOf(err)))
     }
   }, [])
+
+  const runBulk = useCallback(
+    async (kind: 'remove' | 'delete', videos: readonly LibraryVideo[]): Promise<void> => {
+      await runBulkRecords(kind, videos, {
+        removeOne,
+        deleteOne,
+        refresh: () => inputRef.current.refresh(),
+        refreshCollections: () => inputRef.current.refreshCollections?.() ?? Promise.resolve(),
+        notify: (message) => inputRef.current.notify(message),
+      })
+    },
+    []
+  )
 
   const runImport = useCallback(async (plan: ImportPlan): Promise<void> => {
     if (isEmptyPlan(plan)) return
@@ -273,6 +301,8 @@ export function useLibraryActions(input: LibraryActionsInput): LibraryActions {
   return {
     removeRecord,
     deleteRecord,
+    removeRecords: (videos) => runBulk('remove', videos),
+    deleteRecords: (videos) => runBulk('delete', videos),
     pickAndImport,
     runImport,
     locate,

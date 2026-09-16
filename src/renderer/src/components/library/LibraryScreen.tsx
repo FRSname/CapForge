@@ -33,6 +33,7 @@ import type { FolderMenuState, FolderSurface } from '../../hooks/useFolderMenu'
 import { useFolderMenu } from '../../hooks/useFolderMenu'
 import type { ChannelNames } from '../../hooks/useLibraryChannels'
 import type { LibraryDrag } from '../../hooks/useLibraryDrag'
+import type { LibrarySelectionActions } from '../../hooks/useLibraryItems'
 import { useLibraryDrag } from '../../hooks/useLibraryDrag'
 import { useLibraryLocation } from '../../hooks/useLibraryLocation'
 import type { LibrarySearchView } from '../../hooks/useLibrarySearch'
@@ -53,15 +54,13 @@ import { LibrarySidebar } from './LibrarySidebar'
 
 export { droppedNotMediaMessage } from '../../lib/libraryImport'
 
-export interface LibraryScreenProps {
+export interface LibraryScreenProps extends LibrarySelectionActions {
   videos: LibraryVideo[]
   /** The folders (collections), flat; null/absent until they load. */
   collections?: readonly CollectionSummary[] | null
   /** Channel names for the list's "Published on"; null/absent shows the ids. */
   channels?: ChannelNames | null
   loading: boolean
-  /** A card was clicked — restore its session, or go transcribe its file. */
-  onOpen: (video: LibraryVideo) => void
   /** Toolbar: go to the drop screen. */
   onAddVideo: () => void
   /** Import… (toolbar and empty state): open the picker in this mode, import what is picked. */
@@ -196,6 +195,7 @@ function folderItemUi(
     onOpenMenu: (folder, point) => menu.openMenu(folder, surface, point),
     onRename: props.folderActions.renameFolder,
     onStopRename: menu.stopRename,
+    onStartRename: (folderId) => menu.startRename(folderId, surface),
   }
 }
 

@@ -14,6 +14,7 @@ import { DEFAULT_LIBRARY_VIEW_PREFS } from '../../lib/libraryPrefs'
 import { LibraryScreen } from './LibraryScreen'
 import {
   NOOP_FOLDER_ACTIONS,
+  NOOP_SELECTION_ACTIONS,
   folderFixture,
   libraryVideo as video,
 } from './libraryScreenFixtures.testutil'
@@ -67,6 +68,7 @@ function render(options: RenderOptions = {}): string {
       onMoveToCollection={noop}
       onMoveVideos={noop}
       folderActions={NOOP_FOLDER_ACTIONS}
+      {...NOOP_SELECTION_ACTIONS}
       view={view}
       onViewChange={noop}
       search={{ query: options.query ?? '', matchIds: options.matchIds ?? null }}
@@ -119,12 +121,14 @@ describe('the Library root', () => {
   })
 
   test('shows the top-level folders and orphan ids first, then the unfiled videos', () => {
-    expect(html).toContain('Open folder Events')
-    expect(html).toContain('Open folder Tutorials')
-    expect(html).toContain('Open folder old-event')
-    expect(html).not.toContain('Open folder UCK26')
-    expect(html.indexOf('Open folder Tutorials')).toBeLessThan(html.indexOf('Open Loose clip'))
-    expect(html).not.toContain('Open Keynote')
+    expect(html).toContain('aria-label="Folder Events"')
+    expect(html).toContain('aria-label="Folder Tutorials"')
+    expect(html).toContain('aria-label="Folder old-event"')
+    expect(html).not.toContain('aria-label="Folder UCK26"')
+    expect(html.indexOf('aria-label="Folder Tutorials"')).toBeLessThan(
+      html.indexOf('aria-label="Loose clip"')
+    )
+    expect(html).not.toContain('aria-label="Keynote"')
     expect(html).toContain('>3 videos · 1 folder<')
   })
 
@@ -141,9 +145,9 @@ describe('All videos', () => {
   test('is flat: every video, no folder tiles, the hero', () => {
     const html = render({ location: ALL_VIDEOS_LOCATION })
     expect(heading(html)).toBe('All videos')
-    expect(html).not.toContain('Open folder')
+    expect(html).not.toContain('aria-label="Folder ')
     for (const title of ['Loose clip', 'Panel', 'Intro', 'Stray']) {
-      expect(html).toContain(`Open ${title}`)
+      expect(html).toContain(`aria-label="${title}"`)
     }
     expect(html).toContain('Continue Keynote')
     expect(html).toContain('>5 videos<')
@@ -173,16 +177,20 @@ describe('a folder', () => {
 
   test('shows its subfolders, then its own videos, and no hero', () => {
     const html = render({ location: folderLocation('events') })
-    expect(html).toContain('Open folder UCK26')
-    expect(html).toContain('Open Intro')
-    expect(html).not.toContain('Open Keynote')
-    expect(html.indexOf('Open folder UCK26')).toBeLessThan(html.indexOf('Open Intro'))
+    expect(html).toContain('aria-label="Folder UCK26"')
+    expect(html).toContain('aria-label="Intro"')
+    expect(html).not.toContain('aria-label="Keynote"')
+    expect(html.indexOf('aria-label="Folder UCK26"')).toBeLessThan(
+      html.indexOf('aria-label="Intro"')
+    )
     expect(html).not.toContain('Continue ')
   })
 
   test('list: folder rows first, no Folder column', () => {
     const html = render({ location: folderLocation('events'), view: { layout: 'list' } })
-    expect(html.indexOf('Open folder UCK26')).toBeLessThan(html.indexOf('Open Intro'))
+    expect(html.indexOf('aria-label="Folder UCK26"')).toBeLessThan(
+      html.indexOf('aria-label="Intro"')
+    )
     expect(html).not.toContain('>Folder<')
   })
 
@@ -197,13 +205,13 @@ describe('a folder', () => {
   test('an orphan id is a place too, named by its id', () => {
     const html = render({ location: folderLocation('old-event') })
     expect(heading(html)).toBe('old-event')
-    expect(html).toContain('Open Stray')
+    expect(html).toContain('aria-label="Stray"')
   })
 
   test('a remembered folder that is gone falls back to the root', () => {
     const html = render({ location: folderLocation('deleted') })
     expect(heading(html)).toBe('Library')
-    expect(html).toContain('Open Loose clip')
+    expect(html).toContain('aria-label="Loose clip"')
   })
 
   test('before the folders load a remembered folder is kept, not reset', () => {
@@ -222,10 +230,10 @@ describe('search', () => {
     expect(html).toContain('aria-label="Search in"')
     expect(html).toMatch(/aria-checked="true"[^>]*>(<[^>]+>)*This folder</)
     expect(html).toContain('>All videos</span>')
-    expect(html).not.toContain('Open folder')
-    expect(html).toContain('Open Keynote')
+    expect(html).not.toContain('aria-label="Folder ')
+    expect(html).toContain('aria-label="Keynote"')
     // The loose clip matched too, but it is outside Events.
-    expect(html).not.toContain('Open Loose clip')
+    expect(html).not.toContain('aria-label="Loose clip"')
     expect(html).toContain('title="Folder: Events › UCK26"')
     expect(html).toContain('1 of 3 videos')
     expect(html).toContain('Search results')
@@ -240,7 +248,7 @@ describe('search', () => {
     for (const location of [ROOT_LOCATION, ALL_VIDEOS_LOCATION]) {
       const html = render({ location, query: 'k', matchIds: new Set(['b'.repeat(32)]) })
       expect(html).not.toContain('aria-label="Search in"')
-      expect(html).toContain('Open Keynote')
+      expect(html).toContain('aria-label="Keynote"')
       expect(html).toContain('1 of 5 videos')
     }
   })

@@ -1,15 +1,17 @@
 /**
- * The state behind one record's `…` menu (`LibraryCardMenu`), shared by the
- * grid card and the list row so both menus behave identically: the inline
- * Delete confirm, "Locate…" reopening on its "link anyway?" confirm, and the
+ * The state behind one record's menu (`LibraryCardMenu`), shared by the grid
+ * card and the list row so both menus behave identically: the inline Delete
+ * confirm, "Locate…" reopening on its "link anyway?" confirm, and the
  * "Move to folder…" sub-list.
  *
- * Returns everything `LibraryCardMenu` takes except `video` and `collections`,
- * plus whether the menu is open and the `…` button's toggle.
+ * The menu opens under the `…` button (`toggle`) or at the pointer
+ * (`openAt`, a right-click). Returns everything `LibraryCardMenu` takes except
+ * `video`, `collections` and `onRename`, plus whether the menu is open.
  */
 
 import { useState } from 'react'
-import type { LibraryCardMenuProps } from '../components/library/LibraryCard'
+import type { LibraryCardMenuProps } from '../components/library/LibraryCardMenu'
+import type { MenuPoint } from '../components/library/PointMenu'
 import type { CreateCollectionResult } from '../lib/collectionCreate'
 import type { LocateOutcome } from '../lib/libraryImport'
 import type { LibraryVideo } from '../lib/libraryTypes'
@@ -24,23 +26,28 @@ export interface RecordMenuActions {
   onCreateCollection: (name: string) => Promise<CreateCollectionResult>
 }
 
-export type RecordMenuState = Omit<LibraryCardMenuProps, 'video' | 'collections'>
+export type RecordMenuState = Omit<LibraryCardMenuProps, 'video' | 'collections' | 'onRename'>
 
 export interface RecordMenu {
   open: boolean
-  /** The `…` button: open, or close (and reset) when open. */
+  /** The `…` button: open under it, or close (and reset) when open. */
   toggle: () => void
+  /** A right-click: open at the pointer. */
+  openAt: (point: MenuPoint) => void
+  close: () => void
   menu: RecordMenuState
 }
 
 export function useRecordMenu(video: LibraryVideo, actions: RecordMenuActions): RecordMenu {
   const [open, setOpen] = useState(false)
+  const [point, setPoint] = useState<MenuPoint | null>(null)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [pendingLinkPath, setPendingLinkPath] = useState<string | null>(null)
   const [moving, setMoving] = useState(false)
 
   function close() {
     setOpen(false)
+    setPoint(null)
     setConfirmingDelete(false)
     setPendingLinkPath(null)
     setMoving(false)
@@ -70,10 +77,18 @@ export function useRecordMenu(video: LibraryVideo, actions: RecordMenuActions): 
   return {
     open,
     toggle: () => (open ? close() : setOpen(true)),
+    openAt: (at) => {
+      close()
+      setPoint(at)
+      setOpen(true)
+    },
+    close,
     menu: {
       confirmingDelete,
       pendingLinkPath,
       moving,
+      point,
+      onDismiss: close,
       onRemove: () => {
         close()
         actions.onRemove(video)

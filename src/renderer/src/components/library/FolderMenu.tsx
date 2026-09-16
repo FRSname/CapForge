@@ -9,12 +9,10 @@
  * id gets one item, "Create folder", which adopts its videos.
  *
  * `FolderMenuView` is presentational so every mode renders to static markup;
- * `FolderContextMenu` places it at a point in the window (`position: fixed`,
- * so no scroll box clips it) and closes it on Esc or a click elsewhere.
+ * `FolderContextMenu` places it at a point in the window (`PointMenu`).
  */
 
-import { useEffect, useRef, useState } from 'react'
-import type { RefObject } from 'react'
+import { useState } from 'react'
 import type { FolderMenuAnchor } from '../../hooks/useFolderMenu'
 import type { CreateCollectionResult } from '../../lib/collectionCreate'
 import type { FolderMenuModel } from '../../lib/folderMenu'
@@ -22,11 +20,10 @@ import type { FolderEntry } from '../../lib/libraryLocation'
 import { FolderOptionList } from './FolderOptionList'
 import { InlineConfirm, MenuItem } from './LibraryMenuParts'
 import { NewCollectionForm } from './NewCollectionForm'
+import { POINT_MENU_WIDTH_PX, PointMenu } from './PointMenu'
 
-/** Tailwind `w-56`: kept in sync so a menu near the window's edge stays on screen. */
-export const FOLDER_MENU_WIDTH_PX = 224
-/** Room kept between a menu and the right edge of the window. */
-const FOLDER_MENU_EDGE_PX = 8
+/** The folder menu is a `PointMenu`, at its width. */
+export const FOLDER_MENU_WIDTH_PX = POINT_MENU_WIDTH_PX
 
 export type FolderMenuMode = 'actions' | 'new' | 'move' | 'delete'
 
@@ -119,31 +116,6 @@ function FolderActions(props: FolderMenuViewProps & { model: FolderMenuModel }) 
   )
 }
 
-/** Close on Esc or a press outside the menu. */
-function useDismiss(ref: RefObject<HTMLElement | null>, close: () => void) {
-  useEffect(() => {
-    const onPointer = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) close()
-    }
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') close()
-    }
-    document.addEventListener('mousedown', onPointer)
-    document.addEventListener('keydown', onKey)
-    return () => {
-      document.removeEventListener('mousedown', onPointer)
-      document.removeEventListener('keydown', onKey)
-    }
-  }, [ref, close])
-}
-
-/** The point, held inside the window so the menu opens fully on screen. */
-function clampedPosition(anchor: FolderMenuAnchor): { left: number; top: number } {
-  if (typeof window === 'undefined') return { left: anchor.x, top: anchor.y }
-  const maxLeft = window.innerWidth - FOLDER_MENU_WIDTH_PX - FOLDER_MENU_EDGE_PX
-  return { left: Math.max(0, Math.min(anchor.x, maxLeft)), top: anchor.y }
-}
-
 export interface FolderContextMenuProps extends Omit<
   FolderMenuViewProps,
   'folder' | 'mode' | 'onMode'
@@ -152,23 +124,10 @@ export interface FolderContextMenuProps extends Omit<
 }
 
 export function FolderContextMenu({ anchor, ...props }: FolderContextMenuProps) {
-  const ref = useRef<HTMLDivElement>(null)
   const [mode, setMode] = useState<FolderMenuMode>('actions')
-  useDismiss(ref, props.onDone)
   return (
-    <div
-      ref={ref}
-      role="menu"
-      aria-label={`Folder ${anchor.folder.name}`}
-      className="fixed z-[var(--z-dropdown)] flex w-56 flex-col rounded-lg p-1 text-left text-xs"
-      style={{
-        ...clampedPosition(anchor),
-        background: 'var(--color-surface-2)',
-        border: '1px solid var(--color-border-2)',
-        boxShadow: 'var(--shadow-2)',
-      }}
-    >
+    <PointMenu point={anchor} label={`Folder ${anchor.folder.name}`} onDismiss={props.onDone}>
       <FolderMenuView {...props} folder={anchor.folder} mode={mode} onMode={setMode} />
-    </div>
+    </PointMenu>
   )
 }

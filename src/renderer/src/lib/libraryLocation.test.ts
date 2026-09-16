@@ -27,6 +27,7 @@ import {
   showsContinueHero,
   showsFolderColumn,
   videosInScope,
+  visibleContents,
 } from './libraryLocation'
 
 function folder(id: string, name: string, parent_id: string | null = null, total = 0) {
@@ -342,5 +343,50 @@ describe('shownAt', () => {
       scope: 'folder',
     })
     expect(ids(shown.videos)).toEqual(['keynote', 'panel', 'day2-talk'])
+  })
+})
+
+describe('visibleContents', () => {
+  const browse = { searching: false, matchIds: null, scope: 'folder' as const }
+  const byName = { key: 'name', direction: 'asc' } as const
+  const resumable = [
+    { ...video('b-older', null), updatedAt: '2026-09-01T00:00:00Z', hasProject: true },
+    { ...video('a-newest', null), updatedAt: '2026-09-10T00:00:00Z', hasProject: true },
+    { ...video('c-plain', null), updatedAt: '2026-09-11T00:00:00Z' },
+  ]
+
+  test('at the root in grid: the hero comes out, the rest sorted', () => {
+    const shown = shownAt(ROOT_LOCATION, TREE, resumable, browse)
+    const out = visibleContents(
+      shown,
+      ROOT_LOCATION,
+      { layout: 'grid', sort: byName },
+      false,
+      resumable
+    )
+    expect(out.hero?.id).toBe('a-newest')
+    expect(ids(out.videos)).toEqual(['b-older', 'c-plain'])
+    expect(out.folders.map((f) => f.id)).toEqual(['events', 'tutorials'])
+  })
+
+  test('in list, or while searching, no hero: every video is an item', () => {
+    const shown = shownAt(ROOT_LOCATION, TREE, resumable, browse)
+    const list = visibleContents(
+      shown,
+      ROOT_LOCATION,
+      { layout: 'list', sort: byName },
+      false,
+      resumable
+    )
+    expect(list.hero).toBeNull()
+    expect(ids(list.videos)).toEqual(['a-newest', 'b-older', 'c-plain'])
+    const searching = visibleContents(
+      shown,
+      ROOT_LOCATION,
+      { layout: 'grid', sort: byName },
+      true,
+      resumable
+    )
+    expect(searching.hero).toBeNull()
   })
 })

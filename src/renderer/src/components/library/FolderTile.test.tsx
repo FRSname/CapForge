@@ -40,7 +40,7 @@ describe('FolderTile', () => {
     expect(html).toContain('>UCK26<')
     expect(html).toContain('>24 videos · 1 folder<')
     expect(html).toContain('title="Events › UCK26"')
-    expect(html).toContain('aria-label="Open folder UCK26"')
+    expect(html).toContain('aria-label="Folder UCK26"')
     expect(html).toContain('aria-label="Actions for folder UCK26"')
   })
 
@@ -65,12 +65,12 @@ describe('FolderTile', () => {
     expect(html).toContain('background:var(--color-accent-subtle)')
   })
 
-  test('renaming turns the name into an input and drops the open button', () => {
+  test('renaming turns the name into an input and drops the item button', () => {
     const html = render(FOLDER, { ...INERT_FOLDER_ITEM_UI, renamingId: 'uck26' })
     expect(html).toContain('aria-label="Rename folder UCK26"')
     expect(html).toContain('value="UCK26"')
     expect(html).toContain('maxLength="120"')
-    expect(html).not.toContain('Open folder UCK26')
+    expect(html).not.toContain('aria-label="Folder UCK26"')
   })
 
   test('uses theme tokens only', () => {

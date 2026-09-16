@@ -3,6 +3,9 @@
  * Duration, Status, Folder (the full path; only in All videos and search
  * results), Published on and Modified. Folder rows (`FolderRow`) come first.
  *
+ * The table is a multi-select `grid` whose rows are the selectable items
+ * (`useLibraryItems` owns the selection).
+ *
  * The caller hands the folders and videos in already sorted; a header click
  * only reports the next video sort (`toggledSort`: the active column reverses,
  * another starts in its natural direction) — folders stay on top by name.
@@ -22,6 +25,8 @@ import type { LibraryDrag } from '../../hooks/useLibraryDrag'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
 import type { ChannelNames } from '../../hooks/useLibraryChannels'
 import { FolderRow } from './FolderRow'
+import type { LibraryItemUi } from './libraryItemUi'
+import { INERT_LIBRARY_ITEM_UI } from './libraryItemUi'
 import { LibraryListRow } from './LibraryListRow'
 import type { FolderItemUi } from './folderItemUi'
 
@@ -51,7 +56,8 @@ export interface LibraryListProps extends RecordMenuActions {
   onSortChange: (sort: LibrarySort) => void
   folderUi: FolderItemUi
   drag: LibraryDrag
-  onOpen: (video: LibraryVideo) => void
+  /** Selection, opening and rename; inert when absent. */
+  item?: LibraryItemUi
 }
 
 export function LibraryList({
@@ -64,7 +70,7 @@ export function LibraryList({
   onSortChange,
   folderUi,
   drag,
-  onOpen,
+  item = INERT_LIBRARY_ITEM_UI,
   ...actions
 }: LibraryListProps) {
   const sortable = (label: string, key: LibrarySortKey, className?: string) => (
@@ -79,6 +85,9 @@ export function LibraryList({
   return (
     <div className="overflow-x-auto" style={{ paddingBottom: `${MENU_CLEARANCE_PX}px` }}>
       <table
+        role="grid"
+        aria-multiselectable="true"
+        aria-label="Folders and videos"
         className="w-full border-collapse text-left text-xs"
         style={{ minWidth: `${TABLE_MIN_WIDTH_PX}px`, color: 'var(--color-text-2)' }}
       >
@@ -105,6 +114,7 @@ export function LibraryList({
               folder={folder}
               ui={folderUi}
               summarySpan={SUMMARY_COLUMNS + (showFolder ? 1 : 0)}
+              item={item}
             />
           ))}
           {videos.map((video) => (
@@ -114,8 +124,8 @@ export function LibraryList({
               collections={collections}
               channels={channels}
               showFolder={showFolder}
-              dragSource={drag.videoSource(video)}
-              onOpen={onOpen}
+              dragSource={drag.videoSource(video, () => item.onVideoDragStart(video.id))}
+              item={item}
               {...actions}
             />
           ))}

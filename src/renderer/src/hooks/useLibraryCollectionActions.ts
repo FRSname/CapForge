@@ -1,8 +1,9 @@
 /**
  * The library screen's collection ("folder") actions: create one by name,
  * inside a folder or at the top level (the sidebar, a folder's menu, the empty
- * state, a card's "New folder…"), and move videos into one (a card's menu, a
- * drop). A move of any size refreshes the list and the folders once.
+ * state, a card's "New folder…"), move videos into one (a card's menu, a
+ * drop), and move a multi-selection of videos and folders (Move to…). A move
+ * of any size refreshes the list and the folders once.
  *
  * A separate hook rather than more of `useLibraryActions`, which is already a
  * screenful. This file only binds the transport and the refreshes; every
@@ -17,8 +18,9 @@ import type { CreateCollectionResult } from '../lib/collectionCreate'
 import { runCreateCollection } from '../lib/collectionCreate'
 import { runMoveVideos } from '../lib/collectionMove'
 import type { CollectionSummary } from '../lib/collectionTypes'
-import { createCollection } from '../lib/collectionsApi'
+import { createCollection, patchCollection } from '../lib/collectionsApi'
 import type { LibraryVideo } from '../lib/libraryTypes'
+import { runMoveSelection } from '../lib/selectionMove'
 
 export interface LibraryCollectionActionsInput {
   /** The loaded collections, for naming a move target in a message. */
@@ -38,6 +40,12 @@ export interface LibraryCollectionActions {
   createCollection: (name: string, parentId?: string | null) => Promise<CreateCollectionResult>
   /** Never rejects: failures are toasted as one summary. `null` takes them out of any folder. */
   moveVideos: (videos: readonly LibraryVideo[], collectionId: string | null) => Promise<void>
+  /** Never rejects: videos and folders in one pass, one refresh, one summary. */
+  moveSelection: (
+    videos: readonly LibraryVideo[],
+    folderIds: readonly string[],
+    targetId: string | null
+  ) => Promise<void>
 }
 
 export function useLibraryCollectionActions(
@@ -76,5 +84,24 @@ export function useLibraryCollectionActions(
     []
   )
 
-  return { createCollection: create, moveVideos }
+  const moveSelection = useCallback(
+    async (
+      videos: readonly LibraryVideo[],
+      folderIds: readonly string[],
+      targetId: string | null
+    ): Promise<void> => {
+      const current = inputRef.current
+      await runMoveSelection(videos, folderIds, targetId, current.collections ?? [], {
+        read: (id) => api.getLibraryRecord(id),
+        write: (id, patch, rev) => api.patchLibraryRecord(id, patch, rev),
+        patchFolder: (id, patch) => patchCollection(id, patch),
+        refresh: () => inputRef.current.refresh(),
+        refreshCollections: () => inputRef.current.refreshCollections(),
+        notify: (message) => inputRef.current.notify(message),
+      })
+    },
+    []
+  )
+
+  return { createCollection: create, moveVideos, moveSelection }
 }
