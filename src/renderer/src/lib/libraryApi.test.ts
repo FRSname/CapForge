@@ -72,6 +72,38 @@ describe('libraryApi', () => {
     expect(out.created).toEqual(['a'])
   })
 
+  test('importLibraryFolder carries the picked channels, and an empty choice no key', async () => {
+    const answer = { created: [], existing: [], relinked: [], failed: [], truncated: false }
+    fetchMock.mockResolvedValue(jsonResponse(answer))
+    await importLibraryFolder('/Volumes/Rec', true, ['uck', 'filip-ig'])
+    expect(JSON.parse(String(lastCall().init.body))).toEqual({
+      path: '/Volumes/Rec',
+      recursive: true,
+      channels: ['uck', 'filip-ig'],
+    })
+
+    fetchMock.mockResolvedValue(jsonResponse(answer))
+    await importLibraryFolder('/Volumes/Rec', true, [])
+    expect(JSON.parse(String(lastCall().init.body))).toEqual({
+      path: '/Volumes/Rec',
+      recursive: true,
+    })
+  })
+
+  test('importLibraryPaths carries the picked channels, and an empty choice no key', async () => {
+    const answer = { created: [], existing: [], relinked: [], failed: [], truncated: false }
+    fetchMock.mockResolvedValue(jsonResponse(answer))
+    await importLibraryPaths(['/r/a.mp4'], ['uck'])
+    expect(JSON.parse(String(lastCall().init.body))).toEqual({
+      paths: ['/r/a.mp4'],
+      channels: ['uck'],
+    })
+
+    fetchMock.mockResolvedValue(jsonResponse(answer))
+    await importLibraryPaths(['/r/a.mp4'], [])
+    expect(JSON.parse(String(lastCall().init.body))).toEqual({ paths: ['/r/a.mp4'] })
+  })
+
   test('importLibraryFolder surfaces the 422 detail as the error message', async () => {
     fetchMock.mockResolvedValue(jsonResponse({ detail: 'Not a folder: /x' }, 422))
     await expect(importLibraryFolder('/x')).rejects.toThrow('Not a folder: /x')

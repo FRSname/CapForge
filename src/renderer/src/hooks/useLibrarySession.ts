@@ -56,8 +56,13 @@ export interface LibrarySessionInput {
 export interface LibrarySession {
   /** The library record this session belongs to; null until one is opened. */
   activeVideoId: string | null
-  /** Create-or-return the record for a media path. Null when it failed. */
-  ensureRecordFor: (path: string) => Promise<string | null>
+  /**
+   * Create-or-return the record for a media path. Null when it failed.
+   * `channels` gives the new record a post per channel, and is passed **in**
+   * by Start: the ask never happens here, because the agent's `load_video`
+   * and a project restore call this too and must stay channel-less.
+   */
+  ensureRecordFor: (path: string, channels?: readonly string[]) => Promise<string | null>
   /** New: this session no longer belongs to a record. */
   clearActive: () => void
   /** Applies a polled agent command, returning its toast copy. Throws on refusal. */
@@ -115,11 +120,11 @@ export function useLibrarySession(input: LibrarySessionInput): LibrarySession {
 
   // ── The record ──────────────────────────────────────────────────
   const ensureRecordFor = useCallback(
-    async (path: string): Promise<string | null> => {
+    async (path: string, channels?: readonly string[]): Promise<string | null> => {
       const source = path.trim()
       if (!source) return null
       try {
-        const record = await api.createLibraryRecord(source)
+        const record = await api.createLibraryRecord(source, channels)
         adoptRecord(record.id, record.rev)
         return record.id
       } catch (err) {

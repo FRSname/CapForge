@@ -9,6 +9,7 @@
  */
 
 import { api } from './api'
+import { channelsBody } from './importChannels'
 import type { FolderImportResult, LibraryRecord, WatchStatus } from './libraryTypes'
 import { parseFolderImportResult, parseLibraryRecord, parseWatchStatus } from './libraryTypes'
 import type { RelinkRefusal } from './libraryImport'
@@ -35,13 +36,22 @@ async function requestJson(method: 'GET' | 'POST' | 'PUT', path: string, body?: 
   throw api.apiError(res, await refusedBody(res))
 }
 
-/** Import every media file under a folder (bounded by the backend). Nothing is transcribed. */
+/**
+ * Import every media file under a folder (bounded by the backend). Nothing is
+ * transcribed. `channels` gives every imported record a post per channel; an
+ * empty choice sends no key, leaving the request identical to today's.
+ */
 export async function importLibraryFolder(
   path: string,
-  recursive = true
+  recursive = true,
+  channels?: readonly string[]
 ): Promise<FolderImportResult> {
   return parseFolderImportResult(
-    await requestJson('POST', '/api/library/import-folder', { path, recursive })
+    await requestJson('POST', '/api/library/import-folder', {
+      path,
+      recursive,
+      ...channelsBody(channels),
+    })
   )
 }
 
@@ -50,9 +60,15 @@ export async function importLibraryFolder(
  * step as a folder import, answering the same shape. At most
  * `IMPORT_PATHS_MAX` paths per call; the caller batches.
  */
-export async function importLibraryPaths(paths: readonly string[]): Promise<FolderImportResult> {
+export async function importLibraryPaths(
+  paths: readonly string[],
+  channels?: readonly string[]
+): Promise<FolderImportResult> {
   return parseFolderImportResult(
-    await requestJson('POST', '/api/library/import-paths', { paths: [...paths] })
+    await requestJson('POST', '/api/library/import-paths', {
+      paths: [...paths],
+      ...channelsBody(channels),
+    })
   )
 }
 

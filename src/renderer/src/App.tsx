@@ -35,6 +35,7 @@ import { useGlobalShortcuts } from './hooks/useGlobalShortcuts'
 import { useCrashRecovery } from './hooks/useCrashRecovery'
 import { useAgentBridge } from './hooks/useAgentBridge'
 import { useLibrarySession } from './hooks/useLibrarySession'
+import { useImportChannels, type EnsureRecord } from './hooks/useImportChannels'
 import { useScreenNavigation } from './hooks/useScreenNavigation'
 import { usePublishRecord } from './hooks/usePublishRecord'
 import { PublishRecordProvider } from './hooks/usePublishRecordContext'
@@ -67,7 +68,7 @@ export function App() {
   const projectIORef = useRef<ProjectIOHandle | null>(null)
   // The library session is created further down (it needs `restoreFromProjectFile`),
   // so the handlers declared above it reach it through this ref.
-  const ensureRecordRef = useRef<((path: string) => Promise<string | null>) | null>(null)
+  const ensureRecordRef = useRef<EnsureRecord | null>(null)
 
   // ── The caption-track store ─────────────────────────────────────
   // Everything the editor, the sidebar, the render path and the agent mirror
@@ -185,13 +186,11 @@ export function App() {
     setScreen('file')
   }
 
-  // Create-on-drop: the record is minted before the job starts, so the very
-  // first autosave already lands in the library instead of the fallback file.
-  async function handleStart() {
-    if (!filePath) return
-    await ensureRecordRef.current?.(filePath)
-    setScreen('progress')
-  }
+  // Create-on-drop, after asking which channels the video publishes to.
+  const importChannels = useImportChannels({
+    ensureRecordRef,
+    onStarted: () => setScreen('progress'),
+  })
 
   function handleTranscribeDone(data: TranscriptionResult) {
     setResult(data)
@@ -478,7 +477,7 @@ export function App() {
               <DropZoneScreen
                 filePath={filePath}
                 onFileSelected={handleFileSelected}
-                onStart={handleStart}
+                onStart={() => void importChannels.start(filePath)}
               />
             </div>
           )}
@@ -583,6 +582,7 @@ export function App() {
 
         <SettingsDialog open={settingsOpen} onClose={settingsTo(false)} onOpen={settingsTo(true)} />
         <ShortcutOverlay open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
+        {importChannels.sheet}
         <AgentLiveSync
           resultsActive={screen === 'results'}
           settingsForTrack={agent.settingsForTrack}
