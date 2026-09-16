@@ -129,7 +129,7 @@ const GETTING_AROUND: Tour = {
       before: [{ kind: 'open-settings', category: 'claude' }],
       paragraphs: [
         'Connect Claude Desktop or Claude Code once, restart it, and the agent can clean up a transcript, restyle captions, translate a track and write the upload package while you watch it happen here.',
-        'Two skills come bundled: capforge-init sets up your channels by interview, and capforge-publish writes the upload package. Your copy of a skill is yours to edit and is never overwritten by an update.',
+        'Seven skills come bundled: capforge-init sets up your channels, capforge-publish writes the upload package, and cleanup, translate, style, clips and preflight cover the rest of the pipeline. Your copy of a skill is yours to edit and is never overwritten by an update.',
       ],
     },
     {

@@ -24,7 +24,9 @@ _TOOL_REF = re.compile(r"`([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?:\(|`)")
 # The `find_semantic_moments(kind)` values a skill may name are parameters, not tools.
 MOMENT_KINDS = {"numbers", "cta", "speaker_change"}
 
-# Tools a given skill cannot work without (keyed by folder name).
+# Tools a given skill cannot work without (keyed by folder name). Only
+# snake_case names can be required: `_TOOL_REF` never sees a single-word tool
+# such as `render`, `export` or `emphasize`.
 REQUIRED_TOOLS = {
     # The publish loop of docs/plans/publish-workspace.md: read the record and
     # the brief, write fields, validate, render the package, mark it published.
@@ -47,6 +49,71 @@ REQUIRED_TOOLS = {
         "list_channels",
         "get_channel",
         "set_channel",
+    },
+    # Transcript cleanup: fillers, misheard names, split/merged tokens — in the
+    # open session, timing never moved.
+    "capforge-cleanup": {
+        "get_ui_state",
+        "open_video",
+        "get_transcript",
+        "remove_filler_words",
+        "update_words",
+        "find_moments",
+        "get_video",
+        "get_channel",
+    },
+    # The translation loop of docs/caption-tracks.md plus the localized half.
+    "capforge-translate": {
+        "get_ui_state",
+        "open_video",
+        "create_track",
+        "set_track_text",
+        "get_track",
+        "reflow_track",
+        "check_layout",
+        "render_frame",
+        "set_video_meta",
+        "validate_video",
+        "get_upload_package",
+    },
+    # A read-only pre-upload checklist over the record, the package, every
+    # channel and language, the transcript and the open captions.
+    "capforge-preflight": {
+        "get_video",
+        "validate_video",
+        "get_upload_package",
+        "check_chapters",
+        "list_channels",
+        "get_collection",
+        "get_video_transcript",
+        "get_ui_state",
+        "check_layout",
+    },
+    # Caption style: preset, tweak, emphasis, look + measure, a folder at a time.
+    "capforge-style": {
+        "get_ui_state",
+        "open_video",
+        "list_presets",
+        "apply_preset",
+        "set_style",
+        "render_frame",
+        "check_layout",
+        "find_moments",
+        "find_semantic_moments",
+        "list_videos",
+    },
+    # Clip candidates: hunt, time from the transcript, write `shorts` and the
+    # short-form channels' posts. CapForge cuts nothing.
+    "capforge-clips": {
+        "get_video",
+        "get_video_transcript",
+        "find_video_moments",
+        "set_video_meta",
+        "validate_video",
+        "list_channels",
+        "get_channel",
+        "grab_frames",
+        "mark_published",
     },
 }
 
