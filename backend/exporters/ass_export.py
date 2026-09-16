@@ -1,15 +1,29 @@
 """ASS (Advanced SubStation Alpha) exporter with per-word karaoke timing.
 
-One Dialogue line per segment; each word is prefixed with a ``{\\k<cs>}``
-karaoke tag carrying its duration in centiseconds. Plays with word-by-word
-highlight in VLC / ffplay / Premiere / Resolve via libass.
+One Dialogue line per readable *cue*, not per WhisperX segment: a segment is a
+VAD/decoder chunk that routinely spans several sentences. ``cue_split`` owns
+that policy (sentences, line length, line count, duration) and the timing
+rules, shared with the SRT and VTT exporters, so the three agree on every cue's
+span and lines. Each word is prefixed with a ``{\\k<cs>}`` karaoke tag carrying
+its duration in centiseconds, and the cue's wrapped lines are joined with the
+hard break ``\\N``. Plays with word-by-word highlight in VLC / ffplay /
+Premiere / Resolve via libass. A segment without word timings exports its cues
+as plain text, with no karaoke.
+
+``WrapStyle: 0`` is kept on purpose. In libass ``\\N`` is a *forced* break
+under every wrap style, and smart wrapping (0) only rebalances the *soft*
+breaks it inserts itself, so our lines are drawn exactly as ``cue_split``
+wrapped them. It adds a soft break only if a line would overflow the frame
+(a 42-character line of wide glyphs, or one over-long word) — where
+``WrapStyle: 2`` would instead run the line off the edge.
 
 CRITICAL — ASS colour byte order is reversed from hex RGB:
 ``&HAABBGGRR`` (alpha, then BLUE, GREEN, RED). The brand orange #D4952A
 therefore becomes ``&H002A95D4`` (R=D4, G=95, B=2A, alpha 00 = opaque).
 """
 
-from backend.models.schemas import Segment, TranscriptionResult
+from backend.exporters.cue_split import Cue, split_segments
+from backend.models.schemas import TranscriptionResult, WordSegment
 
 # Colours in &HAABBGGRR order (see module docstring).
 PRIMARY_COLOUR = "&H00FFFFFF"    # white text
@@ -63,41 +77,76 @@ def _escape(text: str) -> str:
     )
 
 
-def _karaoke_text(seg: Segment) -> str:
-    """Build the Dialogue text with per-word ``{\\k}`` tags.
+def _break_after(words: list[WordSegment], lines: tuple[str, ...]) -> frozenset[int]:
+    """Indices of the words a ``\\N`` follows, so the karaoke text breaks where
+    ``cue.lines`` does.
+
+    ``cue_split`` wraps the joined text by whitespace tokens, so each line's
+    token count locates its break among the words. A word holding internal
+    whitespace can straddle a break; the break then follows that word.
+    """
+    targets: list[int] = []
+    running = 0
+    for line in lines[:-1]:
+        running += len(line.split())
+        targets.append(running)
+
+    breaks: set[int] = set()
+    consumed = 0
+    pending = iter(targets)
+    target = next(pending, None)
+    for index, word in enumerate(words[:-1]):
+        consumed += len(word.word.split())
+        while target is not None and consumed >= target:
+            breaks.add(index)
+            target = next(pending, None)
+    return frozenset(breaks)
+
+
+def _karaoke_text(cue: Cue) -> str:
+    """Build a cue's Dialogue text with per-word ``{\\k}`` tags.
 
     Word durations come from boundary differences so that the sum of all
-    ``\\k`` durations exactly equals the Dialogue line duration in
-    centiseconds (a libass expectation). Inter-word gaps are folded into the
-    preceding word's duration (standard karaoke practice — the highlight
-    holds until the next word starts), and any rounding remainder lands on
-    the last word because its boundary is pinned to the segment end.
+    ``\\k`` durations exactly equals the Dialogue duration in centiseconds (a
+    libass expectation). Inter-word gaps are folded into the preceding word's
+    duration (standard karaoke practice — the highlight holds until the next
+    word starts). The last word's boundary is pinned to the cue end, so it
+    absorbs any rounding remainder and any minimum-duration extension
+    ``cue_split`` pushed into the following silence. A word with no text is not
+    drawn; its time folds into the word before it.
     """
-    start_cs = _cs(seg.start)
-    end_cs = _cs(seg.end)
+    words = [w for w in cue.words if w.word.strip()]
+    start_cs = _cs(cue.start)
+    end_cs = _cs(cue.end)
 
-    # Boundaries: segment start, each subsequent word's start, segment end.
-    # Clamp to the segment window and force monotonicity so durations are
-    # never negative even with slightly overlapping word timestamps.
+    # Boundaries: cue start, each subsequent word's start, cue end. Clamp to
+    # the cue window and force monotonicity so durations are never negative
+    # even with slightly overlapping word timestamps.
     boundaries = [start_cs]
-    for w in seg.words[1:]:
-        b = max(boundaries[-1], min(_cs(w.start), end_cs))
-        boundaries.append(b)
+    for w in words[1:]:
+        boundaries.append(max(boundaries[-1], min(_cs(w.start), end_cs)))
     boundaries.append(max(boundaries[-1], end_cs))
 
-    parts: list[str] = []
-    for i, w in enumerate(seg.words):
-        dur = boundaries[i + 1] - boundaries[i]
-        parts.append(f"{{\\k{dur}}}{_escape(w.word.strip())}")
-    return " ".join(parts)
+    breaks = _break_after(words, cue.lines)
+    tagged = [
+        f"{{\\k{boundaries[i + 1] - boundaries[i]}}}{_escape(w.word.strip())}"
+        for i, w in enumerate(words)
+    ]
+    separators = ["\\N" if i in breaks else " " for i in range(len(tagged) - 1)]
+    return tagged[0] + "".join(sep + piece for sep, piece in zip(separators, tagged[1:]))
+
+
+def _plain_text(cue: Cue) -> str:
+    """A cue without word timings: its wrapped lines, no karaoke."""
+    return "\\N".join(_escape(line) for line in cue.lines)
 
 
 def export_ass(result: TranscriptionResult) -> str:
-    """Return an ASS document with karaoke word highlighting per segment."""
+    """Return an ASS document: one karaoke Dialogue per readable cue."""
     lines: list[str] = [_HEADER]
-    for seg in result.segments:
-        text = _karaoke_text(seg) if seg.words else _escape(seg.text.strip())
+    for cue in split_segments(result.segments):
+        text = _karaoke_text(cue) if cue.words else _plain_text(cue)
         lines.append(
-            f"Dialogue: 0,{_fmt(seg.start)},{_fmt(seg.end)},Default,,0,0,0,,{text}"
+            f"Dialogue: 0,{_fmt(cue.start)},{_fmt(cue.end)},Default,,0,0,0,,{text}"
         )
     return "\n".join(lines) + "\n"

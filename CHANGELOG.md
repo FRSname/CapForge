@@ -16,6 +16,11 @@ A project can now hold more than one set of captions. A tab strip above the edit
 **For agents**
 A connected Claude agent can drive the whole translation loop: `create_track` returns the new tab's blank captions paired with the source text to translate, `set_track_text` writes the translations back, and `check_layout(scan=True)` measures every caption at once and reports exactly which ones will wrap onto a third line — which is what a translation running 10–15% longer than English tends to do. `get_track` lists the captions that still need work, and `reflow_track` is the repair when the source's grouping moved. `set_style`, `apply_preset`, `render`, `render_frame`, `render_hyperframes` and `export` all take a track to work on.
 
+### Fixes
+
+**`.ass` exports are readable cues too**
+The `.ass` exporter still wrote one line per transcription chunk, so several sentences could sit in a single huge subtitle — the problem v2.6.0 fixed for `.srt` and `.vtt`. It now uses the same cues as those two: split at sentences, at most two lines of 42 characters, at most seven seconds, with the same start and end times. The word-by-word karaoke highlight survives inside each cue, and the line break falls where the `.srt` breaks it. `.srt` and `.vtt` output is unchanged.
+
 ## CapForge v2.6.0
 
 This release is mostly about new ways to read a caption. There's a Spritz-style speed-reading mode where the line slides under your eye instead of your eye moving across it, and short silences between captions no longer blank the screen. Colours can be gradients now, and the transcription model is finally something you pick rather than a silent 1.6 GB download.

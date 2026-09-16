@@ -8,6 +8,7 @@ several sentences on one very long line.
 
 from backend.exporters.cue_split import (
     MAX_CHARS_PER_LINE,
+    Cue,
     MAX_DURATION,
     MAX_LINES,
     MIN_DURATION,
@@ -169,6 +170,38 @@ def test_speaker_is_carried_onto_every_cue():
     seg = Segment(**{**seg.model_dump(), "speaker": "SPEAKER_01"})
     for cue in split_segments([seg]):
         assert cue.speaker == "SPEAKER_01"
+
+
+# --- Words carried for karaoke callers (ASS) -------------------------------
+
+def test_cue_carries_the_very_words_it_was_cut_from():
+    seg = _long_segment()
+    cues = split_segments([seg])
+    carried = [w for cue in cues for w in cue.words]
+    # Every word exactly once, in order, the same objects — timing is copied,
+    # never recomputed.
+    assert len(carried) == len(seg.words)
+    assert all(a is b for a, b in zip(carried, seg.words))
+    for cue in cues:
+        assert cue.start == cue.words[0].start
+        assert " ".join(cue.lines) == " ".join(w.word for w in cue.words)
+
+
+def test_words_are_empty_when_the_segment_had_no_timings():
+    # The character-count interpolation is a cue-boundary estimate, not word
+    # timing, so it is not handed to a caller as if it were.
+    seg = Segment(start=10.0, end=16.0, text="One here. And two there.", words=[])
+    cues = split_segments([seg])
+    assert len(cues) == 2
+    assert all(cue.words == () for cue in cues)
+
+
+def test_words_do_not_take_part_in_cue_equality_or_hashing():
+    seg = _long_segment()
+    cue = split_segments([seg])[0]
+    bare = Cue(start=cue.start, end=cue.end, lines=cue.lines, speaker=cue.speaker)
+    assert cue == bare
+    assert hash(cue) == hash(bare)
 
 
 def test_empty_input_produces_no_cues():
