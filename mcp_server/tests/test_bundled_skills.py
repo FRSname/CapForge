@@ -42,6 +42,12 @@ REQUIRED_TOOLS = {
         # Multi-channel PR 2: every channel's context is read before its post.
         "get_channel",
     },
+    # The channel setup interview: read what exists, write only what the user said.
+    "capforge-init": {
+        "list_channels",
+        "get_channel",
+        "set_channel",
+    },
 }
 
 # Modules whose tools are decorated inline with `@mcp.tool()`.
@@ -164,3 +170,19 @@ def test_publish_skill_reads_each_channel_and_keeps_recent_posts_opt_in() -> Non
     )
     assert "never write a post for a channel whose context you have not read" in text.lower()
     assert "Settings → Channels" in text and "Settings → Channel;" not in text
+
+
+def test_init_skill_interviews_and_never_invents() -> None:
+    """/capforge-init fills Settings → Channels from the user's answers alone: it
+    reads before it writes, confirms before it writes, keeps lists whole and
+    never reaches for older posts or deletes on its own."""
+    text = " ".join(_skill_text(SKILLS_DIR / "capforge-init").split())
+    assert "Settings → Channels" in text
+    assert "Never invent" in text
+    assert "`list_channels()`" in text and "`get_channel(" in text
+    assert "a list is replaced whole" in text.lower()
+    assert "confirm before every write" in text.lower()
+    assert "`delete_channel` only when the user asks" in text
+    assert "include_recent_posts=True)` only when the user says yes" in text
+    # The profile is pasted verbatim, so an event's boilerplate belongs on a folder.
+    assert "folder" in text.lower() and "publish_guide(\"collections\")" in text
