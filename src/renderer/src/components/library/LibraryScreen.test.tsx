@@ -296,11 +296,14 @@ describe('LibraryScreen views', () => {
     expect(html).toContain('1 of 2 videos')
   })
 
-  test('a search whose result has not landed hides nothing but the hero', () => {
-    const html = render({ videos, search: { query: 'other', matchIds: null } })
+  test('a search whose result has not landed shows the name matches, without a "no match" line', () => {
+    const html = render({ videos, search: { query: 'OTHER', matchIds: null } })
     expect(html).not.toContain('Continue Resume me')
-    expect(html).toContain('aria-label="Resume me"')
+    expect(html).not.toContain('aria-label="Resume me"')
     expect(html).toContain('aria-label="Other one"')
+
+    const none = render({ videos, search: { query: 'zzz', matchIds: null } })
+    expect(none).not.toContain('No videos match')
   })
 
   test('a search with no match says so, naming the query', () => {

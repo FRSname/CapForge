@@ -4,7 +4,8 @@ docs/plans/multi-channel-pr2-contract.md → Derived state, Channels:
 
 * **``publishedOn``** on the list summary: the channels with a visible post that
   has a published URL or id.
-* **Search text**: the root title, then every visible post's title,
+* **Search text**: the root title plus the source file's stem as words (the
+  name a card shows when the title is empty), then every visible post's title,
   description, caption and text; tags, hashtags and the record's keywords.
 * **``channel_in_use``**: how many records (scratch included) hold a post for a
   channel, so deleting it can be refused.
@@ -17,6 +18,7 @@ Hidden posts count for none of these.
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterable, Optional
 
@@ -34,6 +36,28 @@ RECENT_POST_TEXT_MAX_CHARS = 500
 BODY_FIELDS = ("description", "caption", "text")
 #: Recent posts with no parseable ``published.at`` sort after every dated one.
 _UNDATED = datetime.min.replace(tzinfo=timezone.utc)
+#: Both separators: a record made on Windows keeps its backslashes.
+_PATH_SEPARATOR_RE = re.compile(r"[\\/]")
+_STEM_SEPARATOR_RUN_RE = re.compile(r"[\s_.\-]+")
+
+
+def source_stem_words(source_path: str) -> str:
+    """The file's stem with ``-``, ``_`` and ``.`` read as spaces.
+
+    ``/m/vizualni-smog.mp4`` → ``vizualni smog``; ``C:\\m\\talk_v2.final.mov`` →
+    ``talk v2 final``; ``/m/.hidden`` → ``hidden`` (a leading dot is not an
+    extension); an empty path → ``""``. Mirrors the renderer's ``fileStem``.
+    """
+    base = _PATH_SEPARATOR_RE.split(source_path)[-1]
+    dot = base.rfind(".")
+    stem = base[:dot] if dot > 0 else base
+    return _STEM_SEPARATOR_RUN_RE.sub(" ", stem).strip()
+
+
+def index_title(title: str, source_path: str) -> str:
+    """The index's title column: the authored title and the file's stem words,
+    so both the name a card shows and the title typed later are searchable."""
+    return " ".join(part for part in (title.strip(), source_stem_words(source_path)) if part)
 
 
 def visible_posts(record: VideoRecord) -> dict[str, Post]:
@@ -56,7 +80,7 @@ def body_field(platform: str) -> str:
 
 
 def index_texts(record: VideoRecord) -> tuple[str, str, str]:
-    """``(title, body, tags)`` for the search index."""
+    """``(title, body, tags)`` for the search index; ``title`` is ``index_title``."""
     posts = list(visible_posts(record).values())
     body = " ".join(
         part for post in posts
@@ -64,7 +88,7 @@ def index_texts(record: VideoRecord) -> tuple[str, str, str]:
     )
     tags = [*(t for post in posts for t in post.tags),
             *(h for post in posts for h in post.hashtags), *record.keywords]
-    return record.title, body, " ".join(tags)
+    return index_title(record.title, record.sourcePath), body, " ".join(tags)
 
 
 class PostStoreMixin:

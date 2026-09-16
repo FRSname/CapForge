@@ -65,6 +65,7 @@ export function LibraryMain(props: LibraryMainProps) {
   const searching = isSearching(search.query)
   const shown = shownAt(location, collections, videos, {
     searching,
+    query: search.query,
     matchIds: search.matchIds,
     scope,
   })

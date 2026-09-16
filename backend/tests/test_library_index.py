@@ -8,7 +8,15 @@ import sqlite3
 import pytest
 
 from backend.library import index as index_mod
-from backend.library.index import SCHEMA_VERSION, LibraryIndex, NullIndex, has_fts5, open_index
+from backend.library.index import (
+    SCHEMA_VERSION,
+    LibraryIndex,
+    NullIndex,
+    _fts_match_expression,
+    fold_text,
+    has_fts5,
+    open_index,
+)
 
 TITLE = "Kubernetes at scale"
 DESCRIPTION = "How we ran a cluster for a year"
@@ -139,4 +147,103 @@ def test_null_index_behaves_like_the_real_one(tmp_path):
     assert idx.search("") == []
     idx.delete("vid1")
     assert idx.search("kubernetes") == []
+    idx.close()
+
+
+# --- matching what people type ------------------------------------------------
+
+CZECH_TITLE = "Sázení stromků"
+CZECH_STEM = "Sazeni stromku"  # `Sazeni-stromku.mp4` as the store indexes it
+
+
+@pytest.fixture
+def null(tmp_path):
+    idx = NullIndex(tmp_path / "library.db")
+    idx.reset()
+    yield idx
+    idx.close()
+
+
+def test_fts_query_is_quoted_prefix_terms():
+    assert _fts_match_expression("vizu smo") == '"vizu"* "smo"*'
+    assert _fts_match_expression("kubernetes AND (") == '"kubernetes"* "AND"*'
+    # `_` splits a word, as unicode61 does, so `vizualni_smog` is two terms.
+    assert _fts_match_expression("vizualni_smog") == '"vizualni"* "smog"*'
+    assert _fts_match_expression('"*()') is None
+
+
+@pytest.mark.parametrize("fixture_name", ["fts", "like", "null"])
+@pytest.mark.parametrize("query,expected", [
+    ("kube", {"vid1"}),
+    ("sour", {"vid2"}),
+    ("orchestr", {"vid1"}),
+    ("Kube", {"vid1"}),
+])
+def test_a_word_start_matches_while_typing(request, fixture_name, query, expected):
+    idx = request.getfixturevalue(fixture_name)
+    _seed(idx)
+    assert set(idx.search(query)) == expected
+
+
+@pytest.mark.parametrize("fixture_name", ["fts", "like", "null"])
+@pytest.mark.parametrize("query", ["vizu", "vizualni", "smog", "vizualni smog", "vizualni-smog"])
+def test_file_stem_words_in_the_title_column_match(request, fixture_name, query):
+    idx = request.getfixturevalue(fixture_name)
+    _seed(idx)
+    idx.upsert("vid3", "vizualni smog", "", "", "")
+    assert set(idx.search(query)) == {"vid3"}
+
+
+def test_fts_multi_word_query_needs_every_word(fts):
+    _seed(fts)
+    assert set(fts.search("kube scale")) == {"vid1"}
+    assert fts.search("kube flour") == []
+
+
+@pytest.mark.parametrize("fixture_name", ["fts", "like", "null"])
+@pytest.mark.parametrize("query", ["sazeni", "SÁZENÍ", "stromk", "Sázení stromků"])
+def test_czech_name_is_found_without_its_diacritics(request, fixture_name, query):
+    idx = request.getfixturevalue(fixture_name)
+    _seed(idx)
+    idx.upsert("cz", f"{CZECH_TITLE} {CZECH_STEM}", "", "", "")
+    assert set(idx.search(query)) == {"cz"}
+
+
+@pytest.mark.parametrize("fixture_name", ["fts", "like", "null"])
+def test_diacritics_fold_from_the_stored_side_too(request, fixture_name):
+    idx = request.getfixturevalue(fixture_name)
+    idx.upsert("cz", CZECH_TITLE, "", "", "")  # no ASCII stem to fall back on
+    assert set(idx.search("sazeni")) == {"cz"}
+    assert set(idx.search("STROMKU")) == {"cz"}
+
+
+@pytest.mark.parametrize("fixture_name", ["like", "null"])
+def test_fallback_wildcards_are_literal(request, fixture_name):
+    idx = request.getfixturevalue(fixture_name)
+    idx.upsert("pct", "100% done", "", "", "")
+    idx.upsert("other", "1000 done", "", "", "")
+    assert set(idx.search("100%")) == {"pct"}
+    assert idx.search("-_.") == []
+
+
+def test_fold_text():
+    assert fold_text("Sázení_stromků.v2") == "sazeni stromku v2"
+    assert fold_text("  Vizualni--Smog ") == "vizualni smog"
+    assert fold_text("ŘEŘICHA") == "rericha"
+    assert fold_text("") == ""
+
+
+def test_an_index_built_before_the_file_stem_was_indexed_is_rebuilt(tmp_path):
+    """Version 1 had no stem in the title column: its DB must not be trusted."""
+    assert SCHEMA_VERSION >= 2
+    db = tmp_path / "library.db"
+    conn = sqlite3.connect(str(db))
+    conn.execute("PRAGMA user_version = 1")
+    conn.commit()
+    conn.close()
+
+    idx = LibraryIndex(db)
+    assert idx.needs_rebuild() is True
+    idx.reset()
+    assert idx.needs_rebuild() is False
     idx.close()
