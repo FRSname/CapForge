@@ -81,6 +81,59 @@ class CollectionInUse(LibraryError):
         self.members = members
 
 
+class CollectionHasChildren(LibraryError):
+    """Delete refused while subfolders sit inside the collection
+    (409 ``collection_has_children``).
+
+    Carries how many *direct* subfolders; each is moved or deleted on its own,
+    never as a side effect of deleting its parent.
+    """
+
+    def __init__(self, collection_id: str, children: int) -> None:
+        super().__init__(
+            f"Collection {collection_id!r} still holds {children} subfolder(s); move "
+            "or delete them before deleting it"
+        )
+        self.collection_id = collection_id
+        self.children = children
+
+
+class CollectionNestingRefused(LibraryError):
+    """A ``parent_id`` the collection tree cannot take (422); see the subclasses."""
+
+
+class UnknownParent(CollectionNestingRefused):
+    """``parent_id`` names no collection (422 ``unknown_parent``)."""
+
+    def __init__(self, parent_id: str) -> None:
+        super().__init__(f"No collection has the id {parent_id!r} to hold this one")
+        self.parent_id = parent_id
+
+
+class CollectionCycle(CollectionNestingRefused):
+    """A collection placed inside itself or its own descendant (422 ``collection_cycle``)."""
+
+    def __init__(self, collection_id: str, parent_id: str) -> None:
+        super().__init__(
+            f"Collection {collection_id!r} cannot move into {parent_id!r}: that is "
+            "the collection itself or one of its subfolders"
+        )
+        self.collection_id = collection_id
+        self.parent_id = parent_id
+
+
+class CollectionTooDeep(CollectionNestingRefused):
+    """A create or move that would nest past the depth limit (422 ``collection_too_deep``)."""
+
+    def __init__(self, parent_id: str, max_depth: int) -> None:
+        super().__init__(
+            f"Collections nest at most {max_depth} levels deep, and placing this one "
+            f"inside {parent_id!r} would go past that"
+        )
+        self.parent_id = parent_id
+        self.max_depth = max_depth
+
+
 class CollectionsUnreadable(LibraryError, ValueError):
     """``collections.json`` exists but cannot be read as collections (500).
 

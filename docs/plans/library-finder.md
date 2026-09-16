@@ -24,7 +24,7 @@ Everything else below is a proposed default, and the ones worth a second look ar
 
 `Collection`, `CollectionCreate` and `CollectionPatch` gain `parent_id: Optional[CollectionId] = None`.
 
-- `collections.json` stays `version: 1`: the field is optional with a `null` default, so an old file reads unchanged and an old build ignores nothing it needs (it would show every folder at the top level).
+- `collections.json` stays `version: 1`: the field is optional with a `null` default, so an old file reads unchanged. A top-level collection is **written without the key**, so a library with no nesting keeps the exact pre-nesting file an older build can read. A file that really nests is unreadable to an older build (its `Collection` forbids unknown keys) — accepted, since downgrades are not supported.
 - **Ids stay globally unique.** Records point at a collection by id alone, so two "Day 1" folders under different events get `day-1` and `day-1-2` exactly as they would today. Moving or renaming a folder never changes its id.
 - `CollectionPatch.parent_id`: sent `null` moves to the root, omitted leaves it where it is (the `model_fields_set` idiom `patched_collection` already uses).
 

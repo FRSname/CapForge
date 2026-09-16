@@ -34,6 +34,8 @@ NOT_TOOLS = KINDS | PROMPT_NAMES | {
     # collections: the record field, brief/override fields, a detail key, a rule
     "collection_id", "description_template", "recorded_at_line", "default_hashtags",
     "link_rows", "house_rules", "effective_brief", "unknown_slot", "unknown_collection",
+    # nested collections: the tree fields a collection row carries
+    "parent_id", "total_members",
     # shorts and thumbnail rules (backend/library/validate_media.py)
     "candidates_managed", "cover_not_a_candidate", "thumbnail_recommended",
     "clip_order", "clip_past_end", "shorts_clip_length",

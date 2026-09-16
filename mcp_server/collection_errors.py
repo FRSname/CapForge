@@ -19,6 +19,18 @@ from .library_errors import _ERROR, _library_call
 COLLECTION_NOT_FOUND = "collection_not_found"
 COLLECTION_EXISTS = "collection_exists"
 COLLECTION_IN_USE = "collection_in_use"
+COLLECTION_HAS_CHILDREN = "collection_has_children"
+#: The 422 nesting refusals: the backend's sentence, plus the way out below.
+NESTING_HINTS = {
+    "unknown_parent": (
+        "list_collections shows every collection's id and path; "
+        'parent_id="" puts it at the top level.'
+    ),
+    "collection_cycle": "Pick a folder that is not this one or inside it.",
+    "collection_too_deep": (
+        "Pick a folder higher up, or move this folder's subfolders out first."
+    ),
+}
 
 _NOT_FOUND = 404
 _CONFLICT = 409
@@ -89,6 +101,17 @@ def not_found_message(collection_id: str) -> str:
     )
 
 
+def has_children_message(collection_id: str, count: Optional[int]) -> str:
+    """The 409 sentence for a folder that still holds subfolders."""
+    held = f"{count} subfolder{'' if count == 1 else 's'}" if count is not None else "subfolders"
+    return (
+        f"Collection {collection_id!r} still holds {held}, so it cannot be deleted. "
+        f"list_collections shows them (parent_id {collection_id!r}); move each one "
+        f'with set_collection(<id>, parent_id="") or into another folder, or delete '
+        f"it, and only when the user asked."
+    )
+
+
 def exists_message(collection_id: str) -> str:
     return (
         f"A collection with id {collection_id!r} already exists. Read it with "
@@ -110,6 +133,12 @@ def collection_refusal(exc: httpx.HTTPStatusError, collection_id: str) -> Option
         return _refused(COLLECTION_IN_USE, in_use_message(collection_id, count), members=count)
     if status == _CONFLICT and reason == COLLECTION_EXISTS:
         return _refused(COLLECTION_EXISTS, exists_message(collection_id))
+    if status == _CONFLICT and reason == COLLECTION_HAS_CHILDREN:
+        count = member_count(fields.get("children"))
+        return _refused(COLLECTION_HAS_CHILDREN, has_children_message(collection_id, count),
+                        children=count)
+    if status == _UNPROCESSABLE and reason in NESTING_HINTS:
+        return _nesting_refusal(reason, body.get("detail"))
     if status == _UNPROCESSABLE:
         return _structured_422(body.get("detail"), reason)
     return None
@@ -130,6 +159,12 @@ def _structured_422(detail: Any, reason: Any) -> Optional[dict]:
         return None
     extra = {"reason": reason} if isinstance(reason, str) else {}
     return {"status": _ERROR, _ERROR: message, **extra}
+
+
+def _nesting_refusal(reason: str, detail: Any) -> dict:
+    """A 422 ``parent_id`` refusal: the backend's sentence, then the way out."""
+    sentence = detail.rstrip(".") if isinstance(detail, str) else "That parent_id was refused"
+    return _refused(reason, f"{sentence}. {NESTING_HINTS[reason]}")
 
 
 def _refused(reason: str, message: str, **extra: Any) -> dict:

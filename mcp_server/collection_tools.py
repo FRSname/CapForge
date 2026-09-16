@@ -8,6 +8,11 @@ with `set_video_meta`. Nothing is copied onto the members: each member's upload
 package is rendered at read time from its record plus the *effective brief*, so
 one collection write updates every member's package (plan decision 3).
 
+Collections nest like folders (docs/plans/library-finder.md §2): `parent_id`
+names the collection one sits inside, and a member inherits from every folder
+above its own. MCP cannot tell an omitted argument from `null`, so
+`set_collection(parent_id="")` is the way to say "move to the top level".
+
 Same shape as `library.py` and `publish.py`: `TOOLS`, `register(mcp,
 get_client)`, the client resolved per call, **no import of `server`**, and
 every failure is an error *dict* (`collection_call`) rather than a raised
@@ -26,6 +31,8 @@ from .library_errors import _OK, _fail, _library_call
 
 #: The key a collection detail carries the merged brief under.
 EFFECTIVE_BRIEF = "effective_brief"
+#: `set_collection(parent_id=TOP_LEVEL)` moves a collection out of every folder.
+TOP_LEVEL = ""
 
 ClientFactory = Callable[[], Any]
 
@@ -47,11 +54,16 @@ def _id_problem(collection_id: Any) -> Optional[str]:
     return "Pass the 'collection_id' (e.g. \"uck26\"): lowercase letters, digits and hyphens."
 
 
-def _argument_problem(name: Any, slots: Any, overrides: Any) -> Optional[str]:
+def _argument_problem(
+    name: Any, slots: Any, overrides: Any, parent_id: Any = None
+) -> Optional[str]:
     """Why the arguments cannot be sent, or None. The backend stays the
     authority on id and slot-name syntax; this only refuses wrong *types*."""
     if name is not None and not (isinstance(name, str) and name.strip()):
         return "'name' must be a non-empty string."
+    if parent_id is not None and not isinstance(parent_id, str):
+        return ("'parent_id' must be a collection id string, or \"\" to move the "
+                "collection to the top level.")
     if slots is not None:
         if not isinstance(slots, dict):
             return "'slots' must be an object of slot name to text, e.g. {\"event\": \"UCK 2026\"}."
@@ -62,11 +74,20 @@ def _argument_problem(name: Any, slots: Any, overrides: Any) -> Optional[str]:
     return None
 
 
-def _given(name: Optional[str], slots: Optional[dict], overrides: Optional[dict]) -> dict:
-    """Only the arguments that were passed, as fresh copies (never aliased)."""
+def _given(
+    name: Optional[str],
+    slots: Optional[dict],
+    overrides: Optional[dict],
+    parent_id: Optional[str] = None,
+) -> dict:
+    """Only the arguments that were passed, as fresh copies (never aliased).
+
+    `parent_id=""` (blank, too) becomes `null` on the wire: the top level."""
     given: dict[str, Any] = {}
     if name is not None:
         given["name"] = name
+    if parent_id is not None:
+        given["parent_id"] = parent_id.strip() or None
     if slots is not None:
         given["slots"] = dict(slots)
     if overrides is not None:
@@ -96,10 +117,14 @@ def _exists(client: Any, collection_id: str) -> bool:
 # --- Tools ------------------------------------------------------------------
 
 def list_collections() -> dict:
-    """List the library's collections (events, series) and the orphan ids.
+    """List the library's collections (events, series, folders) and the orphan ids.
 
-    Each collection carries `id`, `name`, `slots`, `overrides`, `createdAt`,
-    `updatedAt` and `members` (how many videos have that `collection_id`).
+    Each collection carries `id`, `name`, `parent_id`, `slots`, `overrides`,
+    `createdAt`, `updatedAt`, `members` (how many videos have that
+    `collection_id`), `total_members` (members plus every subfolder's) and
+    `path` (folder names from the top level down to this one, e.g.
+    `["Events", "UCK 2026", "Day 1"]`). The list is flat: build the tree from
+    `parent_id` (`null` is the top level).
     `orphans` lists ids that videos already carry but no collection defines,
     as `[{id, members}]`: adopt one with `set_collection(<that exact id>,
     name=…)`. Works with the app's window closed.
@@ -120,9 +145,11 @@ def list_collections() -> dict:
 def get_collection(collection_id: str) -> dict:
     """Read one collection with its member count and its `effective_brief`.
 
-    `effective_brief` is the channel brief with this collection applied: its
-    overrides replace the channel's fields and its slots merge over the
-    channel's. For a video whose record has this `collection_id` it is *the*
+    The collection carries `parent_id`, `path` (where it sits, e.g.
+    `["Events", "UCK 2026"]` — use it to tell the user) and `total_members`.
+    `effective_brief` is the channel brief with this collection applied, after
+    every folder above it: its overrides replace the channel's fields and its
+    slots merge over the channel's. For a video whose record has this `collection_id` it is *the*
     brief: read it once per collection instead of `get_brief`, and never paste
     what its template renders (footer, recorded-at line, hashtags, links) into
     a video's `description`.
@@ -143,6 +170,7 @@ def set_collection(
     name: Optional[str] = None,
     slots: Optional[dict[str, str]] = None,
     overrides: Optional[dict[str, Any]] = None,
+    parent_id: Optional[str] = None,
 ) -> dict:
     """Create a collection, or change one — an upsert keyed on `collection_id`.
 
@@ -164,16 +192,26 @@ def set_collection(
       names are lowercase, start with a letter, and may not reuse a built-in
       slot (`title`, `footer`, `chapters`…).
 
+    - `parent_id` places the collection inside another (a folder inside a
+      folder): a collection id creates it there or moves it there with its
+      whole subtree; `""` moves it to the top level; leaving it out (`None`)
+      keeps it where it is. Members inherit from every folder above: slots
+      merge down the chain (the deepest value wins) and each override is the
+      deepest one that is set. A folder cannot go inside itself or its own
+      subfolder, and folders nest at most 8 levels deep.
+
     Changing a collection changes every member's package on its next
     `get_upload_package`, with no per-video write: that is how an event's
     footers are regenerated. Never rewrite member descriptions for it.
     """
-    problem = _id_problem(collection_id) or _argument_problem(name, slots, overrides)
+    problem = _id_problem(collection_id) or _argument_problem(name, slots, overrides, parent_id)
     if problem:
         return _fail(problem)
-    changes = _given(name, slots, overrides)
+    changes = _given(name, slots, overrides, parent_id)
     if not changes:
-        return _fail("Nothing to set: pass at least one of 'name', 'slots' or 'overrides'.")
+        return _fail(
+            "Nothing to set: pass at least one of 'name', 'slots', 'overrides' or 'parent_id'."
+        )
 
     def _call() -> dict:
         client = _capforge()
@@ -191,10 +229,11 @@ def set_collection(
 
 
 def delete_collection(collection_id: str) -> dict:
-    """Delete a collection that has no members.
+    """Delete a collection that has no members and no subfolders.
 
     Refused while any video still has this `collection_id`, with the member
-    count: emptying an event is never a side effect. Move each video out with
+    count, and then while any collection has it as `parent_id`, with the
+    subfolder count: emptying an event is never a side effect. Move each video out with
     `set_video_meta(video_id, {"collection_id": null}, rev)`, one per call and
     only when the user asked, then delete.
     """

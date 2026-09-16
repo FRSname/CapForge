@@ -122,6 +122,23 @@ All sit behind the router's existing actor guard. Every request model is `extra=
 - **When the record's own `description` breaks a rule,** both `description` and `package.description` findings are reported.
 - **"Manage collections…"** opens Settings on the Collections category through `lib/settingsNavigation.ts` (SettingsDialog is always mounted and subscribes), so `App.tsx` did not grow. The Brief field editors were extracted to `components/settings/BriefFields.tsx` and are shared by the Channel pane and the Collections editor.
 
+## Nesting (added by docs/plans/library-finder.md §2)
+
+Collections nest, and the UI calls them **folders**; the backend, the routes, the MCP tools and `collection_id` keep "collection".
+
+- **Stored shape:** `Collection`, `CollectionCreate` and `CollectionPatch` gain `parent_id` (`null` = top level). On a `PATCH`, a sent `null` moves to the top level and an omitted key leaves it where it is. `collections.json` stays `version: 1`, and a top-level row is written without `parent_id`, so a file that does not nest is byte-for-byte the old shape an older build can read. A file that does nest is unreadable to an older build, whose `Collection` forbids unknown keys.
+- **Integrity, under the store's write lock** (`collection_tree.py`), in this order:
+  1. `parent_id` names no collection: 422 `unknown_parent`.
+  2. The collection itself or one of its descendants: 422 `collection_cycle`.
+  3. Deeper than `MAX_COLLECTION_DEPTH` (8): 422 `collection_too_deep` with `max_depth`. A top-level collection is depth 1, and a move is judged by the depth its deepest descendant would land at.
+
+  Re-sending the current parent is not a move and is never judged. A hand-edited file with a dangling or looping `parent_id` is `CollectionsUnreadable` (500), never flattened.
+- **Delete** answers `collection_in_use` (members) **first**, unchanged, then 409 `collection_has_children` with `children` (direct subfolders), so a client that predates nesting meets the refusal it knows first.
+- **Inheritance, one seam:** `resolved_collection(collections, id)` folds the ancestor chain, top level first, into one `Collection`: slots merge key-wise (the deeper value wins), each override is the deepest non-null value (`null` inherits through any number of levels), and identity fields are the leaf's. Unknown and `None` ids resolve to `None`. `router_publish.read_collection` (injected into `post_drafts.py`), `_requested_collection` and `router_collections._detail` call it; `effective_brief` and the package, platform-post and validator call sites are unchanged. A top-level collection resolves to itself, so every package expectation above holds byte-identically.
+- **Routes:** `GET /collections` stays flat. Every collection answer adds `parent_id`, `path` (names from the top level, itself last) and `total_members` (itself plus every descendant). The detail's `effective_brief` is resolved, while its `slots` and `overrides` stay the collection's own. `GET /api/library?collection=` is still direct members only.
+- **MCP:** `set_collection(parent_id=…)` moves or creates under a folder, `""` moves to the top level (MCP arguments cannot tell omitted from `null`), `None` leaves it. The nesting 422s and `collection_has_children` come back with their `reason` and a next step.
+- **Settings → Folders:** the tree is indented (`lib/collectionTree.ts`: `buildTree`, `flattenTree`, `ancestorsOf`, `descendantIds`, `canMoveInto`, `moveTargets`, `pathLabel`). The editor gains a **Location** select (Top level plus every folder it may move into, labelled by full path), an inherited field names its source ("From Events › UCK 2026"), delete is disabled while a folder holds videos or subfolders, and a refused move or delete is shown under its control.
+
 ## Verification
 
 - **Backend:** 1780 passed; the only failures are the 15 known macOS `test_render_golden.py` deltas. The library tests pass, including the new `test_library_template.py`, `test_library_collections.py`, `test_library_package_collections.py` and `test_library_collections_routes.py`. Existing package test expectations are unchanged (the byte-identity proof).
