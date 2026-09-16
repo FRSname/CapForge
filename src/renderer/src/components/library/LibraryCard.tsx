@@ -5,7 +5,8 @@
  * recording is a tall card in its grid column rather than a letterboxed 16:9
  * one; it carries the duration badge and the missing-media chip.
  *
- * The `…` menu is local state and the destructive item confirms **inline**:
+ * The `…` menu's state lives in `useRecordMenu` (the list row shares it and
+ * `LibraryCardMenu`), and the destructive item confirms **inline**:
  * no native dialog, because the renderer's tests have no DOM and a
  * `window.confirm` would be untestable as well as ugly. A record whose media
  * is missing also gets "Locate…"; if the picked file is different media, the
@@ -13,13 +14,14 @@
  * swaps the actions for `MoveToCollectionMenu`.
  */
 
-import { useState } from 'react'
 import type { CreateCollectionResult } from '../../lib/collectionCreate'
 import type { CollectionSummary } from '../../lib/collectionTypes'
-import type { LocateOutcome } from '../../lib/libraryImport'
+import { cn } from '../../lib/cn'
 import { pathBaseName } from '../../lib/libraryImport'
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { displayTitle, statusPips } from '../../lib/libraryView'
+import { displayTitle, formatShortDate, statusPips } from '../../lib/libraryView'
+import type { RecordMenuActions } from '../../hooks/useRecordMenu'
+import { useRecordMenu } from '../../hooks/useRecordMenu'
 import { InlineConfirm, MenuItem } from './LibraryMenuParts'
 import { LibraryPoster } from './LibraryPoster'
 import { MoveToCollectionMenu } from './MoveToCollectionMenu'
@@ -83,32 +85,13 @@ export function CollectionChip({ name }: { name: string | null | undefined }) {
   )
 }
 
-/** ISO → a short local date; empty when the backend sent nothing usable. */
-function formatUpdated(iso: string): string {
-  const ms = Date.parse(iso)
-  if (Number.isNaN(ms)) return ''
-  return new Date(ms).toLocaleDateString([], { month: 'short', day: 'numeric' })
-}
-
-export interface LibraryCardProps {
+export interface LibraryCardProps extends RecordMenuActions {
   video: LibraryVideo
   /** The name of the record's collection (or its bare id when none is defined). */
   collectionName?: string | null
   /** Every collection, for "Move to collection…". */
   collections: readonly CollectionSummary[]
   onOpen: (video: LibraryVideo) => void
-  /** Hide the record, keeping every file it holds. */
-  onRemove: (video: LibraryVideo) => void
-  /** Un-index it and move its folder to the Trash. */
-  onDelete: (video: LibraryVideo) => void
-  /** Pick a file for missing media and relink. Never rejects; failures are toasted. */
-  onLocate: (video: LibraryVideo) => Promise<LocateOutcome>
-  /** Link a different file anyway, after the inline confirm. */
-  onForceLocate: (video: LibraryVideo, path: string) => void
-  /** Put the record in a collection (null: in none). Failures are toasted. */
-  onMoveToCollection: (video: LibraryVideo, collectionId: string | null) => void
-  /** Create a collection by name; the card then moves the record into it. */
-  onCreateCollection: (name: string) => Promise<CreateCollectionResult>
 }
 
 export function LibraryCard({
@@ -116,40 +99,10 @@ export function LibraryCard({
   collectionName,
   collections,
   onOpen,
-  onRemove,
-  onDelete,
-  onLocate,
-  onForceLocate,
-  onMoveToCollection,
-  onCreateCollection,
+  ...actions
 }: LibraryCardProps) {
-  const [menuOpen, setMenuOpen] = useState(false)
-  const [confirmingDelete, setConfirmingDelete] = useState(false)
-  const [pendingLinkPath, setPendingLinkPath] = useState<string | null>(null)
-  const [moving, setMoving] = useState(false)
+  const { open, toggle, menu } = useRecordMenu(video, actions)
   const title = displayTitle(video)
-
-  function closeMenu() {
-    setMenuOpen(false)
-    setConfirmingDelete(false)
-    setPendingLinkPath(null)
-    setMoving(false)
-  }
-
-  function handleLocate() {
-    closeMenu()
-    void onLocate(video).then((outcome) => {
-      if (outcome.kind !== 'confirm') return
-      // Reopen on the confirm: the picker took the focus away from the card.
-      setPendingLinkPath(outcome.path)
-      setMenuOpen(true)
-    })
-  }
-
-  function handlePickCollection(collectionId: string | null) {
-    closeMenu()
-    if (collectionId !== video.collection_id) onMoveToCollection(video, collectionId)
-  }
 
   return (
     <div className="group relative flex flex-col gap-2.5">
@@ -169,59 +122,54 @@ export function LibraryCard({
           >
             {title}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 items-center gap-2">
             <StatusRail video={video} />
             <LanguageChip lang={video.language} />
             <CollectionChip name={collectionName} />
-            <span className="ml-auto text-2xs" style={{ color: 'var(--color-text-3)' }}>
-              {formatUpdated(video.updatedAt)}
+            <span
+              className="ml-auto shrink-0 whitespace-nowrap text-2xs"
+              style={{ color: 'var(--color-text-3)' }}
+            >
+              {formatShortDate(video.updatedAt)}
             </span>
           </div>
         </div>
       </button>
 
-      <button
-        type="button"
-        aria-label={`Actions for ${title}`}
-        title="Record actions"
-        className="absolute right-3 top-3 rounded px-1.5 text-xs opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
-        style={{ color: 'var(--color-text-2)', background: 'var(--color-base)' }}
-        onClick={() => (menuOpen ? closeMenu() : setMenuOpen(true))}
-      >
-        ⋯
-      </button>
+      <RecordActionsButton
+        title={title}
+        className="absolute right-3 top-3 opacity-0 group-hover:opacity-100"
+        onClick={toggle}
+      />
 
-      {menuOpen && (
-        <LibraryCardMenu
-          video={video}
-          confirmingDelete={confirmingDelete}
-          pendingLinkPath={pendingLinkPath}
-          moving={moving}
-          collections={collections}
-          onRemove={() => {
-            closeMenu()
-            onRemove(video)
-          }}
-          onAskDelete={() => setConfirmingDelete(true)}
-          onDelete={() => {
-            closeMenu()
-            onDelete(video)
-          }}
-          onCancelDelete={() => setConfirmingDelete(false)}
-          onLocate={handleLocate}
-          onLink={() => {
-            const path = pendingLinkPath
-            closeMenu()
-            if (path) onForceLocate(video, path)
-          }}
-          onCancelLink={closeMenu}
-          onAskMove={() => setMoving(true)}
-          onBackFromMove={() => setMoving(false)}
-          onPickCollection={handlePickCollection}
-          onCreateCollection={onCreateCollection}
-        />
-      )}
+      {open && <LibraryCardMenu video={video} collections={collections} {...menu} />}
     </div>
+  )
+}
+
+export interface RecordActionsButtonProps {
+  title: string
+  /** Placement and visibility; the button is always shown on keyboard focus. */
+  className?: string
+  onClick: () => void
+}
+
+/** The `…` button that opens a record's menu — the card's and the list row's. */
+export function RecordActionsButton({ title, className, onClick }: RecordActionsButtonProps) {
+  return (
+    <button
+      type="button"
+      aria-label={`Actions for ${title}`}
+      title="Record actions"
+      className={cn(
+        'rounded px-1.5 text-xs transition-opacity focus-visible:opacity-100',
+        className
+      )}
+      style={{ color: 'var(--color-text-2)', background: 'var(--color-base)' }}
+      onClick={onClick}
+    >
+      ⋯
+    </button>
   )
 }
 
@@ -245,7 +193,12 @@ export interface LibraryCardMenuProps {
   onBackFromMove: () => void
   onPickCollection: (collectionId: string | null) => void
   onCreateCollection: (name: string) => Promise<CreateCollectionResult>
+  /** Where the menu hangs; the card's placement by default. */
+  placement?: string
 }
+
+/** Under the card's `…` button, which sits in the poster's top-right corner. */
+const CARD_MENU_PLACEMENT = 'right-3 top-9'
 
 /** The card's `…` menu — presentational, so every state renders to static markup. */
 export function LibraryCardMenu(props: LibraryCardMenuProps) {
@@ -253,7 +206,10 @@ export function LibraryCardMenu(props: LibraryCardMenuProps) {
   return (
     <div
       role="menu"
-      className="absolute right-3 top-9 z-10 flex w-52 flex-col rounded-lg p-1 text-xs"
+      className={cn(
+        'absolute z-10 flex w-52 flex-col rounded-lg p-1 text-left text-xs',
+        props.placement ?? CARD_MENU_PLACEMENT
+      )}
       style={{
         background: 'var(--color-surface-2)',
         border: '1px solid var(--color-border-2)',

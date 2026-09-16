@@ -676,10 +676,12 @@ class CapForgeAPI {
   /**
    * The library home screen's list. Parsed at the boundary
    * (`lib/libraryTypes.ts`) rather than cast: everything on a card is addressed
-   * by `id`/`sourcePath`, so a malformed row must fail loudly here.
+   * by `id`/`sourcePath`, so a malformed row must fail loudly here. With `q`
+   * it is the library search (FTS5, `LIKE` fallback); an empty `q` sends none.
    */
-  listLibrary(): Promise<LibraryVideo[]> {
-    return this.getWithLocalToken<unknown>('/api/library').then(parseLibraryList)
+  listLibrary(query: { q?: string } = {}): Promise<LibraryVideo[]> {
+    const search = query.q ? `?q=${encodeURIComponent(query.q)}` : ''
+    return this.getWithLocalToken<unknown>(`/api/library${search}`).then(parseLibraryList)
   }
 
   /**

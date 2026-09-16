@@ -26,9 +26,11 @@ import {
   displayTitle,
   fileStem,
   formatDuration,
+  formatShortDate,
   isMediaPath,
   posterAspect,
   posterBoxWidth,
+  publishedOnLabel,
   sortByUpdated,
   statusPips,
 } from './libraryView'
@@ -274,5 +276,36 @@ describe('posterBoxWidth', () => {
 
   test('a wide ratio is held to the max width', () => {
     expect(posterBoxWidth(21 / 9, 180, 320)).toBe(320)
+  })
+})
+
+describe('formatShortDate', () => {
+  test('a parseable date is a short local date', () => {
+    expect(formatShortDate('2026-09-01T10:00:00Z')).not.toBe('')
+  })
+
+  test.each(['', 'garbage'])('%j is empty rather than "Invalid Date"', (iso) => {
+    expect(formatShortDate(iso)).toBe('')
+  })
+})
+
+describe('publishedOnLabel', () => {
+  const channels = [
+    { id: 'main', name: 'Main channel' },
+    { id: 'shorts', name: 'Shorts' },
+  ]
+
+  test('names the channels, in the order the record lists them', () => {
+    expect(publishedOnLabel(['shorts', 'main'], channels)).toBe('Shorts, Main channel')
+  })
+
+  test('a channel Settings no longer has (or before the list loads) shows its id', () => {
+    expect(publishedOnLabel(['gone'], channels)).toBe('gone')
+    expect(publishedOnLabel(['main'], null)).toBe('main')
+  })
+
+  test('nothing published is empty', () => {
+    expect(publishedOnLabel([], channels)).toBe('')
+    expect(publishedOnLabel(undefined, channels)).toBe('')
   })
 })

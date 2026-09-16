@@ -513,6 +513,25 @@ describe('CapForgeAPI', () => {
       expect(videos).toEqual([ROW])
     })
 
+    test('listLibrary searches with q, encoded, through the same token plumbing', async () => {
+      api.setLocalToken('tok')
+      fetchMock.mockResolvedValue(jsonResponse({ videos: [ROW] }))
+
+      await api.listLibrary({ q: 'key note & more' })
+
+      const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+      expect(url).toBe('http://127.0.0.1:53421/api/library?q=key%20note%20%26%20more')
+      expect((init.headers as Record<string, string>)['X-CapForge-Local-Token']).toBe('tok')
+    })
+
+    test('listLibrary sends no q for an empty query', async () => {
+      fetchMock.mockResolvedValue(jsonResponse({ videos: [] }))
+
+      await api.listLibrary({ q: '' })
+
+      expect(fetchMock.mock.calls[0][0]).toBe('http://127.0.0.1:53421/api/library')
+    })
+
     test('listLibrary rejects a malformed row instead of handing it to the UI', async () => {
       fetchMock.mockResolvedValue(jsonResponse({ videos: [{ ...ROW, status: 'nope' }] }))
 

@@ -1,12 +1,17 @@
 /**
  * The library home screen — where CapForge opens (v3 §4).
  *
- * Composition: a masthead with the toolbar (`LibraryToolbar`), a "Continue"
- * hero (`ContinueHero`) for the most recent record that has a session to
- * resume, then the rest of the library as a grid of cards. The hero is
- * deliberately *not* repeated in the grid: it is the same record promoted, not
- * a second one. Cards keep their poster's ratio, so the grid is `items-start`:
- * a row never stretches its shorter (landscape) cards to its tallest one.
+ * Composition: a masthead with the toolbar (`LibraryToolbar`), then the
+ * videos in the remembered layout (docs/plans/library-finder.md §3):
+ *   - **grid** (`LibraryGrid`): a "Continue" hero (`ContinueHero`) for the most
+ *     recent record that has a session to resume, then the rest as cards. The
+ *     hero is deliberately *not* repeated in the grid: it is the same record
+ *     promoted, not a second one;
+ *   - **list** (`LibraryList`): every video as a table row, no hero.
+ * Both follow the chosen sort. While a search is on, the backend's matches
+ * narrow what the collection filter shows (`matchingVideos`) and the hero is
+ * hidden. Search state and the view prefs are owned by `LibraryHome`; the
+ * collection filter is local.
  *
  * The whole screen is a drop target, and what a drop means is decided by
  * `droppedImport` (lib/libraryImport.ts), which sorts it exactly like an
@@ -23,7 +28,9 @@ import { newCollectionPlacement } from '../../lib/collectionCreate'
 import type { DropPlan, ImportPickMode, ImportPlan, LocateOutcome } from '../../lib/libraryImport'
 import { droppedImport, droppedItemsOf, droppedSkippedMessage } from '../../lib/libraryImport'
 import type { CollectionSummary } from '../../lib/collectionTypes'
-import { collectionLabel } from '../../lib/collections'
+import type { LibraryViewPrefs } from '../../lib/libraryPrefs'
+import { isSearching, matchingVideos, noMatchMessage } from '../../lib/librarySearch'
+import { sortVideos } from '../../lib/librarySort'
 import type { CollectionFilter } from '../../lib/libraryView'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import {
@@ -31,12 +38,14 @@ import {
   collectionFilterOptions,
   continueCandidate,
   filterByCollection,
-  sortByUpdated,
 } from '../../lib/libraryView'
+import type { ChannelNames } from '../../hooks/useLibraryChannels'
+import type { LibrarySearchView } from '../../hooks/useLibrarySearch'
 import { warmForFile } from '../screens/DropZoneScreen'
 import { ContinueHero } from './ContinueHero'
-import { LibraryCard } from './LibraryCard'
 import { LibraryEmptyState } from './LibraryEmptyState'
+import { LibraryGrid } from './LibraryGrid'
+import { LibraryList } from './LibraryList'
 import { LibraryToolbar } from './LibraryToolbar'
 
 export { droppedNotMediaMessage } from '../../lib/libraryImport'
@@ -45,6 +54,8 @@ export interface LibraryScreenProps {
   videos: LibraryVideo[]
   /** Names for the filter and the card chips; null/absent until they load. */
   collections?: readonly CollectionSummary[] | null
+  /** Channel names for the list's "Published on"; null/absent shows the ids. */
+  channels?: ChannelNames | null
   loading: boolean
   /** A card was clicked — restore its session, or go transcribe its file. */
   onOpen: (video: LibraryVideo) => void
@@ -68,53 +79,28 @@ export interface LibraryScreenProps {
   onCreateCollection: (name: string) => Promise<CreateCollectionResult>
   /** Card: put one video in a collection (null: in none). */
   onMoveToCollection: (video: LibraryVideo, collectionId: string | null) => void
+  /** Layout, icon size and sort (remembered by `useLibraryViewPrefs`). */
+  view: LibraryViewPrefs
+  onViewChange: (next: LibraryViewPrefs) => void
+  /** The search field and the backend's matches (`useLibrarySearch`). */
+  search: LibrarySearchView
+  onSearchChange: (query: string) => void
 }
 
-export function LibraryScreen({
-  videos,
-  collections,
-  loading,
-  onOpen,
-  onAddVideo,
-  onImport,
-  onImportDropped,
-  onFileDropped,
-  onDropRejected,
-  onRemove,
-  onDelete,
-  onLocate,
-  onForceLocate,
-  onCreateCollection,
-  onMoveToCollection,
-}: LibraryScreenProps) {
+export function LibraryScreen(props: LibraryScreenProps) {
+  const { videos, collections, loading, view, search } = props
   const [dragging, setDragging] = useState(false)
   // Bumped per drop to remount the empty state's DropZoneScreen: the capture
   // handler stops the event before that zone can clear its own highlight.
   const [dropCount, setDropCount] = useState(0)
-
   const [filter, setFilter] = useState<CollectionFilter>(ALL_COLLECTIONS)
 
   const known = collections ?? []
-  const shown = filterByCollection(videos, filter)
-  const hero = continueCandidate(shown)
-  const rest = sortByUpdated(shown).filter((v) => v.id !== hero?.id)
-  const filtering = filter !== ALL_COLLECTIONS
+  const searching = isSearching(search.query)
+  const inFilter = filterByCollection(videos, filter)
+  const shown = searching ? matchingVideos(inFilter, search.matchIds) : inFilter
   const placement = newCollectionPlacement(videos.length, collections ?? null)
-
-  function runDropPlan(plan: DropPlan) {
-    if (plan.kind === 'none') return
-    if (plan.kind === 'rejected') {
-      onDropRejected(plan.message)
-      return
-    }
-    if (plan.kind === 'import') {
-      onImportDropped(plan.plan)
-      return
-    }
-    if (plan.skipped.length > 0) onDropRejected(droppedSkippedMessage(plan.skipped))
-    onFileDropped(plan.path)
-    warmForFile()
-  }
+  const hasVideos = videos.length > 0
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
@@ -124,7 +110,7 @@ export function LibraryScreen({
     // Read synchronously — the DataTransfer is emptied once the handler returns.
     // Electron 32+ removed File.path → the preload bridge resolves files and folders.
     const items = droppedItemsOf(e.dataTransfer, (file) => window.subforge?.getPathForFile(file))
-    runDropPlan(droppedImport(items))
+    runDropPlan(droppedImport(items), props)
   }
 
   return (
@@ -143,85 +129,143 @@ export function LibraryScreen({
       onDropCapture={handleDrop}
     >
       <header className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3 px-8 pb-4 pt-7">
-        <div className="flex shrink-0 items-baseline gap-3">
-          <h1
-            className="text-3xl leading-none"
-            style={{
-              fontFamily: 'var(--cf-font-display)',
-              fontStyle: 'italic',
-              color: 'var(--color-text)',
-            }}
-          >
-            Library
-          </h1>
-          <span
-            className="whitespace-nowrap text-[11px] uppercase tracking-widest"
-            style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
-          >
-            {loading ? 'loading…' : countLabel(shown.length, videos.length, filtering)}
-          </span>
-        </div>
+        <Masthead
+          countLabel={
+            loading
+              ? 'loading…'
+              : countLabel(shown.length, videos.length, filter !== ALL_COLLECTIONS || searching)
+          }
+        />
         <LibraryToolbar
           filterOptions={placement === 'toolbar' ? collectionFilterOptions(known, videos) : null}
           filter={filter}
           onFilterChange={setFilter}
-          onCreateCollection={onCreateCollection}
-          onImport={onImport}
-          onAddVideo={onAddVideo}
+          onCreateCollection={props.onCreateCollection}
+          onImport={props.onImport}
+          onAddVideo={props.onAddVideo}
+          view={hasVideos ? view : null}
+          onViewChange={props.onViewChange}
+          searchQuery={search.query}
+          onSearchChange={props.onSearchChange}
         />
       </header>
 
-      {videos.length === 0 ? (
+      {hasVideos ? (
+        <LibraryBody {...props} shown={shown} filter={filter} searching={searching} />
+      ) : (
         <LibraryEmptyState
           dropZoneKey={dropCount}
-          onFileSelected={onFileDropped}
-          onStart={onAddVideo}
-          onImport={onImport}
-          onCreateCollection={placement === 'empty-state' ? onCreateCollection : undefined}
+          onFileSelected={props.onFileDropped}
+          onStart={props.onAddVideo}
+          onImport={props.onImport}
+          onCreateCollection={placement === 'empty-state' ? props.onCreateCollection : undefined}
         />
-      ) : (
-        <div className="flex flex-col gap-8 px-8 pb-10">
-          {shown.length === 0 && (
-            <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
-              No videos match this collection filter.
-            </p>
-          )}
-          {hero && <ContinueHero video={hero} onOpen={onOpen} />}
-          {rest.length > 0 && (
-            <div className="flex flex-col gap-3">
-              <h2
-                className="text-[11px] uppercase tracking-widest"
-                style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
-              >
-                All videos
-              </h2>
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] items-start gap-4">
-                {rest.map((video) => (
-                  <LibraryCard
-                    key={video.id}
-                    video={video}
-                    collectionName={collectionLabel(known, video.collection_id)}
-                    collections={known}
-                    onOpen={onOpen}
-                    onRemove={onRemove}
-                    onDelete={onDelete}
-                    onLocate={onLocate}
-                    onForceLocate={onForceLocate}
-                    onMoveToCollection={onMoveToCollection}
-                    onCreateCollection={onCreateCollection}
-                  />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
       )}
     </section>
   )
 }
 
-/** "3 videos", or "2 of 3 videos" while a collection filter is on. */
-function countLabel(shown: number, total: number, filtering: boolean): string {
+function runDropPlan(plan: DropPlan, props: LibraryScreenProps) {
+  if (plan.kind === 'none') return
+  if (plan.kind === 'rejected') {
+    props.onDropRejected(plan.message)
+    return
+  }
+  if (plan.kind === 'import') {
+    props.onImportDropped(plan.plan)
+    return
+  }
+  if (plan.skipped.length > 0) props.onDropRejected(droppedSkippedMessage(plan.skipped))
+  props.onFileDropped(plan.path)
+  warmForFile()
+}
+
+function Masthead({ countLabel }: { countLabel: string }) {
+  return (
+    <div className="flex shrink-0 items-baseline gap-3">
+      <h1
+        className="text-3xl leading-none"
+        style={{
+          fontFamily: 'var(--cf-font-display)',
+          fontStyle: 'italic',
+          color: 'var(--color-text)',
+        }}
+      >
+        Library
+      </h1>
+      <span
+        className="whitespace-nowrap text-[11px] uppercase tracking-widest"
+        style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
+      >
+        {countLabel}
+      </span>
+    </div>
+  )
+}
+
+interface LibraryBodyProps extends LibraryScreenProps {
+  /** The videos after the collection filter and the search. */
+  shown: LibraryVideo[]
+  filter: CollectionFilter
+  searching: boolean
+}
+
+/** The videos in the chosen layout, with the hero and the empty-result lines. */
+function LibraryBody({ shown, filter, searching, ...props }: LibraryBodyProps) {
+  const { view, search } = props
+  const known = props.collections ?? []
+  const filtering = filter !== ALL_COLLECTIONS
+  const hero = view.layout === 'grid' && !searching ? continueCandidate(shown) : null
+  const sorted = sortVideos(shown, view.sort).filter((v) => v.id !== hero?.id)
+  const actions = {
+    onOpen: props.onOpen,
+    onRemove: props.onRemove,
+    onDelete: props.onDelete,
+    onLocate: props.onLocate,
+    onForceLocate: props.onForceLocate,
+    onMoveToCollection: props.onMoveToCollection,
+    onCreateCollection: props.onCreateCollection,
+  }
+
+  return (
+    <div className="flex flex-col gap-8 px-8 pb-10">
+      {shown.length === 0 && (
+        <p className="text-xs" style={{ color: 'var(--color-text-3)' }}>
+          {searching && search.matchIds !== null
+            ? noMatchMessage(search.query, filtering)
+            : 'No videos match this collection filter.'}
+        </p>
+      )}
+      {hero && <ContinueHero video={hero} onOpen={props.onOpen} />}
+      {sorted.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2
+            className="text-[11px] uppercase tracking-widest"
+            style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
+          >
+            {searching ? 'Search results' : 'All videos'}
+          </h2>
+          {view.layout === 'list' ? (
+            <LibraryList
+              videos={sorted}
+              collections={known}
+              channels={props.channels ?? null}
+              showCollection={!filtering}
+              sort={view.sort}
+              onSortChange={(sort) => props.onViewChange({ ...view, sort })}
+              {...actions}
+            />
+          ) : (
+            <LibraryGrid videos={sorted} collections={known} tileSize={view.tileSize} {...actions} />
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** "3 videos", or "2 of 3 videos" while a collection filter or a search is on. */
+function countLabel(shown: number, total: number, narrowed: boolean): string {
   const noun = `video${total === 1 ? '' : 's'}`
-  return filtering ? `${shown} of ${total} ${noun}` : `${total} ${noun}`
+  return narrowed ? `${shown} of ${total} ${noun}` : `${total} ${noun}`
 }
