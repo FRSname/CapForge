@@ -97,20 +97,19 @@ back, and the record wins wherever they differ.
 
 ### Other platforms
 
-Only when the user asks for a social post: `get_upload_package(video_id,
-platform="linkedin")`, or `platform="x"` or `platform="instagram"` (add `lang` for a
-translation). Each is one post rendered from the same fields and brief, and is
-clipboard text: nothing is posted, so hand the text to the user. A post reads
+Only when the user asks for a social post, and only for a channel the video has a post
+for under `posts`: `get_upload_package(video_id, channel="filip-li")` (add `lang` for a
+translation). There is no `platform` argument — a channel names its platform. Each post
+is clipboard text: nothing is posted, so hand the text to the user. A post reads
 `publish.youtube.url`; before it is recorded the post prints `[FULL VIDEO URL]` with a
-`video_url_missing` finding (Instagram prints "Link in bio" instead of a link). A
+`video_url_missing` finding (Instagram captions say "Link in bio" instead of a link). A
 `linkedin_max_chars`, `x_max_chars` or `instagram_max_chars` finding means the text
-won't paste as-is. Shorten the field it came from, never the post, and read it again;
-X never cuts the title, it only drops hashtags from the end.
+won't paste as-is. Shorten the field it came from, never the post, and read it again.
 
-These posts are derived from the YouTube fields. When the video has a post of its own
-for that platform's channel under `posts`, render that instead with
-`get_upload_package(video_id, channel=…)`; `channel` and `platform` are never passed
-together.
+A channel with no post yet answers `no_post`. Write that post in the channel's own voice
+first — `get_channel(channel_id)`, then `set_video_meta(video_id, {"posts": {"<channel
+id>": {…}}}, rev)`; see `publish_guide("channels")`. In the app the user does the same
+from the Publish workspace, where an empty tab offers to start from another tab.
 
 ## 6. Later
 

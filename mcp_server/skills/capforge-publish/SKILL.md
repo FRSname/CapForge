@@ -114,7 +114,7 @@ For each channel the video has a post for, skipping posts with hidden: true:
 5. `validate_video(video_id, channel="<channel id>")`: fix every hard finding (they name
    posts.<channel id>.<field>) and write again.
 6. `get_upload_package(video_id, channel="<channel id>")`: show each post's text under
-   its channel's name. Pass channel alone, never together with platform.
+   its channel's name. A channel names its platform, so there is no platform argument.
 7. When the user says where a post went live:
    `mark_published(video_id, url, channel="<channel id>")`.
 

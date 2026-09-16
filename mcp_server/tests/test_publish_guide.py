@@ -183,12 +183,14 @@ def test_batch_publish_prompt_scopes_to_a_collection_when_given_one() -> None:
 
 
 def test_the_workflow_has_an_other_platforms_note() -> None:
+    """Multi-channel PR 4 dropped `platform=`: a social post is a channel's post."""
     workflow = " ".join(publish_guide.GUIDE.read_topic("workflow").split())
     assert "Other platforms" in workflow
     note = workflow[workflow.index("Other platforms"):]
-    for words in ('platform="linkedin"', '"x"', '"instagram"', "video_url_missing",
-                  "nothing is posted"):
+    for words in ('get_upload_package(video_id, channel="filip-li")', "no `platform`",
+                  "video_url_missing", "nothing is posted", "no_post"):
         assert words in note, words
+    assert "platform=" not in workflow
 
 
 def test_the_guide_reads_the_record_before_writing() -> None:

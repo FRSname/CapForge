@@ -36,9 +36,9 @@ HARD = "hard"
 STYLE = "style"
 OTHER = "other"
 
-#: The platforms `get_upload_package` can render: YouTube's upload package, then
-#: the three clipboard posts. An unknown one is refused here, before a round trip.
-SUPPORTED_PLATFORMS = ("youtube", "linkedin", "x", "instagram")
+#: What the primary channel's package is, used only as the answer's fallback:
+#: a channel names its platform, so this module's tools take none.
+YOUTUBE = "youtube"
 
 #: What `grab_frames` expects: seconds, from the transcript.
 _TIMES_SHAPE = "[61.25, 184.0]"
@@ -227,15 +227,13 @@ def check_chapters(video_id: str, chapters: list[dict]) -> dict:
 
 def get_upload_package(
     video_id: str,
-    platform: str = "youtube",
     lang: Optional[str] = None,
     channel: Optional[str] = None,
 ) -> dict:
     """Render the record into one copy-ready block of text for the user.
 
-    The last step: by default (`platform="youtube"`) CapForge assembles the
-    stored fields and the channel brief into the layout the user pastes into
-    YouTube Studio (title options,
+    The last step: CapForge assembles the stored fields and the channel brief
+    into the layout the user pastes into YouTube Studio (title options,
     description with chapters and links, tags, short description, Shorts,
     thumbnail ideas, notes). Show the `text` as-is — it is plain text on
     purpose.
@@ -255,63 +253,32 @@ def get_upload_package(
     the source language. No `lang`, or the source language, is the source
     package; a language with no localized fields is an error.
 
-    The other platforms render one post each from the same fields and brief
-    (and `lang`). They are clipboard text: nothing is posted, CapForge holds no
-    account access, and the user pastes the text themselves.
-
-    - **LinkedIn** (`"linkedin"`): the hook (the short description, else the
-      description's first paragraph), the rest of the description, up to 5
-      chapters under "In this video:", `Watch: <url>` on its own line, then the
-      first 5 hashtags. Limit 3000 characters; fewer than 3 hashtags is a style
-      finding.
-    - **X** (`"x"`): the title (else the short description), the URL, then as
-      many whole hashtags as still fit, dropped from the end. Limit 280, with
-      every URL counted as 23. The prose is never cut, so a long title is a
-      hard finding rather than a shorter post. X's heavier weighting of emoji
-      and CJK characters is not modelled, so leave headroom when using them.
-    - **Instagram** (`"instagram"`): the short description (else the first
-      paragraph), "Link in bio" (captions don't link), then at most 30 hashtags
-      in one block. Limit 2200 characters.
-
-    The posts read `publish.youtube.url`; until it is recorded they print
-    [FULL VIDEO URL] with a `video_url_missing` finding. The brief's footer is
-    YouTube-only and never printed. A post's `violations` are the record's own
-    findings, then the post's (field `package.<platform>`); a hard
-    `<platform>_max_chars` means the text won't paste as-is, so shorten the
-    field it came from and read the post again.
-
     **Per channel** (`channel`, an id from `list_channels`): renders that
-    channel's own post (`get_video` → `posts.<channel>`) instead of deriving one
-    from the root fields. A YouTube channel gets the layout above with that
-    channel's brief; a TikTok, Instagram, LinkedIn or X channel gets the pasted
-    text (its caption or text, then its hashtags line). The answer carries the
-    `channel` and its `platform`. A channel names its platform already, so
-    `channel` together with a `platform` other than "youtube" is refused. A
-    channel the video has no post for is an error (`no_post`). No `channel` is
-    the primary channel's package, exactly as before.
+    channel's own post (`get_video` → `posts.<channel>`) instead of the primary
+    channel's. A YouTube channel gets the layout above under that channel's
+    brief; a TikTok, Instagram, LinkedIn or X channel gets the text the user
+    pastes there (its caption or text, then its hashtags line) — clipboard text,
+    since nothing is posted and CapForge holds no account access. The answer
+    carries the `channel` and its `platform`: a channel names its platform, so
+    this tool has no `platform` argument. A post reads `publish.youtube.url`,
+    and a hard `<platform>_max_chars` finding means the text won't paste as-is,
+    so shorten the field it came from and read it again. A channel the video has
+    no post for is an error (`no_post`) — write that post first with
+    `set_video_meta(video_id, {"posts": {"<channel id>": {…}}}, rev)`. No
+    `channel` is the primary channel's package, exactly as before.
     """
-    if platform not in SUPPORTED_PLATFORMS:
-        supported = ", ".join(SUPPORTED_PLATFORMS)
-        return _fail(
-            f"CapForge has no {platform!r} package layout — supported: {supported}."
-        )
     refusal = _lang_refusal(lang) or _channel_refusal(channel)
     if refusal is not None:
         return refusal
-    if channel is not None and platform != "youtube":
-        return _fail(
-            f"Pass either 'channel' or 'platform', not both: channel {channel!r} already "
-            f"names its platform. Drop platform={platform!r} to render that channel's post."
-        )
     if channel is not None:
         return _channel_package(video_id, channel, lang)
     extra = {} if lang is None else {"lang": lang}
 
     def _call() -> dict:
-        rendered = _capforge().library_package(video_id, platform=platform, **extra) or {}
+        rendered = _capforge().library_package(video_id, **extra) or {}
         return {
             "status": _OK,
-            "platform": rendered.get("platform", platform),
+            "platform": rendered.get("platform", YOUTUBE),
             "text": rendered.get("text", ""),
             "violations": rendered.get("violations") or [],
         }

@@ -18,7 +18,7 @@ import logging
 import math
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, Sequence
 
 from backend.library import fs
 from backend.library.errors import MediaInUse, MediaMismatch, MediaNotFound, RecordNotFound
@@ -284,7 +284,7 @@ class StoreAdminMixin:
         return target
 
     def import_project_file(
-        self: "LibraryStore", path: "PathLike"
+        self: "LibraryStore", path: "PathLike", *, channels: Sequence[str] = ()
     ) -> tuple[VideoRecord, bool]:
         """Adopt an outside ``.capforge`` file as a record + stored snapshot.
 
@@ -292,12 +292,18 @@ class StoreAdminMixin:
         media file raises ``MediaNotFound`` — the project describes a video the
         record would be unable to open. Creating the record and storing the
         snapshot are one locked sequence; ``on_created`` is told after it.
+
+        ``channels`` gives a *minted* record an empty post per id, exactly as
+        ``create_or_get`` does (an unknown id raises ``UnknownChannel`` before
+        anything is written); a fingerprint hit is left alone.
         """
         data = read_project_file(path)
         source = data["selectedFilePath"]
         media_fingerprint = self._media_fingerprint(source)
         with self.write_lock:
-            record, created = self._create_or_get_locked(source, media_fingerprint)
+            record, created = self._create_or_get_locked(
+                source, media_fingerprint, channels=channels
+            )
             stored = self.put_project(record.id, data)
         if created:
             self._announce_created(record)

@@ -65,8 +65,8 @@ Every post also carries `cover` (one of the record's thumbnail frames), `languag
 - **Check and read per channel.** `validate_video(video_id, channel="<channel id>")`
   judges that post by its platform's limits, measured on the pasted text (findings name
   `posts.<channel id>.<field>`), and `get_upload_package(video_id, channel="<channel
-  id>")` renders the text the user pastes. Pass either `channel` or `platform`, never
-  both. A channel the video has no post for answers `no_post`.
+  id>")` renders the text the user pastes; a channel names its platform, so there is no
+  `platform` argument. A channel the video has no post for answers `no_post`.
 - **After upload.** `mark_published(video_id, url, channel="<channel id>")` records
   where that post went live.
 

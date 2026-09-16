@@ -9,11 +9,15 @@ import edge back to ``router`` — the same reason the auth guard is injected.
 from __future__ import annotations
 
 import logging
-from typing import Awaitable, Callable, ContextManager, Literal, Optional
+from typing import Awaitable, Callable, ContextManager, Literal, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi.responses import JSONResponse
 from starlette import status as http_status
 from pydantic import BaseModel
+
+from backend.library.errors import UnknownChannel
+from backend.library.router_import import unknown_channel_refusal, unknown_channel_response
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +31,9 @@ class ImportProjectRequest(BaseModel):
     """A ``.capforge`` file the user picked; validated in ``read_project_file``."""
 
     path: str
+    #: Channels a *created* record gets an empty post for (PR 4 Part C), the same
+    #: key ``POST /api/library``, ``import-paths`` and ``import-folder`` take.
+    channels: Optional[list[str]] = None
 
 
 def register_admin_routes(
@@ -59,22 +66,32 @@ def _register_import_routes(
 ) -> None:
     """Getting records *in*: one project file, or every studio workspace."""
 
-    @router.post("/import-project")
+    @router.post("/import-project", response_model=None)
     async def import_project(
         body: ImportProjectRequest,
         response: Response,
         actor: str = Depends(actor_dep),
-    ) -> dict:
+    ) -> Union[dict, JSONResponse]:
         """Adopt an outside project file: 201 for new media, 200 for a hit.
 
         A 404 (``MediaNotFound``) means the project names a video that is gone;
         a 422 carries the validation sentence verbatim, so the UI can show it.
+        A ``channels`` id that names no channel is a 422 ``unknown_channel``,
+        refused before the file is read — a mixed batch must not apply the
+        user's choice to some of its records and silently not to others.
         """
         store = get_store()
+        refusal = unknown_channel_refusal(store, body.channels)
+        if refusal is not None:
+            return refusal
         with library_errors():
             try:
-                record, created = store.import_project_file(body.path)
-            except ValueError as exc:
+                record, created = store.import_project_file(
+                    body.path, channels=tuple(body.channels or ())
+                )
+            except UnknownChannel as exc:  # a channel deleted since the check above
+                return unknown_channel_response(exc)
+            except ValueError as exc:  # UnknownChannel is one too — caught first
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
         response.status_code = (
             http_status.HTTP_201_CREATED if created else http_status.HTTP_200_OK

@@ -167,7 +167,7 @@ rendering of them, so its text is never written back into a field.
 | `set_brief` | Merge top-level brief fields (channel-wide statements only — a video's own text belongs on its record) |
 | `validate_video` | Run the publish rules over a record: `{hard, style, ok}`, each finding naming the `field`, the `rule` and a message |
 | `check_chapters` | Dry-run a chapter list against the record's duration before writing it — nothing is stored |
-| `get_upload_package` | The rendered package for a platform (`youtube` today): `{text, violations}`, plain text, ready to paste |
+| `get_upload_package` | The rendered package: the primary channel's, or `channel=`'s own post (a channel names its platform): `{text, violations}`, plain text, ready to paste |
 | `grab_frames` | Grab still JPEG frames at the given seconds as thumbnail candidates: `{frames, failed, rev}` (≤ 8 per call, ≤ 24 per record, ≤ 1280 px long edge, ≤ 2 MB). Then set `thumbnail.cover` with `set_video_meta`; omit `candidates` (and `cover`) to leave them unchanged |
 
 **Hard rules** are YouTube's own limits (title ≤ 100 characters, description ≤ 5000
