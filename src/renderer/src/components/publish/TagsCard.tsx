@@ -1,5 +1,6 @@
 /**
- * Tags, keywords and hashtags — three lists, three lines.
+ * Tags and hashtags — two lists, two lines, on a YouTube channel's tab.
+ * (Keywords are the video's, not the channel's: `KeywordsCard`.)
  *
  * The tags meter counts `", ".join(tags)` because that is what YouTube's
  * 500-character limit counts, which is exactly what `tagsLine` produces.
@@ -27,7 +28,7 @@ export function TagsCard({ publish }: TagsCardProps) {
   const tags = tagsLine(fields.tags)
 
   return (
-    <StudioCard title="Tags & keywords" defaultOpen>
+    <StudioCard title="Tags & hashtags" defaultOpen>
       <FieldHeader
         publish={publish}
         field="tags"
@@ -44,21 +45,6 @@ export function TagsCard({ publish }: TagsCardProps) {
         onChange={(e) => publish.setField('tags', parseTagsLine(e.target.value))}
       />
       <FieldViolations violations={publish.violationsFor('tags')} />
-
-      <div className="mt-2">
-        <FieldHeader publish={publish} field="keywords" />
-        <input
-          type="text"
-          className="field-input"
-          aria-label="Keywords"
-          placeholder="the terms this video should rank for"
-          value={tagsLine(fields.keywords)}
-          onFocus={() => publish.beginEdit('keywords')}
-          onBlur={publish.endEdit}
-          onChange={(e) => publish.setField('keywords', parseTagsLine(e.target.value))}
-        />
-        <FieldViolations violations={publish.violationsFor('keywords')} />
-      </div>
 
       <div className="mt-2">
         <FieldHeader publish={publish} field="hashtags" />

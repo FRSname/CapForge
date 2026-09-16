@@ -39,6 +39,12 @@ export interface PublishWorkspaceController {
   handleTimeUpdate: (time: number) => void
   /** Where the player is right now — read by "Insert at playhead". */
   getPlayhead: () => number
+  /**
+   * The Publish panel's active channel tab (null: no record, or no visible
+   * post). Reported by `usePublishChannels`; read by the UI-state mirror.
+   */
+  activeChannelId: string | null
+  setActiveChannelId: (channelId: string | null) => void
 }
 
 export function usePublishWorkspace({
@@ -47,6 +53,7 @@ export function usePublishWorkspace({
   const [requested, setRequested] = useState<Workspace>('captions')
   const [pendingSeek, setPendingSeek] = useState<number | null>(null)
   const playheadRef = useRef(0)
+  const [activeChannelId, setActiveChannelId] = useState<string | null>(null)
 
   const publishEnabled = Boolean(activeVideoId)
   // Derived, not corrected by an effect: losing the record (New, a fresh drop)
@@ -77,5 +84,7 @@ export function usePublishWorkspace({
     seek,
     handleTimeUpdate,
     getPlayhead,
+    activeChannelId: publishEnabled ? activeChannelId : null,
+    setActiveChannelId,
   }
 }

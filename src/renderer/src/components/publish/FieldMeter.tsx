@@ -6,7 +6,7 @@
  * save time.
  */
 
-export type MeterUnit = 'chars' | 'bytes'
+export type MeterUnit = 'chars' | 'bytes' | 'hashtags'
 
 interface FieldMeterProps {
   used: number

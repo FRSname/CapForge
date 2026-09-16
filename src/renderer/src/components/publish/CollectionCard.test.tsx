@@ -67,6 +67,7 @@ function controller(collectionId: string | null, violations: Violation[] = []): 
     setField: noop,
     setCollection: noop,
     flushDrafts: () => Promise.resolve(),
+    patchNow: () => Promise.resolve(),
     beginEdit: noop,
     endEdit: noop,
     pendingAgentUpdate: null,

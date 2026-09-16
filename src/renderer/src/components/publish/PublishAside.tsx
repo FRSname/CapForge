@@ -13,6 +13,7 @@
 
 import type { Workspace } from '../../types/app'
 import type { Segment } from '../../types/app'
+import type { PublishWorkspaceController } from '../../hooks/usePublishWorkspace'
 import type { CaptionTrack } from '../../lib/tracks'
 import { StudioPanel } from '../studio/StudioPanel'
 import type { StudioPanelProps } from '../studio/StudioPanel'
@@ -20,7 +21,8 @@ import type { PublishController } from '../../hooks/usePublishRecord'
 import { PublishPanel } from './PublishPanel'
 
 interface PublishAsideProps {
-  workspace: Workspace
+  /** The toggle, the player wire and the active channel tab's reporter. */
+  publishWorkspace: PublishWorkspaceController
   /** Hides the whole column (the library screen has no open project). */
   hidden: boolean
   studio: StudioPanelProps
@@ -28,21 +30,18 @@ interface PublishAsideProps {
   segments: readonly Segment[]
   tracks: readonly CaptionTrack[]
   outputDir: string
-  onSeek: (seconds: number) => void
-  getPlayhead: () => number
 }
 
 export function PublishAside({
-  workspace,
+  publishWorkspace,
   hidden,
   studio,
   publish,
   segments,
   tracks,
   outputDir,
-  onSeek,
-  getPlayhead,
 }: PublishAsideProps) {
+  const { workspace } = publishWorkspace
   const show = (owner: Workspace) => (hidden || workspace !== owner ? 'hidden' : 'contents')
   return (
     <>
@@ -55,8 +54,10 @@ export function PublishAside({
           segments={segments}
           tracks={tracks}
           outputDir={outputDir}
-          onSeek={onSeek}
-          getPlayhead={getPlayhead}
+          onSeek={publishWorkspace.seek}
+          getPlayhead={publishWorkspace.getPlayhead}
+          workspace={workspace}
+          onActiveChannel={publishWorkspace.setActiveChannelId}
         />
       </div>
     </>

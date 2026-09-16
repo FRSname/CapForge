@@ -32,7 +32,7 @@ import {
   survivingDrafts,
   withoutDraft,
 } from '../lib/publishDrafts'
-import type { PublishDrafts } from '../lib/publishDrafts'
+import type { DraftValue, PublishDrafts } from '../lib/publishDrafts'
 import {
   insertChapter,
   removeChapter,
@@ -49,14 +49,13 @@ import {
   violationsForField,
 } from '../lib/publishFields'
 import type { PublishFieldId, Provenance } from '../lib/publishFields'
-import { youtubeIdFromUrl } from '../lib/youtubeRules'
 import { usePublishWriter } from './usePublishWriter'
 
 /** The two moment kinds a chapter suggestion is built from. */
 const CHAPTER_MOMENT_KINDS = ['pause', 'speaker_change'] as const
 
-export const NOT_A_YOUTUBE_URL_MESSAGE =
-  'That does not look like a YouTube link — paste the URL from the video page.'
+/** Publish state is per channel now: only a channel tab's controller records a URL. */
+export const MARK_PUBLISHED_ON_A_TAB_MESSAGE = 'Mark a post published from its channel tab.'
 export const NO_CHAPTER_CANDIDATES_MESSAGE =
   'No new chapter candidates — the transcript has no pause or speaker change far enough from the chapters you already have.'
 
@@ -92,11 +91,13 @@ export interface PublishController {
   provenance: (field: PublishFieldId) => Provenance | null
   canRevert: (field: PublishFieldId) => boolean
   revert: (field: PublishFieldId) => void
-  setField: <K extends PublishFieldId>(field: K, value: PublishAuthored[K]) => void
+  setField: <K extends PublishFieldId>(field: K, value: DraftValue<K>) => void
   /** Move the video into a collection (or out, with null) — written at once, not debounced. */
   setCollection: (collectionId: string | null) => void
   /** Send pending drafts now (before a frame grab/delete bumps `rev`); settles, never throws. */
   flushDrafts: () => Promise<void>
+  /** A write that must not wait for the debounce (add/hide a channel); settles, never throws. */
+  patchNow: (patch: Record<string, unknown>) => Promise<void>
   beginEdit: (field: PublishFieldId) => void
   endEdit: () => void
   pendingAgentUpdate: AgentUpdateNotice | null
@@ -255,7 +256,7 @@ export function usePublishRecord({
 
   // ── The card-facing API ─────────────────────────────────────────
   const setField = useCallback(
-    <K extends PublishFieldId>(field: K, value: PublishAuthored[K]) => {
+    <K extends PublishFieldId>(field: K, value: DraftValue<K>) => {
       setDrafts((prev) => ({ ...prev, [field]: value }))
       schedule()
     },
@@ -325,32 +326,6 @@ export function usePublishRecord({
     schedule()
   }, [schedule])
 
-  const markPublished = useCallback(
-    (url: string) => {
-      const videoIdFromUrl = youtubeIdFromUrl(url)
-      if (!videoIdFromUrl) {
-        notifyRef.current(NOT_A_YOUTUBE_URL_MESSAGE)
-        return
-      }
-      // The backend replaces `publish` whole: carry the recorded pushes and any
-      // existing youtube keys, and never restamp a real publication date.
-      const existing = stateRef.current.record?.publish
-      const previous = existing?.youtube
-      patchNow({
-        publish: {
-          youtube: {
-            ...(previous ?? {}),
-            videoId: videoIdFromUrl,
-            url: url.trim(),
-            publishedAt: previous?.publishedAt || new Date().toISOString(),
-          },
-          pushes: existing?.pushes ?? [],
-        },
-      })
-    },
-    [patchNow]
-  )
-
   const setChapters = useCallback((next: Chapter[]) => setField('chapters', next), [setField])
 
   const suggestChapters = useCallback(() => {
@@ -387,7 +362,8 @@ export function usePublishRecord({
     pendingAgentUpdate,
     applyAgentUpdate,
     keepMine,
-    markPublished,
+    patchNow,
+    markPublished: () => notifyRef.current(MARK_PUBLISHED_ON_A_TAB_MESSAGE),
     suggestChapters,
     insertChapterAt: (seconds: number) =>
       setChapters(insertChapter(fields.chapters, seconds, words)),

@@ -88,13 +88,14 @@ describe('PublishFooter', () => {
     const html = renderToStaticMarkup(
       <PublishFooter
         videoId="vid_1"
+        channel={{ id: 'uck', platform: 'youtube' }}
         segments={segments}
         tracks={[track(), track({ id: 'tpl', label: 'Polish', lang: 'pl', isSource: false })]}
         outputDir=""
       />
     )
 
-    expect(html).toContain('Copy upload package')
+    expect(html).toContain('Copy YouTube package')
     expect(html).toContain('Copy plain transcript')
     expect(html).toContain('English')
     expect(html).toContain('Polish')
@@ -104,7 +105,13 @@ describe('PublishFooter', () => {
 
   test('cannot copy a package for a session with no record', () => {
     const html = renderToStaticMarkup(
-      <PublishFooter videoId={null} segments={segments} tracks={[track()]} outputDir="" />
+      <PublishFooter
+        videoId={null}
+        channel={null}
+        segments={segments}
+        tracks={[track()]}
+        outputDir=""
+      />
     )
 
     expect(html).toContain('disabled=""')

@@ -43,10 +43,26 @@ describe('parsePublishRecord', () => {
       shorts: { caption: '', clip_suggestions: [] },
       thumbnail: { ideas: [], candidates: [], cover: null },
       localized: {},
+      posts: {},
       language: '',
       languages: [],
       history: [],
     })
+  })
+
+  test('reads one post per channel, dropping a row that is not an object', () => {
+    const record = parsePublishRecord({
+      id: 'v',
+      posts: {
+        uck: { title: 'T', tags: ['a'], published: { url: 'https://youtu.be/x' } },
+        broken: 'nope',
+      },
+    })
+
+    expect(Object.keys(record.posts)).toEqual(['uck'])
+    expect(record.posts.uck.title).toBe('T')
+    expect(record.posts.uck.published.url).toBe('https://youtu.be/x')
+    expect(record.posts.uck.hidden).toBe(false)
   })
 
   test('reads the source language, the derived languages and the localized block', () => {

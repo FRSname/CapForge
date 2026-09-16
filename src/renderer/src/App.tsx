@@ -364,6 +364,7 @@ export function App() {
   useUiStateMirror({
     screen,
     workspace: publishWorkspace.workspace,
+    activeChannelId: publishWorkspace.activeChannelId,
     result,
     activeTrack,
     displayGroups,
@@ -553,14 +554,12 @@ export function App() {
               the studio's render state survives a trip home, and hidden by
               workspace so switching costs nothing. */}
           <PublishAside
-            workspace={publishWorkspace.workspace}
+            publishWorkspace={publishWorkspace}
             hidden={screen === 'library'}
             publish={publish}
             segments={sourceTrack.segments}
             tracks={tracks}
             outputDir={session.outputDir}
-            onSeek={publishWorkspace.seek}
-            getPlayhead={publishWorkspace.getPlayhead}
             studio={{
               settings,
               onChange: handleSettingsChange,

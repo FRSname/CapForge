@@ -62,9 +62,13 @@ export const PUBLISH_FIELDS: ReadonlyArray<PublishFieldSpec> = [
   { id: 'publish', label: 'Publish state', card: 'publish' },
 ]
 
-const FIELD_LABELS: ReadonlyMap<string, string> = new Map(
-  PUBLISH_FIELDS.map((f) => [f.id as string, f.label])
-)
+/** `posts` is on no card of its own: each channel tab draws its fields. */
+const POSTS_LABEL = 'Channel posts'
+
+const FIELD_LABELS: ReadonlyMap<string, string> = new Map([
+  ...PUBLISH_FIELDS.map((f): [string, string] => [f.id, f.label]),
+  ['posts', POSTS_LABEL],
+])
 
 /** The human label for a field id — falls back to the id the backend used. */
 export function fieldLabel(field: string): string {
@@ -79,8 +83,10 @@ export function fieldLabel(field: string): string {
 /**
  * Fields the validator and the debounced patch may carry. `publish` is not one:
  * no rule reads it, its wire shape is an always-present youtube object (the
- * renderer keeps a nullable one), and it is written only by `markPublished`
- * with the whole block. Nor is `collection_id`: a select, written at once
+ * renderer keeps a nullable one), and a channel tab writes it as
+ * `posts.<id>.published` instead. Nor is `posts`, which is not in the
+ * inventory at all: a channel's post is judged by `POST /validate` with
+ * `channel` (`hooks/usePublishChannels.ts`). Nor is `collection_id`: a select, written at once
  * (`setCollection`), and the validator reads the record's own collection when
  * it is given a `video_id`.
  */
@@ -183,6 +189,9 @@ export function parseHashtags(line: string): string[] {
     .filter(Boolean)
 }
 
+/** The local record with the drafts spread over it; its `posts` is a draft delta, never read. */
+export type MergeLocal = Omit<PublishRecord, 'posts'> & { posts?: unknown }
+
 /**
  * The soft lock (vision §3.5 tier 2). An agent write arrived while the user was
  * typing: take the agent's record wholesale, except for the one field under the
@@ -196,15 +205,17 @@ export function parseHashtags(line: string): string[] {
  * is a delta that stays a draft (`survivingDrafts`), and the record under it
  * must be the backend's, or the send would compare the delta with itself.
  *
+ * A locked `posts` does the same, for the same reason: its draft is a delta.
+ *
  * Never mutates either side — the result is a fresh record.
  */
 export function mergeAgentUpdate(
-  local: PublishRecord,
+  local: MergeLocal,
   remote: PublishRecord,
   editingField: PublishFieldId | null
 ): PublishRecord {
   if (!editingField) return remote
-  if (editingField === 'localized') return remote
+  if (editingField === 'localized' || editingField === 'posts') return remote
   if (editingField === 'thumbnail') {
     return { ...remote, thumbnail: composeThumbnailPatch(local.thumbnail, remote) }
   }

@@ -50,6 +50,7 @@ function record(over: Partial<PublishRecord> = {}): PublishRecord {
     shorts: { caption: '', clip_suggestions: [] },
     thumbnail: { ideas: [], candidates: [], cover: null },
     localized: {},
+    posts: {},
     language: 'en',
     languages: ['en'],
     history: [],
