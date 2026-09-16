@@ -3,10 +3,11 @@
  *
  * Owned by `LibraryHome`, so it resets whenever the user leaves the library.
  * Typing is debounced (`LIBRARY_SEARCH_DEBOUNCE_MS`), then `GET
- * /api/library?q=` runs; the screen intersects the returned ids with what it
- * shows (`matchingVideos`). Until the first answer for a query lands, the last
- * answer stays in use (or nothing is hidden), so the grid does not flash an
- * empty "no match" between keystrokes.
+ * /api/library?q=` runs; the screen unions the returned ids with its own
+ * instant name match and intersects that with what it shows (`searchResults`).
+ * Until the first answer for a query lands, the last answer stays in use (or
+ * only the name matches show), so the grid does not flash an empty "no match"
+ * between keystrokes.
  *
  * Only the newest request counts (`createLatestOnly`): an older one resolving
  * late is dropped, and so is its failure. A failure of the newest request goes
@@ -31,7 +32,7 @@ export interface LibrarySearchInput {
 
 export interface LibrarySearchView {
   query: string
-  /** The ids the backend matched; null while no answer has landed (hides nothing). */
+  /** The ids the backend matched; null while no answer has landed (name matches only). */
   matchIds: ReadonlySet<string> | null
 }
 

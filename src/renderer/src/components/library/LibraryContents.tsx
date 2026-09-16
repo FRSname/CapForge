@@ -1,36 +1,36 @@
 /**
  * The main area's body: what the location (or the search) shows, in the
- * remembered layout. Folders come first, by name, whatever the video sort;
- * the Continue hero shows only at All videos and the Library root, in grid,
- * and not while searching. An empty folder says so and takes drops.
+ * remembered layout (`visibleContents`). Folders come first, by name, whatever
+ * the video sort; the Continue hero shows only at All videos and the Library
+ * root, in grid, and not while searching. An empty folder says so and takes
+ * drops.
+ *
+ * The body is also the selection's keyboard scope (`useLibraryItems`): it
+ * takes the keys while the focus is inside it, and a click on its empty space
+ * clears the selection. The Continue hero stays a single-click button.
  */
 
 import type { CollectionSummary } from '../../lib/collectionTypes'
-import type { LibraryLocation, Shown } from '../../lib/libraryLocation'
-import {
-  EMPTY_FOLDER_MESSAGE,
-  showsContinueHero,
-  showsFolderColumn,
-} from '../../lib/libraryLocation'
+import type { LibraryLocation, VisibleContents } from '../../lib/libraryLocation'
+import { EMPTY_FOLDER_MESSAGE, showsFolderColumn } from '../../lib/libraryLocation'
 import type { LibraryViewPrefs } from '../../lib/libraryPrefs'
 import { noMatchMessage } from '../../lib/librarySearch'
-import { sortVideos } from '../../lib/librarySort'
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { continueCandidate } from '../../lib/libraryView'
 import type { ChannelNames } from '../../hooks/useLibraryChannels'
 import type { LibraryDrag } from '../../hooks/useLibraryDrag'
+import type { LibraryContainerProps } from '../../hooks/useLibraryKeyboard'
 import type { LibrarySearchView } from '../../hooks/useLibrarySearch'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
 import { ContinueHero } from './ContinueHero'
 import { DROP_TARGET_STYLE } from './folderItemUi'
 import type { FolderItemUi } from './folderItemUi'
 import { LibraryGrid } from './LibraryGrid'
+import type { LibraryItemUi } from './libraryItemUi'
 import { LibraryList } from './LibraryList'
 
 export interface LibraryContentsProps extends RecordMenuActions {
-  /** Every video: the Continue hero is the session last worked on, wherever it is filed. */
-  allVideos: readonly LibraryVideo[]
-  shown: Shown
+  /** The hero, the folders and the sorted videos, as drawn. */
+  contents: VisibleContents
   location: LibraryLocation
   collections: readonly CollectionSummary[]
   channels: ChannelNames | null
@@ -42,16 +42,18 @@ export interface LibraryContentsProps extends RecordMenuActions {
   searchInFolder: boolean
   folderUi: FolderItemUi
   drag: LibraryDrag
+  /** The hero's single click. */
   onOpen: (video: LibraryVideo) => void
+  /** Selection, opening and rename for every item. */
+  item: LibraryItemUi
+  /** The keyboard scope and the empty-space click. */
+  containerProps: LibraryContainerProps
 }
 
 export function LibraryContents(props: LibraryContentsProps) {
-  const { shown, location, view, searching, drag } = props
-  const hero = showsContinueHero(location, view.layout, searching)
-    ? continueCandidate(props.allVideos)
-    : null
-  const videos = sortVideos(shown.videos, view.sort).filter((v) => v.id !== hero?.id)
-  const empty = shown.folders.length === 0 && shown.videos.length === 0
+  const { contents, location, view, searching, drag } = props
+  const { hero, folders, videos } = contents
+  const empty = folders.length === 0 && videos.length === 0 && hero === null
   const showFolder = showsFolderColumn(location, searching)
   const actions: RecordMenuActions = {
     onRemove: props.onRemove,
@@ -62,21 +64,21 @@ export function LibraryContents(props: LibraryContentsProps) {
     onCreateCollection: props.onCreateCollection,
   }
   const shared = {
-    folders: shown.folders,
+    folders,
     videos,
     collections: props.collections,
     showFolder,
     folderUi: props.folderUi,
     drag,
-    onOpen: props.onOpen,
+    item: props.item,
     ...actions,
   }
 
   return (
-    <div className="flex flex-col gap-8 px-8 pb-10">
+    <div className="flex flex-1 flex-col gap-8 px-8 pb-10 outline-none" {...props.containerProps}>
       {empty && <EmptyLine {...props} />}
       {hero && <ContinueHero video={hero} onOpen={props.onOpen} />}
-      {(shown.folders.length > 0 || videos.length > 0) && (
+      {(folders.length > 0 || videos.length > 0) && (
         <div className="flex flex-col gap-3">
           {(hero || searching) && (
             <h2

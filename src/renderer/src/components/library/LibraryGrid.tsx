@@ -1,5 +1,8 @@
 /**
- * The library's grid: subfolder tiles first, then the video cards. The column width comes from the icon-size slider
+ * The library's grid: subfolder tiles first, then the video cards, together
+ * one multi-select `listbox` whose options are the tiles and cards
+ * (`useLibraryItems` owns the selection; Up/Down step by the column count the
+ * hook measures from a `data-library-grid` section). The column width comes from the icon-size slider
  * through the `--library-tile` CSS variable (`minmax(var(--library-tile), 1fr)`),
  * so resizing is one style write, not a re-layout in React.
  *
@@ -15,7 +18,10 @@ import type { FolderEntry } from '../../lib/libraryLocation'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import type { LibraryDrag } from '../../hooks/useLibraryDrag'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
+import { GRID_SECTION_ATTRIBUTE } from '../../lib/libraryKeyboard'
 import { FolderTile } from './FolderTile'
+import type { LibraryItemUi } from './libraryItemUi'
+import { INERT_LIBRARY_ITEM_UI } from './libraryItemUi'
 import type { FolderChip } from './LibraryCard'
 import { LibraryCard } from './LibraryCard'
 import type { FolderItemUi } from './folderItemUi'
@@ -35,7 +41,8 @@ export interface LibraryGridProps extends RecordMenuActions {
   showFolder: boolean
   folderUi: FolderItemUi
   drag: LibraryDrag
-  onOpen: (video: LibraryVideo) => void
+  /** Selection, opening and rename; inert when absent. */
+  item?: LibraryItemUi
 }
 
 /** The chip for a record's folder: its name (an orphan's id) and path. */
@@ -55,29 +62,35 @@ export function LibraryGrid({
   showFolder,
   folderUi,
   drag,
-  onOpen,
+  item = INERT_LIBRARY_ITEM_UI,
   ...actions
 }: LibraryGridProps) {
   const style = { '--library-tile': `${tileSize}px` } as CSSProperties
+  const section = { [GRID_SECTION_ATTRIBUTE]: '' }
   return (
-    <div className="flex flex-col gap-4">
+    <div
+      className="flex flex-col gap-4"
+      role="listbox"
+      aria-multiselectable="true"
+      aria-label="Folders and videos"
+    >
       {folders.length > 0 && (
-        <div className={GRID_CLASS} style={style} aria-label="Folders" role="group">
+        <div className={GRID_CLASS} style={style} aria-label="Folders" role="group" {...section}>
           {folders.map((folder) => (
-            <FolderTile key={folder.id} folder={folder} ui={folderUi} />
+            <FolderTile key={folder.id} folder={folder} ui={folderUi} item={item} />
           ))}
         </div>
       )}
       {videos.length > 0 && (
-        <div className={GRID_CLASS} style={style}>
+        <div className={GRID_CLASS} style={style} aria-label="Videos" role="group" {...section}>
           {videos.map((video) => (
             <LibraryCard
               key={video.id}
               video={video}
               folder={showFolder ? folderChipOf(collections, video.collection_id) : null}
               collections={collections}
-              dragSource={drag.videoSource(video)}
-              onOpen={onOpen}
+              dragSource={drag.videoSource(video, () => item.onVideoDragStart(video.id))}
+              item={item}
               {...actions}
             />
           ))}

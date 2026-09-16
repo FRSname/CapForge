@@ -18,9 +18,11 @@
 import type { CollectionSummary } from './collectionTypes'
 import { subfolderCount, videoCount } from './collections'
 import { ancestorsOf, descendantIds, pathLabel } from './collectionTree'
-import type { LibraryLayout } from './libraryPrefs'
+import type { LibraryLayout, LibraryViewPrefs } from './libraryPrefs'
 import type { LibraryVideo } from './libraryTypes'
-import { matchingVideos } from './librarySearch'
+import { searchResults } from './librarySearch'
+import { sortVideos } from './librarySort'
+import { continueCandidate } from './libraryView'
 
 export type LibraryLocation = { kind: 'all' } | { kind: 'root' } | { kind: 'folder'; id: string }
 
@@ -260,7 +262,9 @@ export function parentForNewFolder(
 
 export interface ShownInput {
   searching: boolean
-  /** The backend's matches; null while no answer has landed (hides nothing). */
+  /** The search field's text; matched locally against each video's shown name. */
+  query: string
+  /** The backend's matches; null while no answer has landed (the local matches only). */
   matchIds: ReadonlySet<string> | null
   scope: SearchScope
 }
@@ -272,7 +276,8 @@ export interface Shown extends LocationContents {
 
 /**
  * What the main area shows. Browsing: the location's folders and videos.
- * Searching: flat, no folders — the matches inside the search scope.
+ * Searching: flat, no folders — the matches inside the search scope, where a
+ * match is a backend hit or a shown name containing the query (`searchResults`).
  */
 export function shownAt(
   location: LibraryLocation,
@@ -285,5 +290,36 @@ export function shownAt(
     return { ...contents, total: contents.videos.length }
   }
   const inScope = videosInScope(videos, searchScopeIds(location, input.scope, collections))
-  return { folders: [], videos: matchingVideos(inScope, input.matchIds), total: inScope.length }
+  return {
+    folders: [],
+    videos: searchResults(inScope, input.query, input.matchIds),
+    total: inScope.length,
+  }
+}
+
+export interface VisibleContents {
+  /** The Continue hero, promoted out of the videos; null when none is shown. */
+  hero: LibraryVideo | null
+  folders: FolderEntry[]
+  /** Sorted, without the hero: exactly what the grid or the list draws. */
+  videos: LibraryVideo[]
+}
+
+/**
+ * What the main area draws, in order: the hero (All videos and the root, in
+ * grid, not while searching), the folders, then the sorted videos. The
+ * selection's visible order is `folders` then `videos`. Returns NEW arrays.
+ */
+export function visibleContents(
+  shown: Shown,
+  location: LibraryLocation,
+  view: Pick<LibraryViewPrefs, 'layout' | 'sort'>,
+  searching: boolean,
+  allVideos: readonly LibraryVideo[]
+): VisibleContents {
+  const hero = showsContinueHero(location, view.layout, searching)
+    ? continueCandidate(allVideos)
+    : null
+  const videos = sortVideos(shown.videos, view.sort).filter((v) => v.id !== hero?.id)
+  return { hero, folders: [...shown.folders], videos }
 }

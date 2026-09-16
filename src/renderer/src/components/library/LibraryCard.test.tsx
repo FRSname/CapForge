@@ -6,7 +6,7 @@
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { LibraryCardMenu } from './LibraryCard'
+import { LibraryCardMenu } from './LibraryCardMenu'
 
 const video: LibraryVideo = {
   id: 'vid_1',

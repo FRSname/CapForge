@@ -13,7 +13,11 @@ import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { DEFAULT_LIBRARY_VIEW_PREFS } from '../../lib/libraryPrefs'
 import { LibraryScreen, droppedNotMediaMessage } from './LibraryScreen'
-import { NOOP_FOLDER_ACTIONS, libraryVideo } from './libraryScreenFixtures.testutil'
+import {
+  NOOP_FOLDER_ACTIONS,
+  NOOP_SELECTION_ACTIONS,
+  libraryVideo,
+} from './libraryScreenFixtures.testutil'
 
 const LIT = 'background:var(--color-brand)'
 
@@ -39,6 +43,7 @@ function render(props: Partial<React.ComponentProps<typeof LibraryScreen>> = {})
       onMoveToCollection={noop}
       onMoveVideos={noop}
       folderActions={NOOP_FOLDER_ACTIONS}
+      {...NOOP_SELECTION_ACTIONS}
       view={DEFAULT_LIBRARY_VIEW_PREFS}
       onViewChange={noop}
       search={{ query: '', matchIds: null }}
@@ -101,7 +106,7 @@ describe('LibraryScreen', () => {
     // 0 (imported) + 2 (captioned) + 4 (published)
     expect(litPips(html)).toBe(6)
     expect(html).toContain('Status: captioned')
-    expect(html).toContain('Open Published one')
+    expect(html).toContain('aria-label="Published one"')
     expect(html).toContain('Actions for Published one')
     // Duration + language ride along on the card.
     expect(html).toContain('2:05')
@@ -131,9 +136,9 @@ describe('LibraryScreen', () => {
     // Assert
     expect(html).toContain('Continue Newest session')
     expect(html).toContain('All videos')
-    expect(html).toContain('Open Older session')
+    expect(html).toContain('aria-label="Older session"')
     // The hero is the same record promoted, not a second copy of it.
-    expect(html).not.toContain('Open Newest session')
+    expect(html).not.toContain('aria-label="Newest session"')
     expect(html.split('Newest session').length - 1).toBe(2) // aria-label + heading
   })
 
@@ -148,7 +153,7 @@ describe('LibraryScreen', () => {
 
     // Assert
     expect(html).toContain('Media missing')
-    expect(html).toContain('Open Gone')
+    expect(html).toContain('aria-label="Gone"')
     expect(html).not.toContain('Continue Gone')
   })
 
@@ -252,15 +257,15 @@ describe('LibraryScreen views', () => {
       ],
       view: { ...DEFAULT_LIBRARY_VIEW_PREFS, sort: { key: 'name', direction: 'asc' } },
     })
-    expect(html.indexOf('Open Alpha')).toBeLessThan(html.indexOf('Open Zulu'))
+    expect(html.indexOf('aria-label="Alpha"')).toBeLessThan(html.indexOf('aria-label="Zulu"'))
   })
 
   test('list shows a table with every video, the hero included, and no hero', () => {
     const html = render({ videos, view: { ...DEFAULT_LIBRARY_VIEW_PREFS, layout: 'list' } })
     expect(html).toContain('<table')
     expect(html).not.toContain('Continue Resume me')
-    expect(html).toContain('Open Resume me')
-    expect(html).toContain('Open Other one')
+    expect(html).toContain('aria-label="Resume me"')
+    expect(html).toContain('aria-label="Other one"')
     expect(html).not.toContain('--library-tile')
     // At the Library root every video shown is unfiled: no Folder column.
     expect(html).not.toContain('>Folder<')
@@ -275,7 +280,9 @@ describe('LibraryScreen views', () => {
         sort: { key: 'duration', direction: 'asc' },
       },
     })
-    expect(html.indexOf('Open Other one')).toBeLessThan(html.indexOf('Open Resume me'))
+    expect(html.indexOf('aria-label="Other one"')).toBeLessThan(
+      html.indexOf('aria-label="Resume me"')
+    )
   })
 
   test('while searching the hero is hidden and only matches show', () => {
@@ -284,22 +291,25 @@ describe('LibraryScreen views', () => {
       search: { query: 'other', matchIds: new Set([other.id]) },
     })
     expect(html).not.toContain('Continue Resume me')
-    expect(html).not.toContain('Open Resume me')
-    expect(html).toContain('Open Other one')
+    expect(html).not.toContain('aria-label="Resume me"')
+    expect(html).toContain('aria-label="Other one"')
     expect(html).toContain('1 of 2 videos')
   })
 
-  test('a search whose result has not landed hides nothing but the hero', () => {
-    const html = render({ videos, search: { query: 'other', matchIds: null } })
+  test('a search whose result has not landed shows the name matches, without a "no match" line', () => {
+    const html = render({ videos, search: { query: 'OTHER', matchIds: null } })
     expect(html).not.toContain('Continue Resume me')
-    expect(html).toContain('Open Resume me')
-    expect(html).toContain('Open Other one')
+    expect(html).not.toContain('aria-label="Resume me"')
+    expect(html).toContain('aria-label="Other one"')
+
+    const none = render({ videos, search: { query: 'zzz', matchIds: null } })
+    expect(none).not.toContain('No videos match')
   })
 
   test('a search with no match says so, naming the query', () => {
     const html = render({ videos, search: { query: 'nothing', matchIds: new Set() } })
     expect(html).toContain('No videos match “nothing”.')
-    expect(html).not.toContain('Open Other one')
+    expect(html).not.toContain('aria-label="Other one"')
   })
 
   test('a match outside the view does not appear', () => {

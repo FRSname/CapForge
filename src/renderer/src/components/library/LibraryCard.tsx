@@ -5,30 +5,35 @@
  * recording is a tall card in its grid column rather than a letterboxed 16:9
  * one; it carries the duration badge and the missing-media chip.
  *
- * The `…` menu's state lives in `useRecordMenu` (the list row shares it and
- * `LibraryCardMenu`), and the destructive item confirms **inline**:
- * no native dialog, because the renderer's tests have no DOM and a
- * `window.confirm` would be untestable as well as ugly. A record whose media
- * is missing also gets "Locate…"; if the picked file is different media, the
- * same inline pattern asks before linking it anyway. "Move to folder…" swaps
- * the actions for `MoveToCollectionMenu`.
+ * A card is an `option` of the grid's listbox (docs/plans/library-finder.md
+ * §4.4): a click **selects** it, a double-click (or Enter) opens it, and a
+ * click on the name of the card that already was the one selected renames it
+ * in place (`VideoNameInput`). A right-click selects it and opens its menu at
+ * the pointer — or, inside a multi-selection, the selection's menu. The `…`
+ * menu (`LibraryCardMenu`, state in `useRecordMenu`) never changes the
+ * selection.
  *
  * The card drags as `application/x-capforge-videos` onto a folder
- * (`useLibraryDrag`); the caller hands in its drag-source props.
+ * (`useLibraryDrag`); the caller hands in its drag-source props, which carry
+ * the whole selection when the card is part of it.
  */
 
-import type { CreateCollectionResult } from '../../lib/collectionCreate'
 import type { CollectionSummary } from '../../lib/collectionTypes'
-import { cn } from '../../lib/cn'
-import { pathBaseName } from '../../lib/libraryImport'
 import type { LibraryVideo } from '../../lib/libraryTypes'
+import { videoKey } from '../../lib/librarySelection'
+import { cn } from '../../lib/cn'
 import { displayTitle, formatShortDate, statusPips } from '../../lib/libraryView'
 import type { DragSourceProps } from '../../hooks/useLibraryDrag'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
 import { useRecordMenu } from '../../hooks/useRecordMenu'
-import { InlineConfirm, MenuItem } from './LibraryMenuParts'
+import { LibraryCardMenu } from './LibraryCardMenu'
+import type { LibraryItemUi } from './libraryItemUi'
+import { INERT_LIBRARY_ITEM_UI, SELECTED_ITEM_STYLE, itemAttributes } from './libraryItemUi'
 import { LibraryPoster } from './LibraryPoster'
-import { MoveToCollectionMenu } from './MoveToCollectionMenu'
+import { VideoNameInput } from './VideoNameInput'
+
+export { LibraryCardMenu } from './LibraryCardMenu'
+export type { LibraryCardMenuProps } from './LibraryCardMenu'
 
 /** The status rail, in ladder order — also used by the Continue hero. */
 const PIP_LABELS = ['Transcribed', 'Captioned', 'Drafted', 'Published'] as const
@@ -104,59 +109,113 @@ export interface LibraryCardProps extends RecordMenuActions {
   collections: readonly CollectionSummary[]
   /** Drag the card onto a folder; absent, it does not drag. */
   dragSource?: DragSourceProps
-  onOpen: (video: LibraryVideo) => void
+  /** Selection, opening and rename; inert when absent. */
+  item?: LibraryItemUi
 }
+
+const CARD_BOX_CLASS = 'flex flex-col gap-2.5 rounded-xl p-2 text-left'
 
 export function LibraryCard({
   video,
   folder,
   collections,
   dragSource,
-  onOpen,
+  item = INERT_LIBRARY_ITEM_UI,
   ...actions
 }: LibraryCardProps) {
-  const { open, toggle, menu } = useRecordMenu(video, actions)
+  const { open, toggle, openAt, close, menu } = useRecordMenu(video, actions)
   const title = displayTitle(video)
-
-  return (
-    <div className="group relative flex flex-col gap-2.5" {...dragSource}>
-      <button
-        type="button"
-        className="flex flex-col gap-2.5 rounded-xl p-2 text-left transition-transform duration-150 hover:-translate-y-0.5 focus-visible:-translate-y-0.5"
-        style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }}
-        title={video.sourcePath}
-        aria-label={`Open ${title}`}
-        onClick={() => onOpen(video)}
-      >
-        <LibraryPoster video={video} />
-        <div className="flex flex-col gap-1.5 px-0.5 pb-0.5">
+  const key = videoKey(video.id)
+  const selected = item.isSelected(key)
+  const renaming = item.renamingVideoId === video.id
+  const boxStyle = {
+    background: 'var(--color-surface)',
+    border: '1px solid var(--color-border)',
+    ...(selected ? SELECTED_ITEM_STYLE : {}),
+  }
+  const body = (
+    <>
+      <LibraryPoster video={video} />
+      <div className="flex flex-col gap-1.5 px-0.5 pb-0.5">
+        {renaming ? (
+          <VideoNameInput video={video} item={item} />
+        ) : (
           <span
             className="truncate text-sm"
             style={{ color: 'var(--color-text)', fontFamily: 'var(--cf-font-ui)' }}
+            onClick={(e) => item.onNameClick(key, e)}
           >
             {title}
           </span>
-          <div className="flex min-w-0 items-center gap-2">
-            <StatusRail video={video} />
-            <LanguageChip lang={video.language} />
-            <CollectionChip folder={folder} />
-            <span
-              className="ml-auto shrink-0 whitespace-nowrap text-2xs"
-              style={{ color: 'var(--color-text-3)' }}
-            >
-              {formatShortDate(video.updatedAt)}
-            </span>
-          </div>
+        )}
+        <div className="flex min-w-0 items-center gap-2">
+          <StatusRail video={video} />
+          <LanguageChip lang={video.language} />
+          <CollectionChip folder={folder} />
+          <span
+            className="ml-auto shrink-0 whitespace-nowrap text-2xs"
+            style={{ color: 'var(--color-text-3)' }}
+          >
+            {formatShortDate(video.updatedAt)}
+          </span>
         </div>
-      </button>
+      </div>
+    </>
+  )
 
-      <RecordActionsButton
-        title={title}
-        className="absolute right-3 top-3 opacity-0 group-hover:opacity-100"
-        onClick={toggle}
-      />
+  return (
+    <div
+      className="group relative flex flex-col gap-2.5"
+      {...(renaming ? { draggable: false } : dragSource)}
+      onContextMenu={(e) => {
+        if (item.onContextMenu(key, e)) openAt({ x: e.clientX, y: e.clientY })
+      }}
+    >
+      {renaming ? (
+        <div
+          {...itemAttributes(key, selected, 'option')}
+          className={CARD_BOX_CLASS}
+          style={boxStyle}
+        >
+          {body}
+        </div>
+      ) : (
+        <button
+          type="button"
+          {...itemAttributes(key, selected, 'option')}
+          className={cn(
+            CARD_BOX_CLASS,
+            'transition-transform duration-150 hover:-translate-y-0.5 focus-visible:-translate-y-0.5'
+          )}
+          style={boxStyle}
+          title={video.sourcePath}
+          aria-label={title}
+          onClick={(e) => item.onSelectClick(key, e)}
+          onDoubleClick={() => item.onOpenItem(key)}
+        >
+          {body}
+        </button>
+      )}
 
-      {open && <LibraryCardMenu video={video} collections={collections} {...menu} />}
+      {!renaming && (
+        <RecordActionsButton
+          title={title}
+          className="absolute right-3 top-3 opacity-0 group-hover:opacity-100"
+          onClick={toggle}
+        />
+      )}
+
+      {open && (
+        <LibraryCardMenu
+          video={video}
+          collections={collections}
+          {...menu}
+          onRename={() => {
+            close()
+            item.onStartRename(key)
+          }}
+        />
+      )}
     </div>
   )
 }
@@ -184,98 +243,5 @@ export function RecordActionsButton({ title, className, onClick }: RecordActions
     >
       ⋯
     </button>
-  )
-}
-
-export interface LibraryCardMenuProps {
-  video: LibraryVideo
-  /** "Delete record…" was clicked; the inline Delete/Cancel shows instead. */
-  confirmingDelete: boolean
-  /** A different-media file awaiting "link anyway?"; null when none. */
-  pendingLinkPath: string | null
-  /** "Move to folder…" was clicked; the sub-list shows instead of the actions. */
-  moving: boolean
-  collections: readonly CollectionSummary[]
-  onRemove: () => void
-  onAskDelete: () => void
-  onDelete: () => void
-  onCancelDelete: () => void
-  onLocate: () => void
-  onLink: () => void
-  onCancelLink: () => void
-  onAskMove: () => void
-  onBackFromMove: () => void
-  onPickCollection: (collectionId: string | null) => void
-  onCreateCollection: (name: string) => Promise<CreateCollectionResult>
-  /** Where the menu hangs; the card's placement by default. */
-  placement?: string
-}
-
-/** Under the card's `…` button, which sits in the poster's top-right corner. */
-const CARD_MENU_PLACEMENT = 'right-3 top-9'
-
-/** The card's `…` menu — presentational, so every state renders to static markup. */
-export function LibraryCardMenu(props: LibraryCardMenuProps) {
-  const { video, confirmingDelete, pendingLinkPath } = props
-  return (
-    <div
-      role="menu"
-      className={cn(
-        'absolute z-10 flex w-52 flex-col rounded-lg p-1 text-left text-xs',
-        props.placement ?? CARD_MENU_PLACEMENT
-      )}
-      style={{
-        background: 'var(--color-surface-2)',
-        border: '1px solid var(--color-border-2)',
-        boxShadow: 'var(--shadow-2)',
-      }}
-    >
-      {props.moving ? (
-        <MoveToCollectionMenu
-          collections={props.collections}
-          currentId={video.collection_id}
-          onPick={props.onPickCollection}
-          onCreate={props.onCreateCollection}
-          onBack={props.onBackFromMove}
-        />
-      ) : (
-        <>
-          {video.missing_media &&
-            (pendingLinkPath ? (
-              <InlineConfirm
-                prompt="Different file — link anyway?"
-                title={`${pathBaseName(pendingLinkPath)} is not the media this video was made from`}
-                confirmLabel="Link"
-                confirmColor="var(--color-brand)"
-                onConfirm={props.onLink}
-                onCancel={props.onCancelLink}
-              />
-            ) : (
-              <MenuItem
-                label="Locate…"
-                title={`Find the moved file: ${video.sourcePath}`}
-                onClick={props.onLocate}
-              />
-            ))}
-          <MenuItem label="Move to folder…" onClick={props.onAskMove} />
-          <MenuItem label="Remove from library" onClick={props.onRemove} />
-          {confirmingDelete ? (
-            <InlineConfirm
-              prompt="Delete?"
-              confirmLabel="Delete"
-              confirmColor="var(--color-danger)"
-              onConfirm={props.onDelete}
-              onCancel={props.onCancelDelete}
-            />
-          ) : (
-            <MenuItem
-              label="Delete record…"
-              color="var(--color-danger)"
-              onClick={props.onAskDelete}
-            />
-          )}
-        </>
-      )}
-    </div>
   )
 }

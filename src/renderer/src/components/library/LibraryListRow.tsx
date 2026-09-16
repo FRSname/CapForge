@@ -1,16 +1,22 @@
 /**
- * One record as a list row. A click anywhere on the row opens the video,
- * exactly like a card; the name is also a button so the row is reachable from
- * the keyboard. The `…` cell stops the click, so working the menu never opens
- * the video, and the menu itself is the card's (`LibraryCardMenu` over
+ * One record as a list row, a `row` of the table's grid, and a selectable item
+ * exactly like a card (docs/plans/library-finder.md §4.4): a click selects it,
+ * a double-click or Enter opens it, a click on the name of the row that already
+ * was the one selected renames it in place, and a right-click opens its menu
+ * at the pointer (the selection's, inside a multi-selection). The row itself
+ * is focusable. The `…` cell stops the click, so working the menu never
+ * changes the selection, and the menu is the card's (`LibraryCardMenu` over
  * `useRecordMenu`).
  *
  * The thumbnail is a fixed 16:9 box with the picture letterboxed inside, so
  * rows keep one height whatever shape the video is.
  */
 
+import type { MouseEvent } from 'react'
 import type { CollectionSummary } from '../../lib/collectionTypes'
 import { pathLabel } from '../../lib/collectionTree'
+import { cn } from '../../lib/cn'
+import { videoKey } from '../../lib/librarySelection'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import {
   displayTitle,
@@ -23,7 +29,16 @@ import type { DragSourceProps } from '../../hooks/useLibraryDrag'
 import { usePosterUrl } from '../../hooks/usePosterUrl'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
 import { useRecordMenu } from '../../hooks/useRecordMenu'
-import { LanguageChip, LibraryCardMenu, RecordActionsButton, StatusRail } from './LibraryCard'
+import { LanguageChip, RecordActionsButton, StatusRail } from './LibraryCard'
+import { LibraryCardMenu } from './LibraryCardMenu'
+import type { LibraryItemUi } from './libraryItemUi'
+import {
+  INERT_LIBRARY_ITEM_UI,
+  ROW_FOCUS_CLASS,
+  SELECTED_ROW_STYLE,
+  itemAttributes,
+} from './libraryItemUi'
+import { VideoNameInput } from './VideoNameInput'
 
 export const LIST_THUMB_WIDTH_PX = 64
 export const LIST_THUMB_HEIGHT_PX = 36
@@ -41,7 +56,8 @@ export interface LibraryListRowProps extends RecordMenuActions {
   showFolder: boolean
   /** Drag the row onto a folder; absent, it does not drag. */
   dragSource?: DragSourceProps
-  onOpen: (video: LibraryVideo) => void
+  /** Selection, opening and rename; inert when absent. */
+  item?: LibraryItemUi
 }
 
 export function LibraryListRow({
@@ -50,26 +66,46 @@ export function LibraryListRow({
   channels,
   showFolder,
   dragSource,
-  onOpen,
+  item = INERT_LIBRARY_ITEM_UI,
   ...actions
 }: LibraryListRowProps) {
-  const { open, toggle, menu } = useRecordMenu(video, actions)
+  const { open, toggle, openAt, close, menu } = useRecordMenu(video, actions)
   const title = displayTitle(video)
   const published = publishedOnLabel(video.publishedOn, channels)
+  const key = videoKey(video.id)
+  const selected = item.isSelected(key)
+  const renaming = item.renamingVideoId === video.id
 
   return (
     <tr
-      className="group cursor-pointer transition-colors hover:bg-[var(--color-surface)]"
-      style={{ borderBottom: '1px solid var(--color-border)' }}
+      {...itemAttributes(key, selected, 'row')}
+      tabIndex={0}
+      aria-label={renaming ? undefined : title}
+      className={cn(
+        'group cursor-default transition-colors hover:bg-[var(--color-surface)]',
+        ROW_FOCUS_CLASS
+      )}
+      style={{
+        borderBottom: '1px solid var(--color-border)',
+        ...(selected ? SELECTED_ROW_STYLE : {}),
+      }}
       title={video.sourcePath}
-      {...dragSource}
-      onClick={() => onOpen(video)}
+      {...(renaming ? { draggable: false } : dragSource)}
+      onClick={(e) => item.onSelectClick(key, e)}
+      onDoubleClick={() => item.onOpenItem(key)}
+      onContextMenu={(e) => {
+        if (item.onContextMenu(key, e)) openAt({ x: e.clientX, y: e.clientY })
+      }}
     >
       <td className="py-1.5 pr-3">
         <ListThumb video={video} />
       </td>
       <td className="max-w-[18rem] py-1.5 pr-4">
-        <NameCell video={video} title={title} onOpen={onOpen} />
+        {renaming ? (
+          <VideoNameInput video={video} item={item} />
+        ) : (
+          <NameCell video={video} title={title} onClick={(e) => item.onNameClick(key, e)} />
+        )}
       </td>
       <td className="whitespace-nowrap py-1.5 pr-4 text-right tabular-nums" style={MONO}>
         {formatDuration(video.duration)}
@@ -85,7 +121,11 @@ export function LibraryListRow({
       <td className="whitespace-nowrap py-1.5 pr-4" style={{ color: 'var(--color-text-3)' }}>
         {formatShortDate(video.updatedAt)}
       </td>
-      <td className="relative py-1.5" onClick={(e) => e.stopPropagation()}>
+      <td
+        className="relative py-1.5"
+        onClick={(e) => e.stopPropagation()}
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
         <RecordActionsButton
           title={title}
           className="opacity-0 group-hover:opacity-100"
@@ -97,6 +137,10 @@ export function LibraryListRow({
             collections={collections}
             placement={ROW_MENU_PLACEMENT}
             {...menu}
+            onRename={() => {
+              close()
+              item.onStartRename(key)
+            }}
           />
         )}
       </td>
@@ -129,25 +173,20 @@ function statusLabel(status: string): string {
 interface NameCellProps {
   video: LibraryVideo
   title: string
-  onOpen: (video: LibraryVideo) => void
+  /** A click on the name (it still reaches the row, which selects). */
+  onClick: (e: MouseEvent) => void
 }
 
-function NameCell({ video, title, onOpen }: NameCellProps) {
+function NameCell({ video, title, onClick }: NameCellProps) {
   return (
     <span className="flex min-w-0 items-center gap-2">
-      <button
-        type="button"
+      <span
         className="truncate text-left text-sm"
         style={{ color: 'var(--color-text)', fontFamily: 'var(--cf-font-ui)' }}
-        aria-label={`Open ${title}`}
-        onClick={(e) => {
-          // The row opens on click too; one open per click.
-          e.stopPropagation()
-          onOpen(video)
-        }}
+        onClick={onClick}
       >
         {title}
-      </button>
+      </span>
       <LanguageChip lang={video.language} />
       {video.missing_media && (
         <span

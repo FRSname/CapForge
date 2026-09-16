@@ -8,10 +8,16 @@
  * **All videos** — only exists inside a folder, and goes back to "This folder"
  * whenever the location changes: the choice is remembered together with the
  * location it was made in, and a different location reads as the default.
+ *
+ * The main column also owns the selection (`useLibraryItems`), because it
+ * spans the masthead and the contents: with two or more items selected the
+ * toolbar gives its place to the selection bar, and a right-click inside a
+ * multi-selection opens the selection's menu.
  */
 
 import { useState } from 'react'
 import type { LibraryDrag } from '../../hooks/useLibraryDrag'
+import { useLibraryItems } from '../../hooks/useLibraryItems'
 import type { LibraryLocation, SearchScope } from '../../lib/libraryLocation'
 import {
   DEFAULT_SEARCH_SCOPE,
@@ -19,6 +25,7 @@ import {
   hasScopeToggle,
   locationKey,
   shownAt,
+  visibleContents,
 } from '../../lib/libraryLocation'
 import { isSearching } from '../../lib/librarySearch'
 import { SegmentedControl } from '../ui/SegmentedControl'
@@ -29,6 +36,8 @@ import { LibraryPathBar } from './LibraryPathBar'
 import type { LibraryScreenProps } from './LibraryScreen'
 import type { SidebarToggleProps } from './LibraryToolbar'
 import { LibraryToolbar, SidebarToggle } from './LibraryToolbar'
+import { SelectionBar } from './SelectionBar'
+import { SelectionMenu } from './SelectionMenu'
 
 const SCOPE_OPTIONS: ReadonlyArray<{ value: SearchScope; label: React.ReactNode }> = [
   { value: 'folder', label: <span className="whitespace-nowrap px-2.5">This folder</span> },
@@ -56,10 +65,21 @@ export function LibraryMain(props: LibraryMainProps) {
   const searching = isSearching(search.query)
   const shown = shownAt(location, collections, videos, {
     searching,
+    query: search.query,
     matchIds: search.matchIds,
     scope,
   })
   const hasVideos = videos.length > 0
+  const contents = visibleContents(shown, location, view, searching, videos)
+  const items = useLibraryItems({
+    scopeKey: key,
+    folders: contents.folders,
+    videos: contents.videos,
+    layout: view.layout,
+    collections: collections ?? [],
+    folderUi: props.folderUi,
+    actions: props,
+  })
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
@@ -75,14 +95,18 @@ export function LibraryMain(props: LibraryMainProps) {
             onNavigate={(next) => props.onViewChange({ ...view, location: next })}
           />
         </div>
-        <LibraryToolbar
-          onImport={props.onImport}
-          onAddVideo={props.onAddVideo}
-          view={hasVideos ? view : null}
-          onViewChange={props.onViewChange}
-          searchQuery={search.query}
-          onSearchChange={props.onSearchChange}
-        />
+        {items.bar ? (
+          <SelectionBar {...items.bar} />
+        ) : (
+          <LibraryToolbar
+            onImport={props.onImport}
+            onAddVideo={props.onAddVideo}
+            view={hasVideos ? view : null}
+            onViewChange={props.onViewChange}
+            searchQuery={search.query}
+            onSearchChange={props.onSearchChange}
+          />
+        )}
       </header>
 
       {hasVideos && searching && hasScopeToggle(location) && (
@@ -100,8 +124,9 @@ export function LibraryMain(props: LibraryMainProps) {
       {hasVideos ? (
         <LibraryContents
           {...props}
-          allVideos={videos}
-          shown={shown}
+          contents={contents}
+          item={items.item}
+          containerProps={items.containerProps}
           collections={collections ?? []}
           channels={props.channels ?? null}
           searching={searching}
@@ -115,6 +140,9 @@ export function LibraryMain(props: LibraryMainProps) {
           onImport={props.onImport}
           onCreateCollection={props.emptyStateCreates ? props.onCreateCollection : undefined}
         />
+      )}
+      {items.menu && (
+        <SelectionMenu key={`${items.menu.point.x}:${items.menu.point.y}`} {...items.menu} />
       )}
     </div>
   )

@@ -6,6 +6,13 @@ SQLite build has it and a plain table searched with ``LIKE`` when it does not �
 the Windows embeddable Python is unverified on FTS5 (§9.6) — and if ``sqlite3``
 itself cannot be imported, ``NullIndex`` keeps search working in pure Python.
 
+Matching: FTS5 turns every word of the query into a *prefix* term, so typing
+``vizu`` finds ``vizualni``; its default ``unicode61`` tokenizer folds case and
+diacritics. The two fallbacks are substring searches over text passed through
+``fold_text`` on both sides (casefold, combining marks stripped, runs of
+whitespace/``-``/``_``/``.`` read as one space), so they fold diacritics too —
+but only those Unicode decomposes (``ł``/``ø`` stay as they are).
+
 Errors are never swallowed: a broken DB raises ``sqlite3.Error`` at the caller,
 which is the signal to rebuild.
 
@@ -20,6 +27,7 @@ from __future__ import annotations
 
 import re
 import threading
+import unicodedata
 from pathlib import Path
 from typing import Optional, Protocol, Union
 
@@ -28,15 +36,30 @@ try:  # pragma: no cover - exercised by monkeypatching `sqlite3` to None
 except ImportError:  # pragma: no cover
     sqlite3 = None  # type: ignore[assignment]
 
-#: Bump when the table shape changes — a mismatch forces a rebuild from folders.
-SCHEMA_VERSION = 1
+#: Bump when the table shape changes, or when the indexed text or its folding
+#: changes (2: the source file's stem joined the title column; the fallbacks
+#: store folded text) — a mismatch forces a rebuild from folders.
+SCHEMA_VERSION = 2
 
 FTS_TABLE = "records_fts"
 LIKE_TABLE = "records_like"
 COLUMNS = ("id", "title", "description", "tags", "transcript")
 _SEARCH_COLUMNS = ("title", "description", "tags", "transcript")
 _LIKE_ESCAPE = "\\"
-_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+# Word characters minus ``_``: ``unicode61`` splits on it, so the query must too.
+_TOKEN_RE = re.compile(r"[^\W_]+", re.UNICODE)
+_SEPARATOR_RUN_RE = re.compile(r"[\s_.\-]+", re.UNICODE)
+
+
+def fold_text(text: str) -> str:
+    """Case- and diacritic-insensitive form for the substring fallbacks.
+
+    ``Sázení_stromků.v2`` → ``sazeni stromku v2``. Applied to the stored text
+    and to the query alike, so the two always compare in the same form.
+    """
+    decomposed = unicodedata.normalize("NFD", text)
+    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return _SEPARATOR_RUN_RE.sub(" ", stripped.casefold()).strip()
 
 
 class SearchIndex(Protocol):
@@ -120,11 +143,14 @@ class LibraryIndex:
         transcript_text: str,
     ) -> None:
         placeholders = ", ".join("?" * len(COLUMNS))
+        texts = (title, description, tags_text, transcript_text)
+        if not self.fts:
+            texts = tuple(fold_text(text) for text in texts)
         with self._lock:
             self._conn.execute(f"DELETE FROM {self.table} WHERE id = ?", (video_id,))
             self._conn.execute(
                 f"INSERT INTO {self.table} ({', '.join(COLUMNS)}) VALUES ({placeholders})",
-                (video_id, title, description, tags_text, transcript_text),
+                (video_id, *texts),
             )
             self._conn.commit()
 
@@ -143,7 +169,10 @@ class LibraryIndex:
             sql = f"SELECT id FROM {FTS_TABLE} WHERE {FTS_TABLE} MATCH ? ORDER BY rank"
             params: tuple[str, ...] = (match,)
         else:
-            pattern = f"%{_escape_like(q)}%"
+            needle = fold_text(q)
+            if not needle:
+                return []
+            pattern = f"%{_escape_like(needle)}%"
             where = " OR ".join(f"{c} LIKE ? ESCAPE '{_LIKE_ESCAPE}'" for c in _SEARCH_COLUMNS)
             sql = f"SELECT id FROM {LIKE_TABLE} WHERE {where} ORDER BY rowid"
             params = tuple([pattern] * len(_SEARCH_COLUMNS))
@@ -159,7 +188,8 @@ class LibraryIndex:
 class NullIndex:
     """Pure-Python fallback for a runtime without ``sqlite3`` at all.
 
-    Same interface, an in-memory dict, substring search. Nothing is persisted,
+    Same interface, an in-memory dict, substring search over ``fold_text``
+    (like the ``LIKE`` table). Nothing is persisted,
     so it reports ``needs_rebuild()`` until the store has filled it.
     """
 
@@ -186,7 +216,7 @@ class NullIndex:
     ) -> None:
         self._rows = {
             **self._rows,
-            video_id: " ".join((title, description, tags_text, transcript_text)).lower(),
+            video_id: fold_text(" ".join((title, description, tags_text, transcript_text))),
         }
 
     def delete(self, video_id: str) -> None:
@@ -195,7 +225,9 @@ class NullIndex:
     def search(self, q: str) -> list[str]:
         if not q or not q.strip():
             return []
-        needle = q.strip().lower()
+        needle = fold_text(q)
+        if not needle:
+            return []
         return [vid for vid, haystack in self._rows.items() if needle in haystack]
 
     def close(self) -> None:
@@ -210,15 +242,17 @@ def open_index(db_path: Union[str, Path]) -> SearchIndex:
 
 
 def _fts_match_expression(q: str) -> Optional[str]:
-    """Quote each token so user text can never be FTS5 *syntax*.
+    """Quote each token and make it a prefix term: ``vizu smo`` → ``"vizu"* "smo"*``.
 
-    ``kubernetes AND (`` from a search box must return rows or nothing — never
-    an ``sqlite3.OperationalError``.
+    Quoting keeps user text from ever being FTS5 *syntax*: ``kubernetes AND (``
+    from a search box must return rows or nothing — never an
+    ``sqlite3.OperationalError``. The terms are ANDed (FTS5's implicit
+    operator), so every word typed has to start a word somewhere in the row.
     """
     tokens = _TOKEN_RE.findall(q)
     if not tokens:
         return None
-    return " ".join(f'"{token}"' for token in tokens)
+    return " ".join(f'"{token}"*' for token in tokens)
 
 
 def _escape_like(q: str) -> str:

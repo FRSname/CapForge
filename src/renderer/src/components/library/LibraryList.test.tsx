@@ -79,7 +79,6 @@ function render(
       folderUi={INERT_FOLDER_ITEM_UI}
       drag={INERT_LIBRARY_DRAG}
       onSortChange={noop}
-      onOpen={noop}
       onRemove={noop}
       onDelete={noop}
       onLocate={() => Promise.resolve({ kind: 'cancelled' as const })}
@@ -147,7 +146,7 @@ describe('LibraryList columns', () => {
 describe('LibraryList rows', () => {
   test('a row carries what a card carries', () => {
     const html = render()
-    expect(html).toContain('aria-label="Open Keynote"')
+    expect(html).toContain('aria-label="Keynote"')
     expect(html).toContain('>Keynote<')
     expect(html).toContain('2:05')
     expect(html).toContain('Status: captioned')
@@ -179,7 +178,7 @@ describe('LibraryList rows', () => {
       ],
     })
     expect(html.split('<tr').length - 1).toBe(3) // header + two rows
-    expect(html.indexOf('Open Second')).toBeLessThan(html.indexOf('Open First'))
+    expect(html.indexOf('aria-label="Second"')).toBeLessThan(html.indexOf('aria-label="First"'))
   })
 
   test('the thumbnail is a fixed 16:9 box, letterboxed', () => {
@@ -221,7 +220,9 @@ describe('LibraryList folder rows', () => {
 
   test('folders come first: glyph, name, count, and their own actions', () => {
     const html = render({ folders })
-    expect(html.indexOf('Open folder UCK 26')).toBeLessThan(html.indexOf('Open Keynote'))
+    expect(html.indexOf('aria-label="Folder UCK 26"')).toBeLessThan(
+      html.indexOf('aria-label="Keynote"')
+    )
     expect(html).toContain('>4 videos · 2 folders<')
     expect(html).toContain('aria-label="Actions for folder UCK 26"')
     expect(html).toContain('data-folder-glyph="folder"')
@@ -243,6 +244,6 @@ describe('LibraryList folder rows', () => {
     const html = render({ folders, folderUi: { ...INERT_FOLDER_ITEM_UI, renamingId: 'uck26' } })
     expect(html).toContain('aria-label="Rename folder UCK 26"')
     expect(html).toContain('value="UCK 26"')
-    expect(html).not.toContain('Open folder UCK 26')
+    expect(html).not.toContain('aria-label="Folder UCK 26"')
   })
 })

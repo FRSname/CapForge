@@ -27,6 +27,7 @@ import {
   showsContinueHero,
   showsFolderColumn,
   videosInScope,
+  visibleContents,
 } from './libraryLocation'
 
 function folder(id: string, name: string, parent_id: string | null = null, total = 0) {
@@ -295,7 +296,7 @@ describe('what a location shows', () => {
 })
 
 describe('shownAt', () => {
-  const browse = { searching: false, matchIds: null, scope: 'folder' as const }
+  const browse = { searching: false, query: '', matchIds: null, scope: 'folder' as const }
 
   test('browsing shows the location’s folders and videos, counted against themselves', () => {
     const shown = shownAt(folderLocation('events'), TREE, VIDEOS, browse)
@@ -308,6 +309,7 @@ describe('shownAt', () => {
     const matchIds = new Set(['keynote', 'loose', 'day2-talk'])
     const shown = shownAt(folderLocation('events'), TREE, VIDEOS, {
       searching: true,
+      query: 'zzz',
       matchIds,
       scope: 'folder',
     })
@@ -319,6 +321,7 @@ describe('shownAt', () => {
   test('All videos as the scope searches everything', () => {
     const shown = shownAt(folderLocation('events'), TREE, VIDEOS, {
       searching: true,
+      query: 'zzz',
       matchIds: new Set(['loose']),
       scope: 'everywhere',
     })
@@ -329,18 +332,91 @@ describe('shownAt', () => {
   test('a search at the root covers every video, not just the unfiled ones', () => {
     const shown = shownAt(ROOT_LOCATION, TREE, VIDEOS, {
       searching: true,
+      query: 'zzz',
       matchIds: new Set(['keynote']),
       scope: 'folder',
     })
     expect(ids(shown.videos)).toEqual(['keynote'])
   })
 
-  test('before the answer lands a search hides nothing in its scope', () => {
+  test('before the answer lands a search shows the name matches in its scope', () => {
     const shown = shownAt(folderLocation('uck26'), TREE, VIDEOS, {
       searching: true,
+      query: 'KEY',
       matchIds: null,
       scope: 'folder',
     })
-    expect(ids(shown.videos)).toEqual(['keynote', 'panel', 'day2-talk'])
+    expect(ids(shown.videos)).toEqual(['keynote'])
+    expect(shown.total).toBe(3)
+  })
+
+  test('a query only a file name matches finds the untitled video, beside the backend hits', () => {
+    const untitled = {
+      ...video('untitled', 'uck26'),
+      title: '',
+      sourcePath: '/m/Vizuální-smog.mp4',
+    }
+    const shown = shownAt(folderLocation('uck26'), TREE, [...VIDEOS, untitled], {
+      searching: true,
+      query: 'vizualni smog',
+      matchIds: new Set(['panel']),
+      scope: 'folder',
+    })
+    expect(ids(shown.videos)).toEqual(['panel', 'untitled'])
+  })
+
+  test('a name match outside the search scope stays hidden', () => {
+    const shown = shownAt(folderLocation('uck26'), TREE, VIDEOS, {
+      searching: true,
+      query: 'loose',
+      matchIds: null,
+      scope: 'folder',
+    })
+    expect(shown.videos).toEqual([])
+  })
+})
+
+describe('visibleContents', () => {
+  const browse = { searching: false, query: '', matchIds: null, scope: 'folder' as const }
+  const byName = { key: 'name', direction: 'asc' } as const
+  const resumable = [
+    { ...video('b-older', null), updatedAt: '2026-09-01T00:00:00Z', hasProject: true },
+    { ...video('a-newest', null), updatedAt: '2026-09-10T00:00:00Z', hasProject: true },
+    { ...video('c-plain', null), updatedAt: '2026-09-11T00:00:00Z' },
+  ]
+
+  test('at the root in grid: the hero comes out, the rest sorted', () => {
+    const shown = shownAt(ROOT_LOCATION, TREE, resumable, browse)
+    const out = visibleContents(
+      shown,
+      ROOT_LOCATION,
+      { layout: 'grid', sort: byName },
+      false,
+      resumable
+    )
+    expect(out.hero?.id).toBe('a-newest')
+    expect(ids(out.videos)).toEqual(['b-older', 'c-plain'])
+    expect(out.folders.map((f) => f.id)).toEqual(['events', 'tutorials'])
+  })
+
+  test('in list, or while searching, no hero: every video is an item', () => {
+    const shown = shownAt(ROOT_LOCATION, TREE, resumable, browse)
+    const list = visibleContents(
+      shown,
+      ROOT_LOCATION,
+      { layout: 'list', sort: byName },
+      false,
+      resumable
+    )
+    expect(list.hero).toBeNull()
+    expect(ids(list.videos)).toEqual(['a-newest', 'b-older', 'c-plain'])
+    const searching = visibleContents(
+      shown,
+      ROOT_LOCATION,
+      { layout: 'grid', sort: byName },
+      true,
+      resumable
+    )
+    expect(searching.hero).toBeNull()
   })
 })

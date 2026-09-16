@@ -172,14 +172,29 @@ Library                        12
 - **The drag image** is the browser's default ghost of the dragged card, row or folder.
 - **Types:** `NestedCollection` / `CollectionPlacement` are folded into `CollectionSummary`; `deleteBlocker` moved to `lib/collections.ts`, shared by Settings and the library menu.
 
+### 4.7 PR 4 as built: where it departs from §4.4–§4.5
+
+- **Keys:** items are `f:<id>` and `v:<id>` (a folder and a video may share an id), in the visible order: folders, then the videos in the current sort. The Continue hero is not an item and stays a single-click button.
+- **Semantics:** the grid is one `listbox` (folder tiles and cards are `option`s, in two `group`s); the list keeps its `<table>` as a `grid` whose `<tr>`s carry `aria-selected`, because a listbox cannot hold table rows. Both are `aria-multiselectable`.
+- **⌘/Ctrl+A selects the visible videos only**, never folders, since folders cannot be removed or deleted in bulk.
+- **Arrow keys select**, not just move focus: an arrow selects the next item alone, Shift+arrow extends from the anchor, Home/End go to the ends. Up/Down in the grid step by the column count measured from a grid section's computed `grid-template-columns`; folders and videos are two sections that each start a row, and a column past a ragged row lands on that row's last item.
+- **Enter** opens the focused item, or the one selected item when the key comes from the container; it opens nothing from another control (a `…`, the hero) or from one of several selected items.
+- **Keys are refused while a menu is showing**, as well as from text fields and under a dialog: a menu owns Esc.
+- **Right-click** on an unselected item selects it alone and opens its own menu at the pointer (a video's menu gained **Rename**); inside a multi-selection it opens the selection's menu (Move to…, Remove from library, Delete…). All right-click menus share `PointMenu`.
+- **The selection bar** also shows with one video selected while a keyboard Remove (⌘⌫, Delete off macOS) waits for its confirm, because the confirm lives in the bar. The confirm is inline in the bar ("Remove 3 videos from the library? Their files are kept." · Remove · Cancel) and is keyed to the selection it counted: a changed selection closes it.
+- **Remove and Delete share one reason** while a folder is selected ("Folders can't be removed — deselect them or delete them from their menu."); the selection's menu shows it under Remove and a short "Deselect the folders first." under Delete.
+- **Move to…** lists Top level and the whole tree. A place is checked only when every selected item is already there, and picking it sends nothing. A folder that cannot go to the target (itself, a subfolder, too deep, an orphan id) is skipped and named in the one summary. The videos go through `moveEachVideo`, the loop `runMoveVideos` now wraps, so video and folder failures can share that one summary.
+- **Rename by click** waits `RENAME_CLICK_DELAY_MS` (500 ms). A double-click (the second click's `detail` is 2), a drag, a right-click, a key, or a click on another item cancels it. An unchanged name closes the input without a request, like a folder's; a `422` stays under the input; a second `409` is toasted. The rename ends when the location changes.
+- **Selection after a refresh:** keys that left the view are pruned at read time, and every change starts from the pruned value; a confirmed Remove/Delete clears the selection at once.
+
 ## 5. Pull requests
 
 | PR | Scope | Backend? | Risk |
 |---|---|---|---|
 | 1 | Open removed, grid/list, icon size, sort, search (unscoped), remembered prefs — **merged (#49)** | no | low |
 | 2 | `parent_id`, integrity rules, `resolved_collection`, route fields, MCP, Settings tree + Location picker — **merged (#50)** | yes | medium: the brief seam, byte-identity |
-| 3 | Sidebar, path bar, folder tiles/rows, New folder in place, folder menu, drag and drop, search scope; removes the collection `<select>` | no | medium: drag vs file drop |
-| 4 | Selection model, selection bar, bulk move/remove/delete, keyboard, inline rename, double-click to open | no | medium: changes how a card opens |
+| 3 | Sidebar, path bar, folder tiles/rows, New folder in place, folder menu, drag and drop, search scope; removes the collection `<select>` — **#51** | no | medium: drag vs file drop |
+| 4 | Selection model, selection bar, bulk move/remove/delete, keyboard, inline rename, double-click to open (as built: §4.7) | no | medium: changes how a card opens |
 
 PR 1 and PR 2 are independent and can run in parallel. PR 3 needs both. PR 4 needs PR 3. All branch from `feat/multi-channel-import` until #48 merges (PR 4 of multi-channel rewrote the import toolbar), then retarget to `main`.
 
