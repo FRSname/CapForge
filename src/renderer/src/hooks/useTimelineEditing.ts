@@ -37,6 +37,16 @@ interface UseTimelineEditingArgs {
    * Inert on the source track, whose timings are authoritative already.
    */
   translated?: boolean
+  /**
+   * Source track only: called with the placed word's `wid` and span on every
+   * word-lane drag tick, so the caller can write the same span into the
+   * segments (`setWordSpan`, lib/wordTiming.ts). A group word's timing is
+   * refreshed from its segment twin on the next segments commit, so a placement
+   * that stays in the group alone is undone by the next text edit. A translated
+   * track's words have no segment twin — its segments are derived from the
+   * groups — so it is never called there.
+   */
+  onSourceWordPlaced?: (wid: string, span: { start: number; end: number }) => void
 }
 
 export function useTimelineEditing({
@@ -46,6 +56,7 @@ export function useTimelineEditing({
   onPositionChange: handleGroupsPositionChange,
   pushUndo,
   translated = false,
+  onSourceWordPlaced,
 }: UseTimelineEditingArgs) {
   // Timeline right-click on a word in the word lane → style/text popup.
   // Word identity is positional (groupIdx + wordIdx), not id-based — see the
@@ -148,8 +159,12 @@ export function useTimelineEditing({
         })
       )
       setGroupsEdited(true)
+      if (!translated) {
+        const wid = groups.find((g) => g.id === segId)?.words[wordIdx]?.wid
+        if (wid) onSourceWordPlaced?.(wid, patch)
+      }
     },
-    [setGroups, setGroupsEdited, translated]
+    [groups, setGroups, setGroupsEdited, translated, onSourceWordPlaced]
   )
 
   const handleWordEdgeDragStart = useCallback(() => {

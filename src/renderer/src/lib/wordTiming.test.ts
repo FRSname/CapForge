@@ -1,6 +1,13 @@
 import { describe, expect, test } from 'vitest'
-import { MIN_WORD_DUR, joinWords, normalizeToken, retimeWords, tokenize } from './wordTiming'
-import type { Word } from '../types/app'
+import {
+  MIN_WORD_DUR,
+  joinWords,
+  normalizeToken,
+  retimeWords,
+  setWordSpan,
+  tokenize,
+} from './wordTiming'
+import type { Segment, Word } from '../types/app'
 
 // ── Fixtures ─────────────────────────────────────────────────────
 
@@ -265,5 +272,99 @@ describe('retimeWords — degenerate input', () => {
     const before = [w('x', 0.5, 0.5)]
     const after = retimeWords(before, tokenize('y'), { start: 0, end: 1 })
     expectMonotonic(after)
+  })
+})
+
+// ── setWordSpan ──────────────────────────────────────────────────
+//
+// The timeline word lane places a word by hand. `reconcileGroups` refreshes
+// every group word's timing from its segment word, so that placement has to
+// land in the segment too, or the next text edit quietly puts the word back.
+
+describe('setWordSpan', () => {
+  const idWord = (word: string, start: number, end: number, wid: string): Word => ({
+    ...w(word, start, end),
+    wid,
+  })
+  const segA = (): Segment => ({
+    id: 'a',
+    start: 0,
+    end: 1.5,
+    text: 'Hello big world',
+    words: [
+      idWord('Hello', 0, 0.5, 'a0'),
+      idWord('big', 0.5, 1.0, 'a1'),
+      idWord('world', 1.0, 1.5, 'a2'),
+    ],
+  })
+  const segB = (): Segment => ({
+    id: 'b',
+    start: 2,
+    end: 2.5,
+    text: 'Bye',
+    words: [idWord('Bye', 2, 2.5, 'b0')],
+  })
+
+  test('re-times only the word with that id and leaves everything else identical', () => {
+    // Arrange
+    const segments = [segA(), segB()]
+
+    // Act
+    const out = setWordSpan(segments, 'a1', { start: 0.55, end: 1.05 })
+
+    // Assert
+    expect(out[0].words[1]).toEqual({ ...segments[0].words[1], start: 0.55, end: 1.05 })
+    expect(out[0].words[0]).toBe(segments[0].words[0])
+    expect(out[0].words[2]).toBe(segments[0].words[2])
+    expect(out[1]).toBe(segments[1])
+    expect(out[0].start).toBe(0)
+    expect(out[0].end).toBe(1.5)
+  })
+
+  test('keeps the word’s overrides and id', () => {
+    // Arrange
+    const styled: Segment = {
+      ...segA(),
+      words: [
+        idWord('Hello', 0, 0.5, 'a0'),
+        { ...idWord('big', 0.5, 1.0, 'a1'), overrides: { text_color: '#f00' } },
+      ],
+    }
+
+    // Act
+    const out = setWordSpan([styled], 'a1', { start: 0.6, end: 1.0 })
+
+    // Assert
+    expect(out[0].words[1].wid).toBe('a1')
+    expect(out[0].words[1].overrides).toEqual({ text_color: '#f00' })
+  })
+
+  test('widens the owning segment when the word is pushed past its bounds', () => {
+    // Arrange / Act
+    const out = setWordSpan([segA()], 'a2', { start: 1.2, end: 1.9 })
+
+    // Assert — the segment has to contain its words, like a group does.
+    expect(out[0].end).toBe(1.9)
+    expect(out[0].start).toBe(0)
+  })
+
+  test('returns the same array when no word carries that id', () => {
+    // Arrange
+    const segments = [segA(), segB()]
+
+    // Act / Assert — a no-op must not trigger a state write.
+    expect(setWordSpan(segments, 'nope', { start: 0, end: 1 })).toBe(segments)
+  })
+
+  test('never mutates its input', () => {
+    // Arrange
+    const segments = [segA()]
+    const before = JSON.stringify(segments)
+
+    // Act
+    setWordSpan(segments, 'a0', { start: 0.1, end: 0.4 })
+
+    // Assert
+    expect(JSON.stringify(segments)).toBe(before)
   })
 })
