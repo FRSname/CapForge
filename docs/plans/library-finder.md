@@ -73,7 +73,7 @@ No backend change.
 
 ### 3.1 Buttons
 
-- `TitleBar.tsx`: the **Open** button is removed on every screen. `useGlobalShortcuts`' `mod+o` becomes "Import…" on the library screen and does nothing elsewhere. `handleOpen` / `project:open` stay (crash recovery and restore paths reuse `restoreFromProjectFile`, not the dialog), but the dialog IPC loses its last caller and is deleted with its preload entries in **both** preloads.
+- `TitleBar.tsx`: the **Open** button is removed on every screen. `useGlobalShortcuts`' `mod+o` becomes "Import…" on the library screen and does nothing elsewhere. `restoreFromProjectFile` stays (crash recovery and record restore use it), while `handleOpen`, the `project:open` dialog and the already-unused `dialog:open-projects` picker are deleted with their entries in **both** preloads. ⌘O is owned by the library screen (`useLibraryImportShortcut`): the combined picker on macOS, Files… on Windows/Linux.
 - A `.capforge` still arrives through Import… (as a card) or by double-clicking the file in Finder (`single-instance.js`, unchanged).
 
 ### 3.2 Toolbar
