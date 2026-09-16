@@ -92,3 +92,21 @@ describe('ChannelsSettings', () => {
     expect(html).toContain('New channel name')
   })
 })
+
+test('the platform picker keeps its own width, so the name field and Create fit the dialog', () => {
+  // Found in the running app: `.field-input { width: 100% }` outranks the `w-32`
+  // utility, so the picker filled the row and pushed the name field (15px) and the
+  // Create button (1px) off the edge of the Settings dialog — nothing could be typed.
+  const html = renderToStaticMarkup(
+    <ChannelsSettingsView
+      channels={[]}
+      platforms={null}
+      loading={false}
+      selectedId={null}
+      onSelect={() => {}}
+      onCreate={() => {}}
+    />
+  )
+
+  expect(html).toContain('width:8rem')
+})
