@@ -387,6 +387,18 @@ export function useTimeline({
     return () => obs.disconnect()
   }, [draw])
 
+  // Redraw when the wrapper changes width (a window resize, a panel drag):
+  // draw() sizes the canvas from `wrap.clientWidth`, but nothing else runs it
+  // on a resize, so the chips stayed at the old width while the waveform
+  // (which WaveSurfer keeps responsive itself) stretched.
+  useEffect(() => {
+    const wrap = canvasRef.current?.parentElement
+    if (!wrap || typeof ResizeObserver === 'undefined') return
+    const obs = new ResizeObserver(() => draw(lastTimeRef.current))
+    obs.observe(wrap)
+    return () => obs.disconnect()
+  }, [canvasRef, draw])
+
   // ── Interactions ──────────────────────────────────────────────────
 
   // Phase 1: dragRef now tracks body drags in addition to edge drags.

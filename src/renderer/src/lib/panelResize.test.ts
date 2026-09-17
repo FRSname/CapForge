@@ -6,7 +6,13 @@
  */
 
 import { describe, expect, test } from 'vitest'
-import { ASIDE_PANEL_WIDTH, EDITOR_PANEL_WIDTH, resizedWidth } from './panelResize'
+import {
+  ASIDE_PANEL_WIDTH,
+  EDITOR_PANEL_WIDTH,
+  PANEL_WIDTH_KEYS,
+  parseStoredPanelWidth,
+  resizedWidth,
+} from './panelResize'
 
 describe('resizedWidth', () => {
   const bounds = { min: 100, max: 500, initial: 300 }
@@ -46,5 +52,28 @@ describe('resizedWidth', () => {
       expect(b.initial).toBeGreaterThanOrEqual(b.min)
       expect(b.initial).toBeLessThanOrEqual(b.max)
     }
+  })
+})
+
+describe('parseStoredPanelWidth', () => {
+  const bounds = { min: 100, max: 500, initial: 300 }
+
+  test('a stored number inside the bounds is used as it is', () => {
+    expect(parseStoredPanelWidth(250, bounds)).toBe(250)
+  })
+
+  test('a number from other bounds is clamped into these', () => {
+    expect(parseStoredPanelWidth(900, bounds)).toBe(500)
+    expect(parseStoredPanelWidth(10, bounds)).toBe(100)
+  })
+
+  test('anything but a finite number is the default', () => {
+    for (const bad of [null, undefined, '250', Number.NaN, Number.POSITIVE_INFINITY, {}, []]) {
+      expect(parseStoredPanelWidth(bad, bounds)).toBe(300)
+    }
+  })
+
+  test('the two keys are distinct, so one write never clobbers the other', () => {
+    expect(PANEL_WIDTH_KEYS.editor).not.toBe(PANEL_WIDTH_KEYS.aside)
   })
 })

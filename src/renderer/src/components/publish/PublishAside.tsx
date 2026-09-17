@@ -31,7 +31,7 @@ import { PublishPanel } from './PublishPanel'
 import { WorkspaceToggle } from './WorkspaceToggle'
 import { ResizeHandle } from '../ui/ResizeHandle'
 import { usePanelResize } from '../../hooks/usePanelResize'
-import { ASIDE_PANEL_WIDTH } from '../../lib/panelResize'
+import { ASIDE_PANEL_WIDTH, PANEL_WIDTH_KEYS } from '../../lib/panelResize'
 
 interface PublishAsideProps {
   /** The workspace toggle (drawn as both panels' title), the player wire and
@@ -44,6 +44,8 @@ interface PublishAsideProps {
   segments: readonly Segment[]
   tracks: readonly CaptionTrack[]
   outputDir: string
+  /** Where a failed read or write of the remembered width goes. */
+  notify: (message: string) => void
 }
 
 export function PublishAside({
@@ -54,9 +56,15 @@ export function PublishAside({
   segments,
   tracks,
   outputDir,
+  notify,
 }: PublishAsideProps) {
   const { workspace } = publishWorkspace
-  const resize = usePanelResize(ASIDE_PANEL_WIDTH, 'right')
+  const resize = usePanelResize({
+    bounds: ASIDE_PANEL_WIDTH,
+    side: 'right',
+    storageKey: PANEL_WIDTH_KEYS.aside,
+    notify,
+  })
   const show = (owner: Workspace) => (hidden || workspace !== owner ? 'hidden' : 'contents')
   // One immutable element, rendered at the head of both panels.
   const toggle = (
