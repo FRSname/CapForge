@@ -37,6 +37,15 @@ export const TIMELINE_HEIGHT = TOTAL_H
 export const TIMELINE_HEIGHT_EXPANDED = TOTAL_H + WORD_TRACK_H
 
 // Read a CSS custom property from :root so canvas drawing tracks the theme.
+/**
+ * How much amber an *inactive* segment chip carries (the active one is solid).
+ * High enough to read against the waveform in both themes while the theme's
+ * text colour stays legible on top (≥ 4.5:1 checked for dark and light).
+ */
+const CHIP_ALPHA = 0.55
+/** The word lane's inactive blocks, a step quieter than the chips above. */
+const LANE_ALPHA = 0.35
+
 function cssVar(name: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback
   const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
@@ -157,22 +166,20 @@ export function useTimeline({
       // Resolve theme colors fresh each draw so the canvas tracks light/dark.
       // The app has exactly one accent hue (the brand amber), which is also the
       // timeline's chip colour — so a second hue can no longer signal state.
-      // State is carried by fill, ink and outline instead: an inactive chip is a
-      // tinted fill with a thin amber outline, the active chip is solid amber
-      // with dark ink on top, and selection/playhead/snap are neutral text-
-      // coloured strokes at different weights.
+      // State is carried by fill, ink and outline instead: an inactive chip is
+      // amber at CHIP_ALPHA under the theme's text colour, the active chip is
+      // solid amber with accent ink on top, and selection/playhead/snap are
+      // neutral text-coloured strokes at different weights. The alphas stay
+      // well above a tint: a chip has to read against the waveform at a glance.
       const rulerBg = cssVar('--color-bg', '#0d1117')
       const trackBg = cssVar('--color-surface', '#161b22')
       const tickLine = cssVar('--color-border-2', '#30363d')
       const tickLabel = cssVar('--color-text-3', '#8b949e')
-      const chipFill = cssVar('--color-amber-subtle', 'rgba(201,137,31,0.15)')
-      const chipStroke = blockColor || cssVar('--color-amber', '#c9891f')
-      const chipText = cssVar('--color-text', '#e8e8f0')
-      const activeFill = blockColor || cssVar('--color-amber', '#c9891f')
-      const activeText = cssVar('--color-on-accent', '#15100a')
+      const amber = blockColor || cssVar('--color-amber', '#c9891f')
+      const chipText = cssVar('--color-text', '#e8e8f0') // ink on an inactive chip or word
+      const activeText = cssVar('--color-on-accent', '#15100a') // ink on the solid active fill
       const emphasis = cssVar('--color-text', '#e8e8f0') // selected outline, playhead
-      const quiet = cssVar('--color-text-2', '#9898ac') // snap line, inactive word text
-      const laneFill = cssVar('--color-surface-3', '#242430') // inactive word blocks
+      const quiet = cssVar('--color-text-2', '#9898ac') // snap line
 
       const { zoom, scrollT: rawScrollT } = stateRef.current
       const visibleDur = duration / zoom
@@ -269,17 +276,17 @@ export function useTimeline({
           ctx.closePath()
         }
 
-        ctx.fillStyle = isActive ? activeFill : chipFill
+        ctx.fillStyle = amber
+        ctx.globalAlpha = isActive ? 1 : CHIP_ALPHA
         roundRect()
         ctx.fill()
+        ctx.globalAlpha = 1
 
         if (!isActive) {
-          ctx.strokeStyle = chipStroke
+          ctx.strokeStyle = amber
           ctx.lineWidth = 1
-          ctx.globalAlpha = 0.7
           roundRect()
           ctx.stroke()
-          ctx.globalAlpha = 1
 
           if (seg.id === selectedSegId) {
             ctx.strokeStyle = emphasis
@@ -320,14 +327,16 @@ export function useTimeline({
           const isActiveWord = currentTime >= word.start && currentTime < word.end
 
           roundRectPath(ctx, wx, wy, ww, wh, Math.min(3, wh / 2))
-          ctx.fillStyle = isActiveWord ? activeFill : laneFill
+          ctx.fillStyle = amber
+          ctx.globalAlpha = isActiveWord ? 1 : LANE_ALPHA
           ctx.fill()
+          ctx.globalAlpha = 1
 
           ctx.font = '9px -apple-system, "Segoe UI", sans-serif'
           ctx.textBaseline = 'middle'
           const wordLabel = word.word.trim()
           if (labelFits(ww, ctx.measureText(wordLabel).width, 6)) {
-            ctx.fillStyle = isActiveWord ? activeText : quiet
+            ctx.fillStyle = isActiveWord ? activeText : chipText
             ctx.fillText(wordLabel, wx + 3, wy + wh / 2)
           }
         }
