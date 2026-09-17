@@ -14,15 +14,21 @@ interface KeywordsCardProps {
 }
 
 export function KeywordsCard({ publish }: KeywordsCardProps) {
+  const keywords = tagsLine(publish.fields.keywords)
   return (
     <StudioCard title="Keywords" defaultOpen={false}>
-      <FieldHeader publish={publish} field="keywords" hideLabel />
+      <FieldHeader
+        publish={publish}
+        field="keywords"
+        hideLabel
+        copy={{ text: keywords, what: 'the keywords' }}
+      />
       <input
         type="text"
         className="field-input"
         aria-label="Keywords"
         placeholder="the terms this video should rank for"
-        value={tagsLine(publish.fields.keywords)}
+        value={keywords}
         onFocus={() => publish.beginEdit('keywords')}
         onBlur={publish.endEdit}
         onChange={(e) => publish.setField('keywords', parseTagsLine(e.target.value))}

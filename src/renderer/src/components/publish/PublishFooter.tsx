@@ -31,11 +31,11 @@ import { displayGroupsFor } from '../../lib/tracks'
 import type { CaptionTrack } from '../../lib/tracks'
 import { plainTranscript } from '../../lib/youtubeRules'
 import type { Segment } from '../../types/app'
+import { writeClipboard } from '../../lib/clipboard'
+import { useCopyText } from '../../hooks/useCopyText'
 import { useToast } from '../../hooks/useToast'
 import { Button } from '../ui/Button'
 
-/** No clipboard (an old webview, a denied permission) — say so, never swallow. */
-const NO_CLIPBOARD_MESSAGE = 'This window has no clipboard access.'
 /** The language choice's width beside the package button (`.field-input` would take 100%). */
 const CHOICE_SELECT_WIDTH = '30%'
 /** The `<select>` value standing for the source package. */
@@ -106,30 +106,12 @@ export function PublishFooter({
   outputDir,
 }: PublishFooterProps) {
   const { toast } = useToast()
+  const copy = useCopyText()
   const [picked, setPicked] = useState(SOURCE_VALUE)
   const youtube = channel?.platform === 'youtube'
   // A language removed since it was picked falls back to the source package.
   const lang = youtube && languages.some((l) => l.lang === picked) ? picked : SOURCE_VALUE
   const choosing = youtube && languages.length > 1
-
-  /** True once the text is on the clipboard; every failure is toasted here. */
-  async function writeClipboard(text: string, what: string): Promise<boolean> {
-    if (!navigator.clipboard) {
-      toast(NO_CLIPBOARD_MESSAGE, 'error')
-      return false
-    }
-    try {
-      await navigator.clipboard.writeText(text)
-      return true
-    } catch (err) {
-      toast(err instanceof Error ? err.message : `Could not copy ${what}`, 'error')
-      return false
-    }
-  }
-
-  async function copy(text: string, what: string) {
-    if (await writeClipboard(text, what)) toast(`Copied ${what}`, 'success')
-  }
 
   function copyPackage() {
     if (!videoId || !channel) return
@@ -138,7 +120,12 @@ export function PublishFooter({
     const what = channelCopiedWhat(platform, label)
     getChannelPackage(videoId, id, lang || undefined)
       .then(async (pkg) => {
-        if (!(await writeClipboard(pkg.text, what))) return
+        // Not `copy`: the toast here also reports the package's findings.
+        const outcome = await writeClipboard(pkg.text, what)
+        if (!outcome.ok) {
+          toast(outcome.message, 'error')
+          return
+        }
         const done = channelPackageCopiedToast(id, pkg.violations, what)
         toast(done.message, done.type)
       })

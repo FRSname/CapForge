@@ -5,6 +5,9 @@
  * channel's default hashtags first — in the platform's own unit (UTF-16 for
  * TikTok, weighted for X), from the served table (`lib/platformSpecs.ts`).
  * They are display only: the findings under each field are the backend's.
+ *
+ * Each box has a copy button for its own text. The full pasted text — body,
+ * then the channel's hashtags and the post's — is the footer's copy.
  */
 
 import type { PlatformLimitUnit } from '../../lib/channelTypes'
@@ -13,6 +16,7 @@ import { hashtagsLine, parseHashtags } from '../../lib/publishFields'
 import type { PostBodyField } from '../../lib/platformSpecs'
 import { bodyFieldFor, countUnits, mergedHashtags, pastedText } from '../../lib/platformSpecs'
 import { StudioCard } from '../studio/StudioCard'
+import { CopyButton } from '../ui/CopyButton'
 import type { MeterUnit } from './FieldMeter'
 import { FieldMeter } from './FieldMeter'
 import { FieldViolations } from './FieldViolations'
@@ -49,18 +53,22 @@ export function PostTextCard({ view }: PostTextCardProps) {
   const tagLimit = view.limit('hashtags')
   const pasted = pastedText(body, post.hashtags, channel.defaultHashtags)
   const tags = mergedHashtags(channel.defaultHashtags, post.hashtags)
+  const hashtags = hashtagsLine(post.hashtags)
 
   return (
     <StudioCard title={title} defaultOpen>
       <div className="flex items-center justify-between gap-2 mb-1">
         <span className="label-xs truncate">{title}</span>
-        {bodyLimit && (
-          <FieldMeter
-            used={countUnits(bodyLimit.unit, pasted)}
-            limit={bodyLimit.max}
-            unit={METER_UNITS[bodyLimit.unit]}
-          />
-        )}
+        <span className="flex items-center gap-2 shrink-0">
+          {bodyLimit && (
+            <FieldMeter
+              used={countUnits(bodyLimit.unit, pasted)}
+              limit={bodyLimit.max}
+              unit={METER_UNITS[bodyLimit.unit]}
+            />
+          )}
+          <CopyButton text={body} what={`the ${title.toLowerCase()}`} />
+        </span>
       </div>
       <textarea
         className="field-input resize-y"
@@ -77,16 +85,19 @@ export function PostTextCard({ view }: PostTextCardProps) {
       <div className="mt-2">
         <div className="flex items-center justify-between gap-2 mb-1">
           <span className="label-xs">Hashtags</span>
-          {tagLimit && (
-            <FieldMeter used={countUnits('items', tags)} limit={tagLimit.max} unit="hashtags" />
-          )}
+          <span className="flex items-center gap-2 shrink-0">
+            {tagLimit && (
+              <FieldMeter used={countUnits('items', tags)} limit={tagLimit.max} unit="hashtags" />
+            )}
+            <CopyButton text={hashtags} what="the hashtags" />
+          </span>
         </div>
         <input
           type="text"
           className="field-input"
           aria-label="Hashtags"
           placeholder="#ai #captions"
-          value={hashtagsLine(post.hashtags)}
+          value={hashtags}
           onFocus={() => view.beginEdit('posts')}
           onBlur={view.endEdit}
           onChange={(e) => view.setPostField('hashtags', parseHashtags(e.target.value))}

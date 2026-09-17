@@ -7,12 +7,18 @@
  * title already says the word (TITLE / TITLE down the whole panel otherwise).
  * When that leaves the row with nothing to draw it renders no row at all,
  * rather than an empty `mb-1` gap above the input.
+ *
+ * `copy` puts a copy button at the end of the row: the box's text, as shown,
+ * for pasting one field at a time into an upload form. It draws even when the
+ * label is hidden, because a copy control is a reason for the row to exist.
  */
 
 import type { ReactNode } from 'react'
 import { fieldLabel } from '../../lib/publishFields'
 import type { PublishFieldId } from '../../lib/publishFields'
 import type { PublishController } from '../../hooks/usePublishRecord'
+import { CopyButton } from '../ui/CopyButton'
+import type { CopyTarget } from '../ui/CopyButton'
 import { ProvenanceChip } from './ProvenanceChip'
 
 interface FieldHeaderProps {
@@ -24,16 +30,18 @@ interface FieldHeaderProps {
   hideLabel?: boolean
   /** A `FieldMeter`, or anything else that belongs on the right. */
   meter?: ReactNode
+  /** What the row's copy button copies; none means no button. */
+  copy?: CopyTarget
 }
 
-export function FieldHeader({ publish, field, label, hideLabel, meter }: FieldHeaderProps) {
+export function FieldHeader({ publish, field, label, hideLabel, meter, copy }: FieldHeaderProps) {
   const provenance = publish.provenance(field)
   const onRevert = publish.canRevert(field) ? () => publish.revert(field) : undefined
   // `ProvenanceChip` draws nothing for a field nobody has written.
   const chip =
     provenance || onRevert ? <ProvenanceChip provenance={provenance} onRevert={onRevert} /> : null
 
-  if (hideLabel && !meter && !chip) return null
+  if (hideLabel && !meter && !chip && !copy) return null
 
   return (
     <div
@@ -43,6 +51,7 @@ export function FieldHeader({ publish, field, label, hideLabel, meter }: FieldHe
       <span className="flex items-center gap-2 shrink-0">
         {meter}
         {chip}
+        {copy && <CopyButton text={copy.text} what={copy.what} />}
       </span>
     </div>
   )

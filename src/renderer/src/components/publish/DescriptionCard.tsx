@@ -1,6 +1,9 @@
 /**
  * The description: a 5000-**byte** meter (UTF-8, not characters) and the
  * above-the-fold preview of what a viewer sees before "…more".
+ *
+ * The copy button copies the field as written. The assembled description the
+ * package pastes (chapters, links, footer) is the footer's "Copy package".
  */
 
 import { StudioCard } from '../studio/StudioCard'
@@ -31,6 +34,7 @@ export function DescriptionCard({ publish }: DescriptionCardProps) {
         meter={
           <FieldMeter used={byteLength(description)} limit={DESCRIPTION_MAX_BYTES} unit="bytes" />
         }
+        copy={{ text: description, what: 'the description' }}
       />
       <textarea
         className="field-input resize-y"
