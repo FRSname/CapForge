@@ -12,7 +12,9 @@ describe('SHORTCUT_SECTIONS', () => {
     const titles = SHORTCUT_SECTIONS.map((s) => s.title)
 
     // Assert
-    expect(titles).toEqual(expect.arrayContaining(['Global', 'Playback', 'Editor', 'Groups', 'Timeline']))
+    expect(titles).toEqual(
+      expect.arrayContaining(['Global', 'Playback', 'Editor', 'Groups', 'Timeline'])
+    )
     expect(new Set(titles).size).toBe(titles.length)
   })
 
@@ -43,6 +45,24 @@ describe('SHORTCUT_SECTIONS', () => {
 
     // Assert
     expect(global?.items).toContainEqual({ keys: ['⌘,'], description: 'Open settings' })
+  })
+
+  test('documents the mouse gestures the on-canvas hints no longer state', () => {
+    // The player's wheel hints are transient now (hooks/useTransientHint.ts):
+    // shown once per session and then gone, so this inventory is the only
+    // lasting place a user can look them up.
+    const timeline = SHORTCUT_SECTIONS.find((s) => s.title === 'Timeline')
+    const playback = SHORTCUT_SECTIONS.find((s) => s.title === 'Playback')
+
+    expect(timeline?.items).toContainEqual({
+      keys: ['Ctrl+Wheel'],
+      description: 'Zoom timeline · video',
+    })
+    expect(timeline?.items).toContainEqual({ keys: ['Wheel'], description: 'Pan timeline' })
+    expect(playback?.items).toContainEqual({
+      keys: ['Dbl-click'],
+      description: 'Toggle video zoom',
+    })
   })
 
   test('descriptions are unique within each section (used as React keys)', () => {

@@ -9,8 +9,16 @@
  * downstream would honour a gradient there.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 import { createPortal } from 'react-dom'
+import { rangeFill } from '../../lib/rangeFill'
 import {
   MAX_STOPS,
   MIN_STOPS,
@@ -66,7 +74,8 @@ function SliderRow({ label, value, min, max, unit, onChange }: SliderRowProps) {
         step={1}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="flex-1 min-w-0 h-[3px] accent-[var(--color-accent)]"
+        className="flex-1 min-w-0"
+        style={{ '--fill': rangeFill(value, min, max) } as CSSProperties}
         aria-label={label ?? `Stop position (${unit})`}
       />
       {/* Kept alongside the slider so an exact value (45°, 50%) is still
