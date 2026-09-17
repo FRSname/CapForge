@@ -1,6 +1,6 @@
 /**
- * "Publish to:" — the tick-a-channel list, shared by the two places that ask
- * the same question: the Publish panel's empty state (PR 3, for a video on no
+ * "Prepare posts for:" — the tick-a-channel list, shared by the two places that
+ * ask the same question: the Publish panel's empty state (PR 3, for a video on no
  * channel yet) and the import sheet (PR 4, for a batch about to be imported).
  *
  * It owns no state and decides nothing: the caller holds the ticked ids and
@@ -34,10 +34,10 @@ export function ChannelChecklist(props: ChannelChecklistProps) {
   const { channels, platforms, ticked, onToggle, onManage, intro, error, children } = props
   return (
     <section
-      aria-label="Publish to"
+      aria-label="Prepare posts for"
       className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3"
     >
-      <span className="label-xs">Publish to:</span>
+      <span className="label-xs">Prepare posts for:</span>
       {error ? (
         <p className="text-2xs" style={{ color: 'var(--color-amber-2)' }}>
           {error}

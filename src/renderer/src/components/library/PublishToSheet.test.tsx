@@ -42,7 +42,10 @@ describe('PublishToSheet', () => {
 
     expect(markup).toContain('role="dialog"')
     expect(markup).toContain('aria-modal="true"')
-    expect(markup).toContain('aria-label="Publish to"')
+    expect(markup).toContain('aria-label="Prepare posts for"')
+    expect(markup).toContain('Prepare posts for:')
+    expect(markup).toContain('Choose which channels these videos are for.')
+    expect(markup).toContain('Nothing is uploaded')
   })
 
   test('names what is about to be imported', () => {

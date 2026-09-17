@@ -17,6 +17,7 @@ import {
   importButtonText,
   importWhatLabel,
   rememberedChannels,
+  sheetIntro,
   toggleChannel,
 } from './importChannels'
 
@@ -95,6 +96,20 @@ describe('importWhatLabel', () => {
 
   test('a plan with only skipped files still has something to call itself', () => {
     expect(importWhatLabel(plan({ skipped: ['notes.txt'] }))).toBe('this import')
+  })
+})
+
+describe('sheetIntro', () => {
+  test('one video is "this video", says nothing is uploaded', () => {
+    expect(sheetIntro('1 video')).toBe(
+      "Choose which channels this video is for. Nothing is uploaded — CapForge only drafts the text you'll paste later."
+    )
+  })
+
+  test('any other import is "these videos"', () => {
+    expect(sheetIntro('3 videos')).toContain('Choose which channels these videos are for.')
+    expect(sheetIntro('2 folders + 1 video')).toContain('these videos are for')
+    expect(sheetIntro('this import')).toContain('these videos are for')
   })
 })
 
