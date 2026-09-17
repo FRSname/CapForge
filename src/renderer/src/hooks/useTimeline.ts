@@ -22,6 +22,7 @@ import {
   timeRangeToRect,
   labelFits,
   longestFittingPrefix,
+  classifyTimelinePress,
 } from '../lib/timelineMath'
 
 const RULER_H = 20
@@ -32,6 +33,7 @@ const EDGE_HIT = 6 // px tolerance for edge-drag detection
 const SNAP_THRESHOLD_PX = 8 // px within which a value snaps to a target
 const MIN_WORD_DUR = 0.04 // a word can never collapse below this (seconds)
 const CLICK_SLOP_PX = 2 // movement below this counts as a click, not a drag
+const PLAYHEAD_HIT = 6 // px either side of the playhead that grabs it for a scrub
 
 export const TIMELINE_HEIGHT = TOTAL_H
 export const TIMELINE_HEIGHT_EXPANDED = TOTAL_H + WORD_TRACK_H
@@ -421,6 +423,12 @@ export function useTimeline({
   // Whether the pointer moved beyond click-slop since mousedown — distinguishes
   // click-to-select from an actual drag so a plain click never nudges timings.
   const movedRef = useRef(false)
+  // Scrub: press-and-drag on the ruler, the playhead or empty track space seeks
+  // continuously. The drag is owned by window listeners so it survives the
+  // pointer leaving the strip; the cleanup ref lets unmount drop them.
+  const scrubRef = useRef<{ startClientX: number } | null>(null)
+  const scrubCleanupRef = useRef<(() => void) | null>(null)
+  useEffect(() => () => scrubCleanupRef.current?.(), [])
 
   function timeAtX(clientX: number): number {
     const canvas = canvasRef.current
@@ -449,6 +457,54 @@ export function useTimeline({
       if (t >= seg.start && t <= seg.end) return { segId: seg.id, edge: 'body' }
     }
     return null
+  }
+
+  /** The playhead's client X, or null while it is outside the visible window. */
+  function playheadClientX(): number | null {
+    const canvas = canvasRef.current
+    if (!canvas || !duration) return null
+    const rect = canvas.getBoundingClientRect()
+    const { zoom, scrollT } = stateRef.current
+    const visibleDur = duration / zoom
+    const t = lastTimeRef.current
+    if (t < scrollT || t > scrollT + visibleDur) return null
+    return (t - scrollT) * computePixelsPerSecond(rect.width, visibleDur) + rect.left
+  }
+
+  function nearPlayhead(clientX: number): boolean {
+    const px = playheadClientX()
+    return px != null && Math.abs(clientX - px) <= PLAYHEAD_HIT
+  }
+
+  /** Seek to the press point and keep seeking while the button is held. */
+  function startScrub(clientX: number) {
+    scrubCleanupRef.current?.()
+    scrubRef.current = { startClientX: clientX }
+    const canvas = canvasRef.current
+    if (canvas) canvas.style.cursor = 'ew-resize'
+    onSeek?.(timeAtX(clientX))
+    const move = (ev: MouseEvent) => {
+      const scrub = scrubRef.current
+      if (!scrub) return
+      if (Math.abs(ev.clientX - scrub.startClientX) > CLICK_SLOP_PX) movedRef.current = true
+      onSeek?.(timeAtX(ev.clientX))
+    }
+    const up = () => {
+      cleanup()
+      scrubRef.current = null
+      if (canvas) canvas.style.cursor = 'pointer'
+      // A press that never moved is the old click-to-seek, which also deselects.
+      if (!movedRef.current) onSelectSegment?.(null)
+      draw(lastTimeRef.current)
+    }
+    const cleanup = () => {
+      window.removeEventListener('mousemove', move)
+      window.removeEventListener('mouseup', up)
+      scrubCleanupRef.current = null
+    }
+    scrubCleanupRef.current = cleanup
+    window.addEventListener('mousemove', move)
+    window.addEventListener('mouseup', up)
   }
 
   /** True when the cursor's Y falls inside the (open) word lane. */
@@ -519,6 +575,20 @@ export function useTimeline({
       if (isInWordLane(e.clientY)) return
 
       const hit = findEdge(e.clientX)
+      const canvasTop = canvasRef.current?.getBoundingClientRect().top ?? 0
+      const press = classifyTimelinePress({
+        y: e.clientY - canvasTop,
+        rulerHeight: RULER_H,
+        clientX: e.clientX,
+        playheadClientX: playheadClientX(),
+        playheadHitPx: PLAYHEAD_HIT,
+        segmentHit: hit?.edge ?? null,
+      })
+      if (press === 'scrub') {
+        startScrub(e.clientX)
+        e.preventDefault()
+        return
+      }
       if (hit) {
         const seg = segments.find((s) => s.id === hit.segId)!
         dragRef.current = {
@@ -533,23 +603,27 @@ export function useTimeline({
       }
       // eslint-disable-next-line react-hooks/exhaustive-deps
     },
-    [segments, duration, selectedSegId, onSegmentEdgeDragStart, onWordEdgeDragStart]
+    [segments, duration, selectedSegId, onSegmentEdgeDragStart, onWordEdgeDragStart, onSeek]
   )
 
   const onMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       const canvas = canvasRef.current
+      // A scrub in flight is driven by its window listeners.
+      if (scrubRef.current) return
 
       // Phase 2: Hover feedback when not dragging — cursor shape + onHover callback.
       if (!dragRef.current && !wordDragRef.current) {
         const wordHit = findWordHit(e.clientX, e.clientY)
         const hit = wordHit || isInWordLane(e.clientY) ? null : findEdge(e.clientX)
         if (canvas) {
+          const grabsPlayhead =
+            !wordHit && hit?.edge !== 'start' && hit?.edge !== 'end' && nearPlayhead(e.clientX)
           canvas.style.cursor = wordHit
             ? wordHit.edge === 'body'
               ? 'grab'
               : 'ew-resize'
-            : hit?.edge === 'start' || hit?.edge === 'end'
+            : hit?.edge === 'start' || hit?.edge === 'end' || grabsPlayhead
               ? 'ew-resize'
               : hit?.edge === 'body'
                 ? 'grab'
@@ -697,6 +771,8 @@ export function useTimeline({
       // early for it), so without this guard it would fall into the "not
       // dragging" branch below and seek + deselect right under the context menu.
       if (e.button !== 0) return
+      // The scrub's own window mouseup ends it (and fires after this handler).
+      if (scrubRef.current) return
       const segDrag = dragRef.current
       const wasDragging = !!segDrag || !!wordDragRef.current
       dragRef.current = null

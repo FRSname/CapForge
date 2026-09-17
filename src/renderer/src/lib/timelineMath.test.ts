@@ -13,6 +13,7 @@ import {
   timeRangeToRect,
   labelFits,
   longestFittingPrefix,
+  classifyTimelinePress,
 } from './timelineMath'
 
 // ── niceStep ─────────────────────────────────────────────────────
@@ -316,5 +317,49 @@ describe('longestFittingPrefix', () => {
 
   test('is null for no words', () => {
     expect(longestFittingPrefix([], fitsUpTo(99))).toBeNull()
+  })
+})
+
+// ── classifyTimelinePress ───────────────────────────────────────
+
+describe('classifyTimelinePress', () => {
+  const base = {
+    y: 30,
+    rulerHeight: 20,
+    clientX: 100,
+    playheadClientX: 300,
+    playheadHitPx: 6,
+    segmentHit: null,
+  } as const
+
+  test('a press anywhere in the ruler scrubs, even over a segment edge', () => {
+    expect(classifyTimelinePress({ ...base, y: 5, segmentHit: 'start' })).toBe('scrub')
+    expect(classifyTimelinePress({ ...base, y: 19.9, segmentHit: 'body' })).toBe('scrub')
+  })
+
+  test('empty track space scrubs', () => {
+    expect(classifyTimelinePress(base)).toBe('scrub')
+  })
+
+  test('a segment body under the pointer starts a segment drag', () => {
+    expect(classifyTimelinePress({ ...base, segmentHit: 'body' })).toBe('segment')
+  })
+
+  test('the playhead wins over a segment body within its grab zone', () => {
+    expect(classifyTimelinePress({ ...base, clientX: 306, segmentHit: 'body' })).toBe('scrub')
+    expect(classifyTimelinePress({ ...base, clientX: 294, segmentHit: 'body' })).toBe('scrub')
+    expect(classifyTimelinePress({ ...base, clientX: 307, segmentHit: 'body' })).toBe('segment')
+  })
+
+  test('a segment edge wins over the playhead, because edges snap onto it', () => {
+    expect(classifyTimelinePress({ ...base, clientX: 300, segmentHit: 'start' })).toBe('segment')
+    expect(classifyTimelinePress({ ...base, clientX: 300, segmentHit: 'end' })).toBe('segment')
+  })
+
+  test('an off-window playhead never grabs', () => {
+    expect(classifyTimelinePress({ ...base, playheadClientX: null, segmentHit: 'body' })).toBe(
+      'segment'
+    )
+    expect(classifyTimelinePress({ ...base, playheadClientX: null })).toBe('scrub')
   })
 })
