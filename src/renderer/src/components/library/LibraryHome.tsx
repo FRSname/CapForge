@@ -41,6 +41,8 @@ import { LibraryScreen } from './LibraryScreen'
 export interface LibraryHomeProps {
   /** A card was opened — App's `session.openRecord`. */
   onOpen: (video: LibraryVideo) => void
+  /** App's `session.openingVideoId`: the record whose open is in flight. */
+  openingVideoId?: string | null
   /** Toolbar "Add video" — go to the drop screen. */
   onAddVideo: () => void
   /** One media file was dropped on the library — open it in the editor. */
@@ -49,7 +51,13 @@ export interface LibraryHomeProps {
   notify: (message: string) => void
 }
 
-export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: LibraryHomeProps) {
+export function LibraryHome({
+  onOpen,
+  openingVideoId = null,
+  onAddVideo,
+  onFileDropped,
+  notify,
+}: LibraryHomeProps) {
   const { videos, loading, refresh } = useLibraryList({ active: true, notify })
   useLibraryMigration({ refresh, notify })
   // LibraryHome renders inside ToastProvider, so the one import summary is
@@ -95,6 +103,7 @@ export function LibraryHome({ onOpen, onAddVideo, onFileDropped, notify }: Libra
         channels={channels}
         loading={loading}
         onOpen={onOpen}
+        openingVideoId={openingVideoId}
         onAddVideo={onAddVideo}
         onImport={pickAndImport}
         onImportDropped={(plan) => void actions.runImport(plan)}

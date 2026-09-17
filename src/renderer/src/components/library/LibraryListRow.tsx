@@ -19,6 +19,7 @@ import { cn } from '../../lib/cn'
 import { videoKey } from '../../lib/librarySelection'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import {
+  OPENING_LABEL,
   displayTitle,
   formatDuration,
   formatShortDate,
@@ -27,6 +28,7 @@ import {
 import type { ChannelNames } from '../../hooks/useLibraryChannels'
 import type { DragSourceProps } from '../../hooks/useLibraryDrag'
 import { usePosterUrl } from '../../hooks/usePosterUrl'
+import { Spinner } from '../ui/Spinner'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
 import { useRecordMenu } from '../../hooks/useRecordMenu'
 import { LanguageChip, RecordActionsButton, StatusRail } from './LibraryCard'
@@ -75,12 +77,14 @@ export function LibraryListRow({
   const key = videoKey(video.id)
   const selected = item.isSelected(key)
   const renaming = item.renamingVideoId === video.id
+  const opening = item.openingVideoId === video.id
 
   return (
     <tr
       {...itemAttributes(key, selected, 'row')}
       tabIndex={0}
       aria-label={renaming ? undefined : title}
+      aria-busy={opening}
       className={cn(
         'group cursor-default transition-colors hover:bg-[var(--color-surface)]',
         ROW_FOCUS_CLASS
@@ -112,8 +116,8 @@ export function LibraryListRow({
       </td>
       <td className="whitespace-nowrap py-1.5 pr-4">
         <span className="flex items-center gap-2">
-          <StatusRail video={video} />
-          <span>{statusLabel(video.status)}</span>
+          {opening ? <Spinner /> : <StatusRail video={video} />}
+          <span>{opening ? OPENING_LABEL : statusLabel(video.status)}</span>
         </span>
       </td>
       {showFolder && <FolderCell collections={collections} collectionId={video.collection_id} />}

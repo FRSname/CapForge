@@ -72,6 +72,8 @@ export interface LibraryItemsInput {
   collections: readonly CollectionSummary[]
   folderUi: FolderItemUi
   actions: LibrarySelectionActions
+  /** The video whose session is being restored right now (`useLibrarySession`). */
+  openingVideoId: string | null
 }
 
 export interface LibraryItems {
@@ -155,6 +157,7 @@ function buildItemUi(ctx: Ctx): LibraryItemUi {
     },
     renamingVideoId:
       renaming !== null && input.videos.some((v) => v.id === renaming) ? renaming : null,
+    openingVideoId: input.openingVideoId,
     onStartRename: (key) => startRename(ctx, key),
     onRenameVideo: input.actions.onRenameVideo,
     onStopRename: rename.stop,

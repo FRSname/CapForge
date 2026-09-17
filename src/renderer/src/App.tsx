@@ -462,6 +462,7 @@ export function App() {
           {screen === 'library' && (
             <LibraryHome
               onOpen={session.openRecord}
+              openingVideoId={session.openingVideoId}
               onAddVideo={() => setScreen('file')}
               onFileDropped={handleOpenFromLibrary}
               notify={setRestoreWarning}

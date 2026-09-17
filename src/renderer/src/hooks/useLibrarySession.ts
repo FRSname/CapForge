@@ -69,6 +69,12 @@ export interface LibrarySession {
   applyEchoedCommand: (cmd: AgentCommand) => Promise<string>
   /** A card was opened: restore its session, or send its file to the drop screen. */
   openRecord: (video: LibraryVideo) => Promise<void>
+  /**
+   * The record whose stored session is being fetched and installed right now,
+   * null otherwise. The library shows it as "Opening…" on that card, row or
+   * hero, and a second open is ignored while it is set.
+   */
+  openingVideoId: string | null
   /** The sidebar's export folder — lifted here so it survives a screen change. */
   outputDir: string
   setOutputDir: (dir: string) => void
@@ -78,6 +84,7 @@ export interface LibrarySession {
 
 export function useLibrarySession(input: LibrarySessionInput): LibrarySession {
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null)
+  const [openingVideoId, setOpeningVideoId] = useState<string | null>(null)
   const [outputDir, setOutputDirState] = useState('')
 
   const inputRef = useRef(input)
@@ -93,6 +100,14 @@ export function useLibrarySession(input: LibrarySessionInput): LibrarySession {
     activeVideoIdRef.current = id
     revRef.current = rev
     setActiveVideoId(id)
+  }, [])
+
+  // Read synchronously by `openRecord`, which must refuse a second open before
+  // the state from the first has rendered.
+  const openingRef = useRef<string | null>(null)
+  const setOpening = useCallback((id: string | null) => {
+    openingRef.current = id
+    setOpeningVideoId(id)
   }, [])
 
   // ── The output folder ───────────────────────────────────────────
@@ -146,6 +161,7 @@ export function useLibrarySession(input: LibrarySessionInput): LibrarySession {
         screen,
         getProject: (id) => api.getLibraryProject(id),
         restore: restoreFromProjectFile,
+        onOpening: setOpening,
       })
       // Only a completed open is published: the mirror's `activeVideoId` is what
       // the MCP tool confirms against, so it must never run ahead of the store.
@@ -153,7 +169,7 @@ export function useLibrarySession(input: LibrarySessionInput): LibrarySession {
       adoptRecord(videoId.trim(), null)
       return message
     },
-    [adoptRecord]
+    [adoptRecord, setOpening]
   )
 
   const applyEchoedCommand = useCallback(
@@ -168,7 +184,9 @@ export function useLibrarySession(input: LibrarySessionInput): LibrarySession {
 
   const openRecord = useCallback(
     async (video: LibraryVideo): Promise<void> => {
-      if (openRecordPlan(video) === 'choose-file') {
+      const plan = openRecordPlan(video, openingRef.current)
+      if (plan === 'busy') return
+      if (plan === 'choose-file') {
         inputRef.current.onChooseFile(video.sourcePath)
         return
       }
@@ -210,6 +228,7 @@ export function useLibrarySession(input: LibrarySessionInput): LibrarySession {
     clearActive,
     applyEchoedCommand,
     openRecord,
+    openingVideoId,
     outputDir,
     setOutputDir,
     writeSnapshot,

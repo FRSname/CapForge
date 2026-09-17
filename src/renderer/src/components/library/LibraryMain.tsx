@@ -79,6 +79,7 @@ export function LibraryMain(props: LibraryMainProps) {
     collections: collections ?? [],
     folderUi: props.folderUi,
     actions: props,
+    openingVideoId: props.openingVideoId ?? null,
   })
 
   return (

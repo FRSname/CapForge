@@ -20,6 +20,9 @@ import type { LibraryStatus, LibraryVideo } from './libraryTypes'
  * Electron `single-instance.js`), all pinned to
  * `backend/tests/fixtures/media_extensions.json` — change one, change all.
  */
+/** What a card, a row and the hero say while a record's session is being restored. */
+export const OPENING_LABEL = 'Opening…'
+
 export const MEDIA_EXTENSIONS = [
   'mp3',
   'wav',

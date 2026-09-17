@@ -34,6 +34,8 @@ export interface LibraryItemUi {
   onVideoDragStart: (videoId: string) => readonly string[]
   /** The video whose name is an input; null when none. */
   renamingVideoId: string | null
+  /** The video whose session is being restored ("Opening…"); null when none. */
+  openingVideoId: string | null
   /** Turn an item's name into an input (a video's here, a folder's through its menu state). */
   onStartRename: (key: ItemKey) => void
   /** Never rejects. */
@@ -50,6 +52,7 @@ export const INERT_LIBRARY_ITEM_UI: LibraryItemUi = {
   onContextMenu: () => true,
   onVideoDragStart: (videoId) => [videoId],
   renamingVideoId: null,
+  openingVideoId: null,
   onStartRename: () => {},
   onRenameVideo: () => Promise.resolve({ kind: 'renamed' }),
   onStopRename: () => {},

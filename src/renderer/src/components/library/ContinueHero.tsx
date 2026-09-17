@@ -5,7 +5,8 @@
  */
 
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { displayTitle } from '../../lib/libraryView'
+import { OPENING_LABEL, displayTitle } from '../../lib/libraryView'
+import { Spinner } from '../ui/Spinner'
 import { LanguageChip, StatusRail } from './LibraryCard'
 import { LibraryPoster } from './LibraryPoster'
 
@@ -18,16 +19,20 @@ const HERO_POSTER_SIZE = { heightPx: HERO_POSTER_HEIGHT_PX, maxWidthPx: HERO_POS
 export interface ContinueHeroProps {
   video: LibraryVideo
   onOpen: (video: LibraryVideo) => void
+  /** Its session is being restored: the label says so and the click is off. */
+  opening?: boolean
 }
 
-export function ContinueHero({ video, onOpen }: ContinueHeroProps) {
+export function ContinueHero({ video, onOpen, opening = false }: ContinueHeroProps) {
   const title = displayTitle(video)
   return (
     <button
       type="button"
       aria-label={`Continue ${title}`}
+      aria-busy={opening}
+      disabled={opening}
       title={video.sourcePath}
-      className="flex items-center gap-6 rounded-2xl p-4 text-left transition-transform duration-150 hover:-translate-y-0.5 focus-visible:-translate-y-0.5"
+      className="flex items-center gap-6 rounded-2xl p-4 text-left transition-transform duration-150 enabled:hover:-translate-y-0.5 enabled:focus-visible:-translate-y-0.5 disabled:cursor-progress"
       style={{
         background: 'linear-gradient(120deg, var(--color-surface-2) 0%, var(--color-surface) 60%)',
         border: '1px solid var(--color-border-2)',
@@ -38,10 +43,11 @@ export function ContinueHero({ video, onOpen }: ContinueHeroProps) {
       <LibraryPoster video={video} fixedHeight={HERO_POSTER_SIZE} />
       <div className="flex min-w-0 flex-col gap-2">
         <span
-          className="text-[11px] uppercase tracking-widest"
+          className="flex items-center gap-2 text-[11px] uppercase tracking-widest"
           style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-brand)' }}
         >
-          Continue
+          {opening && <Spinner />}
+          {opening ? OPENING_LABEL : 'Continue'}
         </span>
         <span
           className="truncate text-2xl"

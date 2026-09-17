@@ -22,13 +22,14 @@ import type { CollectionSummary } from '../../lib/collectionTypes'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import { videoKey } from '../../lib/librarySelection'
 import { cn } from '../../lib/cn'
-import { displayTitle, formatShortDate, statusPips } from '../../lib/libraryView'
+import { displayTitle, formatShortDate, statusPips, OPENING_LABEL } from '../../lib/libraryView'
 import type { DragSourceProps } from '../../hooks/useLibraryDrag'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
 import { useRecordMenu } from '../../hooks/useRecordMenu'
 import { LibraryCardMenu } from './LibraryCardMenu'
 import type { LibraryItemUi } from './libraryItemUi'
 import { INERT_LIBRARY_ITEM_UI, SELECTED_ITEM_STYLE, itemAttributes } from './libraryItemUi'
+import { Spinner } from '../ui/Spinner'
 import { LibraryPoster } from './LibraryPoster'
 import { VideoNameInput } from './VideoNameInput'
 
@@ -128,6 +129,7 @@ export function LibraryCard({
   const key = videoKey(video.id)
   const selected = item.isSelected(key)
   const renaming = item.renamingVideoId === video.id
+  const opening = item.openingVideoId === video.id
   const boxStyle = {
     background: 'var(--color-surface)',
     border: '1px solid var(--color-border)',
@@ -190,6 +192,7 @@ export function LibraryCard({
           style={boxStyle}
           title={video.sourcePath}
           aria-label={title}
+          aria-busy={opening}
           onClick={(e) => item.onSelectClick(key, e)}
           onDoubleClick={() => item.onOpenItem(key)}
         >
@@ -197,7 +200,9 @@ export function LibraryCard({
         </button>
       )}
 
-      {!renaming && (
+      {opening && <OpeningOverlay />}
+
+      {!renaming && !opening && (
         <RecordActionsButton
           title={title}
           className="absolute right-3 top-3 opacity-0 group-hover:opacity-100"
@@ -216,6 +221,23 @@ export function LibraryCard({
           }}
         />
       )}
+    </div>
+  )
+}
+
+/** The "Opening…" veil over a card whose session is being restored. */
+function OpeningOverlay() {
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 flex items-center justify-center gap-2 rounded-xl text-sm"
+      style={{
+        background: 'color-mix(in srgb, var(--color-bg) 72%, transparent)',
+        color: 'var(--color-text)',
+        fontFamily: 'var(--cf-font-ui)',
+      }}
+    >
+      <Spinner />
+      {OPENING_LABEL}
     </div>
   )
 }

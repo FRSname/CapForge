@@ -61,6 +61,8 @@ export interface LibraryScreenProps extends LibrarySelectionActions {
   /** Channel names for the list's "Published on"; null/absent shows the ids. */
   channels?: ChannelNames | null
   loading: boolean
+  /** The video whose session is being restored: its card, row or hero says "Opening…". */
+  openingVideoId?: string | null
   /** Toolbar: go to the drop screen. */
   onAddVideo: () => void
   /** Import… (toolbar and empty state): open the picker in this mode, import what is picked. */

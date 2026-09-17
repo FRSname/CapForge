@@ -77,7 +77,13 @@ export function LibraryContents(props: LibraryContentsProps) {
   return (
     <div className="flex flex-1 flex-col gap-8 px-8 pb-10 outline-none" {...props.containerProps}>
       {empty && <EmptyLine {...props} />}
-      {hero && <ContinueHero video={hero} onOpen={props.onOpen} />}
+      {hero && (
+        <ContinueHero
+          video={hero}
+          onOpen={props.onOpen}
+          opening={props.item.openingVideoId === hero.id}
+        />
+      )}
       {(folders.length > 0 || videos.length > 0) && (
         <div className="flex flex-col gap-3">
           {(hero || searching) && (
