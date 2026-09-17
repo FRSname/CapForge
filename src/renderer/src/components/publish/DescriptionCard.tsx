@@ -27,6 +27,7 @@ export function DescriptionCard({ publish }: DescriptionCardProps) {
       <FieldHeader
         publish={publish}
         field="description"
+        hideLabel
         meter={
           <FieldMeter used={byteLength(description)} limit={DESCRIPTION_MAX_BYTES} unit="bytes" />
         }

@@ -89,7 +89,7 @@ export function CollectionCardView({
 
   return (
     <StudioCard title="Folder" defaultOpen={current !== null}>
-      <FieldHeader publish={publish} field="collection_id" />
+      <FieldHeader publish={publish} field="collection_id" hideLabel />
       <select
         className="field-input"
         aria-label="Folder"

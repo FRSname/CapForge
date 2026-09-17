@@ -16,7 +16,7 @@ interface KeywordsCardProps {
 export function KeywordsCard({ publish }: KeywordsCardProps) {
   return (
     <StudioCard title="Keywords" defaultOpen={false}>
-      <FieldHeader publish={publish} field="keywords" />
+      <FieldHeader publish={publish} field="keywords" hideLabel />
       <input
         type="text"
         className="field-input"

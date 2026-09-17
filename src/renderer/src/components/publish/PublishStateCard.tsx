@@ -24,7 +24,7 @@ export function PublishStateCard({ publish }: PublishStateCardProps) {
 
   return (
     <StudioCard title="Publish state" defaultOpen={false}>
-      <FieldHeader publish={publish} field="publish" />
+      <FieldHeader publish={publish} field="publish" hideLabel />
 
       <div className="flex items-center gap-1.5">
         <input
