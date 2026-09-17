@@ -41,6 +41,11 @@ describe('TourScrim', () => {
     expect(html).not.toContain('var(--color-brand)')
   })
 
+  test('the scrim is a plain tint, never a backdrop blur (Windows flicker)', () => {
+    expect(renderToStaticMarkup(<TourScrim rect={SPOT} />)).not.toContain('backdrop-blur')
+    expect(renderToStaticMarkup(<TourScrim rect={null} />)).not.toContain('backdrop-blur')
+  })
+
   test('the scrim itself takes pointer events, so clicks outside are blocked', () => {
     const html = renderToStaticMarkup(<TourScrim rect={SPOT} />)
     expect(html).toContain('pointer-events:auto')
