@@ -9,6 +9,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import WaveSurfer from 'wavesurfer.js'
+import { WAVEFORM_OPTIONS } from '../lib/waveformOptions'
 
 export interface WaveSurferControls {
   playing: boolean
@@ -72,14 +73,8 @@ export function useWaveSurfer({
     setReady(false)
 
     const ws = WaveSurfer.create({
-      container:     containerRef.current,
-      waveColor:     '#30363d',
-      progressColor: '#4f8ef7',
-      cursorColor:   '#4f8ef7',
-      barWidth:      2,
-      barGap:        1,
-      barRadius:     2,
-      height:        60,
+      container: containerRef.current,
+      ...WAVEFORM_OPTIONS,
       ...(videoEl ? { media: videoEl } : { url: audioUrl }),
     })
 
