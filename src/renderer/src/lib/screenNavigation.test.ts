@@ -7,6 +7,7 @@
 import { describe, expect, test, vi } from 'vitest'
 import type { Screen } from '../types/app'
 import {
+  NEW_SESSION_SCREEN,
   goToLibrary,
   libraryButtonVisible,
   libraryFlushFailedMessage,
@@ -14,6 +15,12 @@ import {
 } from './screenNavigation'
 
 const ALL_SCREENS: Screen[] = ['library', 'file', 'progress', 'results']
+
+describe('NEW_SESSION_SCREEN', () => {
+  test('New lands on the transcribe screen, not the library', () => {
+    expect(NEW_SESSION_SCREEN).toBe('file')
+  })
+})
 
 describe('libraryButtonVisible', () => {
   test('shows on the file and results screens', () => {

@@ -9,6 +9,13 @@
 import type { Screen } from '../types/app'
 
 /**
+ * Where **New** lands. New starts a fresh transcription, so it goes to the
+ * transcribe (drop) screen, not home: from the editor the library is one
+ * click away on its own button, and a click on New means "another file".
+ */
+export const NEW_SESSION_SCREEN: Screen = 'file'
+
+/**
  * Where the button is offered. Not on the library (already there) and not on
  * `progress` — leaving mid-transcription would strand the running job.
  */
