@@ -156,7 +156,10 @@ export function LibraryCard({
             {title}
           </span>
         )}
-        <div className="flex min-w-0 items-center gap-2">
+        {/* Wraps: at the default tile size the status word, the chips and the
+            date do not all fit on one line, and a clipped date is worse than a
+            second line. The grid is `items-start`, so card heights already vary. */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
           <StatusRail video={video} />
           {/* The word the list's Status column shows, so the two views agree. */}
           <span className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
