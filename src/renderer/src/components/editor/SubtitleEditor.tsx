@@ -219,7 +219,7 @@ export function SubtitleEditor({
           {lowerQuery && (
             <span
               className="absolute right-2 top-1/2 -translate-y-1/2 text-2xs tabular-nums pointer-events-none"
-              style={{ color: 'var(--color-text-subtle)' }}
+              style={{ color: 'var(--color-text-3)' }}
             >
               {matchCount}/{segments.length}
             </span>
@@ -228,12 +228,12 @@ export function SubtitleEditor({
         {onAddSegment && (
           <button
             className="shrink-0 text-xs px-2.5 py-1 rounded transition-colors border border-[var(--color-border)] hover:bg-white/[0.04]"
-            style={{ color: 'var(--color-text-muted)' }}
+            style={{ color: 'var(--color-text-2)' }}
             onMouseEnter={(e) => {
               e.currentTarget.style.color = 'var(--color-text)'
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.color = 'var(--color-text-muted)'
+              e.currentTarget.style.color = 'var(--color-text-2)'
             }}
             onClick={handleAddClick}
             title="Insert a new subtitle at the current playback time"
@@ -412,12 +412,12 @@ function SegmentRow({
       <div className="flex items-start gap-2 flex-wrap">
         <button
           className="shrink-0 text-xs tabular-nums transition-colors mt-0.5"
-          style={{ color: 'var(--color-text-muted)' }}
+          style={{ color: 'var(--color-text-2)' }}
           onMouseEnter={(e) => {
             e.currentTarget.style.color = 'var(--color-accent)'
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.color = 'var(--color-text-muted)'
+            e.currentTarget.style.color = 'var(--color-text-2)'
           }}
           onClick={() => onSeek(seg.start)}
         >
@@ -470,7 +470,7 @@ function SegmentRow({
                             : 'bg-[var(--color-surface)] border border-[var(--color-border)] hover:border-[var(--color-accent)]/40',
                         ].join(' ')}
                         style={{
-                          color: isEditingThis ? 'var(--color-accent)' : 'var(--color-text-muted)',
+                          color: isEditingThis ? 'var(--color-accent)' : 'var(--color-text-2)',
                         }}
                         onClick={() =>
                           onWordTimingEditToggle(isEditingThis ? null : { segIdx, wordIdx: wi })
@@ -543,7 +543,7 @@ function SegmentRow({
                 </span>
               ))
             ) : (
-              <span style={{ color: 'var(--color-text-muted)' }}>{seg.text}</span>
+              <span style={{ color: 'var(--color-text-2)' }}>{seg.text}</span>
             )}
           </div>
         )}
@@ -552,12 +552,12 @@ function SegmentRow({
         {!isEditing && (
           <button
             className="shrink-0 opacity-0 group-hover:opacity-50 hover:!opacity-100 transition-opacity mt-0.5 p-0.5 rounded"
-            style={{ color: 'var(--color-text-muted)' }}
+            style={{ color: 'var(--color-text-2)' }}
             onMouseEnter={(e) => {
               e.currentTarget.style.color = 'var(--color-accent)'
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.color = 'var(--color-text-muted)'
+              e.currentTarget.style.color = 'var(--color-text-2)'
             }}
             onClick={onStartEdit}
             title="Edit this subtitle"
@@ -597,12 +597,12 @@ function SegmentRow({
             {!isFirst && (
               <button
                 className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/[0.06] transition-colors"
-                style={{ color: 'var(--color-text-muted)' }}
+                style={{ color: 'var(--color-text-2)' }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = 'var(--color-text)'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'var(--color-text-muted)'
+                  e.currentTarget.style.color = 'var(--color-text-2)'
                 }}
                 onClick={() => onMerge?.(segIdx, 'prev')}
                 title="Merge with segment above"
@@ -613,12 +613,12 @@ function SegmentRow({
             {!isLast && (
               <button
                 className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/[0.06] transition-colors"
-                style={{ color: 'var(--color-text-muted)' }}
+                style={{ color: 'var(--color-text-2)' }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = 'var(--color-text)'
                 }}
                 onMouseLeave={(e) => {
-                  e.currentTarget.style.color = 'var(--color-text-muted)'
+                  e.currentTarget.style.color = 'var(--color-text-2)'
                 }}
                 onClick={() => onMerge?.(segIdx, 'next')}
                 title="Merge with segment below"
@@ -648,12 +648,12 @@ function PlayheadButton({ title, onClick }: { title: string; onClick: () => void
     <button
       type="button"
       className="shrink-0 p-0.5 rounded hover:bg-white/[0.06] transition-colors"
-      style={{ color: 'var(--color-text-subtle)' }}
+      style={{ color: 'var(--color-text-3)' }}
       onMouseEnter={(e) => {
         e.currentTarget.style.color = 'var(--color-accent)'
       }}
       onMouseLeave={(e) => {
-        e.currentTarget.style.color = 'var(--color-text-subtle)'
+        e.currentTarget.style.color = 'var(--color-text-3)'
       }}
       onClick={onClick}
       title={title}
@@ -702,7 +702,7 @@ function TimingField({
     <div className="flex items-center gap-1.5">
       <label
         className="text-2xs uppercase tracking-wider"
-        style={{ color: 'var(--color-text-subtle)' }}
+        style={{ color: 'var(--color-text-3)' }}
       >
         {label}
       </label>

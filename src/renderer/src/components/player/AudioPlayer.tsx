@@ -503,7 +503,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
             </svg>
           )}
         </button>
-        <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-muted)' }}>
+        <span className="text-xs tabular-nums" style={{ color: 'var(--color-text-2)' }}>
           {formatTime(currentTime)} / {formatTime(duration)}
         </span>
         <VolumeControl volume={volume} onVolumeChange={setVolume} />
