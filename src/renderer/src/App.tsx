@@ -25,7 +25,6 @@ import { ShortcutOverlay } from './components/ShortcutOverlay'
 import { StartupPrompts } from './components/onboarding/StartupPrompts'
 import type { StudioSettings } from './components/studio/StudioPanel'
 import { PublishAside } from './components/publish/PublishAside'
-import { WorkspaceToggle } from './components/publish/WorkspaceToggle'
 import { AgentLiveSync } from './components/AgentLiveSync'
 import { ToastProvider } from './hooks/useToast'
 import { ToastRelay } from './components/ui/ToastRelay'
@@ -250,7 +249,9 @@ export function App() {
   // Approximate word timings are a property of the transcript, so the flag has
   // to live with the project metadata and survive a save.
   const markAlignmentDegraded = useCallback(() => {
-    setResult((prev) => (!prev || prev.alignmentDegraded ? prev : { ...prev, alignmentDegraded: true }))
+    setResult((prev) =>
+      !prev || prev.alignmentDegraded ? prev : { ...prev, alignmentDegraded: true }
+    )
   }, [])
 
   // ── Agent live-sync ─────────────────────────────────────────────
@@ -392,7 +393,11 @@ export function App() {
   // Snapshot the live session ~2s after any edit; the writer stores it in the
   // active library record and only falls back to `autosave.json` when that
   // fails (docs/plans/library-home-screen.md §9.1).
-  const autosave = useAutosave(projectFile, [screen, tracks, activeTrackId, result], session.writeSnapshot)
+  const autosave = useAutosave(
+    projectFile,
+    [screen, tracks, activeTrackId, result],
+    session.writeSnapshot
+  )
 
   // New (ends the session) and Library (flushes, then goes home keeping it).
   const nav = useScreenNavigation({
@@ -490,27 +495,16 @@ export function App() {
             <div className="screen-in flex-1 flex flex-col min-h-0 min-w-0 overflow-hidden">
               {/* The tab strip lives HERE, above the editor and outside it:
                   ResultsScreen is remounted on every tab switch, so a strip
-                  inside it would unmount itself mid-click. */}
-              {/* The workspace toggle rides the same row; both children draw
-                  the strip's bottom border so it runs the full width. */}
-              <div className="flex items-stretch shrink-0">
-                <div className="flex-1 min-w-0">
-                  <TrackTabs
-                    tracks={trackActions.tabs}
-                    activeTrackId={activeTrackId}
-                    onSelect={setActiveTrackId}
-                    onAdd={trackActions.addTrack}
-                    onClose={trackActions.closeTrack}
-                  />
-                </div>
-                <div className="flex items-center border-b border-[var(--color-border)] pl-2 pr-2.5">
-                  <WorkspaceToggle
-                    workspace={publishWorkspace.workspace}
-                    onChange={publishWorkspace.setWorkspace}
-                    publishEnabled={publishWorkspace.publishEnabled}
-                  />
-                </div>
-              </div>
+                  inside it would unmount itself mid-click. The workspace
+                  toggle used to ride this row; it now heads the aside it
+                  switches (docs/plans/ux-ui-refresh.md §4). */}
+              <TrackTabs
+                tracks={trackActions.tabs}
+                activeTrackId={activeTrackId}
+                onSelect={setActiveTrackId}
+                onAdd={trackActions.addTrack}
+                onClose={trackActions.closeTrack}
+              />
               <div className="flex-1 flex min-h-0 min-w-0 overflow-hidden">
                 {/* Keyed by session + track + that track's revision: switching tab
                     (or a write that landed underneath the editor) remounts it with

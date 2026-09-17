@@ -13,6 +13,7 @@
  * chapter legality, house style) is the backend's answer rendered under a field.
  */
 
+import type { ReactNode } from 'react'
 import type { CaptionTrack } from '../../lib/tracks'
 import type { Segment, Workspace } from '../../types/app'
 import type { PublishController } from '../../hooks/usePublishRecord'
@@ -30,6 +31,11 @@ import { PublishToChecklist } from './PublishToChecklist'
 import { PublishVideoSection } from './PublishVideoSection'
 
 interface PublishPanelBaseProps {
+  /**
+   * What heads the panel. Defaults to its own "Publish" label; the aside hands
+   * it the workspace toggle instead (docs/plans/ux-ui-refresh.md §4).
+   */
+  title?: ReactNode
   publish: PublishController
   /** The source transcript — speaker rows, snapping, the plain-transcript copy. */
   segments: readonly Segment[]
@@ -84,7 +90,7 @@ export function PublishPanelView(props: PublishPanelViewProps) {
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 shrink-0 border-b border-[var(--color-border)]">
-        <span className="label-xs">Publish</span>
+        {props.title ?? <span className="label-xs">Publish</span>}
         <span className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
           {publish.saving ? 'Saving…' : publish.dirty ? 'Unsaved' : 'Saved'}
         </span>
