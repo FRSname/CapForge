@@ -14,8 +14,9 @@ import { WATCH_FOLDER_HELP, watchFolderView } from '../../lib/libraryImport'
 import type { OnboardingKind } from '../../lib/onboardingRequests'
 import { requestOnboarding } from '../../lib/onboardingRequests'
 import type { WatchStatus } from '../../lib/libraryTypes'
+import type { ThemeMode } from '../../lib/themeMode'
 import { Button } from '../ui/Button'
-import { Toggle } from '../ui/Toggle'
+import { SegmentedControl } from '../ui/SegmentedControl'
 
 /**
  * The default library location. The real path is `capforge_home()/library`,
@@ -28,12 +29,19 @@ const LIBRARY_FOLDER_LABEL = '~/.capforge/library'
 /** Stands in for the version until the main process answers. */
 const UNKNOWN_VERSION = '…'
 
+/** The Appearance control's segments, in `THEME_MODES` order. */
+const THEME_OPTIONS: ReadonlyArray<{ value: ThemeMode; label: string }> = [
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+  { value: 'system', label: 'System' },
+]
+
 interface GeneralSettingsProps {
-  lightMode: boolean
-  onLightModeChange: (light: boolean) => void
+  mode: ThemeMode
+  onModeChange: (mode: ThemeMode) => void
 }
 
-export function GeneralSettings({ lightMode, onLightModeChange }: GeneralSettingsProps) {
+export function GeneralSettings({ mode, onModeChange }: GeneralSettingsProps) {
   const { toast } = useToast()
   const watch = useLibraryWatch({ notify: (message) => toast(message, 'error') })
   const version = useAppVersion()
@@ -48,11 +56,15 @@ export function GeneralSettings({ lightMode, onLightModeChange }: GeneralSetting
       {/* Theme */}
       <div className="flex flex-col gap-2">
         <label className="label-xs">Appearance</label>
-        <Toggle
-          checked={lightMode}
-          onChange={onLightModeChange}
-          label={lightMode ? 'Light Mode' : 'Dark Mode'}
+        <SegmentedControl
+          options={THEME_OPTIONS}
+          value={mode}
+          onChange={onModeChange}
+          ariaLabel="Appearance"
         />
+        <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
+          System follows your OS setting.
+        </p>
       </div>
 
       {/* Library */}

@@ -227,7 +227,7 @@ export function SubtitleEditor({
         </div>
         {onAddSegment && (
           <button
-            className="shrink-0 text-xs px-2.5 py-1 rounded transition-colors border border-[var(--color-border)] hover:bg-white/[0.04]"
+            className="shrink-0 text-xs px-2.5 py-1 rounded transition-colors border border-[var(--color-border)] hover:bg-[var(--color-hover)]"
             style={{ color: 'var(--color-text-2)' }}
             onMouseEnter={(e) => {
               e.currentTarget.style.color = 'var(--color-text)'
@@ -533,7 +533,7 @@ function SegmentRow({
                   className={[
                     'cursor-pointer rounded px-0.5 transition-colors',
                     wi === activeWordIdx ? 'bg-[var(--color-accent)]/20 font-medium' : '',
-                    'hover:bg-white/[0.06]',
+                    'hover:bg-[var(--color-hover)]',
                   ].join(' ')}
                   style={wi === activeWordIdx ? { color: 'var(--color-accent)' } : undefined}
                   onClick={() => onSeek(w.start)}
@@ -596,7 +596,7 @@ function SegmentRow({
             )}
             {!isFirst && (
               <button
-                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/[0.06] transition-colors"
+                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-hover)] transition-colors"
                 style={{ color: 'var(--color-text-2)' }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = 'var(--color-text)'
@@ -612,7 +612,7 @@ function SegmentRow({
             )}
             {!isLast && (
               <button
-                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-white/[0.06] transition-colors"
+                className="text-xs px-2 py-0.5 rounded border border-[var(--color-border)] hover:bg-[var(--color-hover)] transition-colors"
                 style={{ color: 'var(--color-text-2)' }}
                 onMouseEnter={(e) => {
                   e.currentTarget.style.color = 'var(--color-text)'
@@ -647,7 +647,7 @@ function PlayheadButton({ title, onClick }: { title: string; onClick: () => void
   return (
     <button
       type="button"
-      className="shrink-0 p-0.5 rounded hover:bg-white/[0.06] transition-colors"
+      className="shrink-0 p-0.5 rounded hover:bg-[var(--color-hover)] transition-colors"
       style={{ color: 'var(--color-text-3)' }}
       onMouseEnter={(e) => {
         e.currentTarget.style.color = 'var(--color-accent)'
@@ -700,10 +700,7 @@ function TimingField({
 
   return (
     <div className="flex items-center gap-1.5">
-      <label
-        className="text-2xs uppercase tracking-wider"
-        style={{ color: 'var(--color-text-3)' }}
-      >
+      <label className="text-2xs uppercase tracking-wider" style={{ color: 'var(--color-text-3)' }}>
         {label}
       </label>
       <input

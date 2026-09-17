@@ -47,7 +47,7 @@ export const APP_SETTINGS_ENTRIES: ReadonlyArray<AppSettingsEntry> = [
   {
     category: 'general',
     label: 'Appearance',
-    keywords: ['theme', 'dark', 'light', 'mode', 'colour', 'color'],
+    keywords: ['theme', 'dark', 'light', 'system', 'mode', 'colour', 'color'],
   },
   {
     category: 'general',

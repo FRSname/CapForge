@@ -14,7 +14,7 @@ import type { CSSProperties } from 'react'
 import type { Rect } from '../../lib/tourPlacement'
 
 /** The scrim's own class, shared by the full-screen and the four-piece cases. */
-const PIECE_CLASS = 'fixed bg-black/40 backdrop-blur-sm'
+const PIECE_CLASS = 'fixed bg-[var(--color-scrim)] backdrop-blur-sm'
 
 /** Thickness of the ring around the spotlight, in pixels. */
 const RING_WIDTH_PX = 2

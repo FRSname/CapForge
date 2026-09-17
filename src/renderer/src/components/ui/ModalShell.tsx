@@ -53,7 +53,7 @@ export function ModalShell({
 
   return (
     <div
-      className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-[var(--color-scrim)] backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label={label}

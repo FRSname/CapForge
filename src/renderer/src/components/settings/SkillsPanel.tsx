@@ -18,6 +18,7 @@
 import { useEffect, useState } from 'react'
 import type { SkillDetail, SkillSummary } from '../../../../preload/index'
 import { useToast } from '../../hooks/useToast'
+import { useConfirm } from '../../hooks/useConfirm'
 import { SkillEditor, SkillStatusChip } from './SkillEditor'
 
 interface SkillsPanelProps {
@@ -27,6 +28,7 @@ interface SkillsPanelProps {
 
 export function SkillsPanel({ open }: SkillsPanelProps) {
   const { toast } = useToast()
+  const confirm = useConfirm()
   const [skills, setSkills] = useState<SkillSummary[]>([])
   const [listed, setListed] = useState(false)
   const [detail, setDetail] = useState<SkillDetail | null>(null)
@@ -98,7 +100,15 @@ export function SkillsPanel({ open }: SkillsPanelProps) {
   async function handleSelect(name: string) {
     if (detail?.name === name) return
     // Switching away from an edited draft would drop it silently.
-    if (dirty && !window.confirm('Discard unsaved changes to this skill?')) return
+    if (dirty) {
+      const confirmed = await confirm({
+        title: 'Discard unsaved changes?',
+        body: 'Your edits to this skill are lost.',
+        confirmLabel: 'Discard',
+        danger: true,
+      })
+      if (!confirmed) return
+    }
     const api = requireApi()
     if (!api) return
     const next = await withBusy('Opening the skill', () => api.read(name))
@@ -121,7 +131,13 @@ export function SkillsPanel({ open }: SkillsPanelProps) {
   async function takeBundled() {
     const api = requireApi()
     if (!api || !detail) return
-    if (!window.confirm('Replace your copy with the bundled version? Your edits are lost.')) return
+    const confirmed = await confirm({
+      title: 'Replace your copy?',
+      body: 'The bundled version replaces your edits. This cannot be undone.',
+      confirmLabel: 'Replace',
+      danger: true,
+    })
+    if (!confirmed) return
     const next = await withBusy('Resetting', () => api.reset(detail.name))
     if (!next) return
     setShowBundled(false)

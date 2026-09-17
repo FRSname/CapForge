@@ -23,6 +23,7 @@ import { applyTrackCommand } from '../lib/trackCommands'
 import { languageLabel, languageScript } from '../lib/languages'
 import { loadAllFonts, type FontInfo } from '../lib/fonts'
 import type { TrackTabInfo } from '../components/tracks/TrackTabs'
+import { useConfirm } from './useConfirm'
 
 export interface TrackNotice {
   message: string
@@ -76,7 +77,8 @@ export interface TrackActions {
   notice: TrackNotice | null
   clearNotice: () => void
   addTrack: (lang: string) => void
-  closeTrack: (id: string) => void
+  /** Asks first (an in-app confirm), so this resolves after the answer. */
+  closeTrack: (id: string) => Promise<void>
   reflowActiveTrack: () => void
 }
 
@@ -93,6 +95,7 @@ export function useTrackActions({
   commitTracks,
   bumpRevision,
 }: UseTrackActionsArgs): TrackActions {
+  const confirm = useConfirm()
   const [notice, setNotice] = useState<TrackNotice | null>(null)
   const clearNotice = useCallback(() => setNotice(null), [])
 
@@ -152,25 +155,28 @@ export function useTrackActions({
   )
 
   const closeTrack = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const index = tracks.findIndex((t) => t.id === id)
       const track = tracks[index]
       // The source is the transcript itself; there is no such thing as closing it.
       if (!track || track.isSource) return
       const c = classifications[index]
-      const confirmed = window.confirm(
-        `Close “${track.label}”?\n\n` +
+      const confirmed = await confirm({
+        title: `Close “${track.label}”?`,
+        body:
           `${track.groups.length} captions — ${c?.untranslatedCount ?? 0} still untranslated, ` +
           `${c?.staleCount ?? 0} stale.\n\n` +
-          'Its text is removed from this project. This cannot be undone.'
-      )
+          'Its text is removed from this project. This cannot be undone.',
+        confirmLabel: 'Close track',
+        danger: true,
+      })
       if (!confirmed) return
       commitTracks(
         tracks.filter((t) => t.id !== id),
         sourceTrack.id
       )
     },
-    [tracks, classifications, sourceTrack.id, commitTracks]
+    [tracks, classifications, sourceTrack.id, commitTracks, confirm]
   )
 
   const reflowActiveTrack = useCallback(() => {

@@ -10,6 +10,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { loadAllFonts, registerFontFromBuffer, type FontInfo } from '../../lib/fonts'
 import { FontCombobox } from './FontCombobox'
 import { useFavoriteFonts } from '../../hooks/useFavoriteFonts'
+import { useConfirm } from '../../hooks/useConfirm'
 
 interface FontPickerProps {
   value: string
@@ -18,6 +19,7 @@ interface FontPickerProps {
 
 export function FontPicker({ value, onChange }: FontPickerProps) {
   const { favorites, toggle: toggleFavorite } = useFavoriteFonts()
+  const confirm = useConfirm()
   const [fonts, setFonts] = useState<FontInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -75,7 +77,13 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
     e.preventDefault()
     e.stopPropagation()
     if (!window.subforge?.deleteFont || !font.path) return
-    if (!window.confirm(`Delete font "${font.name}"?`)) return
+    const confirmed = await confirm({
+      title: 'Delete this font?',
+      body: `"${font.name}" is removed from CapForge. Captions that use it fall back to the default font.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!confirmed) return
     setBusy(true)
     try {
       const ok = await window.subforge.deleteFont(font.path)
