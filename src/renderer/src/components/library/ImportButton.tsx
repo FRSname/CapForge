@@ -1,6 +1,6 @@
 /**
- * The library's one "Import…" action — the toolbar and the empty state both
- * mount it.
+ * The library's one "Add to library…" action (the import picker) — the toolbar
+ * and the empty state both mount it.
  *
  * On macOS a single native dialog picks media files, folders and `.capforge`
  * projects together (`pickImport('any')`). Electron cannot combine files and
@@ -16,8 +16,8 @@ import { isMacPlatform } from '../../lib/platform'
 import { Button } from '../ui/Button'
 import { MenuItem } from './LibraryMenuParts'
 
-const IMPORT_LABEL = 'Import…'
-const IMPORT_TITLE = 'Import videos, audio, folders of recordings or CapForge projects'
+const IMPORT_LABEL = 'Add to library…'
+const IMPORT_TITLE = 'Add videos, audio, folders of recordings or CapForge projects to the library'
 
 const MENU_ALIGN = {
   end: 'right-0',

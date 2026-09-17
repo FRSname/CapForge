@@ -4,7 +4,7 @@
  *
  * What matters: the status a record is at is legible from the card (the rail is
  * cumulative), a record whose media is gone says so, the newest resumable
- * record is promoted out of the grid exactly once, Import… and Add video are
+ * record is promoted out of the grid exactly once, Add to library… and Transcribe… are
  * always reachable, and a portrait poster is not forced into a 16:9 box.
  * Locations, the sidebar and folders: `LibraryScreen.folders.test.tsx`.
  */
@@ -70,13 +70,13 @@ describe('LibraryScreen', () => {
     expect(html).not.toContain('All videos')
   })
 
-  test('the toolbar always offers Add video and Import…', () => {
+  test('the toolbar always offers Transcribe… and Add to library…', () => {
     // Arrange / Act
     const html = render({ videos: [video()] })
 
     // Assert
-    expect(html).toContain('Add video')
-    expect(html).toContain('>Import…<')
+    expect(html).toContain('>Transcribe…<')
+    expect(html).toContain('>Add to library…<')
   })
 
   test('the two old import buttons are gone', () => {
@@ -166,12 +166,14 @@ describe('LibraryScreen', () => {
     expect(html).not.toContain('NaN')
   })
 
-  test('Import… is reachable with and without records', () => {
-    expect(render({ videos: [video()] }).split('>Import…<').length - 1).toBe(1)
+  test('Add to library… is reachable with and without records', () => {
+    expect(render({ videos: [video()] }).split('>Add to library…<').length - 1).toBe(1)
     // An empty library offers it in the toolbar and again in the empty state.
     const empty = render()
-    expect(empty.split('>Import…<').length - 1).toBe(2)
-    expect(empty.lastIndexOf('>Import…<')).toBeGreaterThan(empty.indexOf('Your library is empty'))
+    expect(empty.split('>Add to library…<').length - 1).toBe(2)
+    expect(empty.lastIndexOf('>Add to library…<')).toBeGreaterThan(
+      empty.indexOf('Your library is empty')
+    )
   })
 
   test('the loading count replaces the total while the list is in flight', () => {
@@ -187,7 +189,7 @@ describe('LibraryScreen toolbar layout', () => {
   const html = render({ videos: [video()] })
 
   test('the toolbar buttons never wrap their labels', () => {
-    for (const label of ['Import…', 'Add video']) {
+    for (const label of ['Add to library…', 'Transcribe…']) {
       const button = html.slice(
         html.lastIndexOf('<button', html.indexOf(label)),
         html.indexOf(label)

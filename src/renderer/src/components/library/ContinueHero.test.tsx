@@ -7,6 +7,7 @@
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { LibraryVideo } from '../../lib/libraryTypes'
+import { formatShortDate } from '../../lib/libraryView'
 import { ContinueHero } from './ContinueHero'
 
 const video: LibraryVideo = {
@@ -38,6 +39,12 @@ describe('ContinueHero', () => {
     expect(html).toContain('aria-busy="false"')
     expect(html).not.toContain('disabled=""')
     expect(html).not.toContain('Opening…')
+  })
+
+  test('says what the next step is, and when the record was edited', () => {
+    const html = hero()
+    expect(html).toContain('Captions done · write the description')
+    expect(html).toContain(formatShortDate(video.updatedAt))
   })
 
   test('says Opening… and goes inert while the session is restored', () => {

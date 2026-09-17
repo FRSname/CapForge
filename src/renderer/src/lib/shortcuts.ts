@@ -36,7 +36,7 @@ export const SHORTCUT_SECTIONS: ShortcutSection[] = [
     title: 'Global',
     items: [
       { keys: ['⌘S'], description: 'Save project' },
-      { keys: ['⌘O'], description: 'Import… (library)' },
+      { keys: ['⌘O'], description: 'Add to library… (library)' },
       { keys: ['⌘Z', '⌘⇧Z'], description: 'Undo / Redo' },
       { keys: ['?'], description: 'Keyboard shortcuts' },
       { keys: ['⌘,'], description: 'Open settings' },

@@ -1,6 +1,6 @@
 /**
  * The library sidebar as static markup: tree roles, the three kinds of entry
- * (All videos, Library, folders), counts, the orphan glyph, which folders are
+ * (All videos, Unfiled, folders), counts, the orphan glyph, which folders are
  * expanded, the selected location, and "+ New folder".
  */
 
@@ -70,17 +70,18 @@ describe('LibrarySidebar', () => {
     expect(html).toContain('>Folders</p>')
   })
 
-  test('All videos counts every video, Library the unfiled ones, a folder its total', () => {
+  test('All videos counts every video, Unfiled the ones in no folder, a folder its total', () => {
     const html = render()
     expect(countOf(html, 'All videos')).toBe('4')
-    expect(countOf(html, 'Library')).toBe('2')
+    expect(countOf(html, 'Unfiled')).toBe('2')
+    expect(item(html, 'Unfiled')).toContain('title="Videos in no folder"')
     expect(countOf(html, 'Events')).toBe('12')
     expect(countOf(html, 'old-event')).toBe('1')
   })
 
-  test('folders are indented under Library by level, collapsed until expanded', () => {
+  test('folders are indented under Unfiled by level, collapsed until expanded', () => {
     const collapsed = render()
-    expect(item(collapsed, 'Library')).toContain('aria-level="1"')
+    expect(item(collapsed, 'Unfiled')).toContain('aria-level="1"')
     expect(item(collapsed, 'Events')).toContain('aria-level="2"')
     expect(item(collapsed, 'Events')).toContain('aria-expanded="false"')
     expect(collapsed).toContain('aria-label="Expand Events"')
@@ -100,10 +101,10 @@ describe('LibrarySidebar', () => {
 
   test('the location on show is selected, and revealed when nested', () => {
     expect(item(render(ALL_VIDEOS_LOCATION), 'All videos')).toContain('aria-selected="true"')
-    expect(item(render(), 'Library')).toContain('aria-selected="true"')
+    expect(item(render(), 'Unfiled')).toContain('aria-selected="true"')
     const nested = render(folderLocation('uck26'))
     expect(item(nested, 'UCK26')).toContain('aria-selected="true"')
-    expect(item(nested, 'Library')).toContain('aria-selected="false"')
+    expect(item(nested, 'Unfiled')).toContain('aria-selected="false"')
   })
 
   test('every entry is focusable', () => {

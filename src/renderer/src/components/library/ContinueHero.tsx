@@ -2,10 +2,13 @@
  * The one record promoted out of the library grid: the session you were last
  * in. Its poster has a fixed height and takes its width from the video's
  * ratio, held to a maximum so a wide video does not push the title out.
+ *
+ * Under the status rail it says what the next step is (`nextStepLabel`, the
+ * library's one wording for the ladder) and when the record was last edited.
  */
 
 import type { LibraryVideo } from '../../lib/libraryTypes'
-import { OPENING_LABEL, displayTitle } from '../../lib/libraryView'
+import { OPENING_LABEL, displayTitle, formatShortDate, nextStepLabel } from '../../lib/libraryView'
 import { Spinner } from '../ui/Spinner'
 import { LanguageChip, StatusRail } from './LibraryCard'
 import { LibraryPoster } from './LibraryPoster'
@@ -25,6 +28,12 @@ export interface ContinueHeroProps {
 
 export function ContinueHero({ video, onOpen, opening = false }: ContinueHeroProps) {
   const title = displayTitle(video)
+  const edited = video.updatedAt ? formatShortDate(video.updatedAt) : ''
+  // An unknown status and an unreadable date both drop out rather than leaving
+  // a stray separator behind.
+  const nextStep = [nextStepLabel(video.status), edited && `Edited ${edited}`]
+    .filter(Boolean)
+    .join(' · ')
   return (
     <button
       type="button"
@@ -56,6 +65,11 @@ export function ContinueHero({ video, onOpen, opening = false }: ContinueHeroPro
           <StatusRail video={video} />
           <LanguageChip lang={video.language} />
         </div>
+        {nextStep && (
+          <span className="text-xs" style={{ color: 'var(--color-text-2)' }}>
+            {nextStep}
+          </span>
+        )}
       </div>
     </button>
   )

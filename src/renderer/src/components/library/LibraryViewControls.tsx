@@ -1,7 +1,8 @@
 /**
  * The library toolbar's view controls (docs/plans/library-finder.md §3.2):
  * search, the sort menu and its direction, grid/list, and the icon-size slider
- * (grid only).
+ * (grid only, and only in a window wide enough for it — the small and large
+ * squares at its ends say which way it runs).
  *
  * Rendered as a fragment so each control is its own item in the toolbar's
  * wrapping row. Widths are set **inline**, for the reason `LibraryToolbar`'s
@@ -29,6 +30,12 @@ const SORT_MIN_WIDTH = '8rem'
 const SLIDER_WIDTH = '5.5rem'
 /** One pixel per step: the slider is a continuous size. */
 const TILE_STEP_PX = 1
+/** The squares at each end of the icon-size slider, in pixels. */
+const SMALL_GLYPH_PX = 8
+const LARGE_GLYPH_PX = 12
+/** Half a stroke in from the box, so the 1px outline is not clipped. */
+const GLYPH_INSET_PX = 0.5
+const GLYPH_RADIUS_PX = 1.5
 
 const LAYOUT_OPTIONS: ReadonlyArray<{ value: LibraryLayout; label: React.ReactNode }> = [
   { value: 'grid', label: <span className="whitespace-nowrap px-2.5">Grid</span> },
@@ -106,26 +113,53 @@ export function LibraryViewControls({
         className="shrink-0"
       />
       {view.layout === 'grid' && (
-        <input
-          type="range"
-          className="shrink-0"
-          aria-label="Icon size"
-          title="Icon size"
-          style={
-            {
-              width: SLIDER_WIDTH,
-              '--fill': rangeFill(view.tileSize, LIBRARY_TILE_MIN_PX, LIBRARY_TILE_MAX_PX),
-            } as CSSProperties
-          }
-          min={LIBRARY_TILE_MIN_PX}
-          max={LIBRARY_TILE_MAX_PX}
-          step={TILE_STEP_PX}
-          value={view.tileSize}
-          onChange={(e) =>
-            onViewChange({ ...view, tileSize: clampTileSize(Number(e.target.value)) })
-          }
-        />
+        <span className="hidden shrink-0 items-center gap-1 min-[900px]:flex">
+          <SizeGlyph size={SMALL_GLYPH_PX} />
+          <input
+            type="range"
+            className="shrink-0"
+            aria-label="Icon size"
+            title="Icon size"
+            style={
+              {
+                width: SLIDER_WIDTH,
+                '--fill': rangeFill(view.tileSize, LIBRARY_TILE_MIN_PX, LIBRARY_TILE_MAX_PX),
+              } as CSSProperties
+            }
+            min={LIBRARY_TILE_MIN_PX}
+            max={LIBRARY_TILE_MAX_PX}
+            step={TILE_STEP_PX}
+            value={view.tileSize}
+            onChange={(e) =>
+              onViewChange({ ...view, tileSize: clampTileSize(Number(e.target.value)) })
+            }
+          />
+          <SizeGlyph size={LARGE_GLYPH_PX} />
+        </span>
       )}
     </>
+  )
+}
+
+/** One end of the icon-size slider: a square, decorative — the input is labelled. */
+function SizeGlyph({ size }: { size: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className="shrink-0"
+      width={size}
+      height={size}
+      viewBox={`0 0 ${size} ${size}`}
+      fill="none"
+    >
+      <rect
+        x={GLYPH_INSET_PX}
+        y={GLYPH_INSET_PX}
+        width={size - GLYPH_INSET_PX * 2}
+        height={size - GLYPH_INSET_PX * 2}
+        rx={GLYPH_RADIUS_PX}
+        stroke="var(--color-text-3)"
+      />
+    </svg>
   )
 }

@@ -10,8 +10,8 @@
  * zone is keyed: a remount per drop clears the highlight it never got to clear
  * itself.
  *
- * A creator's recordings live in folders, so the toolbar's Import… (files,
- * folders and projects) is offered right here too. So is "New folder…", when
+ * A creator's recordings live in folders, so the toolbar's Add to library…
+ * (the import picker: files, folders and projects) is offered right here too. So is "New folder…", when
  * the library has no folders yet (otherwise the sidebar shows, and offers it).
  */
 
@@ -26,7 +26,7 @@ export interface LibraryEmptyStateProps {
   onFileSelected: (path: string) => void
   /** The file is chosen — go transcribe it. */
   onStart: () => void
-  /** Import… — the same action as the toolbar's. */
+  /** Add to library… — the same action as the toolbar's. */
   onImport: (mode: ImportPickMode) => void
   /** Offers "New folder…" when given. The create itself confirms with a toast. */
   onCreateCollection?: (name: string) => Promise<CreateCollectionResult>

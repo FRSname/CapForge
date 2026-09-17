@@ -18,7 +18,7 @@ import type { LibraryVideo } from './libraryTypes'
 
 export interface SidebarRow {
   entry: FolderEntry
-  /** 1 for a top-level folder (under "Library"). */
+  /** 1 for a top-level folder (under the "Unfiled" row). */
   depth: number
   hasChildren: boolean
   expanded: boolean
@@ -75,7 +75,7 @@ export function expandedWith(expanded: readonly string[], id: string): string[] 
   return expanded.includes(id) ? [...expanded] : [...expanded, id]
 }
 
-/** The "Library" row's count: videos in no folder. */
+/** The "Unfiled" row's count: videos in no folder. */
 export function unfiledCount(videos: readonly Pick<LibraryVideo, 'collection_id'>[]): number {
   return videos.filter((v) => v.collection_id === null).length
 }

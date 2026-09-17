@@ -16,7 +16,7 @@
  * (`useLibraryViewPrefs`), the search field (`useLibrarySearch`, cleared on
  * leaving), the channel names the list view shows, the folder actions
  * (`useLibraryCollectionActions`, `useFolderActions`), the selection's bulk
- * Remove / Delete / Move to… and the video rename (`useRecordRename`), and ⌘O → Import…
+ * Remove / Delete / Move to… and the video rename (`useRecordRename`), and ⌘O → Add to library…
  * (`useLibraryImportShortcut`), which is why that shortcut does nothing on any
  * other screen.
  */
@@ -43,7 +43,7 @@ export interface LibraryHomeProps {
   onOpen: (video: LibraryVideo) => void
   /** App's `session.openingVideoId`: the record whose open is in flight. */
   openingVideoId?: string | null
-  /** Toolbar "Add video" — go to the drop screen. */
+  /** Toolbar "Transcribe…" — go to the drop screen. */
   onAddVideo: () => void
   /** One media file was dropped on the library — open it in the editor. */
   onFileDropped: (path: string) => void

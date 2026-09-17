@@ -65,9 +65,23 @@ describe('LibraryToolbar view controls', () => {
     expect(tag).toContain('width:')
   })
 
-  test('the slider is gone in list', () => {
+  test('the slider sits between a small and a large glyph, and hides in a narrow window', () => {
+    const html = render()
+    const at = html.indexOf('<input type="range"')
+    const wrapper = html.slice(html.lastIndexOf('<span', at), at)
+    expect(wrapper).toContain('hidden')
+    expect(wrapper).toContain('min-[900px]:flex')
+    // Two squares, small then large, neither of them announced.
+    const group = html.slice(html.lastIndexOf('<span', at), html.indexOf('</span>', at))
+    expect(group.split('aria-hidden="true"').length - 1).toBe(2)
+    expect(group.indexOf('width="8"')).toBeGreaterThan(-1)
+    expect(group.indexOf('width="12"')).toBeGreaterThan(group.indexOf('width="8"'))
+  })
+
+  test('the slider, and its glyphs, are gone in list', () => {
     const html = render({ ...DEFAULT_LIBRARY_VIEW_PREFS, layout: 'list' })
     expect(html).not.toContain('Icon size')
+    expect(html).not.toContain('<input type="range"')
     expect(html).toMatch(/aria-checked="true"[^>]*>(<[^>]+>)*List</)
   })
 
@@ -80,8 +94,8 @@ describe('LibraryToolbar view controls', () => {
     expect(html).not.toContain('Search the library')
     expect(html).not.toContain('Sort by')
     expect(html).not.toContain('Layout')
-    expect(html).toContain('>Import…<')
-    expect(html).toContain('Add video')
+    expect(html).toContain('>Add to library…<')
+    expect(html).toContain('>Transcribe…<')
   })
 
   test('inputs set their width inline (field-input would override a utility)', () => {

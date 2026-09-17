@@ -51,13 +51,13 @@ export function isProjectPath(path: string): boolean {
 // ── The import plan (picks and drops) ───────────────────────────────────────
 
 /**
- * What the Import… picker opens: files and folders in one dialog (`any`,
+ * What the Add to library… picker opens: files and folders in one dialog (`any`,
  * macOS only), or `files` / `folder` from the menu Windows and Linux get.
  * Mirrors `ImportPickMode` in `src/preload/index.ts`.
  */
 export type ImportPickMode = 'any' | 'files' | 'folder'
 
-/** One path the Import… picker returned, stat'ed by Electron main. */
+/** One path the Add to library… picker returned, stat'ed by Electron main. */
 export interface PickedEntry {
   path: string
   kind: 'file' | 'directory'

@@ -1,11 +1,11 @@
 /**
- * ⌘O / Ctrl+O on the library screen: Import… (docs/plans/library-finder.md
+ * ⌘O / Ctrl+O on the library screen: Add to library… (docs/plans/library-finder.md
  * §3.1). It replaced the title bar's Open, which is gone.
  *
  * Mounted by `LibraryHome`, which exists only while the library screen is on
  * show, so on every other screen the keystroke does nothing — nothing listens.
- * It opens the same picker the toolbar's Import… does: the combined
- * file-or-folder dialog on macOS; on Windows and Linux, where Import… is a
+ * It opens the same picker the toolbar's Add to library… does: the combined
+ * file-or-folder dialog on macOS; on Windows and Linux, where that button is a
  * Files… / Folder… menu, the **Files…** picker (media and `.capforge`
  * projects, the closest thing to the old Open).
  *

@@ -74,7 +74,7 @@ const GETTING_AROUND: Tour = {
       target: 'library-add-video',
       placement: 'bottom',
       paragraphs: [
-        'Add video takes a single file. Import… takes files, whole folders or a saved project, and you can drop any of them straight onto the window.',
+        'Transcribe… takes a single file. Add to library… takes files, whole folders or a saved project, and you can drop any of them straight onto the window.',
         'Each one becomes a record in the library, with its transcript, its captions and its publish text kept beside it.',
       ],
     },
@@ -84,7 +84,7 @@ const GETTING_AROUND: Tour = {
       target: 'library-sidebar',
       placement: 'right',
       paragraphs: [
-        'All videos is the flat list. Library is the top level: your folders, and everything not filed in one.',
+        'All videos is the flat list. Unfiled is everything not in a folder, and the folders themselves sit under it.',
         'A folder groups the videos of an event or a series, and can carry the notes and links they all share. New folder, at the foot, creates one where you are looking.',
       ],
     },

@@ -6,7 +6,7 @@
  * the source file path, the transcription result, the studio settings, and
  * any manual group edits the user has made. The actual file I/O happens in
  * the main process (window.subforge.saveProject); a `.capforge` comes back in
- * through the library's Import… or a library record's stored snapshot.
+ * through the library's Add to library… or a library record's stored snapshot.
  *
  * **Version 2 is additive.** Every v1 key keeps its v1 meaning — they describe
  * the *source* caption track — and translated tracks ride alongside in `tracks`.

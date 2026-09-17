@@ -1,8 +1,9 @@
 /**
  * The library masthead's actions: the view controls (`LibraryViewControls`:
  * search, sort, grid/list, icon size — only while the library has videos),
- * then Import… and Add video. Where the library is looking is the sidebar's
- * and the path bar's job; "New folder" lives at the foot of the sidebar.
+ * then Add to library… (the import picker) and Transcribe…. Where the library
+ * is looking is the sidebar's and the path bar's job; "New folder" lives at the
+ * foot of the sidebar.
  *
  * Layout rules, because this row used to break: no button label ever wraps
  * (`whitespace-nowrap`), and when the row runs out of room it wraps as a row
@@ -16,7 +17,7 @@ import { ImportButton } from './ImportButton'
 import { LibraryViewControls } from './LibraryViewControls'
 
 export interface LibraryToolbarProps {
-  /** Import… — open the picker in this mode and import what is picked. */
+  /** Add to library… — open the import picker in this mode and import what is picked. */
   onImport: (mode: ImportPickMode) => void
   onAddVideo: () => void
   /** The layout, icon size and sort; null hides the view controls (an empty library). */
@@ -47,8 +48,13 @@ export function LibraryToolbar({
       {/* The coach-mark tour points at the pair, not at either button. */}
       <span data-tour="library-add-video" className="flex items-center gap-2">
         <ImportButton onImport={onImport} align="end" />
-        <Button variant="primary" className="whitespace-nowrap text-xs" onClick={onAddVideo}>
-          Add video
+        <Button
+          variant="primary"
+          className="whitespace-nowrap text-xs"
+          title="Pick one file and transcribe it now"
+          onClick={onAddVideo}
+        >
+          Transcribe…
         </Button>
       </span>
     </div>
