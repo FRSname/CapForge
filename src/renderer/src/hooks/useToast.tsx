@@ -121,7 +121,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
             {t.action && (
               <button
-                className="shrink-0 text-xs-plus font-medium px-2 py-0.5 rounded hover:bg-white/10 transition-colors"
+                className="shrink-0 text-xs-plus font-medium px-2 py-0.5 rounded hover:bg-[var(--color-hover-strong)] transition-colors"
                 style={{ color: 'var(--color-accent)' }}
                 onClick={t.action.onClick}
               >

@@ -715,7 +715,7 @@ export function WordStylePopup({
       {/* Footer */}
       <div className="flex gap-2 mt-2 shrink-0">
         <button
-          className="flex-1 py-1 rounded border border-[var(--color-border)] hover:bg-white/[0.04] text-xs transition-colors"
+          className="flex-1 py-1 rounded border border-[var(--color-border)] hover:bg-[var(--color-hover)] text-xs transition-colors"
           style={{ color: 'var(--color-text-2)' }}
           onClick={handleClear}
           title="Remove all overrides for this word"

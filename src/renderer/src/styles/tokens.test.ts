@@ -189,3 +189,32 @@ describe.each(Object.entries(THEMES))('%s theme contrast', (_theme, tokens) => {
     )
   })
 })
+
+/* ── Washes ────────────────────────────────────────────────────────────
+   A hard-coded `rgba(255 255 255 / …)` hover is a colour that no theme can
+   reach: it needed a `:root.light` twin for every rule, and the twins drifted.
+   Outside the two token blocks (where the literals *are* the palette), every
+   wash in the stylesheet has to come from a token — `--color-hover`,
+   `--color-hover-strong`, `--color-scrim` or the scrollbar pair. docs/plans/ux-ui-refresh.md §6. */
+
+/** `globals.css` with the two token blocks taken out. */
+function ruleBodies(css: string): string {
+  let rest = css
+  for (const selector of ['@theme', ':root.light'])
+    rest = rest.replace(cssBlock(rest, selector), '')
+  return rest
+}
+
+describe('washes', () => {
+  test('no rule hard-codes a black or white wash', () => {
+    const offenders = ruleBodies(CSS)
+      .split('\n')
+      .filter((line) => /rgba\((?:255 255 255|0 0 0)/.test(line))
+      .map((line) => line.trim())
+
+    expect(
+      offenders,
+      `these rules hard-code a wash instead of reading a token:\n${offenders.join('\n')}`
+    ).toEqual([])
+  })
+})

@@ -49,18 +49,25 @@ describe('WatchFolderRow', () => {
   })
 
   test('the pane mounts the row while the status loads', () => {
-    const html = renderToStaticMarkup(
-      <GeneralSettings lightMode={false} onLightModeChange={() => {}} />
-    )
+    const html = renderToStaticMarkup(<GeneralSettings mode="dark" onModeChange={() => {}} />)
     expect(html).toContain('Library folder')
     expect(html).toContain('Watch folder')
     expect(html).toContain('Checking…')
   })
 
+  test('Appearance is a Light / Dark / System choice, not a toggle', () => {
+    const html = renderToStaticMarkup(<GeneralSettings mode="dark" onModeChange={() => {}} />)
+    expect(html).toContain('aria-label="Appearance"')
+    expect(html).toContain('>Light<')
+    expect(html).toContain('>Dark<')
+    expect(html).toContain('>System<')
+    // The picked mode is the checked radio, and System says what it follows.
+    expect(html).toContain('System follows your OS setting.')
+    expect(html).not.toContain('Dark Mode')
+  })
+
   test('the pane ends with the About block and all three prompts', () => {
-    const html = renderToStaticMarkup(
-      <GeneralSettings lightMode={false} onLightModeChange={() => {}} />
-    )
+    const html = renderToStaticMarkup(<GeneralSettings mode="dark" onModeChange={() => {}} />)
     expect(html).toContain('About')
     expect(html).toContain('Startup guide')
     expect(html).toContain('Editor guide')

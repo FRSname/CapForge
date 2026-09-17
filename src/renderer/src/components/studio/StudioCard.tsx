@@ -44,7 +44,7 @@ export function StudioCard({
         <button
           type="button"
           aria-expanded={isOpen}
-          className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors ${isOpen ? 'bg-white/[0.02]' : 'bg-transparent'}`}
+          className={`w-full flex items-center justify-between px-3 py-2 text-left transition-colors ${isOpen ? 'bg-[var(--color-hover)]' : 'bg-transparent'}`}
           onClick={() => setOpen((o) => !o)}
         >
           <span className="flex items-center gap-2 min-w-0">

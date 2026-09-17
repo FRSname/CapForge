@@ -18,6 +18,7 @@ import {
 } from '../../lib/presets'
 import type { UserPreset } from '../../hooks/useUserPresets'
 import { useToast } from '../../hooks/useToast'
+import { useConfirm } from '../../hooks/useConfirm'
 
 interface PresetPickerProps {
   settings: StudioSettings
@@ -42,6 +43,7 @@ export function PresetPicker({
   onPresetsChanged: refresh,
   onPresetApplied,
 }: PresetPickerProps) {
+  const confirm = useConfirm()
   const [open, setOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -110,8 +112,15 @@ export function PresetPicker({
 
   const handleDelete = async (p: UserPreset, e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!window.confirm(`Delete preset "${p.name}"?`)) return
+    // Ask nothing when there is no bridge to delete with (an older preload).
     if (!window.subforge?.deletePreset) return
+    const confirmed = await confirm({
+      title: 'Delete this preset?',
+      body: `"${p.name}" is removed. This cannot be undone.`,
+      confirmLabel: 'Delete',
+      danger: true,
+    })
+    if (!confirmed) return
     setBusy(true)
     try {
       await window.subforge.deletePreset(p.name)
@@ -154,7 +163,14 @@ export function PresetPicker({
       return
     }
     const systemFontWarning = getSystemFontExportWarning(p.settings)
-    if (systemFontWarning && !window.confirm(systemFontWarning)) return
+    if (systemFontWarning) {
+      const confirmed = await confirm({
+        title: 'Export anyway?',
+        body: systemFontWarning,
+        confirmLabel: 'Export',
+      })
+      if (!confirmed) return
+    }
     try {
       const res = await window.subforge.exportPreset(p.name)
       if (!res) {
@@ -171,10 +187,7 @@ export function PresetPicker({
           : res.fontStatus === 'system'
             ? `Exported "${p.name}" — system font "${p.settings.font}" is not included`
             : `Exported to ${res.filePath}`
-      toast(
-        msg,
-        res.fontStatus === 'missing' || res.fontStatus === 'system' ? 'info' : 'success'
-      )
+      toast(msg, res.fontStatus === 'missing' || res.fontStatus === 'system' ? 'info' : 'success')
     } catch {
       toast('Export failed', 'error')
     }

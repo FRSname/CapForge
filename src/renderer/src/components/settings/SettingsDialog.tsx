@@ -56,7 +56,7 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
   useFocusTrap(cardRef, open)
 
   // The theme lives on the always-mounted shell — see hooks/useTheme.ts.
-  const { lightMode, setLightMode } = useTheme()
+  const { mode, setMode } = useTheme()
 
   // Survives a close/reopen: the dialog reopens where the user left it.
   const [category, setCategory] = useState<AppSettingsCategoryId>('general')
@@ -141,7 +141,7 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
 
   return (
     <div
-      className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-[var(--color-scrim)] backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
       aria-label="Settings"
@@ -202,9 +202,7 @@ export function SettingsDialog({ open, onClose, onOpen }: SettingsDialogProps) {
           </nav>
 
           <div className="min-w-0 overflow-y-auto p-5">
-            {category === 'general' && (
-              <GeneralSettings lightMode={lightMode} onLightModeChange={setLightMode} />
-            )}
+            {category === 'general' && <GeneralSettings mode={mode} onModeChange={setMode} />}
             {category === 'channels' && <ChannelsSettings />}
             {category === 'collections' && (
               <CollectionsSettings
