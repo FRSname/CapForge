@@ -29,6 +29,7 @@ import type { FooterChannel } from './PublishFooter'
 import { PublishFooter } from './PublishFooter'
 import { PublishToChecklist } from './PublishToChecklist'
 import { PublishVideoSection } from './PublishVideoSection'
+import { ASIDE_PANEL_WIDTH } from '../../lib/panelResize'
 
 interface PublishPanelBaseProps {
   /**
@@ -36,6 +37,8 @@ interface PublishPanelBaseProps {
    * it the workspace toggle instead (docs/plans/ux-ui-refresh.md §4).
    */
   title?: ReactNode
+  /** The column's width in px; the aside's drag handle sets it (`lib/panelResize.ts`). */
+  width?: number
   publish: PublishController
   /** The source transcript — speaker rows, snapping, the plain-transcript copy. */
   segments: readonly Segment[]
@@ -86,7 +89,8 @@ export function PublishPanelView(props: PublishPanelViewProps) {
   return (
     <aside
       data-tour="publish-panel"
-      className="w-[380px] shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]"
+      className="shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]"
+      style={{ width: props.width ?? ASIDE_PANEL_WIDTH.initial }}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 shrink-0 border-b border-[var(--color-border)]">

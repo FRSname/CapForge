@@ -37,6 +37,9 @@ import { GroupPositionPopup } from '../editor/GroupPositionPopup'
 import type { StudioSettings } from '../studio/StudioPanel'
 import { TabButton } from './EditorViewTab'
 import { ReflowBanner } from '../tracks/ReflowBanner'
+import { ResizeHandle } from '../ui/ResizeHandle'
+import { usePanelResize } from '../../hooks/usePanelResize'
+import { EDITOR_PANEL_WIDTH } from '../../lib/panelResize'
 
 interface ResultsScreenProps {
   /** The active track's transcript: project metadata + that track's segments. */
@@ -162,7 +165,7 @@ export function ResultsScreen({
   // Transient: when set, SubtitleEditor scrolls/focuses that segment's text
   // field (used right after a manual "+ Add subtitle" so the user can type).
   const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null)
-  const [editorWidth, setEditorWidth] = useState(420)
+  const editorResize = usePanelResize(EDITOR_PANEL_WIDTH, 'left')
   // Segment id currently being re-aligned via /api/realign (null = idle).
   const [realigningSegId, setRealigningSegId] = useState<string | null>(null)
   // Once any fallback timings enter the transcript, keep the warning visible:
@@ -554,24 +557,6 @@ export function ResultsScreen({
     [segments, realigningSegId, result.language, pushUndo, toast, commitSegments, markAlignmentDegraded]
   )
 
-  const handleResizeMouseDown = useCallback(
-    (e: React.MouseEvent) => {
-      e.preventDefault()
-      const startX = e.clientX
-      const startWidth = editorWidth
-      const onMouseMove = (ev: MouseEvent) => {
-        setEditorWidth(Math.max(180, Math.min(600, startWidth + ev.clientX - startX)))
-      }
-      const onMouseUp = () => {
-        document.removeEventListener('mousemove', onMouseMove)
-        document.removeEventListener('mouseup', onMouseUp)
-      }
-      document.addEventListener('mousemove', onMouseMove)
-      document.addEventListener('mouseup', onMouseUp)
-    },
-    [editorWidth]
-  )
-
   // Defaults the WordStylePopup uses to compute "hasOverride" for each field.
   const wordStyleDefaults = useMemo<WordStyleDefaults>(
     () => ({
@@ -628,7 +613,7 @@ export function ResultsScreen({
   return (
     <div className="flex-1 flex flex-row overflow-hidden min-w-0">
       {/* Left panel: tabs + editor */}
-      <div className="flex flex-col shrink-0 overflow-hidden" style={{ width: editorWidth }}>
+      <div className="flex flex-col shrink-0 overflow-hidden" style={{ width: editorResize.width }}>
         {/* View tabs — roving tabIndex + arrow keys (pattern from ui/SegmentedControl) */}
         <div
           data-tour="editor-view-tabs"
@@ -727,11 +712,7 @@ export function ResultsScreen({
         )}
       </div>
 
-      {/* Resize handle */}
-      <div
-        className="w-1 shrink-0 cursor-col-resize bg-[var(--color-border)] hover:bg-[var(--color-accent)] transition-colors"
-        onMouseDown={handleResizeMouseDown}
-      />
+      <ResizeHandle label="Resize editor" onMouseDown={editorResize.onHandleMouseDown} />
 
       {/* Right area: player */}
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
