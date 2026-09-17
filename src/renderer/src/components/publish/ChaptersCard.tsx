@@ -28,7 +28,7 @@ export function ChaptersCard({ publish, onSeek, getPlayhead }: ChaptersCardProps
 
   return (
     <StudioCard title="Chapters" defaultOpen>
-      <FieldHeader publish={publish} field="chapters" />
+      <FieldHeader publish={publish} field="chapters" hideLabel />
 
       {chapters.length === 0 ? (
         <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>

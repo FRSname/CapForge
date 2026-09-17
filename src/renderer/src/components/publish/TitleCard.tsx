@@ -58,6 +58,7 @@ export function TitleCard({ publish }: TitleCardProps) {
       <FieldHeader
         publish={publish}
         field="title"
+        hideLabel={fields.title_options.length === 0}
         meter={<FieldMeter used={fields.title.length} limit={TITLE_MAX_CHARS} />}
       />
       <input

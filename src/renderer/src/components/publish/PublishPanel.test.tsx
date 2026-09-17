@@ -220,6 +220,11 @@ describe('DescriptionCard', () => {
     expect(markup).toContain('Above the fold')
   })
 
+  test('the card title is the only "Description" label on the card', () => {
+    const markup = html(<DescriptionCard publish={controller()} />)
+    expect(markup.split('>Description<').length - 1).toBe(1)
+  })
+
   test('shows no Revert when nothing previous was recorded', () => {
     // The description's only history entry has no `prev`.
     const markup = html(<DescriptionCard publish={controller()} />)
@@ -359,7 +364,7 @@ describe('PublishPanel', () => {
       'Title',
       'Description',
       'Tags &amp; hashtags',
-      'Collection',
+      'Folder',
       'Chapters',
       'Shorts',
       'Thumbnail',
@@ -375,14 +380,20 @@ describe('PublishPanel', () => {
     expect(markup).toContain('Copy plain transcript')
   })
 
-  test('the Localized card sits right after Description', () => {
+  test('the Localized card sits below Description and above the video fields', () => {
     const markup = panel(controller())
     const description = markup.indexOf('>Description<')
     const localized = markup.indexOf('>Localized<')
-    const collection = markup.indexOf('>Collection<')
+    const collection = markup.indexOf('>Folder<')
     expect(description).toBeGreaterThan(-1)
     expect(description).toBeLessThan(localized)
     expect(localized).toBeLessThan(collection)
+  })
+
+  test('Publish state comes before the two least-used cards', () => {
+    const markup = panel(controller())
+    expect(markup.indexOf('Publish state')).toBeGreaterThan(-1)
+    expect(markup.indexOf('Publish state')).toBeLessThan(markup.indexOf('Localized'))
   })
 
   test('the package gets a language choice once a localized language is stored, source first', () => {
@@ -478,8 +489,18 @@ describe('PublishPanel', () => {
 
 /** The chip is the review surface for tier-1 agent writes — pin its reading. */
 describe('provenance', () => {
-  test('an untouched field says so and offers no Revert', () => {
+  test('an untouched field draws no chip at all', () => {
     const markup = html(<TagsCard publish={controller()} />)
-    expect(markup).toContain('not written')
+    expect(markup).not.toContain('not written')
+    expect(markup).not.toContain('Revert this field')
+  })
+
+  test('a written field says who wrote it and when', () => {
+    const written = record({
+      history: [{ field: 'tags', prev: ['old'], by: 'agent', at: THREE_MINUTES_AGO }],
+    })
+    const markup = html(<TagsCard publish={controller({}, written)} />)
+    expect(markup).toContain('edited ')
+    expect(markup).toContain('Last written by')
   })
 })

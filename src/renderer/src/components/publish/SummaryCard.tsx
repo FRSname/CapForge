@@ -18,7 +18,7 @@ interface SummaryCardProps {
 export function SummaryCard({ publish }: SummaryCardProps) {
   return (
     <StudioCard title="Summary" defaultOpen={false}>
-      <FieldHeader publish={publish} field="summary_md" />
+      <FieldHeader publish={publish} field="summary_md" hideLabel />
       <textarea
         className="field-input resize-y"
         rows={SUMMARY_ROWS}

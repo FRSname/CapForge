@@ -25,10 +25,12 @@ function dotColor(provenance: Provenance | null): string {
 }
 
 export function ProvenanceChip({ provenance, onRevert, now }: ProvenanceChipProps) {
-  const when = provenance ? relativeTime(provenance.at, now) : ''
-  const title = provenance
-    ? `Last written by ${provenance.by || 'someone'}${when ? ` ${when}` : ''}`
-    : 'Nobody has written this field yet'
+  // Nothing written means nothing to review: an untouched panel used to be a
+  // column of "not written", when the empty field already says as much.
+  if (!provenance) return null
+
+  const when = relativeTime(provenance.at, now)
+  const title = `Last written by ${provenance.by || 'someone'}${when ? ` ${when}` : ''}`
 
   return (
     <span className="flex items-center gap-1.5 shrink-0">
@@ -42,7 +44,7 @@ export function ProvenanceChip({ provenance, onRevert, now }: ProvenanceChipProp
         }}
       />
       <span className="text-2xs" style={{ color: 'var(--color-text-3)' }} title={title}>
-        {provenance ? `edited ${when || 'recently'}` : 'not written'}
+        {`edited ${when || 'recently'}`}
       </span>
       {onRevert && (
         <button

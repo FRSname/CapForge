@@ -156,7 +156,7 @@ export function ShortsCard({ publish, segments, onSeek, getPlayhead }: ShortsCar
 
   return (
     <StudioCard title="Shorts" defaultOpen={false}>
-      <FieldHeader publish={publish} field="shorts" />
+      <FieldHeader publish={publish} field="shorts" hideLabel />
       <textarea
         className="field-input resize-y"
         rows={CAPTION_ROWS}
