@@ -144,7 +144,7 @@ function PlainHeader({ label }: { label: string }) {
   return (
     <th
       scope="col"
-      className="whitespace-nowrap py-2 pr-4 text-[11px] font-normal uppercase tracking-widest"
+      className="whitespace-nowrap py-2 pr-4 text-xs-plus font-normal uppercase tracking-widest"
       style={HEADER_TEXT}
     >
       {label}
@@ -170,7 +170,7 @@ function SortHeader({ label, sortKey, sort, className, onSort }: SortHeaderProps
     >
       <button
         type="button"
-        className="inline-flex items-center gap-1 text-[11px] uppercase tracking-widest"
+        className="inline-flex items-center gap-1 text-xs-plus uppercase tracking-widest"
         style={{ ...HEADER_TEXT, color: active ? 'var(--color-text)' : HEADER_TEXT.color }}
         title={`Sort by ${label.toLowerCase()}`}
         onClick={onSort}

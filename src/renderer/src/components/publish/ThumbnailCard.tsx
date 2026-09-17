@@ -35,7 +35,7 @@ const TILE_ASPECT = '16 / 9'
 const UPLOAD_ACCEPT = 'image/jpeg,image/png,image/webp'
 
 /** The action row's buttons; the row wraps when the aside is too narrow for three. */
-const ACTION_CLASS = 'flex-1 whitespace-nowrap text-[11px] py-1 justify-center'
+const ACTION_CLASS = 'flex-1 whitespace-nowrap text-xs-plus py-1 justify-center'
 
 interface ThumbnailCardProps {
   publish: PublishController
@@ -227,7 +227,7 @@ function FrameTile(props: FrameTileProps) {
       ) : (
         <button
           type="button"
-          className="icon-btn absolute right-0.5 top-0.5 w-5 h-5 text-[11px]"
+          className="icon-btn absolute right-0.5 top-0.5 w-5 h-5 text-xs-plus"
           style={{ background: 'var(--color-surface)' }}
           aria-label="Delete this frame"
           title="Delete this frame"

@@ -46,7 +46,7 @@ describe('SegmentedControl', () => {
     // Assert
     expect(html.match(/aria-checked="true"/g)).toHaveLength(1)
     expect(html.match(/aria-checked="false"/g)).toHaveLength(2)
-    expect(html).toContain('bg-[var(--color-accent)] text-white')
+    expect(html).toContain('bg-[var(--color-accent)] text-[var(--color-on-accent)]')
   })
 
   test('roving tabIndex: selected radio is 0, others are -1', () => {

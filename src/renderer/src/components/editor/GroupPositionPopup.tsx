@@ -148,7 +148,7 @@ export function GroupPositionPopup({
           Clear
         </button>
         <button
-          className="flex-1 py-1 rounded bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white text-xs transition-colors"
+          className="flex-1 py-1 rounded bg-[var(--color-accent)] hover:bg-[var(--color-accent-2)] text-[var(--color-on-accent)] text-xs transition-colors"
           onClick={handleApply}
         >
           Done

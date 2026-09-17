@@ -43,6 +43,21 @@ module.exports = tseslint.config(
       // visible as warnings; fixing them is a refactor, not a lint chore.
       'react-hooks/set-state-in-effect': 'warn',
       'react-hooks/refs': 'warn',
+      // The type scale lives in globals.css; off-scale pixel font sizes are a
+      // design-system leak, so the literals that were swept out stay out.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: 'Literal[value=/text-\\[1[01]px\\]/]',
+          message:
+            'Use the type scale (text-2xs / text-xs-plus / text-xs) instead of a pixel literal — see docs/plans/ux-ui-refresh.md §1.3',
+        },
+        {
+          selector: 'TemplateElement[value.raw=/text-\\[1[01]px\\]/]',
+          message:
+            'Use the type scale (text-2xs / text-xs-plus / text-xs) instead of a pixel literal — see docs/plans/ux-ui-refresh.md §1.3',
+        },
+      ],
     },
   }
 )

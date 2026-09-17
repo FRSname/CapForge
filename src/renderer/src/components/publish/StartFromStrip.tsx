@@ -80,7 +80,7 @@ export function StartFromStrip(props: StartFromStripProps) {
           <button
             key={option.id}
             type="button"
-            className="rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[11px] transition-colors hover:bg-[var(--color-surface-2)] disabled:opacity-50"
+            className="rounded-full border border-[var(--color-border)] px-2 py-0.5 text-xs-plus transition-colors hover:bg-[var(--color-surface-2)] disabled:opacity-50"
             style={{ color: 'var(--color-text-2)' }}
             disabled={busy !== null}
             aria-busy={busy === option.id || undefined}

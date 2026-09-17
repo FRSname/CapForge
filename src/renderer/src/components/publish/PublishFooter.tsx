@@ -77,7 +77,7 @@ interface PackageLanguageSelectProps {
 function PackageLanguageSelect({ languages, value, onChange }: PackageLanguageSelectProps) {
   return (
     <select
-      className="field-input text-[11px]"
+      className="field-input text-xs-plus"
       style={{ width: CHOICE_SELECT_WIDTH }}
       aria-label="Upload package language"
       value={value}
@@ -158,7 +158,7 @@ export function PublishFooter({
         <div className="flex gap-1">
           <Button
             variant="primary"
-            className="flex-1 min-w-0 text-[11px] py-1 justify-center"
+            className="flex-1 min-w-0 text-xs-plus py-1 justify-center"
             onClick={copyPackage}
             disabled={!videoId || !channel}
             title={channel ? channelCopyTitle(channel.platform) : NO_CHANNEL_HINT}
@@ -176,7 +176,7 @@ export function PublishFooter({
         )}
         <Button
           variant="ghost"
-          className="flex-1 text-[11px] py-1 justify-center"
+          className="flex-1 text-xs-plus py-1 justify-center"
           onClick={() => copy(plainTranscript(segments), 'the plain transcript')}
           title="Sentences separated by blank lines — what caption auto-sync wants"
         >
@@ -191,14 +191,14 @@ export function PublishFooter({
           </span>
           <Button
             variant="ghost"
-            className="text-[11px] py-1 px-2 shrink-0"
+            className="text-xs-plus py-1 px-2 shrink-0"
             onClick={() => exportSubtitles(track, 'srt_standard', `${track.label} SRT`)}
           >
             .SRT
           </Button>
           <Button
             variant="ghost"
-            className="text-[11px] py-1 px-2 shrink-0"
+            className="text-xs-plus py-1 px-2 shrink-0"
             onClick={() => exportSubtitles(track, 'vtt', `${track.label} VTT`)}
           >
             .VTT

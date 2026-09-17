@@ -43,20 +43,13 @@ export function ContinueHero({ video, onOpen, opening = false }: ContinueHeroPro
       <LibraryPoster video={video} fixedHeight={HERO_POSTER_SIZE} />
       <div className="flex min-w-0 flex-col gap-2">
         <span
-          className="flex items-center gap-2 text-[11px] uppercase tracking-widest"
+          className="flex items-center gap-2 text-xs-plus uppercase tracking-widest"
           style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-brand)' }}
         >
           {opening && <Spinner />}
           {opening ? OPENING_LABEL : 'Continue'}
         </span>
-        <span
-          className="truncate text-2xl"
-          style={{
-            fontFamily: 'var(--cf-font-display)',
-            fontStyle: 'italic',
-            color: 'var(--color-text)',
-          }}
-        >
+        <span className="truncate text-lg font-medium" style={{ color: 'var(--color-text)' }}>
           {title}
         </span>
         <div className="flex items-center gap-2">

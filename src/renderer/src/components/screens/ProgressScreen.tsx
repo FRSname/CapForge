@@ -185,7 +185,7 @@ export function ProgressScreen({ filePath, onDone, onCancel }: ProgressScreenPro
               }}
             />
           </div>
-          <div className="text-right text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+          <div className="text-right text-xs-plus" style={{ color: 'var(--color-text-3)' }}>
             <span className="tabular-nums">{pct > 0 ? `${pct}%` : ''}</span>
           </div>
         </div>

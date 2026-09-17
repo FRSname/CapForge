@@ -120,7 +120,7 @@ export function DropZoneScreen({ filePath, onFileSelected, onStart }: DropZoneSc
         </div>
 
         <p
-          className="text-[11px] tracking-widest uppercase"
+          className="text-xs-plus tracking-widest uppercase"
           style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
         >
           {ACCEPTED_EXTS.join(' · ')}

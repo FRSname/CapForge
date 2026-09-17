@@ -160,7 +160,7 @@ export function SlotRowsEditor({ idPrefix, slots, onCommit }: SlotRowsEditorProp
               />
               <button
                 type="button"
-                className="icon-btn w-5 h-5 text-[11px] shrink-0"
+                className="icon-btn w-5 h-5 text-xs-plus shrink-0"
                 aria-label={`Remove slot ${i + 1}`}
                 onClick={() => remove(i)}
               >

@@ -78,7 +78,7 @@ export function PublishToSheet(props: PublishToSheetProps) {
         <div className="flex items-center justify-end gap-2">
           <Button
             variant="ghost"
-            className="text-[11px] py-1 px-3"
+            className="text-xs-plus py-1 px-3"
             title={CANCEL_TITLE}
             onClick={onCancel}
           >
@@ -86,7 +86,7 @@ export function PublishToSheet(props: PublishToSheetProps) {
           </Button>
           <Button
             variant="ghost"
-            className="text-[11px] py-1 px-3"
+            className="text-xs-plus py-1 px-3"
             title={SKIP_TITLE}
             onClick={onSkip}
           >
@@ -94,7 +94,7 @@ export function PublishToSheet(props: PublishToSheetProps) {
           </Button>
           <Button
             variant="primary"
-            className="text-[11px] py-1 px-3"
+            className="text-xs-plus py-1 px-3"
             disabled={!pickable || ticked.length === 0}
             onClick={onImport}
           >

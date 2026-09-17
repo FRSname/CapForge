@@ -41,7 +41,7 @@ export function ChaptersCard({ publish, onSeek, getPlayhead }: ChaptersCardProps
             <li key={`${i}:${chapter.start_s}`} className="flex items-center gap-1.5">
               <button
                 type="button"
-                className="text-[11px] tabular-nums px-1.5 py-1 rounded border border-[var(--color-border)] hover:bg-[var(--color-surface-2)] transition-colors shrink-0"
+                className="text-xs-plus tabular-nums px-1.5 py-1 rounded border border-[var(--color-border)] hover:bg-[var(--color-surface-2)] transition-colors shrink-0"
                 style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-2)' }}
                 title="Seek the player here"
                 onClick={() => onSeek(chapter.start_s)}
@@ -60,7 +60,7 @@ export function ChaptersCard({ publish, onSeek, getPlayhead }: ChaptersCardProps
               />
               <button
                 type="button"
-                className="icon-btn w-5 h-5 text-[11px] shrink-0"
+                className="icon-btn w-5 h-5 text-xs-plus shrink-0"
                 aria-label={`Remove the chapter at ${formatTimestamp(chapter.start_s)}`}
                 title="Remove this chapter"
                 onClick={() => publish.removeChapterAt(i)}
@@ -77,7 +77,7 @@ export function ChaptersCard({ publish, onSeek, getPlayhead }: ChaptersCardProps
       <div className="flex gap-1.5 mt-2">
         <Button
           variant="ghost"
-          className="flex-1 text-[11px] py-1 justify-center"
+          className="flex-1 text-xs-plus py-1 justify-center"
           onClick={() => publish.insertChapterAt(getPlayhead())}
           title="Add a chapter at the playhead, snapped back to the nearest word"
         >
@@ -85,7 +85,7 @@ export function ChaptersCard({ publish, onSeek, getPlayhead }: ChaptersCardProps
         </Button>
         <Button
           variant="ghost"
-          className="flex-1 text-[11px] py-1 justify-center"
+          className="flex-1 text-xs-plus py-1 justify-center"
           onClick={publish.suggestChapters}
           title="Suggest chapters from the transcript's pauses and speaker changes"
         >

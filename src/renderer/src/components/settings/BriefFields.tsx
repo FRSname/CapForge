@@ -217,7 +217,7 @@ function LinkRowsControl({ value, onDraft, onCommit }: ControlProps<LinkRow[]>) 
           />
           <button
             type="button"
-            className="icon-btn w-5 h-5 text-[11px] shrink-0"
+            className="icon-btn w-5 h-5 text-xs-plus shrink-0"
             aria-label={`Remove link row ${i + 1}`}
             onClick={() => onCommit(value.filter((_, j) => j !== i))}
           >

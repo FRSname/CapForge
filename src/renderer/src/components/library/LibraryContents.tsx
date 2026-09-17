@@ -88,7 +88,7 @@ export function LibraryContents(props: LibraryContentsProps) {
         <div className="flex flex-col gap-3">
           {(hero || searching) && (
             <h2
-              className="text-[11px] uppercase tracking-widest"
+              className="text-xs-plus uppercase tracking-widest"
               style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
             >
               {searching ? 'Search results' : 'Videos'}

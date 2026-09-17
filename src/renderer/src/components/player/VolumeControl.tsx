@@ -19,7 +19,7 @@ export function VolumeControl({ volume, onVolumeChange }: VolumeControlProps) {
         strokeLinecap="round"
         strokeLinejoin="round"
         aria-hidden="true"
-        style={{ color: 'var(--color-text-muted)' }}
+        style={{ color: 'var(--color-text-2)' }}
       >
         <path d="M2.5 6.25h2.25L8.5 3.5v9L4.75 9.75H2.5z" />
         {isMuted ? (
@@ -48,7 +48,7 @@ export function VolumeControl({ volume, onVolumeChange }: VolumeControlProps) {
       />
       <span
         className="w-8 text-right text-2xs tabular-nums"
-        style={{ color: 'var(--color-text-muted)' }}
+        style={{ color: 'var(--color-text-2)' }}
         aria-hidden="true"
       >
         {percentage}%

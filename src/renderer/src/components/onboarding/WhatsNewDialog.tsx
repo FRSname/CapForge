@@ -89,7 +89,7 @@ function ReleaseSection({ release, showVersion }: ReleaseSectionProps) {
             <span className="text-xs font-semibold" style={{ color: 'var(--color-text)' }}>
               {highlight.title}
             </span>
-            <span className="text-[11px] leading-relaxed" style={{ color: 'var(--color-text-2)' }}>
+            <span className="text-xs-plus leading-relaxed" style={{ color: 'var(--color-text-2)' }}>
               {highlight.body}
             </span>
           </li>

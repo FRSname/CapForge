@@ -48,7 +48,7 @@ interface SkillStatusChipProps {
 export function SkillStatusChip({ status, bundleChanged = false }: SkillStatusChipProps) {
   return (
     <span
-      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-[10px]"
+      className="inline-flex shrink-0 items-center gap-1 rounded px-1.5 py-0.5 text-2xs"
       style={{
         background: 'var(--color-surface-2)',
         border: '1px solid var(--color-border)',
@@ -126,7 +126,7 @@ export function SkillEditor({
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between gap-2">
         <span
-          className="min-w-0 truncate text-[11px]"
+          className="min-w-0 truncate text-xs-plus"
           style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text)' }}
         >
           {skill.name}
@@ -143,17 +143,17 @@ export function SkillEditor({
             borderLeft: '2px solid var(--color-brand)',
           }}
         >
-          <p className="text-[11px]" style={{ color: 'var(--color-text-2)' }}>
+          <p className="text-xs-plus" style={{ color: 'var(--color-text-2)' }}>
             This skill&apos;s bundled version changed since your copy.
           </p>
           <div className="flex flex-wrap gap-1.5">
-            <Button variant="ghost" className="text-[11px]" disabled={busy} onClick={onKeepMine}>
+            <Button variant="ghost" className="text-xs-plus" disabled={busy} onClick={onKeepMine}>
               Keep mine
             </Button>
-            <Button variant="ghost" className="text-[11px]" disabled={busy} onClick={onTakeNew}>
+            <Button variant="ghost" className="text-xs-plus" disabled={busy} onClick={onTakeNew}>
               Take new
             </Button>
-            <Button variant="ghost" className="text-[11px]" disabled={busy} onClick={onOpenBoth}>
+            <Button variant="ghost" className="text-xs-plus" disabled={busy} onClick={onOpenBoth}>
               Open both
             </Button>
           </div>
@@ -167,7 +167,7 @@ export function SkillEditor({
         disabled={busy}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
-        className="w-full rounded p-2 text-[11px] leading-relaxed"
+        className="w-full rounded p-2 text-xs-plus leading-relaxed"
         style={{
           fontFamily: 'var(--cf-font-mono)',
           background: 'var(--color-surface-2)',
@@ -179,7 +179,7 @@ export function SkillEditor({
       />
 
       <p
-        className="text-[10px]"
+        className="text-2xs"
         style={{
           fontFamily: 'var(--cf-font-mono)',
           color: 'var(--color-text-3)',
@@ -190,22 +190,22 @@ export function SkillEditor({
       </p>
 
       <div className="flex flex-wrap gap-1.5">
-        <Button className="text-[11px]" disabled={!dirty || busy} onClick={onSave}>
+        <Button className="text-xs-plus" disabled={!dirty || busy} onClick={onSave}>
           Save
         </Button>
-        <Button variant="ghost" className="text-[11px]" disabled={busy} onClick={onReset}>
+        <Button variant="ghost" className="text-xs-plus" disabled={busy} onClick={onReset}>
           Reset to bundled
         </Button>
         <Button
           variant="ghost"
-          className="text-[11px]"
+          className="text-xs-plus"
           disabled={installDisabled}
           title={dirty ? 'Save first' : undefined}
           onClick={onInstall}
         >
           {INSTALL_LABEL[skill.installStatus]}
         </Button>
-        <Button variant="ghost" className="text-[11px]" disabled={busy} onClick={onReveal}>
+        <Button variant="ghost" className="text-xs-plus" disabled={busy} onClick={onReveal}>
           Reveal
         </Button>
       </div>
@@ -218,7 +218,7 @@ export function SkillEditor({
             value={skill.bundledText}
             readOnly
             spellCheck={false}
-            className="w-full rounded p-2 text-[11px] leading-relaxed"
+            className="w-full rounded p-2 text-xs-plus leading-relaxed"
             style={{
               fontFamily: 'var(--cf-font-mono)',
               background: 'var(--color-surface-2)',

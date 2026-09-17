@@ -11,6 +11,8 @@ import {
   computeWheelScroll,
   clampZoom,
   timeRangeToRect,
+  labelFits,
+  longestFittingPrefix,
 } from './timelineMath'
 
 // ── niceStep ─────────────────────────────────────────────────────
@@ -264,5 +266,55 @@ describe('timeRangeToRect', () => {
 
   test('returns zero width (never negative) when the range is entirely off-screen left', () => {
     expect(timeRangeToRect(-5, -2, 0, 800, 5, 80)).toEqual({ x: 0, w: 0 })
+  })
+})
+
+// ── labelFits ────────────────────────────────────────────────────
+
+describe('labelFits', () => {
+  test('fits when the chip has room for the text plus the padding', () => {
+    expect(labelFits(100, 80)).toBe(true)
+  })
+
+  test('fits at the exact boundary (width - padding === text width)', () => {
+    expect(labelFits(90, 80)).toBe(true)
+  })
+
+  test('does not fit when the text needs more than the padded width', () => {
+    expect(labelFits(90, 81)).toBe(false)
+  })
+
+  test('honours a custom padding', () => {
+    expect(labelFits(90, 85, 6)).toBe(false)
+    expect(labelFits(91, 85, 6)).toBe(true)
+  })
+
+  test('never fits at a negative chip width', () => {
+    expect(labelFits(-20, 0)).toBe(false)
+  })
+})
+
+// ── longestFittingPrefix ─────────────────────────────────────────
+describe('longestFittingPrefix', () => {
+  const fitsUpTo = (max: number) => (label: string) => label.length <= max
+
+  test('returns every word when they all fit', () => {
+    expect(longestFittingPrefix(['a', 'bb', 'ccc'], fitsUpTo(99))).toBe('a bb ccc')
+  })
+
+  test('drops trailing words until the label fits', () => {
+    expect(longestFittingPrefix(['one', 'two', 'three'], fitsUpTo(7))).toBe('one two')
+  })
+
+  test('keeps the first word alone when only it fits', () => {
+    expect(longestFittingPrefix(['one', 'two'], fitsUpTo(3))).toBe('one')
+  })
+
+  test('is null when not even the first word fits', () => {
+    expect(longestFittingPrefix(['long'], fitsUpTo(2))).toBeNull()
+  })
+
+  test('is null for no words', () => {
+    expect(longestFittingPrefix([], fitsUpTo(99))).toBeNull()
   })
 })

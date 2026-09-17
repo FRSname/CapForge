@@ -42,9 +42,9 @@ export function WorkspaceToggle({ workspace, onChange, publishEnabled }: Workspa
             disabled={disabled}
             title={disabled ? PUBLISH_DISABLED_HINT : undefined}
             onClick={() => onChange(value)}
-            className={`text-[11px] py-1 px-3 transition-colors ${
+            className={`text-xs-plus py-1 px-3 transition-colors ${
               active
-                ? 'bg-[var(--color-accent)] text-white'
+                ? 'bg-[var(--color-accent)] text-[var(--color-on-accent)]'
                 : 'bg-[var(--color-surface-2)] hover:bg-[var(--color-surface-3)]'
             } ${disabled ? 'opacity-40 cursor-default' : ''}`}
             style={active ? undefined : { color: 'var(--color-text-2)' }}

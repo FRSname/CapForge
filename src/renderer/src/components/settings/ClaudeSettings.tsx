@@ -71,11 +71,11 @@ export function ClaudeSettings() {
       {/* Claude integration (MCP control layer) */}
       <div className="flex flex-col gap-2">
         <label className="label-xs">Claude AI integration</label>
-        <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+        <p className="text-xs-plus" style={{ color: 'var(--color-text-3)' }}>
           Let a Claude agent edit your captions live. Connect once, then restart Claude.
         </p>
         {claudeClients && !claudeClients.runtimeReady && (
-          <p className="text-[11px]" style={{ color: 'var(--color-accent-2)' }}>
+          <p className="text-xs-plus" style={{ color: 'var(--color-accent-2)' }}>
             Finish first-run setup to enable this.
           </p>
         )}
@@ -100,7 +100,7 @@ export function ClaudeSettings() {
 
         <button
           type="button"
-          className="text-left text-[11px] underline"
+          className="text-left text-xs-plus underline"
           style={{ color: 'var(--color-text-3)' }}
           onMouseEnter={(e) => {
             e.currentTarget.style.color = 'var(--color-text)'

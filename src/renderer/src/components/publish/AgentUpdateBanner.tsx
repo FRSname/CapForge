@@ -29,10 +29,10 @@ export function AgentUpdateBanner({ notice, onApply, onKeepMine }: AgentUpdateBa
       <span className="text-xs flex-1 min-w-0" style={{ color: 'var(--color-text-2)' }}>
         {who} updated {fieldLabel(notice.field)} while you were typing.
       </span>
-      <Button variant="ghost" className="text-[11px] py-1 px-2 shrink-0" onClick={onApply}>
+      <Button variant="ghost" className="text-xs-plus py-1 px-2 shrink-0" onClick={onApply}>
         Apply
       </Button>
-      <Button variant="ghost" className="text-[11px] py-1 px-2 shrink-0" onClick={onKeepMine}>
+      <Button variant="ghost" className="text-xs-plus py-1 px-2 shrink-0" onClick={onKeepMine}>
         Keep mine
       </Button>
     </div>

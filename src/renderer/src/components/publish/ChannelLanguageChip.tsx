@@ -45,7 +45,7 @@ export function ChannelLanguageChipView({ view, editing, onEditing }: ChannelLan
         {editing ? (
           <select
             autoFocus
-            className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[11px]"
+            className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 text-xs-plus"
             style={{ color: 'var(--color-text)' }}
             aria-label="Post language"
             value={value}
@@ -66,7 +66,7 @@ export function ChannelLanguageChipView({ view, editing, onEditing }: ChannelLan
         ) : (
           <button
             type="button"
-            className="rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[11px] transition-colors hover:bg-[var(--color-surface-2)]"
+            className="rounded-full border border-[var(--color-border)] px-2 py-0.5 text-xs-plus transition-colors hover:bg-[var(--color-surface-2)]"
             style={{ color: override ? 'var(--color-text)' : 'var(--color-text-2)' }}
             title="The language this channel’s post is written in — click to change"
             onClick={() => onEditing(true)}

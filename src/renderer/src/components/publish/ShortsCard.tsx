@@ -56,7 +56,7 @@ interface ClipRowProps {
 }
 
 const STAMP_CLASS =
-  'text-[11px] tabular-nums px-1.5 py-1 rounded border border-[var(--color-border)] hover:bg-[var(--color-surface-2)] transition-colors shrink-0'
+  'text-xs-plus tabular-nums px-1.5 py-1 rounded border border-[var(--color-border)] hover:bg-[var(--color-surface-2)] transition-colors shrink-0'
 const STAMP_STYLE = { fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-2)' }
 const PLAYHEAD_CLASS = 'text-2xs px-1 py-1 rounded hover:bg-[var(--color-surface-2)] shrink-0'
 
@@ -110,7 +110,7 @@ function ClipRow(props: ClipRowProps) {
         </span>
         <button
           type="button"
-          className="icon-btn w-5 h-5 text-[11px] shrink-0"
+          className="icon-btn w-5 h-5 text-xs-plus shrink-0"
           aria-label={`Remove the clip at ${start}`}
           title="Remove this clip"
           onClick={onRemove}
@@ -200,7 +200,7 @@ export function ShortsCard({ publish, segments, onSeek, getPlayhead }: ShortsCar
 
       <Button
         variant="ghost"
-        className="mt-2 text-[11px] py-1 justify-center"
+        className="mt-2 text-xs-plus py-1 justify-center"
         onClick={() =>
           writeClips(addClipAt(clips, getPlayhead(), words, duration), CLIP_AT_END_MESSAGE)
         }
