@@ -6,8 +6,10 @@
  * TikTok, weighted for X), from the served table (`lib/platformSpecs.ts`).
  * They are display only: the findings under each field are the backend's.
  *
- * Each box has a copy button for its own text. The full pasted text — body,
- * then the channel's hashtags and the post's — is the footer's copy.
+ * Each box has a copy button. The body copies as written; the hashtags copy
+ * as the *merged* line the platform gets — the channel's default hashtags
+ * first, then the post's — because that is what gets pasted. The full pasted
+ * text (body + that line) is the footer's copy.
  */
 
 import type { PlatformLimitUnit } from '../../lib/channelTypes'
@@ -89,7 +91,7 @@ export function PostTextCard({ view }: PostTextCardProps) {
             {tagLimit && (
               <FieldMeter used={countUnits('items', tags)} limit={tagLimit.max} unit="hashtags" />
             )}
-            <CopyButton text={hashtags} what="the hashtags" />
+            <CopyButton text={hashtagsLine(tags)} what="the hashtags" />
           </span>
         </div>
         <input
