@@ -82,6 +82,37 @@ describe('openVideoFromLibrary', () => {
   })
 })
 
+describe('openVideoFromLibrary → onOpening', () => {
+  test('names the record the moment the fetch starts, and clears it once installed', async () => {
+    const onOpening = vi.fn()
+    await openVideoFromLibrary(deps({ onOpening }))
+    expect(onOpening.mock.calls).toEqual([['vid_1'], [null]])
+  })
+
+  test('clears it when the fetch fails or the restore is rejected', async () => {
+    const failures = [
+      {
+        getProject: vi.fn(async () => {
+          throw new Error('gone')
+        }),
+      },
+      { restore: vi.fn(async () => false) },
+    ]
+    for (const overrides of failures) {
+      const onOpening = vi.fn()
+      await expect(openVideoFromLibrary(deps({ ...overrides, onOpening }))).rejects.toThrow()
+      expect(onOpening.mock.calls).toEqual([['vid_1'], [null]])
+    }
+  })
+
+  test('is never called for a refusal that does no I/O', async () => {
+    const onOpening = vi.fn()
+    await expect(openVideoFromLibrary(deps({ screen: 'progress', onOpening }))).rejects.toThrow()
+    await expect(openVideoFromLibrary(deps({ videoId: ' ', onOpening }))).rejects.toThrow()
+    expect(onOpening).not.toHaveBeenCalled()
+  })
+})
+
 describe('applyEchoedCommandWith', () => {
   const cmd = (op: string, payload: Record<string, unknown> = {}): AgentCommand => ({ op, payload })
 

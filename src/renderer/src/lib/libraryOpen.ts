@@ -54,6 +54,12 @@ export interface OpenVideoInput {
    * the user, but the agent would otherwise see a bare success).
    */
   restore: (raw: unknown) => Promise<boolean>
+  /**
+   * The record being opened, for the library's "Opening…" state: called with
+   * the id the moment the fetch starts and with null once the open has
+   * settled, restored or not. Never called for a refusal that does no I/O.
+   */
+  onOpening?: (videoId: string | null) => void
 }
 
 /**
@@ -62,16 +68,21 @@ export interface OpenVideoInput {
  * missing record leaves the session exactly as it was.
  */
 export async function openVideoFromLibrary(input: OpenVideoInput): Promise<string> {
-  const { screen, getProject, restore } = input
+  const { screen, getProject, restore, onOpening } = input
   if (screen === PROGRESS_SCREEN) throw new Error(OPEN_VIDEO_BUSY_MESSAGE)
 
   const videoId = input.videoId.trim()
   if (!videoId) throw new Error(OPEN_VIDEO_NO_ID_MESSAGE)
 
-  const raw = await getProject(videoId)
-  const installed = await restore(raw)
-  if (!installed) throw new Error(rejectedProjectMessage(videoId))
-  return openedVideoMessage(videoId)
+  onOpening?.(videoId)
+  try {
+    const raw = await getProject(videoId)
+    const installed = await restore(raw)
+    if (!installed) throw new Error(rejectedProjectMessage(videoId))
+    return openedVideoMessage(videoId)
+  } finally {
+    onOpening?.(null)
+  }
 }
 
 export interface EchoedCommandInput {

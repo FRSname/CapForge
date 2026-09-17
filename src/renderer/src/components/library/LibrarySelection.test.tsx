@@ -193,6 +193,34 @@ describe('renaming a video', () => {
   })
 })
 
+describe('opening a video', () => {
+  const opening = { ...INERT_LIBRARY_ITEM_UI, openingVideoId: KEYNOTE.id }
+
+  test('the card says it is opening, keeps its box, and only that card', () => {
+    const html = grid(opening)
+    expect(itemTag(html, videoKey(KEYNOTE.id))).toContain('aria-busy="true"')
+    expect(itemTag(html, videoKey(PANEL.id))).toContain('aria-busy="false"')
+    expect(html.split('Opening…')).toHaveLength(2)
+    expect(html).toContain('data-spinner')
+    // The `…` button steps aside for the veil; the other card keeps its own.
+    expect(html).not.toContain('aria-label="Actions for Keynote"')
+    expect(html).toContain('aria-label="Actions for Panel"')
+  })
+
+  test('the row says it in its Status cell', () => {
+    const html = list(opening)
+    const row = itemTag(html, videoKey(KEYNOTE.id))
+    expect(row).toContain('aria-busy="true"')
+    expect(html).toContain('Opening…')
+    expect(itemTag(html, videoKey(PANEL.id))).toContain('aria-busy="false"')
+  })
+
+  test('nothing is opening by default', () => {
+    expect(grid()).not.toContain('Opening…')
+    expect(list()).not.toContain('Opening…')
+  })
+})
+
 describe('the record menu', () => {
   function menu(onRename?: () => void): string {
     return renderToStaticMarkup(

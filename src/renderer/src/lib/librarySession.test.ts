@@ -54,6 +54,15 @@ describe('openRecordPlan', () => {
   test('sends a record with no session to the file screen', () => {
     expect(openRecordPlan({ hasProject: false })).toBe('choose-file')
   })
+
+  test('is busy while another record is still opening, whatever the card', () => {
+    expect(openRecordPlan({ hasProject: true }, 'vid_9')).toBe('busy')
+    expect(openRecordPlan({ hasProject: false }, 'vid_9')).toBe('busy')
+  })
+
+  test('null for the opening id is the idle default', () => {
+    expect(openRecordPlan({ hasProject: true }, null)).toBe('restore')
+  })
 })
 
 describe('messages', () => {

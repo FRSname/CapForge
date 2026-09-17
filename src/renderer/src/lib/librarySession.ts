@@ -79,13 +79,21 @@ export function withFallbackStamp(
 }
 
 /** What clicking a card does. */
-export type OpenRecordPlan = 'restore' | 'choose-file'
+export type OpenRecordPlan = 'restore' | 'choose-file' | 'busy'
 
 /**
  * A record with a stored session restores it. One without has never been
  * transcribed (it was imported, or created on drop and abandoned), so the card
  * hands its source file to the drop screen instead of opening an empty editor.
+ *
+ * While a record is still opening (`openingVideoId`), a second open — a
+ * double-click that landed twice, Enter on another card — is `busy` and does
+ * nothing: a restore replaces the whole store, so two in flight would race.
  */
-export function openRecordPlan(video: Pick<LibraryVideo, 'hasProject'>): OpenRecordPlan {
+export function openRecordPlan(
+  video: Pick<LibraryVideo, 'hasProject'>,
+  openingVideoId: string | null = null
+): OpenRecordPlan {
+  if (openingVideoId !== null) return 'busy'
   return video.hasProject ? 'restore' : 'choose-file'
 }
