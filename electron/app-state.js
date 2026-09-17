@@ -28,6 +28,9 @@
  *                               lastOutputDir as evidence that this install has
  *                               been used before (not whisper_model: first-run
  *                               setup can write it before the library is seen)
+ *   editorPanelWidth number   — the transcript editor's column width (px)
+ *   asidePanelWidth  number   — the studio / publish column width (px); both
+ *                               clamped on read by src/renderer/src/lib/panelResize.ts
  *   toursSeen        string[] — the coach-mark tours already walked
  *                               ('getting-around', 'first-video'), so neither
  *                               starts by itself twice. Written when a tour

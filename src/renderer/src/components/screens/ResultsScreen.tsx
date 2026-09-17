@@ -39,7 +39,7 @@ import { TabButton } from './EditorViewTab'
 import { ReflowBanner } from '../tracks/ReflowBanner'
 import { ResizeHandle } from '../ui/ResizeHandle'
 import { usePanelResize } from '../../hooks/usePanelResize'
-import { EDITOR_PANEL_WIDTH } from '../../lib/panelResize'
+import { EDITOR_PANEL_WIDTH, PANEL_WIDTH_KEYS } from '../../lib/panelResize'
 
 interface ResultsScreenProps {
   /** The active track's transcript: project metadata + that track's segments. */
@@ -165,7 +165,6 @@ export function ResultsScreen({
   // Transient: when set, SubtitleEditor scrolls/focuses that segment's text
   // field (used right after a manual "+ Add subtitle" so the user can type).
   const [focusSegmentId, setFocusSegmentId] = useState<string | null>(null)
-  const editorResize = usePanelResize(EDITOR_PANEL_WIDTH, 'left')
   // Segment id currently being re-aligned via /api/realign (null = idle).
   const [realigningSegId, setRealigningSegId] = useState<string | null>(null)
   // Once any fallback timings enter the transcript, keep the warning visible:
@@ -174,6 +173,13 @@ export function ResultsScreen({
 
   const playerRef = useRef<AudioPlayerHandle>(null)
   const { toast } = useToast()
+  const notifyPanelResize = useCallback((message: string) => toast(message, 'error'), [toast])
+  const editorResize = usePanelResize({
+    bounds: EDITOR_PANEL_WIDTH,
+    side: 'left',
+    storageKey: PANEL_WIDTH_KEYS.editor,
+    notify: notifyPanelResize,
+  })
 
   // Degraded alignment is a property of the *transcript*, not of this editor, so
   // App is told as well — it owns `result`, and the project file must remember

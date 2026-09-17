@@ -549,6 +549,7 @@ export function App() {
             segments={sourceTrack.segments}
             tracks={tracks}
             outputDir={session.outputDir}
+            notify={setRestoreWarning}
             studio={{
               settings,
               onChange: handleSettingsChange,

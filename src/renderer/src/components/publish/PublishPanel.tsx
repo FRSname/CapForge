@@ -89,7 +89,7 @@ export function PublishPanelView(props: PublishPanelViewProps) {
   return (
     <aside
       data-tour="publish-panel"
-      className="shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]"
+      className="publish-panel shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]"
       style={{ width: props.width ?? ASIDE_PANEL_WIDTH.initial }}
     >
       {/* Header */}

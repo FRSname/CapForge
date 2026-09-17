@@ -458,6 +458,11 @@ body,
 .field-input:focus {
   border-color: var(--color-accent);
 }
+/* The Publish aside shares a column with the studio, whose controls are
+   text-xs (12px); its fields read at the same size, not the dialog's body size. */
+.publish-panel .field-input {
+  font-size: 12px;
+}
 
 /* Tailwind v4 misparses the placeholder-variant text-color arbitrary value
    (ambiguous color vs font-size) — ::placeholder can't be styled via an

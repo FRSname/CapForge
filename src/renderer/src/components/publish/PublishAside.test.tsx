@@ -75,6 +75,7 @@ function aside(over: Partial<PublishWorkspaceController> = {}, hidden = false): 
         segments={[]}
         tracks={[]}
         outputDir=""
+        notify={noop}
       />
     ) as ReactElement
   )
