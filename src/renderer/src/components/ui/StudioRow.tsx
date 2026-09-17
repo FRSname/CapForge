@@ -1,4 +1,6 @@
-import { useState } from 'react'
+import { useState, type CSSProperties } from 'react'
+
+import { rangeFill } from '../../lib/rangeFill'
 
 interface StudioRowProps {
   label: string
@@ -84,7 +86,7 @@ export function StudioRow({
   }
 
   return (
-    <div className="flex items-center gap-1.5 min-w-0">
+    <div className="group flex items-center gap-1.5 min-w-0">
       {/* Label */}
       <span
         className="w-[72px] shrink-0 text-xs truncate"
@@ -102,7 +104,8 @@ export function StudioRow({
         step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
-        className={`flex-1 min-w-0 h-[3px] ${isDirty ? 'accent-[var(--color-accent-2)]' : 'accent-[var(--color-accent)]'}`}
+        className="flex-1 min-w-0"
+        style={{ '--fill': rangeFill(value, min, max) } as CSSProperties}
       />
 
       {/* Editable numeric value */}
@@ -140,13 +143,19 @@ export function StudioRow({
         </span>
       )}
 
-      {/* Reset — only visible when dirty */}
+      {/* Reset — always there for a dirty row; otherwise it only surfaces on
+          hover (or keyboard focus), so a clean card is a quiet card. */}
       <button
         type="button"
-        className="icon-btn w-5 h-5 text-xs-plus shrink-0"
+        className={`icon-btn w-5 h-5 text-xs-plus shrink-0 ${
+          isDirty
+            ? 'opacity-100'
+            : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity'
+        }`}
         title={`Reset to ${def}${unit}`}
+        aria-label={`Reset ${label} to ${def}${unit}`}
         onClick={() => onChange(def)}
-        style={{ opacity: isDirty ? 1 : 0.2 }}
+        style={isDirty ? undefined : { color: 'var(--color-text-4)' }}
       >
         ↺
       </button>

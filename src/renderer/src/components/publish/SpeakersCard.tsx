@@ -23,7 +23,10 @@ export function SpeakersCard({ publish }: SpeakersCardProps) {
   const { fields, speakerIds } = publish
   // Rows the transcript knows about, plus any the agent named for a speaker
   // this session's transcript no longer has.
-  const ids = [...speakerIds, ...Object.keys(fields.speakers).filter((id) => !speakerIds.includes(id))]
+  const ids = [
+    ...speakerIds,
+    ...Object.keys(fields.speakers).filter((id) => !speakerIds.includes(id)),
+  ]
 
   function patchSpeaker(id: string, patch: Partial<SpeakerInfo>) {
     const current = fields.speakers[id] ?? EMPTY_SPEAKER
@@ -32,11 +35,11 @@ export function SpeakersCard({ publish }: SpeakersCardProps) {
 
   return (
     <StudioCard title="Speakers" defaultOpen={false}>
-      <FieldHeader publish={publish} field="speakers" />
+      <FieldHeader publish={publish} field="speakers" hideLabel />
       {ids.length === 0 ? (
         <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
-          This transcript has no diarized speakers. Turn on speaker diarization before
-          transcribing to name them here.
+          This transcript has no diarized speakers. Turn on speaker diarization before transcribing
+          to name them here.
         </p>
       ) : (
         <div className="flex flex-col gap-2">

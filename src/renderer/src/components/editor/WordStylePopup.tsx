@@ -15,8 +15,9 @@
  *      config. See docs/plans/per-word-background.md.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { WordOverrides, WordTransition } from '../../types/app'
+import { rangeFill } from '../../lib/rangeFill'
 import { loadAllFonts, registerFontFromBuffer, type FontInfo } from '../../lib/fonts'
 import { FontCombobox } from '../ui/FontCombobox'
 import { useFavoriteFonts } from '../../hooks/useFavoriteFonts'
@@ -480,6 +481,7 @@ export function WordStylePopup({
             value={Math.round(scale * 100)}
             onChange={(e) => setScale(parseInt(e.target.value, 10) / 100)}
             className="flex-1 min-w-0"
+            style={{ '--fill': rangeFill(Math.round(scale * 100), 50, 200) } as CSSProperties}
           />
           <input
             type="number"
@@ -769,6 +771,7 @@ function NumberRow({ label, value, onChange, min, max, step = 1 }: NumberRowProp
         value={value}
         onChange={(e) => onChange(parseFloat(e.target.value))}
         className="flex-1 min-w-0"
+        style={{ '--fill': rangeFill(value, min, max) } as CSSProperties}
       />
       <input
         type="number"

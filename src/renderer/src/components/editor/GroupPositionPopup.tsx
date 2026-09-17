@@ -13,8 +13,9 @@
  * CustomGroup schema and all three renderers consume).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import type { GroupPositionOverride } from '../../types/app'
+import { rangeFill } from '../../lib/rangeFill'
 
 /** Global position defaults, in percent — from StudioSettings posX/posY. */
 export interface GroupPositionDefaults {
@@ -180,6 +181,7 @@ function PercentRow({
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}
         className="flex-1 min-w-0"
+        style={{ '--fill': rangeFill(value, 0, 100) } as CSSProperties}
       />
       <span
         className="w-10 shrink-0 text-right tabular-nums"

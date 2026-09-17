@@ -482,10 +482,59 @@ select.field-input {
   margin: 6px 0;
 }
 
-/* ── Range input (global override) ─────────────────────────── */
+/* ── Range input ─────────────────────────────────────────────── */
+/* One styled slider for every `type="range"` in the app, so the studio,
+   the popups, the volume and the icon-size slider look the same on macOS
+   and Windows instead of drawing each OS's native thumb. The track paints
+   its filled portion up to `--fill`, which the component sets from
+   `lib/rangeFill.ts`; a range that sets nothing shows a plain track. */
 input[type='range'] {
-  accent-color: var(--color-accent);
+  --fill: 0%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
   cursor: pointer;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 3px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    var(--color-accent) var(--fill),
+    var(--color-surface-3) var(--fill)
+  );
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  margin-top: -4.5px; /* (thumb − track) / 2, so it sits on the 3px line */
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 2px solid var(--color-base);
+  box-shadow: 0 0 0 1px var(--color-border-2);
+  transition:
+    transform var(--duration-fast),
+    box-shadow var(--duration-fast);
+}
+input[type='range']:hover::-webkit-slider-thumb,
+input[type='range']:active::-webkit-slider-thumb {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 4px var(--color-accent-subtle);
+}
+input[type='range']:focus-visible {
+  box-shadow: none;
+}
+input[type='range']:focus-visible::-webkit-slider-thumb {
+  box-shadow: var(--focus-ring);
+}
+input[type='range']:disabled {
+  cursor: default;
+  opacity: 0.4;
 }
 
 /* ── Toggle ─────────────────────────────────────────────────── */

@@ -50,7 +50,7 @@ export const PUBLISH_FIELDS: ReadonlyArray<PublishFieldSpec> = [
   { id: 'title', label: 'Title', card: 'title' },
   { id: 'description', label: 'Description', card: 'description' },
   { id: 'localized', label: 'Localized', card: 'localized' },
-  { id: 'collection_id', label: 'Collection', card: 'collection' },
+  { id: 'collection_id', label: 'Folder', card: 'collection' },
   { id: 'chapters', label: 'Chapters', card: 'chapters' },
   { id: 'shorts', label: 'Shorts', card: 'shorts' },
   { id: 'thumbnail', label: 'Thumbnail', card: 'thumbnail' },

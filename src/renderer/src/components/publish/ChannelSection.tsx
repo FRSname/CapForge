@@ -4,7 +4,8 @@
  * Every card renders against `channelPublishController`, so a YouTube tab
  * reuses Title, Description, Tags & hashtags, Localized and Publish state
  * unchanged while their writes land on `posts.<id>` (the primary tab's Title
- * excepted). A TikTok, Instagram, LinkedIn or X tab gets the post text with its
+ * excepted; Publish state sits above Localized and the cover, which are the two
+ * least used). A TikTok, Instagram, LinkedIn or X tab gets the post text with its
  * hashtags, a cover (not X) and the published link. Findings on this post that
  * no card draws are listed at the end, so none is lost.
  *
@@ -58,9 +59,9 @@ function YoutubeCards({ view }: { view: ChannelPublishController }) {
       <TitleCard publish={view} />
       <DescriptionCard publish={view} />
       <TagsCard publish={view} />
+      <PublishStateCard publish={view} />
       <LocalizedCard publish={view} />
       <PostCoverPicker view={view} />
-      <PublishStateCard publish={view} />
     </>
   )
 }

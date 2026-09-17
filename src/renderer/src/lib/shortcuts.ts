@@ -13,6 +13,11 @@
  *   Editor    → ResultsScreen.tsx (⌘1/⌘2), SubtitleEditor.tsx contentEditable keydown
  *   Groups    → GroupEditor.tsx list keydown (list must be focused)
  *   Timeline  → AudioPlayer.tsx zoom/navigation keydown
+ *
+ * The mouse gestures (Ctrl+Wheel, Wheel, double-click) are listed here because
+ * the on-canvas hints that used to state them permanently now show themselves
+ * once per session (`hooks/useTransientHint.ts`), so this is where they stay
+ * discoverable.
  */
 
 export interface ShortcutItem {
@@ -44,6 +49,7 @@ export const SHORTCUT_SECTIONS: ShortcutSection[] = [
       { keys: ['J', 'L'], description: 'Seek ±2 s' },
       { keys: ['←', '→'], description: 'Frame step' },
       { keys: [',', '.'], description: 'Prev · Next group' },
+      { keys: ['Dbl-click'], description: 'Toggle video zoom' },
     ],
   },
   {
@@ -70,6 +76,8 @@ export const SHORTCUT_SECTIONS: ShortcutSection[] = [
     items: [
       { keys: ['+', '−'], description: 'Zoom in · out' },
       { keys: ['0'], description: 'Reset zoom' },
+      { keys: ['Ctrl+Wheel'], description: 'Zoom timeline · video' },
+      { keys: ['Wheel'], description: 'Pan timeline' },
       { keys: ['['], description: 'Prev segment' },
       { keys: [']'], description: 'Next segment' },
     ],

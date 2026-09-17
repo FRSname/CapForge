@@ -137,6 +137,7 @@ export function FontPicker({ value, onChange }: FontPickerProps) {
         type="button"
         className="icon-btn shrink-0"
         title="Upload font (.ttf / .otf / .woff / .woff2)"
+        aria-label="Upload a font"
         onClick={handleUploadClick}
         disabled={busy}
       >

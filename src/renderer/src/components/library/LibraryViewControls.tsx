@@ -9,8 +9,11 @@
  * beats any Tailwind width utility.
  */
 
+import type { CSSProperties } from 'react'
+
 import type { LibraryLayout, LibraryViewPrefs } from '../../lib/libraryPrefs'
 import { LIBRARY_TILE_MAX_PX, LIBRARY_TILE_MIN_PX, clampTileSize } from '../../lib/libraryPrefs'
+import { rangeFill } from '../../lib/rangeFill'
 import type { LibrarySortKey } from '../../lib/librarySort'
 import {
   LIBRARY_SORT_KEYS,
@@ -108,12 +111,19 @@ export function LibraryViewControls({
           className="shrink-0"
           aria-label="Icon size"
           title="Icon size"
-          style={{ width: SLIDER_WIDTH }}
+          style={
+            {
+              width: SLIDER_WIDTH,
+              '--fill': rangeFill(view.tileSize, LIBRARY_TILE_MIN_PX, LIBRARY_TILE_MAX_PX),
+            } as CSSProperties
+          }
           min={LIBRARY_TILE_MIN_PX}
           max={LIBRARY_TILE_MAX_PX}
           step={TILE_STEP_PX}
           value={view.tileSize}
-          onChange={(e) => onViewChange({ ...view, tileSize: clampTileSize(Number(e.target.value)) })}
+          onChange={(e) =>
+            onViewChange({ ...view, tileSize: clampTileSize(Number(e.target.value)) })
+          }
         />
       )}
     </>

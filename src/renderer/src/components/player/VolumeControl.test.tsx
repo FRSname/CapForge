@@ -16,6 +16,15 @@ describe('VolumeControl', () => {
     expect(html).toContain('72%')
   })
 
+  test('paints the filled part of the track up to the volume', () => {
+    // The track's fill is CSS (`--fill` in globals.css), so the component's
+    // only job is the custom property — and getting it wrong is invisible to
+    // every other assertion here.
+    const html = renderToStaticMarkup(<VolumeControl volume={0.72} onVolumeChange={vi.fn()} />)
+
+    expect(html).toContain('--fill:72%')
+  })
+
   test('shows the muted icon at zero volume', () => {
     const html = renderToStaticMarkup(<VolumeControl volume={0} onVolumeChange={vi.fn()} />)
 
