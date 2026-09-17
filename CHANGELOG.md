@@ -29,6 +29,9 @@ A connected Claude agent can drive the whole translation loop: `create_track` re
 
 ### Fixes
 
+**Scrub the timeline by holding the mouse down**
+The playhead can be grabbed and dragged: press on it, on the ruler, or on empty track space and the player follows the pointer for as long as the button is held, past the edges of the strip too. Before, every seek was a click that dropped the playhead once. A click still seeks and deselects, a segment's edge still resizes it even when it sits on the playhead, and a segment's body still moves or selects it.
+
 **`.ass` exports are readable cues too**
 The `.ass` exporter still wrote one line per transcription chunk, so several sentences could sit in a single huge subtitle — the problem v2.6.0 fixed for `.srt` and `.vtt`. It now uses the same cues as those two: split at sentences, at most two lines of 42 characters, at most seven seconds, with the same start and end times. The word-by-word karaoke highlight survives inside each cue, and the line break falls where the `.srt` breaks it. `.srt` and `.vtt` output is unchanged.
 

@@ -152,3 +152,40 @@ export function longestFittingPrefix(
   }
   return null
 }
+
+/** What a left press on the ruler or segment track starts. */
+export type TimelinePress = 'scrub' | 'segment' | 'none'
+
+/**
+ * Decide whether a press scrubs the playhead or edits a segment.
+ *
+ * The ruler is a scrub strip: a press anywhere in it grabs the playhead. On
+ * the track a segment *edge* keeps priority, because edges snap to the
+ * playhead and the next grab of that edge must still resize the segment; a
+ * press on the playhead itself wins over a segment *body*, and empty track
+ * space scrubs too, so press-and-drag seeks continuously instead of a click
+ * landing the playhead once.
+ */
+export function classifyTimelinePress(opts: {
+  /** Pointer Y in canvas pixels. */
+  y: number
+  /** Height of the ruler at the top of the canvas. */
+  rulerHeight: number
+  /** Pointer X in client pixels. */
+  clientX: number
+  /** Playhead X in client pixels, or null while it is off the visible window. */
+  playheadClientX: number | null
+  /** Half-width of the playhead's grab zone, in pixels. */
+  playheadHitPx: number
+  /** The segment hit under the pointer, as findEdge reports it. */
+  segmentHit: 'start' | 'end' | 'body' | null
+}): TimelinePress {
+  if (opts.y < opts.rulerHeight) return 'scrub'
+  if (opts.segmentHit === 'start' || opts.segmentHit === 'end') return 'segment'
+  const onPlayhead =
+    opts.playheadClientX != null &&
+    Math.abs(opts.clientX - opts.playheadClientX) <= opts.playheadHitPx
+  if (onPlayhead) return 'scrub'
+  if (opts.segmentHit === 'body') return 'segment'
+  return 'scrub'
+}
