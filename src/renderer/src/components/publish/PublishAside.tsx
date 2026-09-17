@@ -9,6 +9,9 @@
  *
  * `contents` rather than `block` on the visible wrapper so the aside keeps
  * being a direct flex child of `<main>` and its width still comes from itself.
+ * That width is one number for both panels, set by the drag handle drawn on
+ * the column's left edge (the editor's twin, `lib/panelResize.ts`), so a
+ * workspace switch never changes the column's size.
  *
  * The workspace toggle is this column's **title** (docs/plans/ux-ui-refresh.md
  * §4): it switches which of these two panels is shown, so it heads them rather
@@ -26,6 +29,9 @@ import type { StudioPanelProps } from '../studio/StudioPanel'
 import type { PublishController } from '../../hooks/usePublishRecord'
 import { PublishPanel } from './PublishPanel'
 import { WorkspaceToggle } from './WorkspaceToggle'
+import { ResizeHandle } from '../ui/ResizeHandle'
+import { usePanelResize } from '../../hooks/usePanelResize'
+import { ASIDE_PANEL_WIDTH } from '../../lib/panelResize'
 
 interface PublishAsideProps {
   /** The workspace toggle (drawn as both panels' title), the player wire and
@@ -50,6 +56,7 @@ export function PublishAside({
   outputDir,
 }: PublishAsideProps) {
   const { workspace } = publishWorkspace
+  const resize = usePanelResize(ASIDE_PANEL_WIDTH, 'right')
   const show = (owner: Workspace) => (hidden || workspace !== owner ? 'hidden' : 'contents')
   // One immutable element, rendered at the head of both panels.
   const toggle = (
@@ -61,12 +68,18 @@ export function PublishAside({
   )
   return (
     <>
+      <ResizeHandle
+        label="Resize side panel"
+        hidden={hidden}
+        onMouseDown={resize.onHandleMouseDown}
+      />
       <div className={show('captions')}>
-        <StudioPanel {...studio} title={toggle} />
+        <StudioPanel {...studio} title={toggle} width={resize.width} />
       </div>
       <div className={show('publish')}>
         <PublishPanel
           title={toggle}
+          width={resize.width}
           publish={publish}
           segments={segments}
           tracks={tracks}

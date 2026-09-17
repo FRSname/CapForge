@@ -39,6 +39,7 @@ import {
 } from '../../lib/renderConstants'
 import type { Segment } from '../../types/app'
 import type { VideoInfo } from '../../lib/api'
+import { ASIDE_PANEL_WIDTH } from '../../lib/panelResize'
 
 // ── Settings shape ────────────────────────────────────────────
 export interface StudioSettings {
@@ -247,6 +248,8 @@ export interface StudioPanelProps {
    * to this column (docs/plans/ux-ui-refresh.md §4).
    */
   title?: ReactNode
+  /** The column's width in px; the aside's drag handle sets it (`lib/panelResize.ts`). */
+  width?: number
   settings?: StudioSettings
   onChange?: (s: StudioSettings) => void
   /** Current display groups — sent as the render's custom_groups payload (useRender). */
@@ -307,6 +310,7 @@ export function snapFps(sourceFps: number): number {
 
 export function StudioPanel({
   title,
+  width,
   settings: externalSettings,
   onChange,
   groups = [],
@@ -380,7 +384,8 @@ export function StudioPanel({
   return (
     <aside
       data-tour="studio-panel"
-      className="w-[380px] shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]"
+      className="shrink-0 flex flex-col min-h-0 overflow-hidden border-l border-[var(--color-border)]"
+      style={{ width: width ?? ASIDE_PANEL_WIDTH.initial }}
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 shrink-0 border-b border-[var(--color-border)]">

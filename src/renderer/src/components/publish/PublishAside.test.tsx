@@ -136,3 +136,25 @@ describe('PublishAside — the toggle is the aside title', () => {
     expect(html.match(/aria-label="Workspace"/g)).toHaveLength(2)
   })
 })
+
+describe('PublishAside — the column is resizable', () => {
+  test('one drag handle on the left edge, shared by both panels', () => {
+    // Arrange / Act
+    const html = aside()
+
+    // Assert — the handle precedes the panels and both start at the same width.
+    const handle = html.match(/<div role="separator"[^>]*aria-label="Resize side panel"[^>]*>/g)
+    expect(handle).toHaveLength(1)
+    expect(handle?.[0]).not.toContain('hidden=""')
+    expect(html.indexOf('role="separator"')).toBeLessThan(html.indexOf('<div class="contents">'))
+    expect(html.match(/<aside[^>]*style="width:380px"/g)).toHaveLength(2)
+  })
+
+  test('the library screen hides the handle with the panels', () => {
+    // Arrange / Act
+    const html = aside({}, true)
+
+    // Assert
+    expect(html).toMatch(/<div role="separator"[^>]*hidden=""/)
+  })
+})
