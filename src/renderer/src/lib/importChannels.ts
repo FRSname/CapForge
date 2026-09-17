@@ -94,6 +94,18 @@ export function importWhatLabel(plan: ImportPlan): string {
   return parts.length > 0 ? parts.join(' + ') : 'this import'
 }
 
+/**
+ * The sentence above the sheet's list. It says what the choice is (which
+ * channels the video is for) and what it is not (an upload), because a first
+ * launch reads "Publish to" + "Import" as "send this somewhere now". The
+ * subject follows `importWhatLabel`: one video is "this video", anything else
+ * "these videos".
+ */
+export function sheetIntro(what: string): string {
+  const subject = what === '1 video' ? 'this video' : 'these videos'
+  return `Choose which channels ${subject} ${subject === 'this video' ? 'is' : 'are'} for. Nothing is uploaded — CapForge only drafts the text you'll paste later.`
+}
+
 /** The Import button's text: it names how many channels are ticked. */
 export function importButtonText(ticked: readonly string[]): string {
   if (ticked.length === 0) return 'Import'

@@ -440,7 +440,7 @@ describe('PublishPanel', () => {
   test('a video on no channel gets the checklist instead of tabs, and cannot copy', () => {
     const markup = panel(controller({}, record({ posts: {} })))
 
-    expect(markup).toContain('Publish to:')
+    expect(markup).toContain('Prepare posts for:')
     expect(markup).toContain('Filip IG')
     expect(markup).not.toContain('role="tablist"')
     // No channel, so no channel fields — but the video's own stay.
@@ -454,7 +454,7 @@ describe('PublishPanel', () => {
 
     expect(markup).toContain('aria-label="Channels"')
     expect(markup).toContain('>UCK<')
-    expect(markup).not.toContain('Publish to:')
+    expect(markup).not.toContain('Prepare posts for:')
   })
 
   test('an Instagram tab shows the post text, not the YouTube fields', () => {

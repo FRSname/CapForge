@@ -1,5 +1,5 @@
 /**
- * The import "Publish to:" sheet — asked once per import, before anything is
+ * The import "Prepare posts for:" sheet — asked once per import, before anything is
  * imported (docs/plans/multi-channel-pr4-contract.md §Part C).
  *
  * There is no `Modal` primitive in `components/ui/`, so this follows the
@@ -13,14 +13,11 @@
 
 import { useEffect, useRef } from 'react'
 import type { Channel, PlatformSpec } from '../../lib/channelTypes'
-import { CANCEL_TITLE, SKIP_TITLE, importButtonText } from '../../lib/importChannels'
+import { CANCEL_TITLE, SKIP_TITLE, importButtonText, sheetIntro } from '../../lib/importChannels'
 import { requestSettingsCategory } from '../../lib/settingsNavigation'
 import { useFocusTrap } from '../../hooks/useFocusTrap'
 import { ChannelChecklist } from '../publish/ChannelChecklist'
 import { Button } from '../ui/Button'
-
-/** The sentence above the list — the subject is in the heading, not here. */
-export const SHEET_INTRO = 'Every ticked channel gets its own tab and its own text.'
 
 /** Said under the buttons, so "Skip" and "Cancel" can never be confused. */
 export const SHEET_ESCAPE_HINT = 'Escape imports nothing.'
@@ -53,7 +50,7 @@ export function PublishToSheet(props: PublishToSheetProps) {
       className="fixed inset-0 z-[var(--z-modal)] flex items-center justify-center bg-[var(--color-scrim)] backdrop-blur-sm"
       role="dialog"
       aria-modal="true"
-      aria-label="Publish to"
+      aria-label="Prepare posts for"
       onClick={onCancel}
     >
       <div
@@ -70,7 +67,7 @@ export function PublishToSheet(props: PublishToSheetProps) {
           platforms={platforms}
           ticked={ticked}
           error={error}
-          intro={SHEET_INTRO}
+          intro={sheetIntro(what)}
           onToggle={onToggle}
           onManage={() => requestSettingsCategory('channels')}
         />

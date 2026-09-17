@@ -19,7 +19,7 @@ export { MANAGE_CHANNELS_FALLBACK } from '../../lib/importChannels'
 
 /** The sentence above the list when one video is being placed. */
 export const PUBLISH_TO_INTRO =
-  'Pick where this video goes. Each channel gets its own tab and its own text.'
+  'Choose which channels this video is for. Nothing is uploaded — each channel gets its own tab and its own text to paste later.'
 
 interface PublishToChecklistProps {
   /** Settings channels; null while they load. */
