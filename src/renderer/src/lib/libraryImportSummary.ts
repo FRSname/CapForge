@@ -1,5 +1,5 @@
 /**
- * The one toast an Import… (or a drop) ends with. An import runs several
+ * The one toast an Add to library… (or a drop) ends with. An import runs several
  * requests — a folder import per folder, one batch of media files, a project
  * import per `.capforge` — and the user gets **one** summary of all of them,
  * so the results are added up in an `ImportTally` as they land and read once.

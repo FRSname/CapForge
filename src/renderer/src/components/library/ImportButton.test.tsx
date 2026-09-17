@@ -1,5 +1,5 @@
 /**
- * The library's one Import… action, as static markup (node environment).
+ * The library's one “Add to library…” action (the import picker), as static markup (node environment).
  *
  * What matters: on macOS it is one button that opens the combined dialog; on
  * Windows and Linux (where Electron cannot combine files and folders in one
@@ -15,7 +15,7 @@ const noop = () => {}
 describe('ImportButton', () => {
   test('with the combined picker it is one plain button', () => {
     const html = renderToStaticMarkup(<ImportButton onImport={noop} combinedPicker />)
-    expect(html).toContain('>Import…<')
+    expect(html).toContain('>Add to library…<')
     expect(html).toContain('whitespace-nowrap')
     expect(html).not.toContain('aria-haspopup')
     expect(html).not.toContain('role="menu"')
@@ -23,7 +23,7 @@ describe('ImportButton', () => {
 
   test('without it the button opens a menu, closed until clicked', () => {
     const html = renderToStaticMarkup(<ImportButton onImport={noop} combinedPicker={false} />)
-    expect(html).toContain('>Import…<')
+    expect(html).toContain('>Add to library…<')
     expect(html).toContain('aria-haspopup="menu"')
     expect(html).toContain('aria-expanded="false"')
     expect(html).not.toContain('role="menu"')

@@ -1,6 +1,6 @@
 /**
  * The window-level shortcuts App owns: Save, settings undo/redo and the
- * shortcut overlay. ⌘O is not here: it is the library's Import…, owned by the
+ * shortcut overlay. ⌘O is not here: it is the library's Add to library…, owned by the
  * library screen (`useLibraryImportShortcut`), and does nothing elsewhere.
  *
  * Moved out of `App.tsx` verbatim when the library screen landed (App is at its

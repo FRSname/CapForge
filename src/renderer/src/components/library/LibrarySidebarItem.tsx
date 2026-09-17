@@ -1,5 +1,5 @@
 /**
- * One entry of the library sidebar's tree: "All videos", "Library" or a
+ * One entry of the library sidebar's tree: "All videos", "Unfiled" or a
  * folder. A `treeitem` that is focusable and activates on click, Enter or
  * Space; ArrowRight / ArrowLeft open and close a folder with subfolders, and
  * so does its disclosure triangle.
@@ -19,7 +19,7 @@ export interface LibrarySidebarItemProps {
   /** The accessible name, when `label` is not plain text. */
   name: string
   count: number
-  /** 1 for "All videos" and "Library". */
+  /** 1 for "All videos" and "Unfiled". */
   level: number
   selected: boolean
   /** Undefined: nothing to expand. */

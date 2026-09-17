@@ -30,7 +30,14 @@ export const ALL_VIDEOS_LOCATION: LibraryLocation = { kind: 'all' }
 export const ROOT_LOCATION: LibraryLocation = { kind: 'root' }
 
 export const ALL_VIDEOS_LABEL = 'All videos'
+/** The root *location*: the path bar's first crumb, and "Top level" in a move. */
 export const LIBRARY_ROOT_LABEL = 'Library'
+/**
+ * The sidebar row for the root, which counts the videos in no folder. It is
+ * deliberately not `LIBRARY_ROOT_LABEL`: the crumb names a place, this row
+ * names what its number means.
+ */
+export const UNFILED_ROW_LABEL = 'Unfiled'
 
 /** What a location needs to know about the folders. */
 export type FolderItem = Pick<CollectionSummary, 'id' | 'name' | 'parent_id' | 'total_members'>

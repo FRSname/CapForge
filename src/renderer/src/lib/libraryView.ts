@@ -123,6 +123,32 @@ export function statusPips(status: LibraryStatus): StatusPips {
   }
 }
 
+/**
+ * What each rung of the status ladder means to read: where the record is, and
+ * what to do with it next. The library's one wording for it — the Continue hero
+ * shows it, and an unknown status says nothing rather than guessing.
+ */
+const NEXT_STEP: Readonly<Record<LibraryStatus, string>> = {
+  imported: 'Transcribe to get started',
+  transcribed: 'Transcribed · style the captions',
+  captioned: 'Captions done · write the description',
+  drafted: 'Description drafted · publish it',
+  published: 'Published',
+}
+
+/** The next step for a status; empty for one this build does not know. */
+export function nextStepLabel(status: LibraryStatus): string {
+  return NEXT_STEP[status] ?? ''
+}
+
+/**
+ * The status as one word ("captioned" → "Captioned") — the list's Status column
+ * and the grid card's footer, so the two views say the same thing.
+ */
+export function statusLabel(status: string): string {
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
 /** Comparable time of a record — `updatedAt`, falling back to `createdAt`. */
 function updatedTime(video: LibraryVideo): number {
   const parsed = Date.parse(video.updatedAt || video.createdAt)

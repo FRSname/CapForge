@@ -1,6 +1,6 @@
 /**
  * The library card/toolbar actions that touch the backend: removing a record,
- * deleting one, importing (the Import… picker and drops), and relinking a
+ * deleting one, importing (the Add to library… picker and drops), and relinking a
  * record whose media moved.
  *
  * Lives outside App because App is at its size ceiling (§9.3) and because the
@@ -77,7 +77,7 @@ export interface LibraryActions {
   removeRecords: (videos: readonly LibraryVideo[]) => Promise<void>
   /** Delete a batch: one refresh, one failure summary. Never rejects. */
   deleteRecords: (videos: readonly LibraryVideo[]) => Promise<void>
-  /** Import…: open the picker in `mode`, then import everything picked. */
+  /** Add to library…: open the picker in `mode`, then import everything picked. */
   pickAndImport: (mode: ImportPickMode) => Promise<void>
   /** Run an import plan (a drop), toast one summary, refresh once. */
   runImport: (plan: ImportPlan) => Promise<void>

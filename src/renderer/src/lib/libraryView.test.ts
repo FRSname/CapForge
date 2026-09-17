@@ -23,10 +23,12 @@ import {
   formatDuration,
   formatShortDate,
   isMediaPath,
+  nextStepLabel,
   posterAspect,
   posterBoxWidth,
   publishedOnLabel,
   sortByUpdated,
+  statusLabel,
   statusPips,
 } from './libraryView'
 
@@ -124,6 +126,34 @@ describe('statusPips', () => {
       drafted: true,
       published: true,
     })
+  })
+})
+
+describe('nextStepLabel', () => {
+  test('names the next step for each rung of the ladder', () => {
+    expect(nextStepLabel('imported')).toBe('Transcribe to get started')
+    expect(nextStepLabel('transcribed')).toBe('Transcribed · style the captions')
+    expect(nextStepLabel('captioned')).toBe('Captions done · write the description')
+    expect(nextStepLabel('drafted')).toBe('Description drafted · publish it')
+    expect(nextStepLabel('published')).toBe('Published')
+  })
+
+  test('an unknown status says nothing rather than guessing', () => {
+    expect(nextStepLabel('bogus' as never)).toBe('')
+  })
+})
+
+describe('statusLabel', () => {
+  test('is the status word, capitalised', () => {
+    expect(statusLabel('imported')).toBe('Imported')
+    expect(statusLabel('transcribed')).toBe('Transcribed')
+    expect(statusLabel('captioned')).toBe('Captioned')
+    expect(statusLabel('drafted')).toBe('Drafted')
+    expect(statusLabel('published')).toBe('Published')
+  })
+
+  test('an empty status is empty, not a crash', () => {
+    expect(statusLabel('')).toBe('')
   })
 })
 

@@ -13,7 +13,7 @@
  * Two kinds of drop land on this screen, and they must never mix:
  *   - **files from the OS** anywhere on the screen import. What a drop means
  *     is `droppedImport` (lib/libraryImport.ts), which sorts it exactly like
- *     an Import… pick: one video opens in the editor; folders, several files
+ *     an Add to library… pick: one video opens in the editor; folders, several files
  *     and `.capforge` projects are imported together. The handler runs in the
  *     **capture** phase and stops the event there, so the empty state's own
  *     DropZoneScreen never also handles it;
@@ -65,7 +65,7 @@ export interface LibraryScreenProps extends LibrarySelectionActions {
   openingVideoId?: string | null
   /** Toolbar: go to the drop screen. */
   onAddVideo: () => void
-  /** Import… (toolbar and empty state): open the picker in this mode, import what is picked. */
+  /** Add to library… (toolbar and empty state): open the import picker in this mode. */
   onImport: (mode: ImportPickMode) => void
   /** A drop that imports (folders, several files, projects): run its plan. */
   onImportDropped: (plan: ImportPlan) => void

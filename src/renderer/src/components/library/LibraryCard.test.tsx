@@ -6,6 +6,7 @@
 import { describe, expect, test } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { LibraryVideo } from '../../lib/libraryTypes'
+import { LibraryCard } from './LibraryCard'
 import { LibraryCardMenu } from './LibraryCardMenu'
 
 const video: LibraryVideo = {
@@ -102,5 +103,38 @@ describe('LibraryCardMenu', () => {
     const html = menu({ confirmingDelete: true })
     expect(html).toContain('Delete?')
     expect(html).not.toContain('Delete record…')
+  })
+})
+
+describe('LibraryCard', () => {
+  const noop = () => {}
+
+  function card(overrides: Partial<LibraryVideo> = {}): string {
+    return renderToStaticMarkup(
+      <LibraryCard
+        video={{ ...video, ...overrides }}
+        collections={[]}
+        onRemove={noop}
+        onDelete={noop}
+        onLocate={() => Promise.resolve({ kind: 'cancelled' as const })}
+        onForceLocate={noop}
+        onMoveToCollection={noop}
+        onCreateCollection={() => Promise.resolve({ kind: 'failed' as const })}
+      />
+    )
+  }
+
+  test('says the status word beside the rail, as the list column does', () => {
+    const html = card()
+    expect(html).toContain('>Captioned<')
+    // Beside the rail, not before it: the pips lead.
+    expect(html.indexOf('>Captioned<')).toBeGreaterThan(
+      html.indexOf('aria-label="Status: captioned"')
+    )
+  })
+
+  test('the word follows the record status', () => {
+    expect(card({ status: 'imported' })).toContain('>Imported<')
+    expect(card({ status: 'published' })).toContain('>Published<')
   })
 })

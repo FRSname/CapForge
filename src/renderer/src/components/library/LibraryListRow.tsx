@@ -24,6 +24,7 @@ import {
   formatDuration,
   formatShortDate,
   publishedOnLabel,
+  statusLabel,
 } from '../../lib/libraryView'
 import type { ChannelNames } from '../../hooks/useLibraryChannels'
 import type { DragSourceProps } from '../../hooks/useLibraryDrag'
@@ -167,11 +168,6 @@ function FolderCell({ collections, collectionId }: FolderCellProps) {
       {path ?? EMPTY_CELL}
     </td>
   )
-}
-
-/** "captioned" → "Captioned". */
-function statusLabel(status: string): string {
-  return status.charAt(0).toUpperCase() + status.slice(1)
 }
 
 interface NameCellProps {

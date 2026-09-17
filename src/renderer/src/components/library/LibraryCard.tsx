@@ -22,7 +22,13 @@ import type { CollectionSummary } from '../../lib/collectionTypes'
 import type { LibraryVideo } from '../../lib/libraryTypes'
 import { videoKey } from '../../lib/librarySelection'
 import { cn } from '../../lib/cn'
-import { displayTitle, formatShortDate, statusPips, OPENING_LABEL } from '../../lib/libraryView'
+import {
+  displayTitle,
+  formatShortDate,
+  statusLabel,
+  statusPips,
+  OPENING_LABEL,
+} from '../../lib/libraryView'
 import type { DragSourceProps } from '../../hooks/useLibraryDrag'
 import type { RecordMenuActions } from '../../hooks/useRecordMenu'
 import { useRecordMenu } from '../../hooks/useRecordMenu'
@@ -152,6 +158,10 @@ export function LibraryCard({
         )}
         <div className="flex min-w-0 items-center gap-2">
           <StatusRail video={video} />
+          {/* The word the list's Status column shows, so the two views agree. */}
+          <span className="text-2xs" style={{ color: 'var(--color-text-3)' }}>
+            {statusLabel(video.status)}
+          </span>
           <LanguageChip lang={video.language} />
           <CollectionChip folder={folder} />
           <span

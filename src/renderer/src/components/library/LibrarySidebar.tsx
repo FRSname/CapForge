@@ -1,11 +1,12 @@
 /**
  * The library sidebar (docs/plans/library-finder.md §4.1): "All videos", a
- * "Folders" label, "Library" (the unfiled videos and the top level), then the
- * folder tree — expanded folders remembered in `libraryView.expanded`, counts
- * from `total_members` — and orphan ids with a dashed glyph. "+ New folder" at
+ * "Folders" label, "Unfiled" (the videos in no folder, and the top level —
+ * the path bar still calls the location "Library"), then the folder tree —
+ * expanded folders remembered in `libraryView.expanded`, counts from
+ * `total_members` — and orphan ids with a dashed glyph. "+ New folder" at
  * the foot creates inside the folder on show.
  *
- * "Library" and every real folder take drops (videos move there, folders move
+ * "Unfiled" and every real folder take drops (videos move there, folders move
  * inside); a folder can also be dragged. Right-click a folder for its menu.
  */
 
@@ -15,8 +16,8 @@ import type { LibraryLocation } from '../../lib/libraryLocation'
 import {
   ALL_VIDEOS_LABEL,
   ALL_VIDEOS_LOCATION,
-  LIBRARY_ROOT_LABEL,
   ROOT_LOCATION,
+  UNFILED_ROW_LABEL,
   folderLocation,
   sameLocation,
 } from '../../lib/libraryLocation'
@@ -84,8 +85,9 @@ export function LibrarySidebar(props: LibrarySidebarProps) {
         </p>
         <div role="tree" aria-labelledby={FOLDERS_LABEL_ID}>
           <LibrarySidebarItem
-            label={<span className="truncate">{LIBRARY_ROOT_LABEL}</span>}
-            name={LIBRARY_ROOT_LABEL}
+            label={<span className="truncate">{UNFILED_ROW_LABEL}</span>}
+            name={UNFILED_ROW_LABEL}
+            title="Videos in no folder"
             count={unfiledCount(videos)}
             level={1}
             selected={location.kind === 'root'}

@@ -1,5 +1,5 @@
 /**
- * ⌘O / Ctrl+O on the library screen is Import…. The node test environment has
+ * ⌘O / Ctrl+O on the library screen is “Add to library…”. The node test environment has
  * no key events, so the two decisions are pinned as pure functions: which
  * keystroke counts, and which picker it opens on each platform.
  */
@@ -38,7 +38,7 @@ describe('importShortcutMode', () => {
     expect(importShortcutMode('MacIntel')).toBe('any')
   })
 
-  test('Windows and Linux, where Import… is a Files… / Folder… menu, pick files', () => {
+  test('Windows and Linux, where the button is a Files… / Folder… menu, pick files', () => {
     expect(importShortcutMode('Win32')).toBe('files')
     expect(importShortcutMode('Linux x86_64')).toBe('files')
     expect(importShortcutMode(undefined)).toBe('files')
