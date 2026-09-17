@@ -89,7 +89,13 @@ export function TitleBar({
               title="Back to the library (this session stays open)"
               aria-label="Back to the library"
             >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 16 16"
+                fill="currentColor"
+                aria-hidden="true"
+              >
                 <path d="M1 2.75C1 1.784 1.784 1 2.75 1h2.5C6.216 1 7 1.784 7 2.75v2.5A1.75 1.75 0 0 1 5.25 7h-2.5A1.75 1.75 0 0 1 1 5.25Zm1.75-.25a.25.25 0 0 0-.25.25v2.5c0 .138.112.25.25.25h2.5a.25.25 0 0 0 .25-.25v-2.5a.25.25 0 0 0-.25-.25ZM9 2.75C9 1.784 9.784 1 10.75 1h2.5C14.216 1 15 1.784 15 2.75v2.5A1.75 1.75 0 0 1 13.25 7h-2.5A1.75 1.75 0 0 1 9 5.25Zm1.75-.25a.25.25 0 0 0-.25.25v2.5c0 .138.112.25.25.25h2.5a.25.25 0 0 0 .25-.25v-2.5a.25.25 0 0 0-.25-.25ZM1 10.75C1 9.784 1.784 9 2.75 9h2.5C6.216 9 7 9.784 7 10.75v2.5A1.75 1.75 0 0 1 5.25 15h-2.5A1.75 1.75 0 0 1 1 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v2.5c0 .138.112.25.25.25h2.5a.25.25 0 0 0 .25-.25v-2.5a.25.25 0 0 0-.25-.25ZM9 10.75C9 9.784 9.784 9 10.75 9h2.5c.966 0 1.75.784 1.75 1.75v2.5A1.75 1.75 0 0 1 13.25 15h-2.5A1.75 1.75 0 0 1 9 13.25Zm1.75-.25a.25.25 0 0 0-.25.25v2.5c0 .138.112.25.25.25h2.5a.25.25 0 0 0 .25-.25v-2.5a.25.25 0 0 0-.25-.25Z" />
               </svg>
               Library
@@ -166,8 +172,13 @@ export function TitleBar({
               </span>
             )}
             <div className="w-px h-3.5 bg-[var(--color-border)] mx-0.5" />
-            <Button variant="titlebar" title="Save Project (Ctrl+S)" onClick={onSave}>
-              Save
+            <Button
+              variant="titlebar"
+              title="Export a .capforge project file (⌘S)"
+              aria-label="Export project"
+              onClick={onSave}
+            >
+              Export project…
             </Button>
             <Button variant="titlebar" onClick={onNew} title="New Transcription">
               New

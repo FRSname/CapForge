@@ -9,6 +9,12 @@
  *
  * `contents` rather than `block` on the visible wrapper so the aside keeps
  * being a direct flex child of `<main>` and its width still comes from itself.
+ *
+ * The workspace toggle is this column's **title** (docs/plans/ux-ui-refresh.md
+ * §4): it switches which of these two panels is shown, so it heads them rather
+ * than riding over the editor's tab strip. Both panels get their own copy —
+ * the hidden one is not on screen — and it is built here from
+ * `publishWorkspace`, which already carries the three values it needs.
  */
 
 import type { Workspace } from '../../types/app'
@@ -19,9 +25,11 @@ import { StudioPanel } from '../studio/StudioPanel'
 import type { StudioPanelProps } from '../studio/StudioPanel'
 import type { PublishController } from '../../hooks/usePublishRecord'
 import { PublishPanel } from './PublishPanel'
+import { WorkspaceToggle } from './WorkspaceToggle'
 
 interface PublishAsideProps {
-  /** The toggle, the player wire and the active channel tab's reporter. */
+  /** The workspace toggle (drawn as both panels' title), the player wire and
+   *  the active channel tab's reporter. */
   publishWorkspace: PublishWorkspaceController
   /** Hides the whole column (the library screen has no open project). */
   hidden: boolean
@@ -43,13 +51,22 @@ export function PublishAside({
 }: PublishAsideProps) {
   const { workspace } = publishWorkspace
   const show = (owner: Workspace) => (hidden || workspace !== owner ? 'hidden' : 'contents')
+  // One immutable element, rendered at the head of both panels.
+  const toggle = (
+    <WorkspaceToggle
+      workspace={workspace}
+      onChange={publishWorkspace.setWorkspace}
+      publishEnabled={publishWorkspace.publishEnabled}
+    />
+  )
   return (
     <>
       <div className={show('captions')}>
-        <StudioPanel {...studio} />
+        <StudioPanel {...studio} title={toggle} />
       </div>
       <div className={show('publish')}>
         <PublishPanel
+          title={toggle}
           publish={publish}
           segments={segments}
           tracks={tracks}

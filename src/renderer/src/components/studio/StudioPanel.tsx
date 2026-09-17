@@ -4,6 +4,7 @@
  */
 
 import { useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { ExportPanel, type ExportTrack } from './ExportPanel'
 import { ExportFooter } from './ExportFooter'
 import { CustomRenderPanel } from './CustomRenderPanel'
@@ -240,6 +241,12 @@ const DEFAULTS: StudioSettings = {
 }
 
 export interface StudioPanelProps {
+  /**
+   * What heads the panel. Defaults to its own "Custom Settings" label; the
+   * aside hands it the workspace toggle instead, because that switch belongs
+   * to this column (docs/plans/ux-ui-refresh.md §4).
+   */
+  title?: ReactNode
   settings?: StudioSettings
   onChange?: (s: StudioSettings) => void
   /** Current display groups — sent as the render's custom_groups payload (useRender). */
@@ -299,6 +306,7 @@ export function snapFps(sourceFps: number): number {
 }
 
 export function StudioPanel({
+  title,
   settings: externalSettings,
   onChange,
   groups = [],
@@ -376,7 +384,7 @@ export function StudioPanel({
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 py-2.5 shrink-0 border-b border-[var(--color-border)]">
-        <span className="label-xs">Custom Settings</span>
+        {title ?? <span className="label-xs">Custom Settings</span>}
         <PresetPicker
           settings={s}
           onChange={(next) => {

@@ -78,3 +78,40 @@ describe('GroupEditor — track state chip', () => {
     expect(html).not.toContain('no text')
   })
 })
+
+describe('GroupEditor — merge-on-hover gap', () => {
+  /** Two groups, so exactly one gap row exists between them. */
+  function renderPair(): string {
+    return renderToStaticMarkup(
+      <GroupEditor
+        groups={[GROUP, { ...GROUP, id: 'g1', start: 1.4, end: 2.8 }]}
+        currentTime={0}
+        onSeek={noop}
+        onChange={noop}
+        onPositionChange={noop}
+        defaults={{ textColor: '#FFFFFF', activeColor: '#D4952A' }}
+        positionDefaults={{ posX: 50, posY: 80 }}
+      />
+    )
+  }
+
+  test('the merge button is invisible until the gap is hovered or focused', () => {
+    // Arrange / Act
+    const html = renderPair()
+
+    // Assert
+    expect(html).toContain('merge')
+    expect(html).toContain('opacity-0')
+    expect(html).toContain('group-hover/gap:opacity-100')
+    expect(html).toContain('focus-visible:opacity-100')
+  })
+
+  test('the gap keeps a fixed height so hovering never moves the rows', () => {
+    // Arrange / Act
+    const html = renderPair()
+
+    // Assert
+    expect(html).toContain('group/gap flex h-5 items-center justify-center')
+    expect(html).toContain('Merge with group above (M)')
+  })
+})

@@ -422,18 +422,13 @@ export function GroupEditor({
 
         return (
           <div key={group.id}>
-            {/* Merge-with-above button — appears between rows */}
+            {/* Merge-with-above button — a fixed-height gap between rows that
+                reveals it on hover or keyboard focus, so the list never shifts */}
             {gi > 0 && (
-              <div className="flex justify-center mb-1">
+              <div className="group/gap flex h-5 items-center justify-center">
                 <button
-                  className="text-2xs px-2 py-0.5 rounded hover:bg-[var(--color-surface-3)] transition-colors"
-                  style={{ color: 'var(--color-text-3)' }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = 'var(--color-text)'
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = 'var(--color-text-3)'
-                  }}
+                  className="text-2xs px-2 py-0.5 rounded opacity-0 group-hover/gap:opacity-100 focus-visible:opacity-100 hover:bg-[var(--color-surface-3)] transition-opacity"
+                  style={{ color: 'var(--color-text-2)' }}
                   onClick={() => handleMerge(gi - 1)}
                   title="Merge with group above (M)"
                 >

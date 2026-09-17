@@ -2,7 +2,7 @@
  * The TitleBar's "Library" button: offered on the file and results screens,
  * absent on the library itself and while a transcription runs, and always the
  * first of the right-hand actions. There is no Open button on any screen: the
- * library's Import… is the one way in (docs/plans/library-finder.md §3.1).
+ * library's Add to library… is the one way in (docs/plans/library-finder.md §3.1).
  */
 
 import { describe, expect, test } from 'vitest'
@@ -14,25 +14,19 @@ const noop = () => {}
 
 function render(screen: Screen): string {
   return renderToStaticMarkup(
-    <TitleBar
-      screen={screen}
-      onLibrary={noop}
-      onNew={noop}
-      onSave={noop}
-      onSettingsToggle={noop}
-    />
+    <TitleBar screen={screen} onLibrary={noop} onNew={noop} onSave={noop} onSettingsToggle={noop} />
   )
 }
 
 const LIBRARY_BUTTON = 'aria-label="Back to the library"'
 
 describe('TitleBar Library button', () => {
-  test('renders on the results screen, before Save / New', () => {
+  test('renders on the results screen, before Export project… / New', () => {
     const html = render('results')
 
     expect(html).toContain(LIBRARY_BUTTON)
     const library = html.indexOf(LIBRARY_BUTTON)
-    expect(library).toBeLessThan(html.indexOf('>Save<'))
+    expect(library).toBeLessThan(html.indexOf('>Export project…<'))
     expect(library).toBeLessThan(html.indexOf('>New<'))
     expect(library).toBeLessThan(html.indexOf('aria-label="Undo"'))
   })
@@ -52,6 +46,17 @@ describe('TitleBar Library button', () => {
     expect(render('progress')).not.toContain(LIBRARY_BUTTON)
   })
 
+  test('names the project export in full, not "Save"', () => {
+    const html = render('results')
+
+    expect(html).toContain('>Export project…<')
+    expect(html).toContain('aria-label="Export project"')
+    expect(html).toContain('Export a .capforge project file')
+    expect(html).not.toContain('>Save<')
+    // New stays as it is (it starts a fresh transcription, not a file action).
+    expect(html).toContain('>New<')
+  })
+
   test('uses theme tokens, not hardcoded colours', () => {
     const html = render('results')
     expect(html).not.toMatch(/text-white|bg-black/)
@@ -59,10 +64,13 @@ describe('TitleBar Library button', () => {
 })
 
 describe('TitleBar Open button', () => {
-  test.each<Screen>(['library', 'file', 'progress', 'results'])('is gone on the %s screen', (screen) => {
-    const html = render(screen)
-    expect(html).not.toContain('>Open<')
-    expect(html).not.toContain('Open Project')
-    expect(html).toContain('aria-label="Settings"')
-  })
+  test.each<Screen>(['library', 'file', 'progress', 'results'])(
+    'is gone on the %s screen',
+    (screen) => {
+      const html = render(screen)
+      expect(html).not.toContain('>Open<')
+      expect(html).not.toContain('Open Project')
+      expect(html).toContain('aria-label="Settings"')
+    }
+  )
 })

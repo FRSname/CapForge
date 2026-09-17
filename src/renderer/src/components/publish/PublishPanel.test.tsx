@@ -504,3 +504,35 @@ describe('provenance', () => {
     expect(markup).toContain('Last written by')
   })
 })
+
+describe('PublishPanel header title', () => {
+  const props = {
+    segments,
+    tracks: [sourceTrack],
+    outputDir: '',
+    onSeek: () => {},
+    getPlayhead: () => 0,
+  }
+
+  test('falls back to the "Publish" label when no title is given', () => {
+    const markup = html(
+      <PublishPanelView publish={controller()} channels={channelsFor(controller())} {...props} />
+    )
+
+    expect(markup).toContain('<span class="label-xs">Publish</span>')
+  })
+
+  test('renders the title the aside hands it in place of the label', () => {
+    const markup = html(
+      <PublishPanelView
+        publish={controller()}
+        channels={channelsFor(controller())}
+        title={<span data-testid="aside-title">Workspace switch</span>}
+        {...props}
+      />
+    )
+
+    expect(markup).toContain('Workspace switch')
+    expect(markup).not.toContain('<span class="label-xs">Publish</span>')
+  })
+})
