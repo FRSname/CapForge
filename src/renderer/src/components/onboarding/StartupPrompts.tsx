@@ -18,6 +18,7 @@ import { useToast } from '../../hooks/useToast'
 import { useTour } from '../../hooks/useTour'
 import type { OnboardingKind } from '../../lib/onboardingRequests'
 import { onOnboardingRequested } from '../../lib/onboardingRequests'
+import { requestSettingsClose } from '../../lib/settingsNavigation'
 import type { TourId } from '../../lib/tourSteps'
 import { TOURS } from '../../lib/tourSteps'
 import type { Screen } from '../../types/app'
@@ -83,7 +84,10 @@ export function StartupPrompts({ screen }: StartupPromptsProps) {
 
   // Settings -> General -> About. "What's new" is a card and is handled by
   // `useStartupPrompts`; the two tours are handled here, because only this
-  // component knows which screen the app is on.
+  // component knows which screen the app is on. The request comes from
+  // inside Settings, which would otherwise stay open under the tour and hide
+  // (and block) the control being pointed at, so Settings is closed first.
+  // Nothing listening is fine: the tour still starts.
   useEffect(
     () =>
       onOnboardingRequested((kind) => {
@@ -93,6 +97,7 @@ export function StartupPrompts({ screen }: StartupPromptsProps) {
           toast(WRONG_SCREEN_MESSAGE[id], 'info')
           return
         }
+        requestSettingsClose()
         start(id)
       }),
     [screen, start, toast]
