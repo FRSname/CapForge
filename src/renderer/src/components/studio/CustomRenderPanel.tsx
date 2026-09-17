@@ -113,7 +113,7 @@ export function CustomRenderPanel({
                 }
                 className={`flex-1 min-w-0 truncate text-2xs py-1 px-1 rounded-md border transition-colors ${
                   active
-                    ? 'bg-[var(--color-accent)] text-white border-transparent'
+                    ? 'bg-[var(--color-accent)] text-[var(--color-on-accent)] border-transparent'
                     : 'bg-[var(--color-surface-2)] border-[var(--color-border)] hover:bg-[var(--color-surface-3)]'
                 }`}
                 style={active ? undefined : { color: 'var(--color-text-2)' }}

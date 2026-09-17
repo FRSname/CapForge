@@ -225,7 +225,7 @@ export function HyperFramesPanel({
           Output:
         </span>
         <span
-          className="flex-1 min-w-0 text-[11px] truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
+          className="flex-1 min-w-0 text-xs-plus truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
           style={{ color: 'var(--color-text-2)' }}
           title={outputDir || `Same as source (${effectiveOutputDir})`}
         >
@@ -233,7 +233,7 @@ export function HyperFramesPanel({
         </span>
         <Button
           variant="ghost"
-          className="text-[11px] py-1 px-2 shrink-0"
+          className="text-xs-plus py-1 px-2 shrink-0"
           onClick={async () => {
             const dir = await window.subforge.pickOutputDir()
             if (dir) onOutputDir(dir)
@@ -245,7 +245,7 @@ export function HyperFramesPanel({
         {outputDir && (
           <Button
             variant="ghost"
-            className="text-[11px] py-1 px-2 shrink-0"
+            className="text-xs-plus py-1 px-2 shrink-0"
             onClick={() => onOutputDir('')}
             disabled={busy}
             title="Reset to Same as source"
@@ -289,7 +289,7 @@ export function HyperFramesPanel({
         <button
           type="button"
           onClick={() => window.subforge.showInFolder(lastOutputFile)}
-          className="mt-1.5 w-full text-[11px] truncate text-left px-1.5 py-1 rounded hover:bg-[var(--color-surface-2)]"
+          className="mt-1.5 w-full text-xs-plus truncate text-left px-1.5 py-1 rounded hover:bg-[var(--color-surface-2)]"
           style={{ color: 'var(--color-text-3)' }}
           title={`Reveal in file browser:\n${lastOutputFile}`}
         >

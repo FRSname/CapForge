@@ -77,7 +77,7 @@ export function LibrarySidebar(props: LibrarySidebarProps) {
       <div className="flex min-h-0 flex-col gap-1">
         <p
           id={FOLDERS_LABEL_ID}
-          className="px-2 text-[11px] uppercase tracking-widest"
+          className="px-2 text-xs-plus uppercase tracking-widest"
           style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
         >
           Folders

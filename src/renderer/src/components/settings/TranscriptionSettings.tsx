@@ -129,7 +129,7 @@ export function TranscriptionSettings() {
             </option>
           ))}
         </Select>
-        <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+        <p className="text-xs-plus" style={{ color: 'var(--color-text-3)' }}>
           Smaller models are faster and use less memory. A model you haven&apos;t used yet downloads
           the first time you transcribe with it.
         </p>
@@ -138,7 +138,7 @@ export function TranscriptionSettings() {
           onChange={handleFreeModelAfterJobChange}
           label="Free model memory after each job"
         />
-        <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+        <p className="text-xs-plus" style={{ color: 'var(--color-text-3)' }}>
           Unloads the Whisper model when a transcription finishes. Slower next start, less memory
           held while you edit — for machines with little RAM.
         </p>
@@ -158,7 +158,7 @@ export function TranscriptionSettings() {
               placeholder="hf_…"
               className="field-input text-xs font-mono"
             />
-            <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+            <p className="text-xs-plus" style={{ color: 'var(--color-text-3)' }}>
               Required for pyannote diarization. Get a token at huggingface.co.
             </p>
           </div>

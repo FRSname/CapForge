@@ -52,13 +52,20 @@
   /* ── Text ──────────────────────────────────────────── */
   --color-text:       #e8e8f0;
   --color-text-2:     #9898ac;
-  --color-text-3:     #56566a;
+  --color-text-3:     #8a8aa0;
+  /* Decorative only (dividers, resting glyphs) — never for words. */
+  --color-text-4:     #4a4a5c;
 
-  /* ── Accent (electric blue) ────────────────────────── */
-  --color-accent:     #5b7ef7;
-  --color-accent-2:   #7a9bff;
-  --color-accent-glow: rgba(91 126 247 / 0.22);
-  --color-accent-subtle: rgba(91 126 247 / 0.08);
+  /* ── Accent (the brand amber — one accent, both themes) ── */
+  /* Amber under white text is ~2.6:1, so an accent fill carries dark ink
+     here and the light theme uses a deeper amber under white. Every
+     `bg-[var(--color-accent)]` pairs with `--color-on-accent`, never with
+     `text-white`. Ratios are pinned by styles/tokens.test.ts. */
+  --color-accent:     #D4952A;
+  --color-accent-2:   #E8AD45;
+  --color-on-accent:  #15100a;
+  --color-accent-glow: rgba(212 149 42 / 0.28);
+  --color-accent-subtle: rgba(212 149 42 / 0.10);
 
   /* ── Amber (timeline / subtitle blocks) ────────────── */
   --color-amber:      #c9891f;
@@ -96,6 +103,11 @@
      (inherits body line-height), matching old text-[10px] behavior.
      Standard text-xs (12px) / text-sm (14px) are left untouched. */
   --text-2xs:         10px;
+  /* 11px is the studio/publish label size; 13px is the body size the html
+     rule declares. Tailwind has neither step, so both are named here and a
+     lint rule refuses the pixel literals (docs/plans/ux-ui-refresh.md §1.3). */
+  --text-xs-plus:     11px;
+  --text-body:        13px;
 
   /* ── Radii ─────────────────────────────────────────── */
   --radius-xs:        3px;
@@ -141,24 +153,27 @@
    ╚══════════════════════════════════════════════════════════╝ */
 
 :root.light {
-  --color-bg:         #f6f8fa;
+  /* Warm neutrals, so light is the same product as dark, not a second one. */
+  --color-bg:         #f7f5f1;
   --color-base:       #ffffff;
   --color-surface:    #ffffff;
-  --color-surface-2:  #eef1f4;
-  --color-surface-3:  #e2e6ea;
+  --color-surface-2:  #f0ede7;
+  --color-surface-3:  #e6e2db;
 
   --color-border:     rgba(0 0 0 / 0.10);
   --color-border-2:   rgba(0 0 0 / 0.16);
   --color-border-3:   rgba(0 0 0 / 0.24);
 
-  --color-text:       #1f2328;
-  --color-text-2:     #636c76;
-  --color-text-3:     #8b949e;
+  --color-text:       #1d1a16;
+  --color-text-2:     #5f584f;
+  --color-text-3:     #605c55;
+  --color-text-4:     #a9a49b;
 
-  --color-accent:     #0969da;
-  --color-accent-2:   #0550ae;
-  --color-accent-glow: rgba(9 105 218 / 0.18);
-  --color-accent-subtle: rgba(9 105 218 / 0.06);
+  --color-accent:     #9A5F0A;
+  --color-accent-2:   #7D4C06;
+  --color-on-accent:  #ffffff;
+  --color-accent-glow: rgba(154 95 10 / 0.18);
+  --color-accent-subtle: rgba(154 95 10 / 0.06);
 
   --color-amber:      #9a6700;
   --color-amber-2:    #bf8700;
@@ -237,7 +252,7 @@ html, body, #root {
   font-family: var(--cf-font-mono);
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.09em;
   text-transform: uppercase;
   color: var(--color-text-3);
 }
@@ -309,7 +324,7 @@ html, body, #root {
   padding: 8px 20px;
   border-radius: var(--radius-md);
   background: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
   font-weight: 600;
   font-size: 13px;
   border: none;
@@ -376,7 +391,7 @@ html, body, #root {
   border: 1px solid var(--color-border-2);
   background: var(--color-base);
   color: var(--color-text);
-  font-size: 12px;
+  font-size: var(--text-body);
   outline: none;
   transition: border-color var(--duration-fast);
 }

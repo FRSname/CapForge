@@ -83,7 +83,7 @@ function IdeaRow({ idea, index, group, write, thumbnail, publish }: IdeaRowProps
         </select>
         <button
           type="button"
-          className="icon-btn w-5 h-5 text-[11px] shrink-0"
+          className="icon-btn w-5 h-5 text-xs-plus shrink-0"
           aria-label={`Remove idea ${n}`}
           title="Remove this idea"
           onClick={() => write(removeIdea(thumbnail, index))}
@@ -152,7 +152,7 @@ export function ThumbnailIdeas({ publish, violations }: ThumbnailIdeasProps) {
       <FieldViolations violations={violations} />
       <Button
         variant="ghost"
-        className="text-[11px] py-1 justify-center"
+        className="text-xs-plus py-1 justify-center"
         onClick={() => write(addIdea(thumbnail))}
       >
         Add idea

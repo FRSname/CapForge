@@ -96,7 +96,7 @@ const TranscriptRow = memo(function TranscriptRow({
           >
             {formatTimestamp(segment.start)}
           </span>
-          <span className="text-xs leading-relaxed min-w-0" style={{ color: 'var(--color-text)' }}>
+          <span className="text-body leading-relaxed min-w-0" style={{ color: 'var(--color-text)' }}>
             {segment.speaker && (
               <span
                 data-speaker

@@ -59,7 +59,7 @@ export function RenderProgressModal({ render }: Props) {
             {render.progress}%
           </span>
           <span
-            className="text-[11px] truncate flex-1 text-right"
+            className="text-xs-plus truncate flex-1 text-right"
             style={{ color: 'var(--color-text-3)' }}
             aria-live="polite"
           >

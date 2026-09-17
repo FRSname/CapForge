@@ -81,7 +81,7 @@ function LanguageChip({ lang, active, started, findings, onSelect }: LanguageChi
       title={
         started ? languageLabel(lang) : `${languageLabel(lang)} — a caption track, not started`
       }
-      className="flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full hover:bg-[var(--color-surface-2)] transition-colors"
+      className="flex items-center gap-1 text-xs-plus px-2 py-0.5 rounded-full hover:bg-[var(--color-surface-2)] transition-colors"
       style={{
         color: started ? 'var(--color-text)' : 'var(--color-text-3)',
         border: `1px ${started ? 'solid' : 'dashed'} var(--color-border)`,
@@ -138,7 +138,7 @@ interface AddLanguageProps {
 function AddLanguage({ options, onAdd }: AddLanguageProps) {
   return (
     <select
-      className="field-input text-[11px]"
+      className="field-input text-xs-plus"
       aria-label="Add language"
       value=""
       onChange={(e) => {

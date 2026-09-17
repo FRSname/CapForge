@@ -410,7 +410,7 @@ export function StudioPanel({
               aria-label="Clear search"
               title="Clear search"
               onClick={() => setSearchQuery('')}
-              className="icon-btn w-5 h-5 text-[11px] absolute right-1 top-1/2 -translate-y-1/2"
+              className="icon-btn w-5 h-5 text-xs-plus absolute right-1 top-1/2 -translate-y-1/2"
             >
               ✕
             </button>

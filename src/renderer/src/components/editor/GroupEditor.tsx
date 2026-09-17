@@ -516,7 +516,9 @@ export function GroupEditor({
                 >
                   {formatTime(group.start)}
                 </button>
-                <span style={{ color: 'var(--color-text-3)' }}>→</span>
+                <span aria-hidden="true" style={{ color: 'var(--color-text-4)' }}>
+                  →
+                </span>
                 {editingEndIdx === gi ? (
                   <input
                     className="w-14 px-1 rounded bg-[var(--color-surface-3)] border border-[var(--color-accent)] outline-none font-mono text-2xs tabular-nums"

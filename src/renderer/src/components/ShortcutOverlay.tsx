@@ -74,7 +74,7 @@ export function ShortcutOverlay({ open, onClose }: ShortcutOverlayProps) {
                   key={item.description}
                   className="flex justify-between items-center gap-3 py-0.5"
                 >
-                  <span className="text-[11px]" style={{ color: 'var(--color-text-2)' }}>
+                  <span className="text-xs-plus" style={{ color: 'var(--color-text-2)' }}>
                     {item.description}
                   </span>
                   <span className="shrink-0 flex items-center gap-1">

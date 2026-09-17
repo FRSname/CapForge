@@ -47,7 +47,7 @@ export function ProvenanceChip({ provenance, onRevert, now }: ProvenanceChipProp
       {onRevert && (
         <button
           type="button"
-          className="icon-btn w-4 h-4 text-[10px]"
+          className="icon-btn w-4 h-4 text-2xs"
           aria-label="Revert this field"
           title="Revert to the previous value"
           onClick={onRevert}

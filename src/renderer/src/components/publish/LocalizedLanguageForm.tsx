@@ -201,7 +201,7 @@ function ChapterTitles({ lang, chapters, titles, edit, onChange }: ChapterTitles
         {alignedChapterTitles(chapters, titles).map((row, i) => (
           <li key={`${i}:${row.start_s}`} className="flex items-center gap-1.5">
             <span
-              className="text-[11px] tabular-nums shrink-0"
+              className="text-xs-plus tabular-nums shrink-0"
               style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-2)' }}
             >
               {formatTimestamp(row.start_s)}

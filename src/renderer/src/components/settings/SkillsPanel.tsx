@@ -171,20 +171,20 @@ export function SkillsPanel({ open }: SkillsPanelProps) {
   return (
     <div className="flex flex-col gap-2">
       <label className="label-xs">Skills</label>
-      <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+      <p className="text-xs-plus" style={{ color: 'var(--color-text-3)' }}>
         Workflows Claude runs against CapForge. Edit them here; Install copies your version into
         Claude Code. Claude Desktop users: Reveal the folder and add it through Desktop&apos;s
         skills settings.
       </p>
 
       {!available && (
-        <p className="text-[11px]" style={{ color: 'var(--color-accent-2)' }}>
+        <p className="text-xs-plus" style={{ color: 'var(--color-accent-2)' }}>
           Restart CapForge to enable skills.
         </p>
       )}
 
       {available && listed && skills.length === 0 && (
-        <p className="text-[11px]" style={{ color: 'var(--color-text-3)' }}>
+        <p className="text-xs-plus" style={{ color: 'var(--color-text-3)' }}>
           No skills are bundled in this build.
         </p>
       )}
@@ -211,7 +211,7 @@ export function SkillsPanel({ open }: SkillsPanelProps) {
                 >
                   <span className="flex w-full items-center justify-between gap-2">
                     <span
-                      className="min-w-0 truncate text-[11px]"
+                      className="min-w-0 truncate text-xs-plus"
                       style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text)' }}
                     >
                       {s.name}
@@ -219,7 +219,7 @@ export function SkillsPanel({ open }: SkillsPanelProps) {
                     <SkillStatusChip status={s.installStatus} bundleChanged={s.bundleChanged} />
                   </span>
                   <span
-                    className="line-clamp-2 text-[11px]"
+                    className="line-clamp-2 text-xs-plus"
                     style={{ color: 'var(--color-text-3)' }}
                   >
                     {s.description}

@@ -45,7 +45,7 @@ export function PublishToChecklist({ channels, platforms, onAdd }: PublishToChec
       {channels !== null && channels.length > 0 && (
         <Button
           variant="primary"
-          className="self-start text-[11px] py-1 px-3"
+          className="self-start text-xs-plus py-1 px-3"
           disabled={ticked.length === 0}
           onClick={() => {
             onAdd(ticked)

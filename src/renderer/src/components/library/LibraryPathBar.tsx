@@ -50,7 +50,7 @@ export function LibraryPathBar({ crumbs, countLabel, drag, onNavigate }: Library
         )}
       </ol>
       <span
-        className="whitespace-nowrap text-[11px] uppercase tracking-widest"
+        className="whitespace-nowrap text-xs-plus uppercase tracking-widest"
         style={{ fontFamily: 'var(--cf-font-mono)', color: 'var(--color-text-3)' }}
       >
         {countLabel}

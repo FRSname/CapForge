@@ -117,12 +117,12 @@ export function StudioRow({
             if (e.key === 'Enter') commitEdit()
             if (e.key === 'Escape') setEditing(false)
           }}
-          className="w-10 shrink-0 text-right text-[11px] tabular-nums bg-[var(--color-surface-2)] border border-[var(--color-accent)] rounded px-0.5 outline-none"
+          className="w-10 shrink-0 text-right text-xs-plus tabular-nums bg-[var(--color-surface-2)] border border-[var(--color-accent)] rounded px-0.5 outline-none"
           style={{ color: 'var(--color-text)' }}
         />
       ) : (
         <span
-          className="w-10 shrink-0 text-right text-[11px] tabular-nums cursor-text transition-colors"
+          className="w-10 shrink-0 text-right text-xs-plus tabular-nums cursor-text transition-colors"
           style={{
             color: hovered
               ? 'var(--color-accent)'
@@ -143,7 +143,7 @@ export function StudioRow({
       {/* Reset — only visible when dirty */}
       <button
         type="button"
-        className="icon-btn w-5 h-5 text-[11px] shrink-0"
+        className="icon-btn w-5 h-5 text-xs-plus shrink-0"
         title={`Reset to ${def}${unit}`}
         onClick={() => onChange(def)}
         style={{ opacity: isDirty ? 1 : 0.2 }}

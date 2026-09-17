@@ -55,7 +55,7 @@ function SliderRow({ label, value, min, max, unit, onChange }: SliderRowProps) {
   return (
     <div className="flex items-center gap-1.5 min-w-0">
       {label && (
-        <span className="w-9 shrink-0 text-[11px]" style={{ color: 'var(--color-text-2)' }}>
+        <span className="w-9 shrink-0 text-xs-plus" style={{ color: 'var(--color-text-2)' }}>
           {label}
         </span>
       )}
@@ -78,10 +78,10 @@ function SliderRow({ label, value, min, max, unit, onChange }: SliderRowProps) {
         step={1}
         value={value}
         onChange={(e) => commit(e.target.value)}
-        className="w-9 shrink-0 text-right text-[11px] tabular-nums bg-transparent border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] outline-none px-0.5"
+        className="w-9 shrink-0 text-right text-xs-plus tabular-nums bg-transparent border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] outline-none px-0.5"
         style={{ color: 'var(--color-text-3)' }}
       />
-      <span className="shrink-0 text-[10px]" style={{ color: 'var(--color-text-3)' }}>
+      <span className="shrink-0 text-2xs" style={{ color: 'var(--color-text-3)' }}>
         {unit}
       </span>
     </div>
@@ -315,7 +315,7 @@ export function ColorSwatch({
                 <div className="flex gap-1">
                   <button
                     type="button"
-                    className={`flex-1 text-[11px] py-1 rounded ${isGradient ? '' : 'font-semibold'}`}
+                    className={`flex-1 text-xs-plus py-1 rounded ${isGradient ? '' : 'font-semibold'}`}
                     style={{
                       background: isGradient ? 'var(--color-surface-3)' : 'var(--color-accent)',
                       color: isGradient ? 'var(--color-text-2)' : 'var(--color-bg)',
@@ -326,7 +326,7 @@ export function ColorSwatch({
                   </button>
                   <button
                     type="button"
-                    className={`flex-1 text-[11px] py-1 rounded ${isGradient ? 'font-semibold' : ''}`}
+                    className={`flex-1 text-xs-plus py-1 rounded ${isGradient ? 'font-semibold' : ''}`}
                     style={{
                       background: isGradient ? 'var(--color-accent)' : 'var(--color-surface-3)',
                       color: isGradient ? 'var(--color-bg)' : 'var(--color-text-2)',
@@ -376,7 +376,7 @@ export function ColorSwatch({
                           type="button"
                           disabled={spec.stops.length <= MIN_STOPS}
                           onClick={() => removeStop(i)}
-                          className="w-5 h-5 shrink-0 rounded text-[11px] leading-none disabled:opacity-30"
+                          className="w-5 h-5 shrink-0 rounded text-xs-plus leading-none disabled:opacity-30"
                           style={{ color: 'var(--color-text-3)' }}
                           title="Remove stop"
                         >
@@ -390,7 +390,7 @@ export function ColorSwatch({
                     type="button"
                     disabled={spec.stops.length >= MAX_STOPS}
                     onClick={addStop}
-                    className="text-[11px] py-1 rounded disabled:opacity-30"
+                    className="text-xs-plus py-1 rounded disabled:opacity-30"
                     style={{ background: 'var(--color-surface-3)', color: 'var(--color-text-2)' }}
                   >
                     + Add stop
@@ -399,7 +399,7 @@ export function ColorSwatch({
                   {/* Offsets must be non-decreasing — `moveStop` clamps each
                     slider to its neighbours rather than letting the grammar
                     reject the result. */}
-                  <p className="text-[10px] leading-snug" style={{ color: 'var(--color-text-3)' }}>
+                  <p className="text-2xs leading-snug" style={{ color: 'var(--color-text-3)' }}>
                     Each stop slides between its neighbours.
                   </p>
                 </>
@@ -431,7 +431,7 @@ export function ColorSwatch({
       {/* Inline editable hex — read-only summary while a gradient is set. */}
       {isGradient ? (
         <span
-          className="w-[68px] text-[11px] font-mono px-0.5 truncate"
+          className="w-[68px] text-xs-plus font-mono px-0.5 truncate"
           style={{ color: 'var(--color-text-3)' }}
           title={value}
         >
@@ -443,7 +443,7 @@ export function ColorSwatch({
           value={hex}
           maxLength={7}
           onChange={handleHex}
-          className="w-[68px] text-[11px] font-mono bg-transparent border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] outline-none transition-colors px-0.5"
+          className="w-[68px] text-xs-plus font-mono bg-transparent border-b border-transparent hover:border-[var(--color-border)] focus:border-[var(--color-accent)] outline-none transition-colors px-0.5"
           style={{ color: 'var(--color-text-3)' }}
           onFocus={(e) => {
             e.currentTarget.style.color = 'var(--color-text)'

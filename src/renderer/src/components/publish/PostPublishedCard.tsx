@@ -32,7 +32,7 @@ export function PostPublishedCard({ view }: PostPublishedCardProps) {
         />
         <Button
           variant="ghost"
-          className="text-[11px] py-1 px-2 shrink-0"
+          className="text-xs-plus py-1 px-2 shrink-0"
           onClick={() => view.markPublished(url)}
         >
           Mark published

@@ -129,3 +129,26 @@ export function timeRangeToRect(
   const endX = Math.max(min, Math.min(rawEndX, max))
   return { x, w: Math.max(endX - x, 0) }
 }
+
+/** Whether a label fits inside a chip: the chip must leave `padding` px of
+ *  horizontal breathing room around the measured text. A chip too narrow for
+ *  its label draws no label at all (no clipping, no truncation). */
+export function labelFits(chipWidth: number, textWidth: number, padding = 10): boolean {
+  return chipWidth - padding >= textWidth
+}
+
+/**
+ * The longest leading run of `words` whose joined label `fits`, or `null` when
+ * not even the first word does. A chip too narrow for five words still shows
+ * the two that fit, instead of nothing or a clipped fragment.
+ */
+export function longestFittingPrefix(
+  words: readonly string[],
+  fits: (label: string) => boolean
+): string | null {
+  for (let n = words.length; n > 0; n--) {
+    const label = words.slice(0, n).join(' ').trim()
+    if (label && fits(label)) return label
+  }
+  return null
+}

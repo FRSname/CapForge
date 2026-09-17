@@ -77,9 +77,9 @@ export function SegmentedControl<T extends string>({
           tabIndex={v === value ? 0 : -1}
           onClick={() => onChange(v)}
           onKeyDown={handleKeyDown}
-          className={`flex-1 text-[11px] py-1 transition-colors ${
+          className={`flex-1 text-xs-plus py-1 transition-colors ${
             v === value
-              ? 'bg-[var(--color-accent)] text-white'
+              ? 'bg-[var(--color-accent)] text-[var(--color-on-accent)]'
               : 'bg-[var(--color-surface-2)] hover:bg-[var(--color-surface-3)]'
           }`}
           style={v === value ? undefined : { color: 'var(--color-text-2)' }}

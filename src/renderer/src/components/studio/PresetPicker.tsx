@@ -183,7 +183,7 @@ export function PresetPicker({
   return (
     <div className="relative" ref={rootRef}>
       <button
-        className="btn-ghost text-[11px] py-0.5 px-2"
+        className="btn-ghost text-xs-plus py-0.5 px-2"
         onClick={() => setOpen((o) => !o)}
         title="Apply or save style presets"
       >
@@ -197,7 +197,7 @@ export function PresetPicker({
           style={{ maxHeight: '70vh' }}
         >
           <div className="flex items-center justify-between px-3 py-2 border-b border-[var(--color-border)]">
-            <span className="text-[11px] font-medium" style={{ color: 'var(--color-text-2)' }}>
+            <span className="text-xs-plus font-medium" style={{ color: 'var(--color-text-2)' }}>
               Style presets
             </span>
             {saving ? (

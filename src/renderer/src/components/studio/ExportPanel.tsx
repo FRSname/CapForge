@@ -53,7 +53,7 @@ export function ExportPanel({
           Output:
         </span>
         <span
-          className="flex-1 min-w-0 text-[11px] truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
+          className="flex-1 min-w-0 text-xs-plus truncate px-1.5 py-1 rounded border border-[var(--color-border)] bg-[var(--color-surface)]"
           style={{ color: 'var(--color-text-2)' }}
           title={outputDir || `Same as source (${effectiveOutputDir})`}
         >
@@ -61,7 +61,7 @@ export function ExportPanel({
         </span>
         <Button
           variant="ghost"
-          className="text-[11px] py-1 px-2 shrink-0"
+          className="text-xs-plus py-1 px-2 shrink-0"
           onClick={async () => {
             const dir = await window.subforge.pickOutputDir()
             if (dir) onOutputDir(dir)
@@ -73,7 +73,7 @@ export function ExportPanel({
         {outputDir && (
           <Button
             variant="ghost"
-            className="text-[11px] py-1 px-2 shrink-0"
+            className="text-xs-plus py-1 px-2 shrink-0"
             onClick={() => onOutputDir('')}
             disabled={busy}
             title="Reset to Same as source"
@@ -87,7 +87,7 @@ export function ExportPanel({
       <div className="flex gap-1.5 mt-1">
         <Button
           variant="ghost"
-          className="flex-1 text-[11px] py-1 justify-center"
+          className="flex-1 text-xs-plus py-1 justify-center"
           onClick={() =>
             api
               .exportResult(buildExportParams(['srt_word'], effectiveOutputDir, track))
@@ -101,7 +101,7 @@ export function ExportPanel({
         </Button>
         <Button
           variant="ghost"
-          className="flex-1 text-[11px] py-1 justify-center"
+          className="flex-1 text-xs-plus py-1 justify-center"
           onClick={() =>
             api
               .exportResult(buildExportParams(['srt_standard'], effectiveOutputDir, track))
@@ -115,7 +115,7 @@ export function ExportPanel({
         </Button>
         <Button
           variant="ghost"
-          className="flex-1 text-[11px] py-1 justify-center"
+          className="flex-1 text-xs-plus py-1 justify-center"
           onClick={() =>
             api
               .exportResult(buildExportParams(['vtt'], effectiveOutputDir, track))
@@ -128,7 +128,7 @@ export function ExportPanel({
         </Button>
         <Button
           variant="ghost"
-          className="flex-1 text-[11px] py-1 justify-center"
+          className="flex-1 text-xs-plus py-1 justify-center"
           onClick={() =>
             api
               .exportResult(buildExportParams(['ass'], effectiveOutputDir, track))
@@ -142,7 +142,7 @@ export function ExportPanel({
         </Button>
         <Button
           variant="ghost"
-          className="flex-1 text-[11px] py-1 justify-center"
+          className="flex-1 text-xs-plus py-1 justify-center"
           onClick={() =>
             api
               .exportResult(buildExportParams(['hyperframes'], effectiveOutputDir, track))

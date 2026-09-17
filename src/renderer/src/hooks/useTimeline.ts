@@ -20,6 +20,8 @@ import {
   computeWheelScroll,
   clampZoom,
   timeRangeToRect,
+  labelFits,
+  longestFittingPrefix,
 } from '../lib/timelineMath'
 
 const RULER_H = 20
@@ -49,7 +51,8 @@ interface UseTimelineOptions {
   segments: Segment[]
   /** Current total duration in seconds. */
   duration: number
-  /** Accent color for the background color of subtitle blocks (hex string). */
+  /** Override for the segment-chip hue (hex string): drives both the chip
+   *  outline and the active chip's fill. Defaults to the brand amber. */
   blockColor?: string
   /** When true, the timeline auto-pans to keep the playhead visible. */
   isPlaying?: boolean
@@ -152,13 +155,24 @@ export function useTimeline({
       ctx.clearRect(0, 0, cssW, cssH)
 
       // Resolve theme colors fresh each draw so the canvas tracks light/dark.
+      // The app has exactly one accent hue (the brand amber), which is also the
+      // timeline's chip colour — so a second hue can no longer signal state.
+      // State is carried by fill, ink and outline instead: an inactive chip is a
+      // tinted fill with a thin amber outline, the active chip is solid amber
+      // with dark ink on top, and selection/playhead/snap are neutral text-
+      // coloured strokes at different weights.
       const rulerBg = cssVar('--color-bg', '#0d1117')
       const trackBg = cssVar('--color-surface', '#161b22')
       const tickLine = cssVar('--color-border-2', '#30363d')
       const tickLabel = cssVar('--color-text-3', '#8b949e')
-      const blockBg = blockColor || cssVar('--color-amber', '#D4952A')
-      const blockText = '#ffffff' // amber stays brand-colored — white text reads on both themes
-      const accent = cssVar('--color-accent', '#4f8ef7')
+      const chipFill = cssVar('--color-amber-subtle', 'rgba(201,137,31,0.15)')
+      const chipStroke = blockColor || cssVar('--color-amber', '#c9891f')
+      const chipText = cssVar('--color-text', '#e8e8f0')
+      const activeFill = blockColor || cssVar('--color-amber', '#c9891f')
+      const activeText = cssVar('--color-on-accent', '#15100a')
+      const emphasis = cssVar('--color-text', '#e8e8f0') // selected outline, playhead
+      const quiet = cssVar('--color-text-2', '#9898ac') // snap line, inactive word text
+      const laneFill = cssVar('--color-surface-3', '#242430') // inactive word blocks
 
       const { zoom, scrollT: rawScrollT } = stateRef.current
       const visibleDur = duration / zoom
@@ -255,42 +269,39 @@ export function useTimeline({
           ctx.closePath()
         }
 
-        ctx.fillStyle = blockBg
-        ctx.globalAlpha = isActive ? 1.0 : 0.75
+        ctx.fillStyle = isActive ? activeFill : chipFill
         roundRect()
         ctx.fill()
-        ctx.globalAlpha = 1
 
-        if (isActive) {
-          ctx.strokeStyle = accent
-          ctx.lineWidth = 2
-          roundRect()
-          ctx.stroke()
-        } else if (seg.id === selectedSegId) {
-          ctx.strokeStyle = accent
-          ctx.lineWidth = 1.5
-          ctx.globalAlpha = 0.9
+        if (!isActive) {
+          ctx.strokeStyle = chipStroke
+          ctx.lineWidth = 1
+          ctx.globalAlpha = 0.7
           roundRect()
           ctx.stroke()
           ctx.globalAlpha = 1
+
+          if (seg.id === selectedSegId) {
+            ctx.strokeStyle = emphasis
+            ctx.lineWidth = 1.5
+            ctx.globalAlpha = 0.9
+            roundRect()
+            ctx.stroke()
+            ctx.globalAlpha = 1
+          }
         }
 
-        if (w > 18) {
-          ctx.save()
-          ctx.beginPath()
-          ctx.rect(x + 5, y, Math.max(w - 10, 1), h)
-          ctx.clip()
-          ctx.fillStyle = blockText
-          ctx.font = 'bold 11px -apple-system, "Segoe UI", sans-serif'
-          ctx.textBaseline = 'middle'
-          const label =
-            seg.words
-              .slice(0, 5)
-              .map((w) => w.word)
-              .join(' ')
-              .trim() || seg.text.trim().split(/\s+/).slice(0, 5).join(' ')
+        ctx.font = 'bold 11px -apple-system, "Segoe UI", sans-serif'
+        ctx.textBaseline = 'middle'
+        const labelWords = seg.words.length
+          ? seg.words.slice(0, 5).map((word) => word.word)
+          : seg.text.trim().split(/\s+/).slice(0, 5)
+        const label = longestFittingPrefix(labelWords, (candidate) =>
+          labelFits(w, ctx.measureText(candidate).width)
+        )
+        if (label) {
+          ctx.fillStyle = isActive ? activeText : chipText
           ctx.fillText(label, x + 5, y + h / 2)
-          ctx.restore()
         }
       }
 
@@ -309,21 +320,15 @@ export function useTimeline({
           const isActiveWord = currentTime >= word.start && currentTime < word.end
 
           roundRectPath(ctx, wx, wy, ww, wh, Math.min(3, wh / 2))
-          ctx.fillStyle = accent
-          ctx.globalAlpha = isActiveWord ? 1.0 : 0.55
+          ctx.fillStyle = isActiveWord ? activeFill : laneFill
           ctx.fill()
-          ctx.globalAlpha = 1
 
-          if (ww > 14) {
-            ctx.save()
-            ctx.beginPath()
-            ctx.rect(wx + 3, wy, Math.max(ww - 6, 1), wh)
-            ctx.clip()
-            ctx.fillStyle = blockText
-            ctx.font = '9px -apple-system, "Segoe UI", sans-serif'
-            ctx.textBaseline = 'middle'
-            ctx.fillText(word.word.trim(), wx + 3, wy + wh / 2)
-            ctx.restore()
+          ctx.font = '9px -apple-system, "Segoe UI", sans-serif'
+          ctx.textBaseline = 'middle'
+          const wordLabel = word.word.trim()
+          if (labelFits(ww, ctx.measureText(wordLabel).width, 6)) {
+            ctx.fillStyle = isActiveWord ? activeText : quiet
+            ctx.fillText(wordLabel, wx + 3, wy + wh / 2)
           }
         }
       }
@@ -331,13 +336,13 @@ export function useTimeline({
       // ── Playhead ──────────────────────────────────────────────────
       if (currentTime != null && currentTime >= t0 && currentTime <= t1) {
         const px = tToX(currentTime)
-        ctx.strokeStyle = accent
+        ctx.strokeStyle = emphasis
         ctx.lineWidth = 2
         ctx.beginPath()
         ctx.moveTo(px, 0)
         ctx.lineTo(px, cssH)
         ctx.stroke()
-        ctx.fillStyle = accent
+        ctx.fillStyle = emphasis
         ctx.beginPath()
         ctx.moveTo(px - 5, 0)
         ctx.lineTo(px + 5, 0)
@@ -350,7 +355,7 @@ export function useTimeline({
       const snapT = snapTargetRef.current
       if (snapT !== null && snapT >= t0 && snapT <= t1) {
         const sx = Math.round(tToX(snapT))
-        ctx.strokeStyle = accent
+        ctx.strokeStyle = quiet
         ctx.lineWidth = 1
         ctx.globalAlpha = 0.6
         ctx.setLineDash([3, 3])
