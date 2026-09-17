@@ -6,10 +6,14 @@
  * (`lib/youtubeRules.ts`), and "Suggest" reads the library's moments route.
  * Whether the result is legal (first at 00:00, ≥ 3, ascending, ≥ 10 s apart,
  * inside the duration) is Python's answer, rendered underneath.
+ *
+ * The copy button copies the `MM:SS Title` block (`chapterLines`), the lines
+ * the upload package pastes into the description.
  */
 
 import { StudioCard } from '../studio/StudioCard'
 import { Button } from '../ui/Button'
+import { chapterLines } from '../../lib/publishChapters'
 import { formatTimestamp } from '../../lib/youtubeRules'
 import type { PublishController } from '../../hooks/usePublishRecord'
 import { FieldHeader } from './FieldHeader'
@@ -28,7 +32,12 @@ export function ChaptersCard({ publish, onSeek, getPlayhead }: ChaptersCardProps
 
   return (
     <StudioCard title="Chapters" defaultOpen>
-      <FieldHeader publish={publish} field="chapters" hideLabel />
+      <FieldHeader
+        publish={publish}
+        field="chapters"
+        hideLabel
+        copy={{ text: chapterLines(chapters), what: 'the chapters' }}
+      />
 
       {chapters.length === 0 ? (
         <p className="text-2xs" style={{ color: 'var(--color-text-3)' }}>

@@ -6,12 +6,25 @@
  * three, ascending, at least 10 s apart, inside the duration) is Python's
  * answer, rendered under the card. These only *edit*.
  *
+ * `chapterLines` is the one non-edit: the `MM:SS Title` block the Chapters
+ * card copies, the twin of `backend/library/package.py`'s `chapter_lines`
+ * (same rows, same timestamp formula, untitled chapters left out), so what is
+ * copied from the card is what the upload package pastes.
+ *
  * Pure module: no React, no `window`, no I/O.
  */
 
 import type { Chapter, Moment } from './publishTypes'
 import type { Word } from '../types/app'
-import { chapterSuggestions, snapToWordStart } from './youtubeRules'
+import { chapterSuggestions, formatTimestamp, snapToWordStart } from './youtubeRules'
+
+/** The chapter block as YouTube reads it: one `MM:SS Title` per line, untitled rows skipped. */
+export function chapterLines(chapters: readonly Chapter[]): string {
+  return chapters
+    .filter((c) => c.title.trim() !== '')
+    .map((c) => `${formatTimestamp(c.start_s)} ${c.title.trim()}`)
+    .join('\n')
+}
 
 /** Chapters are always held in time order — YouTube reads them that way. */
 export function sortChapters(chapters: readonly Chapter[]): Chapter[] {

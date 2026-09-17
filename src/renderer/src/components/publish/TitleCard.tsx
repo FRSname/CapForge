@@ -60,6 +60,7 @@ export function TitleCard({ publish }: TitleCardProps) {
         field="title"
         hideLabel={fields.title_options.length === 0}
         meter={<FieldMeter used={fields.title.length} limit={TITLE_MAX_CHARS} />}
+        copy={{ text: fields.title, what: 'the title' }}
       />
       <input
         type="text"

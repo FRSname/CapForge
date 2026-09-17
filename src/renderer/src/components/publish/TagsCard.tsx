@@ -7,12 +7,7 @@
  */
 
 import { StudioCard } from '../studio/StudioCard'
-import {
-  hashtagsLine,
-  parseHashtags,
-  parseTagsLine,
-  tagsLine,
-} from '../../lib/publishFields'
+import { hashtagsLine, parseHashtags, parseTagsLine, tagsLine } from '../../lib/publishFields'
 import { TAGS_MAX_CHARS } from '../../lib/youtubeRules'
 import type { PublishController } from '../../hooks/usePublishRecord'
 import { FieldHeader } from './FieldHeader'
@@ -26,6 +21,7 @@ interface TagsCardProps {
 export function TagsCard({ publish }: TagsCardProps) {
   const { fields } = publish
   const tags = tagsLine(fields.tags)
+  const hashtags = hashtagsLine(fields.hashtags)
 
   return (
     <StudioCard title="Tags & hashtags" defaultOpen>
@@ -33,6 +29,7 @@ export function TagsCard({ publish }: TagsCardProps) {
         publish={publish}
         field="tags"
         meter={<FieldMeter used={tags.length} limit={TAGS_MAX_CHARS} />}
+        copy={{ text: tags, what: 'the tags' }}
       />
       <input
         type="text"
@@ -47,13 +44,17 @@ export function TagsCard({ publish }: TagsCardProps) {
       <FieldViolations violations={publish.violationsFor('tags')} />
 
       <div className="mt-2">
-        <FieldHeader publish={publish} field="hashtags" />
+        <FieldHeader
+          publish={publish}
+          field="hashtags"
+          copy={{ text: hashtags, what: 'the hashtags' }}
+        />
         <input
           type="text"
           className="field-input"
           aria-label="Hashtags"
           placeholder="#ai #captions"
-          value={hashtagsLine(fields.hashtags)}
+          value={hashtags}
           onFocus={() => publish.beginEdit('hashtags')}
           onBlur={publish.endEdit}
           onChange={(e) => publish.setField('hashtags', parseHashtags(e.target.value))}

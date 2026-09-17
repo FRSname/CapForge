@@ -8,6 +8,10 @@
  * The findings are the backend's `localized.<lang>.<field>`; a finding on the
  * language itself (`localized.<lang>`: a bad code, the source language) sits
  * under the language's header.
+ *
+ * Every row has a copy button for its own text, the chapter titles as the
+ * `MM:SS Title` block with the source title standing in for an empty one —
+ * what the `?lang=` package pastes.
  */
 
 import type { ReactNode } from 'react'
@@ -38,6 +42,9 @@ import {
   formatTimestamp,
 } from '../../lib/youtubeRules'
 import type { PublishController } from '../../hooks/usePublishRecord'
+import { chapterLines } from '../../lib/publishChapters'
+import { CopyButton } from '../ui/CopyButton'
+import type { CopyTarget } from '../ui/CopyButton'
 import { FieldMeter } from './FieldMeter'
 import { FieldViolations } from './FieldViolations'
 
@@ -80,16 +87,21 @@ export interface LocalizedLanguageFormProps {
 interface RowProps {
   label: string
   meter?: ReactNode
+  /** What the row's copy button copies. */
+  copy: CopyTarget
   findings: Violation[]
   children: ReactNode
 }
 
-function Row({ label, meter, findings, children }: RowProps) {
+function Row({ label, meter, copy, findings, children }: RowProps) {
   return (
     <div className="mt-2">
       <div className="flex items-center justify-between gap-2 mb-1">
         <span className="label-xs truncate">{label}</span>
-        {meter}
+        <span className="flex items-center gap-2 shrink-0">
+          {meter}
+          <CopyButton text={copy.text} what={copy.what} />
+        </span>
       </div>
       {children}
       <FieldViolations violations={findings} />
@@ -243,6 +255,7 @@ function TextRows({ lang, fields, source, findings, edit, set }: RowGroupProps) 
       <Row
         label="Title"
         meter={<FieldMeter used={fields.title.length} limit={TITLE_MAX_CHARS} />}
+        copy={{ text: fields.title, what: `the ${lang} title` }}
         findings={title}
       >
         <TextControl
@@ -262,6 +275,7 @@ function TextRows({ lang, fields, source, findings, edit, set }: RowGroupProps) 
             unit="bytes"
           />
         }
+        copy={{ text: fields.description, what: `the ${lang} description` }}
         findings={description}
       >
         <TextControl
@@ -273,7 +287,11 @@ function TextRows({ lang, fields, source, findings, edit, set }: RowGroupProps) 
           onChange={(value) => set('description', value)}
         />
       </Row>
-      <Row label="Short description" findings={short}>
+      <Row
+        label="Short description"
+        copy={{ text: fields.short_description, what: `the ${lang} short description` }}
+        findings={short}
+      >
         <TextControl
           ariaLabel={`Short description (${lang})`}
           placeholder="One line for the platforms that want one"
@@ -286,6 +304,16 @@ function TextRows({ lang, fields, source, findings, edit, set }: RowGroupProps) 
   )
 }
 
+/** The chapter block in this language, the source title standing in for an empty one. */
+function localizedChapterLines(source: PublishAuthored, fields: LocalizedFields): string {
+  return chapterLines(
+    alignedChapterTitles(source.chapters, fields.chapter_titles).map((row) => ({
+      start_s: row.start_s,
+      title: row.title || row.sourceTitle,
+    }))
+  )
+}
+
 function ListRows({ lang, fields, source, findings, edit, set }: RowGroupProps) {
   const [tags, hashtags, chapterTitles, caption] = findings.slice(3)
   const tagLine = tagsLine(fields.tags)
@@ -294,6 +322,7 @@ function ListRows({ lang, fields, source, findings, edit, set }: RowGroupProps) 
       <Row
         label="Tags"
         meter={<FieldMeter used={tagLine.length} limit={TAGS_MAX_CHARS} />}
+        copy={{ text: tagLine, what: `the ${lang} tags` }}
         findings={tags}
       >
         <TextControl
@@ -304,7 +333,11 @@ function ListRows({ lang, fields, source, findings, edit, set }: RowGroupProps) 
           onChange={(value) => set('tags', parseTagsLine(value))}
         />
       </Row>
-      <Row label="Hashtags" findings={hashtags}>
+      <Row
+        label="Hashtags"
+        copy={{ text: hashtagsLine(fields.hashtags), what: `the ${lang} hashtags` }}
+        findings={hashtags}
+      >
         <TextControl
           ariaLabel={`Hashtags (${lang})`}
           placeholder={hashtagsLine(source.hashtags) || '#hashtags'}
@@ -313,7 +346,11 @@ function ListRows({ lang, fields, source, findings, edit, set }: RowGroupProps) 
           onChange={(value) => set('hashtags', parseHashtags(value))}
         />
       </Row>
-      <Row label="Chapter titles" findings={chapterTitles}>
+      <Row
+        label="Chapter titles"
+        copy={{ text: localizedChapterLines(source, fields), what: `the ${lang} chapters` }}
+        findings={chapterTitles}
+      >
         <ChapterTitles
           lang={lang}
           chapters={source.chapters}
@@ -322,7 +359,11 @@ function ListRows({ lang, fields, source, findings, edit, set }: RowGroupProps) 
           onChange={(next) => set('chapter_titles', next)}
         />
       </Row>
-      <Row label="Shorts caption" findings={caption}>
+      <Row
+        label="Shorts caption"
+        copy={{ text: fields.shorts_caption, what: `the ${lang} Shorts caption` }}
+        findings={caption}
+      >
         <TextControl
           ariaLabel={`Shorts caption (${lang})`}
           placeholder={source.shorts.caption || 'The caption posted with the Short'}

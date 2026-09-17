@@ -89,6 +89,19 @@ describe('FieldHeader', () => {
     expect(markup).toContain('Last written by')
   })
 
+  test('a copy target keeps the row alive under hideLabel and names the field', () => {
+    const markup = renderToStaticMarkup(
+      <FieldHeader
+        publish={controller()}
+        field="description"
+        hideLabel
+        copy={{ text: 'Hello', what: 'the description' }}
+      />
+    )
+    expect(markup).toContain('aria-label="Copy the description"')
+    expect(markup).not.toContain('>Description<')
+  })
+
   test('hideLabel with no meter and no provenance renders nothing at all', () => {
     const markup = renderToStaticMarkup(
       <FieldHeader publish={controller()} field="description" hideLabel />

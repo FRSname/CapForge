@@ -156,7 +156,12 @@ export function ShortsCard({ publish, segments, onSeek, getPlayhead }: ShortsCar
 
   return (
     <StudioCard title="Shorts" defaultOpen={false}>
-      <FieldHeader publish={publish} field="shorts" hideLabel />
+      <FieldHeader
+        publish={publish}
+        field="shorts"
+        hideLabel
+        copy={{ text: shorts.caption, what: 'the Shorts caption' }}
+      />
       <textarea
         className="field-input resize-y"
         rows={CAPTION_ROWS}
