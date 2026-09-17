@@ -1,3 +1,7 @@
+import type { CSSProperties } from 'react'
+
+import { rangeFill } from '../../lib/rangeFill'
+
 interface VolumeControlProps {
   volume: number
   onVolumeChange: (volume: number) => void
@@ -44,7 +48,8 @@ export function VolumeControl({ volume, onVolumeChange }: VolumeControlProps) {
         value={volume}
         onChange={(event) => onVolumeChange(Number(event.currentTarget.value))}
         aria-valuetext={`${percentage}%`}
-        className="h-[3px] w-28"
+        className="w-28"
+        style={{ '--fill': rangeFill(volume, 0, 1) } as CSSProperties}
       />
       <span
         className="w-8 text-right text-2xs tabular-nums"

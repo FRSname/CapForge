@@ -13,6 +13,7 @@ import { useWaveSurfer } from '../../hooks/useWaveSurfer'
 import { useTimeline, TIMELINE_HEIGHT, TIMELINE_HEIGHT_EXPANDED } from '../../hooks/useTimeline'
 import { useSubtitleOverlay } from '../../hooks/useSubtitleOverlay'
 import { useVideoZoom } from '../../hooks/useVideoZoom'
+import { useTransientHint } from '../../hooks/useTransientHint'
 import { SafeZoneOverlay } from './SafeZoneOverlay'
 import { VolumeControl } from './VolumeControl'
 import type { Segment } from '../../types/app'
@@ -265,6 +266,10 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
 
   // ── Video zoom (video-area zoom, independent of timeline zoom) ──
   const vz = useVideoZoom()
+  // Wheel hints show themselves once per session, on first pointer entry;
+  // after that the `?` overlay (`lib/shortcuts.ts`) is where they live.
+  const videoHint = useTransientHint('video-zoom')
+  const timelineHint = useTransientHint('timeline-zoom')
 
   // ── Timeline zoom controls ───────────────────────────────────────
   function handleZoomIn() {
@@ -349,15 +354,21 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
       <div
         className="relative flex-1 min-h-0 flex items-center justify-center"
         style={{ containerType: 'size' }}
+        onPointerEnter={videoHint.reveal}
       >
         {/* Video zoom toolbar */}
         <div
           className="absolute top-1 right-1 z-10 flex items-center gap-1 rounded px-1.5 py-0.5"
           style={{ background: 'var(--color-surface)' }}
         >
-          <span className="text-2xs mr-1 hidden sm:block" style={{ color: 'var(--color-text-3)' }}>
-            Ctrl+Wheel: zoom · Dbl-click: toggle
-          </span>
+          {videoHint.visible && (
+            <span
+              className="text-2xs mr-1 hidden sm:block transition-opacity"
+              style={{ color: 'var(--color-text-3)' }}
+            >
+              Ctrl+Wheel: zoom · Dbl-click: toggle
+            </span>
+          )}
           <button className="tl-btn" onClick={vz.zoomOut}>
             −
           </button>
@@ -426,60 +437,73 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
         )}
       </div>
 
-      {/* ── Timeline zoom toolbar ───────────────────────────────── */}
-      <div className="flex items-center gap-1 px-2 py-1 border-t border-[var(--color-border)]">
-        <span className="text-2xs flex-1" style={{ color: 'var(--color-text-3)' }}>
-          Ctrl+Wheel: zoom · Wheel: pan
-        </span>
-        <button className="tl-btn" title="Zoom out" onClick={handleZoomOut}>
-          −
-        </button>
-        <span className="text-2xs w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
-          {zoomLabel}
-        </span>
-        <button className="tl-btn" title="Zoom in" onClick={handleZoomIn}>
-          +
-        </button>
-        <button className="tl-btn" title="Fit" onClick={handleZoomReset}>
-          Fit
-        </button>
-      </div>
+      {/* ── Timeline area: zoom toolbar + canvas ────────────────── */}
+      {/* One wrapper so the wheel hint is revealed by a single pointer entry
+          over the whole timeline, toolbar included. */}
+      <div onPointerEnter={timelineHint.reveal}>
+        {/* ── Timeline zoom toolbar ───────────────────────────────── */}
+        <div className="flex items-center gap-1 px-2 py-1 border-t border-[var(--color-border)]">
+          {timelineHint.visible ? (
+            <span
+              className="text-2xs flex-1 transition-opacity"
+              style={{ color: 'var(--color-text-3)' }}
+            >
+              Ctrl+Wheel: zoom · Wheel: pan
+            </span>
+          ) : (
+            /* Holds the toolbar's layout, so the buttons stay right-aligned. */
+            <span aria-hidden="true" className="flex-1" />
+          )}
+          <button className="tl-btn" title="Zoom out" onClick={handleZoomOut}>
+            −
+          </button>
+          <span className="text-2xs w-10 text-center" style={{ color: 'var(--color-text-2)' }}>
+            {zoomLabel}
+          </span>
+          <button className="tl-btn" title="Zoom in" onClick={handleZoomIn}>
+            +
+          </button>
+          <button className="tl-btn" title="Fit" onClick={handleZoomReset}>
+            Fit
+          </button>
+        </div>
 
-      {/* ── Canvas timeline ─────────────────────────────────────── */}
-      <div
-        className="w-full relative"
-        style={{ height: tlHeight, transition: 'height 150ms ease' }}
-      >
-        <canvas
-          ref={canvasRef}
-          className="block w-full cursor-pointer"
-          style={{ height: tlHeight }}
-          onMouseDown={onMouseDown}
-          onMouseMove={onMouseMove}
-          onMouseUp={onMouseUp}
-          onMouseLeave={() => {
-            onCanvasLeave()
-            setHoverState(null)
-          }}
-          onContextMenu={onCanvasContextMenu}
-        />
-        {/* Phase 2: Hover tooltip */}
-        {hoverState && (
-          <div
-            className="pointer-events-none fixed z-[var(--z-dropdown)] rounded px-2 py-1 text-xs max-w-xs truncate shadow-lg"
-            style={{
-              left: hoverState.x + 12,
-              top: hoverState.y - 36,
-              background: 'var(--color-bg)',
-              color: 'var(--color-text)',
-              border: '1px solid var(--color-border-2)',
+        {/* ── Canvas timeline ─────────────────────────────────────── */}
+        <div
+          className="w-full relative"
+          style={{ height: tlHeight, transition: 'height 150ms ease' }}
+        >
+          <canvas
+            ref={canvasRef}
+            className="block w-full cursor-pointer"
+            style={{ height: tlHeight }}
+            onMouseDown={onMouseDown}
+            onMouseMove={onMouseMove}
+            onMouseUp={onMouseUp}
+            onMouseLeave={() => {
+              onCanvasLeave()
+              setHoverState(null)
             }}
-          >
-            {hoverState.segId
-              ? (segments.find((s) => s.id === hoverState.segId)?.text ?? '')
-              : formatTime(hoverState.time)}
-          </div>
-        )}
+            onContextMenu={onCanvasContextMenu}
+          />
+          {/* Phase 2: Hover tooltip */}
+          {hoverState && (
+            <div
+              className="pointer-events-none fixed z-[var(--z-dropdown)] rounded px-2 py-1 text-xs max-w-xs truncate shadow-lg"
+              style={{
+                left: hoverState.x + 12,
+                top: hoverState.y - 36,
+                background: 'var(--color-bg)',
+                color: 'var(--color-text)',
+                border: '1px solid var(--color-border-2)',
+              }}
+            >
+              {hoverState.segId
+                ? (segments.find((s) => s.id === hoverState.segId)?.text ?? '')
+                : formatTime(hoverState.time)}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ── Waveform ────────────────────────────────────────────── */}

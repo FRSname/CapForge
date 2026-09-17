@@ -60,6 +60,9 @@ describe('LibraryToolbar view controls', () => {
     expect(tag).toContain(`min="${LIBRARY_TILE_MIN_PX}"`)
     expect(tag).toContain(`max="${LIBRARY_TILE_MAX_PX}"`)
     expect(tag).toContain('value="300"')
+    // The styled track paints up to `--fill`; the inline width must survive it.
+    expect(tag).toContain('--fill:')
+    expect(tag).toContain('width:')
   })
 
   test('the slider is gone in list', () => {
