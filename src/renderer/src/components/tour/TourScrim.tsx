@@ -8,13 +8,19 @@
  *
  * The ring is a fifth element, drawn on top of the spotlight, and takes no
  * pointer events for the same reason.
+ *
+ * No `backdrop-blur` here, unlike the app's other scrims. Those are one
+ * static rectangle; these four move every step, and on Windows Chromium a
+ * moving blurred layer could read the previous frame back in, so the tour
+ * flickered between the previous card and the current one. A plain tint
+ * has nothing to feed back.
  */
 
 import type { CSSProperties } from 'react'
 import type { Rect } from '../../lib/tourPlacement'
 
 /** The scrim's own class, shared by the full-screen and the four-piece cases. */
-const PIECE_CLASS = 'fixed bg-[var(--color-scrim)] backdrop-blur-sm'
+const PIECE_CLASS = 'fixed bg-[var(--color-scrim)]'
 
 /** Thickness of the ring around the spotlight, in pixels. */
 const RING_WIDTH_PX = 2
