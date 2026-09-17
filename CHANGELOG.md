@@ -29,6 +29,9 @@ A connected Claude agent can drive the whole translation loop: `create_track` re
 
 ### Fixes
 
+**New goes to the transcribe screen**
+The editor's New button used to send you back to the library; it now opens the transcribe screen so the next file can be dropped straight away. Library is still one click away on its own button. Cancelling a transcription lands on the same screen.
+
 **Scrub the timeline and the waveform by holding the mouse down**
 The playhead can be grabbed and dragged: press on it, on the ruler, on empty track space or anywhere on the waveform and the player follows the pointer for as long as the button is held, past the edges of the strip too. Before, every seek was a click that dropped the playhead once. A click still seeks and deselects, a segment's edge still resizes it even when it sits on the playhead, and a segment's body still moves or selects it.
 

@@ -3,7 +3,8 @@
  * ceiling):
  *
  * - **New** (`handleNew`) ends the session: it clears the file, the transcript,
- *   every track and the record claim (`activeVideoId`), then goes home.
+ *   every track and the record claim (`activeVideoId`), then shows the
+ *   transcribe screen (`NEW_SESSION_SCREEN`) for the next file.
  * - **Library** (`goToLibrary`) only goes home. It flushes the pending record
  *   autosave first so the library holds the current snapshot, and resets
  *   nothing — the Continue hero reopens the record through `openRecord`. The
@@ -14,7 +15,7 @@ import { useCallback } from 'react'
 import type { Screen, TranscriptionResult } from '../types/app'
 import type { CaptionTrack } from '../lib/tracks'
 import { SOURCE_TRACK_ID } from '../lib/tracks'
-import { goToLibrary as goToLibraryWith } from '../lib/screenNavigation'
+import { NEW_SESSION_SCREEN, goToLibrary as goToLibraryWith } from '../lib/screenNavigation'
 import { emptySourceTrack } from './useTrackStore'
 
 /** `autosave.json` could not be removed on New. */
@@ -58,9 +59,9 @@ export function useScreenNavigation(input: ScreenNavigationInput): ScreenNavigat
   const handleNew = useCallback(() => {
     setFilePath(null)
     setResult(null)
-    // New ends this session's claim on its record and goes home.
+    // New ends this session's claim on its record and offers the next file.
     clearActive()
-    setScreen('library')
+    setScreen(NEW_SESSION_SCREEN)
     replaceTracks([emptySourceTrack()], SOURCE_TRACK_ID)
     resetSourceVideoInfo()
     window.subforge
