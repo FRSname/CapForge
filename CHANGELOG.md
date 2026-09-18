@@ -6,111 +6,74 @@
 
 ## CapForge v3.0.0
 
-This is the biggest release CapForge has had, and it is worth updating for even if you never open a new feature: more than 140 commits since 2.6.0, and more than two dozen of them are fixes to things you use every day — the `.ass` export, word timings after a text edit, file swaps on Windows, a library that came up empty after launch, panel widths that forgot themselves. Around those fixes the app grew a second half. CapForge now opens on a **library** of your videos, organised in folders, where every session saves itself into its record. Beside the caption editor there is a **Publish** workspace that turns a finished video into a copy-ready upload package — title options, a description with chapters, tags, speakers, a thumbnail — checked against YouTube's limits as you type, with a **post per channel** for TikTok, Instagram, LinkedIn and X. Captions can be written in **other languages** on the original timing. And Claude can do most of the writing: seven bundled skills and 61 tools read the library, draft the description, translate the captions and check a video before upload. A guided tour walks you through all of it on first launch.
-
-Your projects, presets and fonts carry over untouched. On first launch the app imports your last project, the crash-recovery copy and any HyperFrames workspaces into the library, so the home screen is not empty. The **Open** button is gone — a `.capforge` file comes in through **Add to library…** or a double-click in Finder — and **Save** is now **Export project…**, because the library record is the save.
-
-A library for your videos, with folders · the Publish workspace, with a post per channel · caption tracks in other languages · seven Claude skills and 61 tools · an interactive startup guide · one accent, AA contrast, Light / Dark / System · more than two dozen fixes.
+**If you are on 2.6 or older, update.** This is the biggest release yet: a library for your videos, a Publish workspace, captions in other languages, Claude workflows, a refreshed look, and more than two dozen fixes to things you use every day. Projects, presets and fonts carry over; your last project is imported into the library on first launch.
 
 ### New Features
 
 **A library for your videos**
-CapForge opens on your videos now, not on an empty drop zone. Every video you transcribe, import or open becomes a record with a poster, a duration and a status — imported, transcribed, captioned, drafted, published — shown as pips on its card and as a word beside them. A "Continue" hero at the top names the last video you worked on and its next step. The editor's 2-second autosave writes into the record, so closing the app and opening the card brings back the transcript, the groups, the style and every language track exactly as they were; the old local recovery file is kept only as a fallback for when the backend is unreachable, and the app tells you once when that happens. A card whose media has moved says so and offers **Locate…**. Records live under `~/.capforge/library/`, one folder per video with a plain `record.json` and a `transcript.json`, readable by Claude with no window open. Remove takes a video off the shelf and keeps its folder; Delete moves the folder to the trash. Opening CapForge a second time hands the file to the window that is already running instead of starting another. While a card restores it says "Opening…". A new **Library** button in the editor goes home without ending the session; **New** still starts a fresh one.
+CapForge opens on your videos. Every session saves itself into its record, and each card shows a poster and a status from imported to published. Records live under `~/.capforge/library/`, readable by Claude with no window open.
 
 **Folders, views, search and selection**
-The library is laid out like a Finder window. A sidebar holds the folder tree — folders nest — with "All videos", "Unfiled", counts, and "+ New folder"; a path bar above the contents shows where you are, and its crumbs navigate and take drops. Videos and folders can be dragged onto a folder, the sidebar, a crumb or the empty-folder line to move them, and a card's menu has "Move to folder…" for the same thing. The toolbar switches between a **grid** with an icon-size slider and a **list** with sortable columns (name, duration, status, folder, published on, modified), and sorts by modified, name, duration, status or created. **Search** finds videos by title and by file name, on a prefix, accent-insensitively, scoped to the folder you are in or to everything. A single click selects; double-click or Enter opens. ⌘-click toggles, Shift-click ranges, ⌘A selects every visible video, the arrow keys walk the grid or the list, Esc clears, and ⌘⌫ asks to remove. With two or more selected a bar replaces the toolbar with **Move to…**, **Remove** and **Delete…**, each confirmed once with the count; right-click does the same on the selection. Rename a video or a folder in place from its menu or by clicking the name of the item you already selected. Every choice — layout, size, sort, location, which folders are open — is remembered. **Add to library…** (⌘O) is the one way in: files, whole folders and `.capforge` projects together, with one summary; **Transcribe…** picks one file and starts it right away.
+Nested folders with a sidebar and a path bar, drag to move, grid or list, sort, search by title or file name, multi-select with Move / Remove / Delete, rename in place. **Add to library…** (⌘O) takes files, folders and `.capforge` projects in one go.
 
-**Import a folder, relink moved media, watch a folder**
-Drop a folder of recordings, or pick one from Add to library…, and every media file in it becomes a record with a poster, nothing transcribed until you ask. Importing a folder whose files CapForge already knows heals the cards whose media had gone missing, so moving a drive and importing its new location is the whole repair; **Locate…** on a single card does the same by hand, and asks before linking a different file. Settings → General gains a **watch folder**: new files that land there become records on their own while CapForge runs, once they have finished copying, and a file you removed from the library is not imported again.
+**Folder import, relink and a watch folder**
+Drop a folder and every video becomes a record. Media that moved is relinked by importing its new location, or with **Locate…** on the card. A watch folder in Settings → General imports new files on its own.
 
 **The Publish workspace**
-A **Captions | Publish** switch heads the right-hand column. The Publish side holds the record's dossier as cards: title options, a description with a 5000-byte meter and a preview of the first 150 characters YouTube shows, chapters (click one to seek; insert one at the playhead, snapped to a word start; a Suggest button proposes them from pauses and speaker changes), tags, keywords and hashtags, a speaker map, a summary, and the publish state, where pasting the YouTube URL marks the video published. Every rule about a field lives in the backend once — YouTube's hard limits (a 100-character title, a 5000-byte description, 500 characters of tags, no angle brackets, chapters from `00:00`, at least three, ascending, ten seconds apart and inside the video) and your own house style — and a finding is drawn under the field it concerns as you type, never enforced by cutting text. A field written by Claude carries a provenance chip with a **Revert**; while Claude is writing, a field you are editing is soft-locked so neither of you clobbers the other. The footer copies the assembled **upload package** — the exact text layout the publish skill has always produced, rendered live from the record — or a plain transcript, and exports SRT and VTT per language track. A read-only **Transcript** tab joins Text and Groups in the editor, with speaker ids, the active row during playback, a chapter gutter and "Insert chapter here".
+Beside Captions: title options, a description with chapters, tags, speakers, a summary and the publish state, checked against YouTube's limits as you type. A field Claude wrote says so and can be reverted. Copy the whole upload package, a plain transcript, or SRT/VTT per language.
 
 **Channels, and a post per channel**
-Settings → **Channels** lists the places you publish — any number of YouTube channels, TikTok, Instagram, LinkedIn and X. Each holds two things: **context** (what the channel is about, who it is for, how it sounds, how its titles are built), which is what Claude reads before drafting, and a **profile** (footer, links, recorded-at line, default hashtags, house rules), which is what the upload package pastes. The first YouTube channel is the primary one, and everything that read the old channel brief reads it now. In Publish, a **tab per channel** sits above the cards. The YouTube tab is the dossier described above; a TikTok, Instagram, LinkedIn or X tab is a post — caption or text, hashtags, a cover — metered to that platform's limits (LinkedIn 3000 characters and five hashtags with a "Watch:" line, X a weighted 280 where a link counts 23, Instagram 2200 characters with "Link in bio" and up to thirty hashtags) and copied as the text that platform's form takes. An empty tab offers **Start from…** to adapt another channel's text as a draft, without saving anything until you do. When you add videos, the import asks once which channels they will publish to, remembering the last answer; the `×` on a tab hides it and keeps its text, and `+` brings a channel back.
+Settings → Channels holds your YouTube, TikTok, Instagram, LinkedIn and X channels. Each gets a tab in Publish, metered to that platform's limits, and **Start from…** adapts another tab's text. Imports ask once which channels a video is for.
 
 **Shorts, thumbnails and translated metadata**
-Three more cards for the parts of an upload that are not the description. **Shorts** holds the Shorts caption and clip suggestions with a start and end taken from the playhead, snapped to a word, with a length and a reason; CapForge cuts nothing, you trim the clip in your editor. **Thumbnail** holds text ideas and a strip of frames: grab one at the playhead, upload your own JPEG, PNG or WEBP, click one to make it the cover — which the library card then shows — and save it out as a file. A 9:16 source keeps its vertical frame. **Localized** holds a title, description and chapter titles per language, one chip per language including the caption tracks you have not translated yet, each metered to the same limits, and the upload package can be copied in any of them, with the source text filling in for anything left blank.
+A Shorts card with timed clip suggestions. A Thumbnail card that grabs frames at the playhead or takes your own image and sets the cover the library shows. A Localized card with a title, description and chapter titles per language.
 
-**Folder settings: a footer for the whole event**
-A folder is also a place to put what its videos share. **Folder settings…** (Settings → Folders) lets a folder override parts of the channel profile — the footer, the links, the hashtags, the recorded-at line — and fill named **slots** that a description template can place with `{{slot}}`. Subfolders inherit from their parents. The upload package is rendered at read time, so editing a folder's footer changes every member's package at once, with nothing rewritten per video: a forty-session event gets its footers regenerated in one pass.
-
-**Claude works the library**
-The MCP server grew from 34 tools to 61. Claude can list and search the library, read a stored transcript with no window open, write a title, description, chapters, tags and speakers into a record (refused with the exact finding when a rule is broken), grab thumbnail frames, mark a video published, open a video in the app, and read and write channels, folders and per-channel posts. A `capforge://publish` guide ships with the server — the publish workflow as topics Claude pulls on demand — along with four slash commands: `/breakdown`, `/describe`, `/chapters` and `/batch_publish`. Every tool a guide or a skill names is pinned to the server by a test, so the two cannot drift apart.
-
-**Settings, and your skills, in one place**
-The slide-over settings panel is a centred **Settings dialog** with a category rail and a search box that dims the categories that do not match; ⌘, opens it. **Claude & Skills** shows the connection and every bundled skill with its install state, and opens each one in an editor: your copy is yours, Save keeps it, Reset returns to the bundled text, Install puts it into Claude Code, and when a CapForge update changes a bundled skill you are told rather than overwritten, with Keep mine / Take new / Open both. The theme is **Light / Dark / System**, and System follows the OS live.
-
-**A refreshed look**
-One accent colour, the brand amber, in both themes; the electric blue is gone. Every label, footer and section heading now clears AA contrast on every surface — the small grey text measured 2.5:1 before — and the light theme moved to warm neutrals. Text sizes come from a named scale rather than ninety-odd hand-picked pixel values. Sliders look the same on macOS and Windows, with the filled part painted in the accent; a row's reset arrow appears on hover instead of sitting beside every slider; the "Ctrl+Wheel" hints on the video and the timeline show once, for a moment, and live in the `?` overlay. Every confirmation is the app's own dialog rather than the OS box. The right-hand column is resizable like the editor, both widths are remembered, and the timeline redraws when the window does. In the Groups view the merge button appears between two rows when you hover the gap.
+**Folder settings**
+A folder can override the footer, links and hashtags for every video in it and fill template slots, so an event's footers regenerate in one pass.
 
 **Caption tracks for other languages**
-A project can now hold more than one set of captions. A tab strip above the editor starts with your Original track; pick a language from the `+` and you get a second tab with the same timing, the same style and blank captions waiting for text. Everything downstream is per tab — the preview, the timeline, the style sidebar, undo, presets, and the render and export buttons, which name their files after the language (`clip.pl.mp4`, `clip.pl.srt`). Translated captions are locked to the original audio the same way the transcript is: each caption keeps the span of the source words it was written from, so correcting a word or dragging a group end on the Original moves the translation with it, and word timings inside a translated caption are shared out by character count rather than measured. Anything you place by hand — a word edge, a group end — is pinned and left alone from then on. When the source does change underneath a translation the tab says so: a caption whose source words were edited is marked "source changed", one with no text yet is marked "no text", and if you re-chunk the Original into different caption groups the translated tab offers a one-click "Re-flow from source" that carries the still-matching translations across and hands back the rest with the old text attached so nothing is lost. A translated tab's Text view lists the same sentences the Original does, so a translation is written a sentence at a time rather than a caption fragment at a time, and the *Words/Grp* slider works there too — it re-cuts each translated sentence into captions of the length you ask for, without ever merging two sentences. Saved projects gained a second version that older builds still open — they simply show the original track and ignore the rest.
+A tab per language above the editor. Translations are written a sentence at a time onto the original timing, flagged when the source changes, with a one-click re-flow. Exports are named after the language (`clip.pl.mp4`, `clip.pl.srt`).
 
-**For agents**
-A connected Claude agent can drive the whole translation loop: `create_track` returns the new tab's blank captions paired with the source text to translate, `set_track_text` writes the translations back, and `check_layout(scan=True)` measures every caption at once and reports exactly which ones will wrap onto a third line — which is what a translation running 10–15% longer than English tends to do. `get_track` lists the captions that still need work, and `reflow_track` is the repair when the source's grouping moved. `set_style`, `apply_preset`, `render`, `render_frame`, `render_hyperframes` and `export` all take a track to work on.
+**Claude works the library**
+61 MCP tools, up from 34: list and search videos, read transcripts, write descriptions and chapters, translate tracks, grab frames, manage channels and folders. Four slash commands: `/breakdown`, `/describe`, `/chapters`, `/batch_publish`.
 
-**Five more bundled skills for Claude**
-Settings → Skills now lists seven workflows instead of two. Beside capforge-init (channel setup by interview) and capforge-publish (the upload package) come **capforge-cleanup**, which removes fillers and fixes the names, products and split tokens WhisperX misheard without moving a single caption; **capforge-translate**, which adds a language tab, translates the captions sentence by sentence onto the original timing, shortens what wraps and can fill in that language's title, description and chapter titles for the upload package; **capforge-style**, which applies a preset or a look described in words, emphasises the numbers and names that matter, checks every caption for wraps and text over a face, and can give a whole folder the same look; **capforge-clips**, which finds the moments that stand on their own as Shorts, Reels or TikToks, times them to the transcript and writes the Shorts caption and a post per short-form channel (CapForge still cuts nothing: the user trims the clip in their editor); and **capforge-preflight**, a read-only pre-upload checklist over the record, the package, every channel and language, the transcript and the open captions, reported as one table with a fix for each line. Every tool a skill names is pinned to the MCP server by the same test that guards the first two.
+**Seven bundled skills**
+capforge-init, publish, cleanup, translate, style, clips and preflight. View, edit and install them from Settings → Claude & Skills; your edits are never overwritten by an update.
 
-**An interactive startup guide, and What's new**
-A fresh install is now walked through the app itself rather than through a stack of cards. A spotlight picks out one control at a time and a card beside it says what it is for, while the app follows along: the first tour covers the library — adding a video, folders, search and the views — and then opens Settings on the transcription model, on channels and on connecting Claude, for real. The thing being pointed at stays clickable the whole time, ← and → step, and Esc leaves. Once your first video is transcribed a second tour picks up in the editor: the three transcript views, correcting and styling a word, the player and its timeline, language tracks, the style sidebar, export, and the Publish workspace, which it switches to and back. A tour that cannot show a control simply skips that step, and leaving the screen it belongs to ends it quietly. After an update, a "What's new" card lists the highlights of every version released since the one you last saw, newest first, and links to the full changelog. Nothing appears over a running transcription. All three can be reopened any time from Settings → General → About, which also shows the version you are running. An existing install that has never seen either prompt gets the release notes rather than the tour. The tutorial video plays inside the first card when you ask for it, and opens in your browser when you would rather watch it there; nothing is loaded from YouTube until you click.
+**A guided start, and What's new**
+Coach-mark tours walk you through the library and the editor on the real screens. After an update a What's new card lists the highlights. Both reopen from Settings → General → About.
 
 **A copy button on every Publish field**
-Each box in the Publish workspace — the title, description, tags, hashtags, chapters, keywords, summary, the Shorts caption, every channel tab's post text and hashtags, and every field of a translated language — now has a small copy button beside its label, so an upload form can be filled one field at a time. It copies the box's text exactly as shown (the chapters as the `MM:SS Title` lines YouTube reads) and is disabled while the box is empty. "Copy package" in the footer still copies the whole assembled text.
+Fill an upload form one field at a time; the footer still copies the whole package.
 
-**Scrub the timeline and the waveform by holding the mouse down**
-The playhead can be grabbed and dragged: press on it, on the ruler, on empty track space or anywhere on the waveform and the player follows the pointer for as long as the button is held, past the edges of the strip too. Before, every seek was a click that dropped the playhead once. A click still seeks and deselects, a segment's edge still resizes it even when it sits on the playhead, and a segment's body still moves or selects it.
+**Settings dialog**
+A centred dialog with a category rail and search, opened with ⌘,. The theme is Light / Dark / System.
 
-### Performance
+**A refreshed look**
+One amber accent, AA contrast on every label, one type scale, styled sliders, the app's own confirm dialog instead of the OS box, and a resizable right-hand column that remembers its width.
 
-**A faster start and a warmer model**
-The window opens first and the backend is polled every 100 ms rather than waited for, so the app is on screen before Python is. Dropping a file warms the Whisper model while you look at the settings; the alignment model stays resident between jobs instead of being loaded and freed every time; the hardware probe is cached; transcription uses every CPU core. A "free model memory after each job" toggle in Settings → Transcription gives the memory back on machines that need it.
+**Press-and-hold scrubbing**
+Hold the mouse on the playhead, the ruler or the waveform and the player follows.
+
+**A faster start**
+The window opens before the backend, the model warms while you set up a drop and stays resident between jobs. "Free model memory after each job" in Settings → Transcription gives it back.
 
 ### Fixes
 
-**New goes to the transcribe screen**
-The editor's New button used to send you back to the library; it now opens the transcribe screen so the next file can be dropped straight away. Library is still one click away on its own button. Cancelling a transcription lands on the same screen.
-
-**`.ass` exports are readable cues too**
-The `.ass` exporter still wrote one line per transcription chunk, so several sentences could sit in a single huge subtitle — the problem v2.6.0 fixed for `.srt` and `.vtt`. It now uses the same cues as those two: split at sentences, at most two lines of 42 characters, at most seven seconds, with the same start and end times. The word-by-word karaoke highlight survives inside each cue, and the line break falls where the `.srt` breaks it. `.srt` and `.vtt` output is unchanged.
-
-**The library was empty after a fresh launch**
-The renderer could fire its first request before the backend's port and token were known, so the library listed nothing until something else refreshed it. The port and the token are resolved before the first request.
-
-**Edits no longer move the words you did not touch**
-Two more gestures learned the rule from 2.5. Dragging a word's edge on the timeline, or fixing its text from the word popup, wrote the change to the caption group only, so the next edit in the Text view put the old timing back. Both now write through to the transcript, and a hand-placed word timing survives a text edit.
-
-**Windows: file swaps that hit a sharing violation are retried**
-Antivirus and indexers hold files open for a moment on Windows, which made an atomic replace — a record write, a frame grab — fail with a permission error. Those swaps and reads retry briefly; frame grabs use the same Windows-safe replace.
-
-**Posters are grabbed, and never upscaled**
-The poster grab failed on every record because ffmpeg refused the unquoted scale filter. It is grabbed for every creation path now — a drop, an import, the agent, a project restore — with a startup backfill for records that have none, and a small source is never blown up.
-
-**Search finds a video by its file name**
-Searching the library only matched the title, and only whole words. It now matches the file name too, on a word prefix, ignoring accents.
-
-**Publish: chapter suggestions, findings and drafts**
-Suggest could let a 4-second pause stand in for the opening chapter, producing a list the validator always refused; the `00:00` row is claimed first. A finding on a chapter row was never drawn. A field Claude wrote while you had unsaved text in another card wiped that draft; drafts on untouched fields now survive an agent write. And a save that changed nothing no longer bumps the record's revision or writes a history entry.
-
-**Small things**
-Three CSS tokens were referenced but never declared, so a few hovers and labels fell back to inherited colours; a test now refuses that. The `,` playback and timeline keys fired together with ⌘,. The coach-mark scrim flickered on Windows and the Settings dialog stayed open under a tour started from About. The new-channel row overflowed the Settings dialog. The library card's footer clipped the date. The inactive chips and word blocks on the timeline were washed out.
-
-### Internal
-
-**The two preloads cannot drift**
-A test loads `electron/preload.js` and the TypeScript mirror under a mocked Electron and asserts the same names, shapes and IPC channels, so an API added to only one of them fails CI instead of type-checking and doing nothing at runtime.
-
-**Contract tests for the record**
-Every `VideoRecord` field must be filed as authored or system, chapters are pinned to seconds, the built-in template slots are pinned to a fixture shared with the renderer, the media extension list is pinned across its three copies, and every design-system token that is referenced must be declared. A Windows CI job checks the bundled Python has `sqlite3` with FTS5, which the library index needs; without it the index falls back to a substring search rather than failing.
-
-**A release ships with its notes**
-`releaseNotes.ts` — what the What's new card shows — is pinned to `package.json`'s version and to the headings in this file. Bumping the version without writing the notes fails the frontend CI job.
+- `.ass` exports are split into readable cues like `.srt`, keeping the karaoke highlight.
+- Word timings no longer move after a text edit or a timeline word drag.
+- The library came up empty after a fresh launch.
+- New opens the transcribe screen instead of the library.
+- Windows: file swaps and reads that hit a sharing violation are retried.
+- Posters failed to grab on every record, and small sources are no longer upscaled.
+- Library search matches file names and word prefixes.
+- Panel widths are remembered, and the timeline redraws when the window is resized.
+- Publish: chapter suggestions start at `00:00`, findings on chapter rows are drawn, drafts survive an agent write, and an unchanged save no longer bumps the revision.
+- Smaller: undeclared theme tokens, ⌘, colliding with the playback keys, tour flicker on Windows, Settings staying open under a tour, the new-channel row overflowing Settings, a clipped date on cards, washed-out timeline chips.
 
 ### Upgrading
 
-**What happens the first time 3.0 opens**
-Your last project, the crash-recovery copy and every HyperFrames co-author workspace whose source file still exists are imported into the library as records, once. Nothing is moved or deleted: the library keeps its own copy of the session under `~/.capforge/library/`, and a `.capforge` file you exported stays where it is and still opens through Add to library… or a double-click. Project files written by 3.0 still open in 2.x, which shows the original captions and ignores the language tracks. The channel brief from 2.6 becomes the primary YouTube channel on first read; the old `brief.json` is left as it was. A bundled skill you had edited is kept; the Skills card tells you when the bundled text changed.
+Your last project, the crash-recovery copy and existing HyperFrames workspaces are imported into the library once, without moving or deleting anything. The **Open** button is gone: a `.capforge` file comes in through **Add to library…** or a double-click. **Save** is now **Export project…**, because the library record is the save. Projects written by 3.0 still open in 2.x, which shows the original captions only.
 
 <!-- Release rule: bumping `version` in package.json without adding a matching
      entry to `src/renderer/src/lib/releaseNotes.ts` and a `## CapForge v<version>`
