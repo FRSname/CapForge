@@ -27,6 +27,37 @@ export const RELEASES_URL = 'https://github.com/FRSname/CapForge/releases'
 /** Newest first. One entry per shipped version, six highlights at most. */
 export const RELEASE_NOTES: readonly ReleaseNotes[] = [
   {
+    version: '3.0.0',
+    headline:
+      'The biggest CapForge release yet, and worth the update for the fixes alone: more than two dozen, plus a library for your videos, a Publish workspace, captions in other languages and Claude workflows. Take the tour from Settings → General → About.',
+    highlights: [
+      {
+        title: 'A library for your videos',
+        body: 'CapForge opens on your videos now: folders, search, grid or list, and a status on every card from imported to published. Every session saves itself into its record. Your last project was imported for you.',
+      },
+      {
+        title: 'The Publish workspace',
+        body: "Beside Captions: title options, a description with chapters, tags, speakers and a thumbnail, checked against YouTube's limits as you type. Copy the whole upload package, or one field at a time.",
+      },
+      {
+        title: 'A post per channel',
+        body: 'Set up your YouTube, TikTok, Instagram, LinkedIn and X channels in Settings. Each gets its own tab in Publish, metered to that platform\'s limits, with "Start from…" to adapt another channel\'s text.',
+      },
+      {
+        title: 'Captions in other languages',
+        body: 'A tab per language above the editor. Translations are written a sentence at a time onto the original timing, and the tab tells you when the source moved underneath them.',
+      },
+      {
+        title: 'Claude does the writing',
+        body: 'Seven bundled skills and 61 tools let Claude read the library, draft descriptions, translate captions and check a video before upload. Edit any skill in Settings → Claude & Skills before installing it.',
+      },
+      {
+        title: 'More than two dozen fixes, and a new look',
+        body: 'The .ass export, word timings after an edit, Windows file swaps, the empty library after launch, forgotten panel widths. Plus one accent colour, AA contrast, Light / Dark / System and press-and-hold scrubbing.',
+      },
+    ],
+  },
+  {
     version: '2.6.0',
     headline: 'Mostly new ways to read a caption, plus colours and cues.',
     highlights: [
