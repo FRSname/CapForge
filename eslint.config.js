@@ -1,7 +1,7 @@
 /**
  * Flat ESLint config — TypeScript renderer/preload/main sources only.
  * The vanilla-JS `electron/` shell is deliberately excluded (see
- * IMPROVEMENT_PLAN.md Phase 1 anti-pattern guards: no churn there yet).
+ * the v1.5 improvement plan's anti-pattern guards: no churn there yet).
  *
  * Recommended (non-type-checked) rules to keep `npm run lint` fast.
  */

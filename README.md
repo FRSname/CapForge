@@ -1,6 +1,6 @@
 # CapForge
 
-![CapForge demo](capforge-anim.gif)
+![CapForge demo](docs/assets/capforge-anim.gif)
 
 ▶ **[Watch the tutorial — how to use CapForge](https://www.youtube.com/watch?v=7xxLt5FEq1E)**
 
