@@ -282,6 +282,38 @@ def test_create_track_returns_the_paired_skeleton(stub: StubClient) -> None:
     ]
 
 
+def test_create_track_pages_a_long_skeleton(monkeypatch) -> None:
+    """A real video is hundreds of captions; the whole skeleton is a file dump."""
+    _use(monkeypatch, StubClient())
+
+    out = tracks.create_track("pl", max_groups=2)
+
+    assert out["groupCount"] == 3
+    assert out["returned"] == 2
+    assert len(out["groups"]) == 2
+    assert out["nextOffset"] == 2
+    assert "get_track(track_id, offset=2)" in out["next"]
+
+
+def test_create_track_says_nothing_about_paging_when_it_all_fits(stub: StubClient) -> None:
+    out = tracks.create_track("pl")
+    assert out["returned"] == out["groupCount"] == 3
+    assert "nextOffset" not in out
+
+
+def test_create_track_max_groups_zero_returns_everything(monkeypatch) -> None:
+    _use(monkeypatch, StubClient())
+    out = tracks.create_track("pl", max_groups=0)
+    assert out["returned"] == 3
+    assert "nextOffset" not in out
+
+
+def test_create_track_warns_that_ids_do_not_outlive_a_re_cut() -> None:
+    doc = tracks.create_track.__doc__ or ""
+    assert "GROUP IDS ARE NOT STABLE" in doc
+    assert "Words per group" in doc
+
+
 def test_create_track_groups_fragments_of_one_sentence(stub: StubClient) -> None:
     """The first two fragments are one sentence; the third stands alone."""
     out = tracks.create_track("pl")
@@ -434,6 +466,9 @@ def test_set_track_text_returns_the_tracks_counters(stub: StubClient) -> None:
 
     assert out == {
         "status": "ok", "track_id": "tpl", "written": 1,
+        # groupCount rides along so a re-chunk between batches is visible: it
+        # changes the ids without touching staleness or reflowNeeded.
+        "groupCount": 3,
         "staleCount": 1, "untranslatedCount": 1, "reflowNeeded": False,
     }
 
@@ -456,6 +491,44 @@ def test_get_track_returns_the_inventory_entry_without_bodies(stub: StubClient) 
 def test_get_track_passes_the_sentence_index_through(stub: StubClient) -> None:
     out = tracks.get_track("tpl")
     assert [g["sentence"] for g in out["groups"]] == [0, 0, 1]
+
+
+def test_get_track_reports_the_page_it_returned(stub: StubClient) -> None:
+    out = tracks.get_track("tpl")
+    assert out["total"] == 3
+    assert out["returned"] == 3
+    assert "nextOffset" not in out
+
+
+def test_get_track_pages_with_offset_and_limit(stub: StubClient) -> None:
+    first = tracks.get_track("tpl", limit=2)
+    assert [g["id"] for g in first["groups"]] == ["tpl:0", "tpl:1"]
+    assert first["total"] == 3
+    assert first["nextOffset"] == 2
+
+    rest = tracks.get_track("tpl", offset=first["nextOffset"], limit=2)
+    assert [g["id"] for g in rest["groups"]] == ["tpl:2"]
+    assert "nextOffset" not in rest
+
+
+def test_get_track_limit_zero_means_every_group(stub: StubClient) -> None:
+    out = tracks.get_track("tpl", limit=0)
+    assert out["returned"] == 3
+
+
+def test_get_track_pages_after_the_filters(stub: StubClient) -> None:
+    """`total` is what the filters left, not the track's group count."""
+    out = tracks.get_track("tpl", stale_only=True, limit=1)
+    assert out["total"] == 2
+    assert [g["id"] for g in out["groups"]] == ["tpl:1"]
+    assert out["nextOffset"] == 1
+
+
+def test_get_track_tells_the_agent_ids_expire_on_a_re_cut() -> None:
+    doc = tracks.get_track.__doc__ or ""
+    assert "GROUP IDS ARE ONLY AS FRESH AS THIS READ" in doc
+    # The case the skill's mental model missed: no reflowNeeded, no staleness.
+    assert "without" in doc and "reflowNeeded" in doc
 
 
 def test_get_track_stale_only_keeps_stale_and_untranslated(stub: StubClient) -> None:
@@ -516,9 +589,51 @@ def test_get_ui_state_strips_groups_and_render_from_tracks(stub: StubClient) -> 
         assert "groups" not in entry
         assert "render" not in entry
         assert entry["groupCount"] == 3
-    # The active track's own render body and groups are untouched.
+
+
+def test_get_ui_state_leaves_the_active_groups_out_by_default(stub: StubClient) -> None:
+    """The weight was never the *other* tracks — it was the active one's words."""
+    out = server.get_ui_state()
+
+    assert "groups" not in out
+    assert out["groupCount"] == 3
+    # The style is still there; it is what the call is for.
+    assert out["settings"] == {"fontSize": 64}
     assert out["render"]["config"]["font_size"] == 64
-    assert len(out["groups"]) == 3
+
+
+def test_get_ui_state_include_groups_returns_words_as_text(monkeypatch) -> None:
+    state = mirror()
+    state["groups"] = [_custom_group(g) for g in SOURCE_GROUPS]
+    _use(monkeypatch, StubClient(state))
+
+    out = server.get_ui_state(include_groups=True)
+
+    # `emphasize` addresses a word by its index in the group, so the list stays…
+    assert out["groups"][0]["words"] == ["the", "quick", "brown"]
+    assert out["groups"][0]["text"] == "the quick brown"
+    # …but the per-word timings behind it, which are the bulk, do not.
+    assert all(not isinstance(w, dict) for g in out["groups"] for w in g["words"])
+
+
+def test_get_ui_state_replaces_custom_groups_with_a_count(monkeypatch) -> None:
+    state = mirror(active="tpl")
+    state["render"] = polish_entry()["render"]
+    _use(monkeypatch, StubClient(state))
+
+    out = server.get_ui_state()
+
+    assert "custom_groups" not in out["render"]
+    assert out["render"]["customGroupCount"] == 2
+    # Everything else about the body is left alone.
+    assert out["render"]["output_name_suffix"] == ".pl"
+
+
+def test_render_still_submits_the_full_body_the_tool_slimmed(stub: StubClient) -> None:
+    """`get_ui_state`'s projection is the *agent's* view, not the render path's."""
+    server.get_ui_state()
+    server.render(track_id="tpl")
+    assert stub.renders == [polish_entry()["render"]]
 
 
 def test_get_ui_state_tolerates_a_renderer_without_tracks(monkeypatch) -> None:
