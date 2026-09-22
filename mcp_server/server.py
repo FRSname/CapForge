@@ -48,8 +48,12 @@ class WordEdit(BaseModel):
 
 
 class WordEmphasis(BaseModel):
-    """Per-word style override located by group + word index (from get_ui_state)."""
-    group: int = Field(description="Group index (from get_ui_state.groups)")
+    """Per-word style override located by group + word index.
+
+    Both indices are into `get_ui_state(include_groups=True)` — group position in
+    `groups`, word position in that group's `words`.
+    """
+    group: int = Field(description="Group index (from get_ui_state(include_groups=True).groups)")
     word: int = Field(description="Word index within that group")
     overrides: dict = Field(
         description=(
@@ -282,25 +286,34 @@ def export(
 # --- Style & emphasis (live UI) ------------------------------------------
 
 @mcp.tool()
-def get_ui_state() -> dict:
-    """Current renderer style + display groups + available preset names.
+def get_ui_state(include_groups: bool = False) -> dict:
+    """Current renderer style + preset names + the caption-track inventory.
 
-    Returns `{screen, settings, groups, presets, presetsDetail, appliedPreset,
-    render}`. Use `settings` (camelCase keys) with `set_style`, `presetsDetail`
-    with `apply_preset`, and `groups` (with word indices) with `emphasize`.
+    Returns `{screen, settings, groupCount, presets, presetsDetail,
+    appliedPreset, render}`. Use `settings` (camelCase keys) with `set_style`
+    and `presetsDetail` with `apply_preset`.
 
     `screen` is "file" (nothing loaded), "progress" (transcribing) or "results".
     `appliedPreset` names the preset the current style is based on — it is
-    sticky, surviving later `set_style` tweaks. `render` is the resolved
-    snake_case render body the `render` tool submits.
+    sticky, surviving later `set_style` tweaks, and a new caption track inherits
+    it from the source. `render` is the resolved snake_case render body the
+    `render` tool submits, minus its `custom_groups` (a count stands in for
+    them; the `render` tool reads the full body itself).
+
+    CHEAP BY DEFAULT. The display groups are left out, because every word of
+    them rides along and a long video answers with hundreds of thousands of
+    characters. `include_groups=True` returns them with each group's word *text*
+    only — which is what `emphasize` needs, since it addresses a word by its
+    index inside a group. Word timings are `get_transcript`'s.
 
     All of the above describes the **active caption track**. `tracks` is the
     inventory of every language tab (`activeTrackId` says which one is showing)
     with its counters; each track's captions and render body are deliberately
-    left out to keep this call cheap — read one track's captions with
-    `get_track`.
+    left out — read one track's captions with `get_track`.
     """
-    return tracks.strip_track_bodies(_client.get_ui_state() or {})
+    return tracks.project_ui_state(
+        _client.get_ui_state() or {}, include_groups=include_groups
+    )
 
 
 def _preset_names(state: dict) -> dict:
@@ -428,7 +441,8 @@ def apply_preset(name: str, track_id: Optional[str] = None) -> dict:
 def emphasize(edits: list[WordEmphasis]) -> dict:
     """Style individual words (make keywords bigger / different animation/color).
 
-    Locate words with `get_ui_state().groups`, then pass edits like
+    Locate words with `get_ui_state(include_groups=True).groups`, then pass
+    edits like
     `[{"group": 0, "word": 2, "overrides": {"font_size_scale": 1.4,
        "word_transition": "bounce", "active_word_color": "#FF3366"}}]`.
     Updates the live preview and survives to render.

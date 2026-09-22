@@ -39,6 +39,12 @@ _TRACK_BODY_KEYS = ("groups", "render")
 #: Group states worth an agent's attention — what `stale_only` keeps.
 _NEEDS_WORK_STATES = ("stale", "untranslated")
 
+#: How many captions a paging tool hands back in one call. A fifteen-minute talk
+#: is roughly nine hundred captions; the whole list at once is tens of thousands
+#: of tokens, past what one tool result can carry, so both `create_track` and
+#: `get_track` page by default and say where to resume.
+GROUP_PAGE = 120
+
 #: A tool's return value carries this when it could not do what was asked.
 _ERROR = "error"
 
@@ -95,6 +101,67 @@ def strip_track_bodies(state: dict) -> dict:
     if not isinstance(state, dict) or "tracks" not in state:
         return state
     return {**state, "tracks": [track_summary(t) for t in mirrored_tracks(state)]}
+
+
+def slim_group(group: dict) -> dict:
+    """One display group with its words reduced to their text.
+
+    `emphasize` addresses a word by *index* inside its group, so the word list
+    has to survive; the per-word `start`/`end`/`overrides` behind it do not, and
+    they are the bulk of the payload. Nothing else reads a word's timing from
+    this projection — `render` and `export` submit the mirrored render body, and
+    `get_transcript` is where word timings live.
+    """
+    words = group.get("words")
+    if not isinstance(words, list):
+        return group
+    slim = {k: v for k, v in group.items() if k != "words"}
+    slim["words"] = [w.get("word", "") if isinstance(w, dict) else str(w) for w in words]
+    return slim
+
+
+def slim_render(body: Any) -> Any:
+    """The resolved render body without `custom_groups` (every word, again)."""
+    if not isinstance(body, dict):
+        return body
+    groups = body.get("custom_groups")
+    if not isinstance(groups, list):
+        return body
+    return {
+        **{k: v for k, v in body.items() if k != "custom_groups"},
+        "customGroupCount": len(groups),
+    }
+
+
+def project_ui_state(state: dict, *, include_groups: bool = False) -> dict:
+    """`get_ui_state`'s projection: the mirror with nothing word-sized in it.
+
+    `strip_track_bodies` slims the *other* tracks; this also slims what the
+    mirror says about the **active** one, which is where the real weight was.
+    Both `groups` (every word with its timings) and `render.custom_groups` (the
+    same words again) scale with the video, so a fifteen-minute talk answered
+    this call with hundreds of thousands of characters — a tool an agent calls
+    constantly, spending the budget on data it did not ask for.
+
+    So: `groups` is left out unless asked for, and comes back with word *text*
+    only; `custom_groups` is replaced by its count. Every internal caller reads
+    the client's own full mirror, so the render and export paths are untouched.
+    """
+    out = dict(strip_track_bodies(state)) if isinstance(state, dict) else state
+    if not isinstance(out, dict):
+        return out
+
+    groups = out.get("groups")
+    if isinstance(groups, list):
+        out["groupCount"] = len(groups)
+        if include_groups:
+            out["groups"] = [slim_group(g) if isinstance(g, dict) else g for g in groups]
+        else:
+            out.pop("groups", None)
+
+    if "render" in out:
+        out["render"] = slim_render(out["render"])
+    return out
 
 
 def is_error(value: Any) -> bool:
@@ -263,6 +330,7 @@ def create_track(
     lang: str,
     label: Optional[str] = None,
     copy_style_from: Optional[str] = None,
+    max_groups: int = GROUP_PAGE,
 ) -> dict:
     """Add a translated caption track (a language tab) to the open project.
 
@@ -291,6 +359,19 @@ def create_track(
     Refused when the transcript's words carry no ids yet — a track that cannot be
     linked to the source could never be told it went stale. Make an edit (or
     reopen the project) and try again.
+
+    PAGED. `groupCount` is the whole skeleton; at most `max_groups` captions
+    come back per call (`max_groups=0` for all of them, which on a long video
+    is tens of thousands of tokens). When there are more, `nextOffset` says
+    where to resume with `get_track(track_id, offset=…)`, which returns the
+    same shape.
+
+    GROUP IDS ARE NOT STABLE FOR THE LIFE OF THE TRACK. They are re-minted
+    whenever the captions are re-cut — a *Words per group* change on this tab
+    re-chunks each sentence and renames every group, and it sets neither
+    `reflowNeeded` nor any staleness. Write from the ids of your most recent
+    read, and if a batch is rejected for unknown ids, re-read with `get_track`
+    rather than retrying.
 
     The loop, end to end:
       1. translate the `groups` text you get back, group by group;
@@ -339,14 +420,23 @@ def create_track(
         for i, group in enumerate(new_groups[:paired])
     ]
 
+    page = groups if max_groups <= 0 else groups[:max_groups]
     result = {
         "status": "ok",
         "track_id": track_id,
         "label": entry.get("label"),
         "lang": entry.get("lang"),
-        "groups": groups,
+        "groupCount": len(new_groups),
+        "returned": len(page),
+        "groups": page,
         "next": "translate each group's text, then set_track_text(track_id, entries)",
     }
+    if len(page) < len(groups):
+        result["nextOffset"] = len(page)
+        result["next"] = (
+            f"translate these {len(page)}, write them with set_track_text, then "
+            f"get_track(track_id, offset={len(page)}) for the next page"
+        )
     if len(new_groups) != len(source_groups):
         result["warning"] = (
             f"The new track has {len(new_groups)} groups but the source has "
@@ -370,11 +460,19 @@ def set_track_text(track_id: str, entries: list[TrackTextEntry]) -> dict:
     for spelling fixes. Blank text ("") means a blank caption and leaves the
     group counted as untranslated.
 
-    Group ids come from `create_track` or `get_track`. A single unknown id
-    rejects the whole batch — nothing is written — so ids and texts stay in step.
-    Returns the track's counters afterwards: `staleCount` (written before the
-    source words behind them changed), `untranslatedCount` (still blank) and
-    `reflowNeeded` (the source was re-chunked — see `get_track`).
+    Group ids come from `create_track` or `get_track`, and they are only valid
+    until the captions are re-cut (`reflow_track`, or a *Words per group* change
+    on this tab, which re-mints every id and flags nothing). A single unknown id
+    rejects the whole batch — nothing is written — so ids and texts stay in
+    step; the refusal says whether the ids were merely wrong or superseded, and
+    the repair for superseded ones is to re-read with `get_track`, never to
+    retry.
+
+    Returns the track's counters afterwards: `groupCount` (watch it between
+    batches — a change means the captions were re-cut under you),
+    `staleCount` (written before the source words behind them changed),
+    `untranslatedCount` (still blank) and `reflowNeeded` (the *source* was
+    re-chunked — see `get_track`).
     """
     client = _capforge()
     outcome = send_and_confirm(client, "set_track_text", {
@@ -391,6 +489,7 @@ def set_track_text(track_id: str, entries: list[TrackTextEntry]) -> dict:
         "status": "ok",
         "track_id": track_id,
         "written": len(entries),
+        "groupCount": entry.get("groupCount"),
         "staleCount": entry.get("staleCount"),
         "untranslatedCount": entry.get("untranslatedCount"),
         "reflowNeeded": entry.get("reflowNeeded"),
@@ -402,6 +501,8 @@ def get_track(
     stale_only: bool = False,
     start: Optional[float] = None,
     end: Optional[float] = None,
+    offset: int = 0,
+    limit: Optional[int] = None,
 ) -> dict:
     """Read one caption track's groups: ids, timings, text, and how each relates
     to the source. Defaults to the active track.
@@ -426,11 +527,23 @@ def get_track(
     it rebuilds the skeleton from the current source, keeps the text of every
     group whose source words are unchanged, and hands the rest back blank.
 
-    `stale_only=True` returns only the groups needing work (stale +
+    GROUP IDS ARE ONLY AS FRESH AS THIS READ. They are re-minted whenever the
+    captions are re-cut: `reflow_track` does it, and so does a *Words per group*
+    change on this tab, which re-chunks each sentence into new ids **without**
+    setting `reflowNeeded` and without marking anything stale (the translations
+    themselves survive it — only their names change). Between batches, write
+    from the most recent read; if `set_track_text` reports unknown ids, call
+    this again rather than retrying the batch. `groupCount` moving between two
+    calls is the same news.
+
+    PAGED. `stale_only=True` returns only the groups needing work (stale +
     untranslated); `start`/`end` (seconds) keep the groups overlapping that
-    window. Words are never returned — the captions are the unit here. Note
-    that a filter can hide a fragment of a sentence you are rewriting: read the
-    sentence's other fragments too (unfiltered) before writing it.
+    window; `offset`/`limit` page what is left (`limit` defaults to a page, and
+    `limit=0` means all of them). The reply carries `total` (after the filters),
+    `returned` and, when more remain, `nextOffset`. Words are never returned —
+    the captions are the unit here. Note that a filter can hide a fragment of a
+    sentence you are rewriting: read the sentence's other fragments too
+    (unfiltered) before writing it.
     """
     state = _capforge().get_ui_state() or {}
     entry = resolve_track(state, track_id)
@@ -445,7 +558,20 @@ def get_track(
     if end is not None:
         groups = [g for g in groups if (g.get("start") or 0.0) <= end]
 
-    return {"track": track_summary(entry), "groups": groups}
+    total = len(groups)
+    first = max(0, offset)
+    size = GROUP_PAGE if limit is None else limit
+    page = groups[first:] if size <= 0 else groups[first:first + size]
+
+    out = {
+        "track": track_summary(entry),
+        "groups": page,
+        "total": total,
+        "returned": len(page),
+    }
+    if first + len(page) < total:
+        out["nextOffset"] = first + len(page)
+    return out
 
 
 def reflow_track(track_id: str) -> dict:

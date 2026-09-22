@@ -16,8 +16,9 @@ caption styles are a different engine with their own tools and are not this skil
 CapForge must be running **with its window open and the video on the results screen**.
 Tools, all from the `capforge` MCP server:
 
-- `get_ui_state()` for the screen, the current `settings`, `appliedPreset`, the
-  `groups` with word indices, and the track inventory; `open_video(video_id)` to open
+- `get_ui_state()` for the screen, the current `settings`, `appliedPreset` and the
+  track inventory; `get_ui_state(include_groups=True)` adds the `groups` with their
+  word indices, which only the emphasis step needs; `open_video(video_id)` to open
   a library video.
 - `list_presets()` and `apply_preset(name, track_id=…)`.
 - `set_style(patch, track_id=…)` for a tweak; `emphasize(edits)` for single words.
@@ -96,7 +97,8 @@ Candidates come from the transcript, not from taste alone:
 - `find_semantic_moments("cta")` — subscribe, link in bio;
 - a line the user names.
 
-Map each moment to `get_ui_state().groups` (each group lists its words with indices)
+Map each moment to `get_ui_state(include_groups=True).groups` (each group lists its
+words, and a word is addressed by its index there)
 and write `emphasize([{"group": g, "word": w, "overrides": {"font_size_scale": 1.3,
 "active_word_color": "#…", "word_transition": "bounce"}}])`. Use the keys the tool
 documents and nothing else; keep the colour within the style's palette. Emphasis

@@ -116,6 +116,34 @@ function createTrack(
   }
 }
 
+/** How many unknown ids a refusal names before it stops listing them. */
+const MAX_LISTED_IDS = 5
+
+/**
+ * Why a batch was refused, in the form the agent can act on.
+ *
+ * An id shaped `${track.id}:…` that no longer names a group is not a typo: the
+ * captions were **re-cut** since it was issued, which re-mints every id
+ * (`reflowTrack`, or a `wordsPerGroup` change re-chunking each sentence —
+ * `lib/trackChunking.ts`). Neither shows up as staleness or `reflowNeeded`, so
+ * an agent holding ids from an earlier read has no other way to learn it. Say
+ * *that*, instead of listing fifty ids it would only retry.
+ */
+function unknownIdsMessage(track: CaptionTrack, unknown: readonly string[]): string {
+  const listed = unknown.slice(0, MAX_LISTED_IDS).map((id) => `"${id}"`).join(', ')
+  const rest = unknown.length > MAX_LISTED_IDS ? ` (+${unknown.length - MAX_LISTED_IDS} more)` : ''
+  const stale = unknown.every((id) => id.startsWith(`${track.id}:`))
+  if (stale) {
+    return (
+      `"${track.label}" has been re-cut since those group ids were issued, so all ` +
+      `${unknown.length} of them are gone — the translations already written are not. ` +
+      `Re-read the track (get_track) and write from the ids it returns; the track ` +
+      `now has ${track.groups.length} captions. Unknown: ${listed}${rest}.`
+    )
+  }
+  return `No group on "${track.label}" with id ${listed}${rest}.`
+}
+
 /** `set_track_text {track_id, entries: [{group_id, text}]}` — bake, all or nothing. */
 function setTrackText(
   tracks: readonly CaptionTrack[],
@@ -142,11 +170,7 @@ function setTrackText(
 
   const byId = new Map(track.groups.map((g) => [g.id, g]))
   const unknown = entries.filter((e) => !byId.has(e.groupId)).map((e) => e.groupId || '(missing)')
-  if (unknown.length > 0) {
-    throw new Error(
-      `No group on "${track.label}" with id ${unknown.map((id) => `"${id}"`).join(', ')}.`
-    )
-  }
+  if (unknown.length > 0) throw new Error(unknownIdsMessage(track, unknown))
 
   const index = buildSourceIndex(source)
   const allRecorded = recordedWids(track)

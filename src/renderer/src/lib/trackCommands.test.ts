@@ -173,6 +173,49 @@ describe('set_track_text', () => {
     expect(tracks[1].groups[0].text).toBe('')
   })
 
+  test('ids from a superseded chunking are reported as a re-cut, not as typos', () => {
+    // Every id is shaped for this track but names no group: that is what a
+    // re-chunk (reflow, or a words-per-group change) leaves an agent holding.
+    const tracks = withPolish()
+    const entries = Array.from({ length: 8 }, (_, i) => ({
+      group_id: `t1:s${i}`,
+      text: 'tekst',
+    }))
+
+    let message = ''
+    try {
+      applyTrackCommand(tracks, SOURCE_TRACK_ID, cmd('set_track_text', { track_id: 't1', entries }))
+    } catch (e) {
+      message = (e as Error).message
+    }
+
+    expect(message).toMatch(/re-cut/)
+    expect(message).toMatch(/get_track/)
+    // The count it has now, so the agent can see the shape changed.
+    expect(message).toContain(`${tracks[1].groups.length} captions`)
+    // It says the translations survived — the repair is a re-read, not a redo.
+    expect(message).toMatch(/not/)
+    // And it stops listing after five.
+    expect(message).toContain('"t1:s0"')
+    expect(message).not.toContain('"t1:s5"')
+    expect(message).toContain('+3 more')
+    expect(tracks[1].groups[0].text).toBe('')
+  })
+
+  test('an id belonging to no track at all is still just an unknown id', () => {
+    const tracks = withPolish()
+    expect(() =>
+      applyTrackCommand(
+        tracks,
+        SOURCE_TRACK_ID,
+        cmd('set_track_text', {
+          track_id: 't1',
+          entries: [{ group_id: 'nonsense', text: 'zle' }],
+        })
+      )
+    ).toThrow(/No group on "Polish" with id "nonsense"/)
+  })
+
   test('refuses the source track and an empty batch', () => {
     const tracks = withPolish()
     expect(() =>

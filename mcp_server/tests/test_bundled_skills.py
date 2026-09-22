@@ -66,6 +66,9 @@ REQUIRED_TOOLS = {
     "capforge-translate": {
         "get_ui_state",
         "open_video",
+        # Step 1 reads the record before offering the metadata half, so the
+        # scope question is asked against what actually exists.
+        "get_video",
         "create_track",
         "set_track_text",
         "get_track",
