@@ -1648,22 +1648,26 @@ class _FrameSource:
 
     # -- overlay path (batched, ThreadPool) -----------------------------------
 
-    def render_batch(self, pool, frame_range) -> dict[int, bytes]:
-        """Render a batch of frames, deduplicating identical ones.
+    def _overlay_bytes_batch(self, pool, frame_range) -> dict[int, Optional[bytes]]:
+        """Resolve overlay bytes for a batch, deduplicating identical frames.
 
-        Cache lookups happen before submitting to the pool; frames within the
-        batch that share a not-yet-rendered key piggyback on a single future.
-        Returns {frame_number: rgba_bytes} for every frame in `frame_range` —
-        the caller writes them to ffmpeg stdin strictly in order.
+        Returns {frame_number: rgba_bytes or None}, where None marks a frame
+        with no active group. Cache lookups happen before submitting to the
+        pool; frames within the batch that share a not-yet-rendered key
+        piggyback on a single future.
+
+        Shared by render_batch (overlay path, which substitutes the blank
+        frame) and composite_batch (baked path, which skips blanks entirely),
+        so both encoders go through one copy of the key+cache logic.
         """
-        results: dict[int, bytes] = {}
+        results: dict[int, Optional[bytes]] = {}
         submitted: dict[tuple, object] = {}  # key -> Future
         waiters: list[tuple[int, Optional[tuple], object]] = []  # (fn, store_key, fut)
 
         for fn in frame_range:
             if self.frame_group_indices[fn] is None:
                 self.blank_frames += 1
-                results[fn] = self.blank_bytes
+                results[fn] = None
                 continue
             key = self.frame_key(fn)
             if key is None:
@@ -1695,7 +1699,57 @@ class _FrameSource:
                 self._cache_store(store_key, data)
         return results
 
-    # -- baked path (sequential) ----------------------------------------------
+    def render_batch(self, pool, frame_range) -> dict[int, bytes]:
+        """Render a batch of overlay frames.
+
+        Returns {frame_number: rgba_bytes} for every frame in `frame_range` —
+        the caller writes them to ffmpeg stdin strictly in order.
+        """
+        return {
+            fn: self.blank_bytes if data is None else data
+            for fn, data in self._overlay_bytes_batch(pool, frame_range).items()
+        }
+
+    # -- baked path (batched, ThreadPool) -------------------------------------
+
+    def composite_batch(
+        self, pool, raw_frames: list[tuple[int, bytes]]
+    ) -> dict[int, bytes]:
+        """Composite decoded source frames with their overlays, in parallel.
+
+        `raw_frames` is [(frame_number, rgb24_bytes)] straight off the decoder;
+        the result is {frame_number: rgb24_bytes} ready for the encoder. Both
+        the overlay render and the alpha composite run on `pool`, which is why
+        the baked path is no longer bound to one core.
+
+        A frame with no active group passes its decoded bytes through
+        untouched: compositing a fully transparent overlay is a no-op, so the
+        RGB->PIL->RGB round trip would be pure waste.
+        """
+        size = (self.config.resolution_w, self.config.resolution_h)
+        overlays = self._overlay_bytes_batch(pool, [fn for fn, _ in raw_frames])
+
+        def _composite(raw: bytes, overlay_bytes: bytes) -> bytes:
+            src = Image.frombytes("RGB", size, raw)
+            overlay = Image.frombytes("RGBA", size, overlay_bytes)
+            src.paste(overlay, (0, 0), overlay)
+            return src.tobytes()
+
+        results: dict[int, bytes] = {}
+        pending: list[tuple[int, object]] = []
+        for fn, raw in raw_frames:
+            overlay_bytes = overlays[fn]
+            if overlay_bytes is None:
+                results[fn] = raw
+            else:
+                pending.append((fn, pool.submit(_composite, raw, overlay_bytes)))
+
+        for fn, fut in pending:
+            _check_cancel()
+            results[fn] = fut.result()
+        return results
+
+    # -- baked path (single frame) --------------------------------------------
 
     def overlay_image(self, fn: int) -> Optional[Image.Image]:
         """Return the overlay frame as an RGBA image, or None for blank frames."""
@@ -1707,7 +1761,9 @@ class _FrameSource:
         if key is None:
             self.uncached_renders += 1
             t = fn / self.config.fps
-            return _render_frame(self.config, self.font, self.groups[gi], t)
+            return _render_frame(
+                self.config, self.font, self.groups[gi], t, self._precomp[gi]
+            )
         data = self._cache_get(key)
         if data is not None:
             self.hits += 1
