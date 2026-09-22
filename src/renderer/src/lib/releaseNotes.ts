@@ -27,6 +27,21 @@ export const RELEASES_URL = 'https://github.com/FRSname/CapForge/releases'
 /** Newest first. One entry per shipped version, six highlights at most. */
 export const RELEASE_NOTES: readonly ReleaseNotes[] = [
   {
+    version: '3.0.1',
+    headline:
+      "Two fixes on top of 3.0: fonts keep their alternates and ligatures in the exported video, and Claude's caption-track tools handle long videos.",
+    highlights: [
+      {
+        title: 'Fonts render as the preview shows them',
+        body: "Alternates, ligatures and kerning pairs (Pricedown's extended letters, any ligature font) were dropped from the exported video while the preview kept them. Rendering now shapes text the way the preview does.",
+      },
+      {
+        title: 'Claude on long videos',
+        body: 'The caption-track tools page instead of sending the whole track, and a batch written against re-cut captions is refused with a re-read hint instead of a wall of errors. The translate skill was reworked from a live run.',
+      },
+    ],
+  },
+  {
     version: '3.0.0',
     headline:
       'The biggest CapForge release yet, and worth the update for the fixes alone: more than two dozen, plus a library for your videos, a Publish workspace, captions in other languages and Claude workflows. Take the tour from Settings → General → About.',

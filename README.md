@@ -12,8 +12,8 @@ CapForge transcribes a video with word-level timing, lets you correct and style 
 
 | Platform | Installer |
 |----------|-----------|
-| **Windows** | [CapForge-Setup-3.0.0.exe](https://github.com/FRSname/CapForge/releases/download/v3.0.0/CapForge-Setup-3.0.0.exe) |
-| **macOS** (Apple Silicon) | [CapForge-3.0.0.dmg](https://github.com/FRSname/CapForge/releases/download/v3.0.0/CapForge-3.0.0.dmg) |
+| **Windows** | [CapForge-Setup-3.0.1.exe](https://github.com/FRSname/CapForge/releases/download/v3.0.1/CapForge-Setup-3.0.1.exe) |
+| **macOS** (Apple Silicon) | [CapForge-3.0.1.dmg](https://github.com/FRSname/CapForge/releases/download/v3.0.1/CapForge-3.0.1.dmg) |
 
 See the [changelog](CHANGELOG.md) for what's new, or [all releases](https://github.com/FRSname/CapForge/releases) for older builds. The app checks GitHub for a newer version at startup and tells you when there is one.
 
