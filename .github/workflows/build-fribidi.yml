@@ -105,7 +105,8 @@ jobs:
           Copy-Item "fribidi-$env:FRIBIDI_VERSION\COPYING" out\COPYING
           # The DLL must depend on nothing but the OS (no MSVC runtime, no libgcc).
           dumpbin /dependents out\fribidi-0.dll
-          $deps = (dumpbin /dependents out\fribidi-0.dll | Select-String -Pattern '\.dll$' | ForEach-Object { $_.Line.Trim().ToLower() })
+          # Dependency lines are indented; the "Dump of file …dll" header is not.
+          $deps = (dumpbin /dependents out\fribidi-0.dll | Select-String -Pattern '^\s+\S+\.dll$' | ForEach-Object { $_.Line.Trim().ToLower() })
           $bad = $deps | Where-Object { $_ -notmatch '^(kernel32|api-ms-win-crt-|vcruntime140|ucrtbase)' }
           if ($bad) { throw "unexpected DLL dependencies: $bad" }
 
