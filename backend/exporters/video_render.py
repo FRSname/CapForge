@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Callable, Optional
 
-from PIL import Image, ImageDraw, ImageFilter, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont, features
 
 from backend.engine.system_fonts import find_system_font_face
 from backend.exporters import gradient, rsvp_layout
@@ -187,13 +187,51 @@ def _find_font_candidates(family: str, bold: bool) -> list[str]:
     return candidates
 
 
+# ---------------------------------------------------------------------------
+# Text shaping
+# ---------------------------------------------------------------------------
+#
+# Pillow has two layout engines. ``Layout.BASIC`` maps each character to a
+# glyph through FreeType's cmap and applies only the legacy ``kern`` table: no
+# OpenType feature ever runs, so a font's contextual alternates (``calt``),
+# stylistic alternates and ligatures never fire — Pricedown's extended glyphs
+# render in their plain form while the Canvas preview shows them (issue #73).
+# ``Layout.RAQM`` shapes through HarfBuzz with its default feature set
+# (``calt``, ``liga``, ``clig``, ``kern`` incl. GPOS…), the same defaults
+# Chromium applies to the preview and to the HTML/GSAP layer.
+#
+# The Pillow wheels compile libraqm in but load FriBiDi at runtime, so RAQM is
+# *available* only when that library is found: ``electron/text-shaping.js``
+# copies the bundled one to where dyld / LoadLibrary look before the backend
+# spawns. ``truetype()`` already prefers RAQM when it is available; pinning the
+# choice here makes it explicit, loggable (``shaping_status``) and never a
+# per-call request for an engine the process cannot back (which would warn
+# and fall back silently).
+LAYOUT_ENGINE: ImageFont.Layout = (
+    ImageFont.Layout.RAQM if features.check("raqm") else ImageFont.Layout.BASIC
+)
+#: True when fonts are shaped through HarfBuzz (OpenType features honoured).
+OPENTYPE_SHAPING: bool = LAYOUT_ENGINE == ImageFont.Layout.RAQM
+
+
+def shaping_status() -> dict[str, object]:
+    """What the render process can do with a font — for the startup log."""
+    return {
+        "opentype_shaping": OPENTYPE_SHAPING,
+        "layout_engine": LAYOUT_ENGINE.name,
+        "raqm": features.version_feature("raqm"),
+        "harfbuzz": features.version_feature("harfbuzz"),
+        "fribidi": features.version_feature("fribidi"),
+    }
+
+
 def _get_font(family: str, size: int, custom_path: str | None = None, bold: bool = True) -> ImageFont.FreeTypeFont:
     """Load a TrueType font by name, falling back gracefully on each platform."""
     # Custom font path takes priority (user-uploaded font from the app).
     if custom_path and os.path.isfile(custom_path):
         try:
             logger.info("Loading custom font: %s", custom_path)
-            return ImageFont.truetype(custom_path, size)
+            return ImageFont.truetype(custom_path, size, layout_engine=LAYOUT_ENGINE)
         except Exception as e:
             logger.warning("Failed to load custom font %s: %s", custom_path, e)
     elif custom_path:
@@ -208,14 +246,16 @@ def _get_font(family: str, size: int, custom_path: str | None = None, bold: bool
                 system_face.index,
                 size,
             )
-            return ImageFont.truetype(system_face.path, size, index=system_face.index)
+            return ImageFont.truetype(
+                system_face.path, size, index=system_face.index, layout_engine=LAYOUT_ENGINE
+            )
         except Exception as e:
             logger.warning("Failed to load system font %s: %s", system_face.path, e)
 
     for path in _find_font_candidates(family, bold):
         if os.path.isfile(path):
             try:
-                font = ImageFont.truetype(path, size)
+                font = ImageFont.truetype(path, size, layout_engine=LAYOUT_ENGINE)
                 logger.info("Loaded font: %s (size=%d)", path, size)
                 return font
             except Exception:

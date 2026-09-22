@@ -40,6 +40,16 @@ const TORCH_CUDA_INDEX = 'https://download.pytorch.org/whl/cu124'
 const TORCH_CUDA_PACKAGES = ['torch==2.6.0', 'torchaudio==2.6.0', 'torchvision==0.21.0']
 
 // ---------------------------------------------------------------------------
+// Text-shaping library (FriBiDi)
+// ---------------------------------------------------------------------------
+//
+// `resources/bin-win/fribidi-0.dll` (+ its `COPYING`, LGPL-2.1) is built by
+// `.github/workflows/build-fribidi.yml` and dropped here by hand like ffmpeg.
+// python-manager.js copies it next to `python.exe`, first in the DLL search
+// order, so Pillow's `LoadLibrary("fribidi-0")` finds it and shapes text
+// through HarfBuzz (OpenType features, issue #73). See electron/text-shaping.js.
+
+// ---------------------------------------------------------------------------
 // Python runtime bootstrapping
 // ---------------------------------------------------------------------------
 

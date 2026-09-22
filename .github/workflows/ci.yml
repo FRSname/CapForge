@@ -46,6 +46,12 @@ jobs:
         # needed by the route/auth tests that use fastapi.testclient.
         run: pip install pytest pydantic pillow==12.2.0 fastapi httpx
 
+      - name: Install FriBiDi (Pillow's wheel loads it at runtime)
+        # With it Pillow shapes through HarfBuzz (`Layout.RAQM`), the engine the
+        # app runs with once electron/text-shaping.js has placed the bundled
+        # library — so the goldens and test_text_shaping.py cover that path.
+        run: sudo apt-get install -y libfribidi0
+
       - name: Run pytest
         run: python -m pytest
 
