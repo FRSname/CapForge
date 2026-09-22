@@ -1,0 +1,111 @@
+# Builds the FriBiDi shared library CapForge bundles beside ffmpeg so Pillow can
+# shape text through HarfBuzz (OpenType features: contextual alternates,
+# ligatures, GPOS kerning — issue #73). Pillow's wheels compile libraqm in but
+# look for FriBiDi at runtime; `electron/text-shaping.js` copies these files
+# next to the managed interpreter before the backend spawns.
+#
+# Run it by hand (Actions → "Build FriBiDi" → Run workflow), then put the
+# artifacts into the untracked release folders:
+#   fribidi-mac-arm64/libfribidi.dylib + COPYING → resources/bin-mac/
+#   fribidi-win-x64/fribidi-0.dll   + COPYING → resources/bin-win/
+# FriBiDi is LGPL-2.1-or-later; shipping the unmodified library as a separate
+# file with its COPYING text is what the licence asks for.
+name: Build FriBiDi
+
+on:
+  workflow_dispatch:
+
+env:
+  FRIBIDI_VERSION: 1.0.16
+  FRIBIDI_SHA256: 1b1cde5b235d40479e91be2f0e88a309e3214c8ab470ec8a2744d82a5a9ea05c
+  # The oldest macOS the bundled Python (python-build-standalone) supports.
+  MACOSX_DEPLOYMENT_TARGET: '11.0'
+
+jobs:
+  mac-arm64:
+    name: macOS arm64 dylib
+    runs-on: macos-14
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch and verify the release tarball
+        run: |
+          curl -fsSL -o fribidi.tar.xz "https://github.com/fribidi/fribidi/releases/download/v${FRIBIDI_VERSION}/fribidi-${FRIBIDI_VERSION}.tar.xz"
+          echo "${FRIBIDI_SHA256}  fribidi.tar.xz" | shasum -a 256 -c -
+          tar -xf fribidi.tar.xz
+
+      - name: Build
+        run: |
+          pip install meson ninja
+          cd "fribidi-${FRIBIDI_VERSION}"
+          meson setup build --buildtype=release --default-library=shared \
+            -Ddocs=false -Dbin=false -Dtests=false \
+            -Dc_args="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}" \
+            -Dc_link_args="-mmacosx-version-min=${MACOSX_DEPLOYMENT_TARGET}"
+          meson compile -C build
+
+      - name: Collect and check
+        run: |
+          mkdir -p out
+          cp "fribidi-${FRIBIDI_VERSION}/build/lib/libfribidi.0.dylib" out/libfribidi.dylib
+          cp "fribidi-${FRIBIDI_VERSION}/COPYING" out/COPYING
+          lipo -info out/libfribidi.dylib | grep -q arm64
+          # Only libSystem may be linked: the file must be self-contained.
+          otool -L out/libfribidi.dylib
+          test "$(otool -L out/libfribidi.dylib | grep -c -v -e libSystem -e libfribidi -e '^out/')" -eq 0
+          otool -l out/libfribidi.dylib | grep -A3 LC_BUILD_VERSION | grep -q "minos ${MACOSX_DEPLOYMENT_TARGET}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fribidi-mac-arm64
+          path: out/
+          if-no-files-found: error
+
+  win-x64:
+    name: Windows x64 DLL
+    runs-on: windows-latest
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Fetch and verify the release tarball
+        shell: pwsh
+        run: |
+          curl.exe -fsSL -o fribidi.tar.xz "https://github.com/fribidi/fribidi/releases/download/v$env:FRIBIDI_VERSION/fribidi-$env:FRIBIDI_VERSION.tar.xz"
+          $hash = (Get-FileHash fribidi.tar.xz -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne $env:FRIBIDI_SHA256) { throw "sha256 mismatch: $hash" }
+          7z x fribidi.tar.xz
+          7z x fribidi.tar
+
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Build
+        shell: pwsh
+        run: |
+          pip install meson ninja
+          cd "fribidi-$env:FRIBIDI_VERSION"
+          meson setup build --buildtype=release --default-library=shared -Ddocs=false -Dbin=false -Dtests=false
+          meson compile -C build
+
+      - name: Collect and check
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory out | Out-Null
+          Copy-Item "fribidi-$env:FRIBIDI_VERSION\build\lib\fribidi-0.dll" out\fribidi-0.dll
+          Copy-Item "fribidi-$env:FRIBIDI_VERSION\COPYING" out\COPYING
+          # The DLL must depend on nothing but the OS (no MSVC runtime, no libgcc).
+          dumpbin /dependents out\fribidi-0.dll
+          $deps = (dumpbin /dependents out\fribidi-0.dll | Select-String -Pattern '\.dll$' | ForEach-Object { $_.Line.Trim().ToLower() })
+          $bad = $deps | Where-Object { $_ -notmatch '^(kernel32|api-ms-win-crt-|vcruntime140|ucrtbase)' }
+          if ($bad) { throw "unexpected DLL dependencies: $bad" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fribidi-win-x64
+          path: out/
+          if-no-files-found: error

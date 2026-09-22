@@ -42,6 +42,17 @@ const path = require('path')
 const fs = require('fs')
 
 // ---------------------------------------------------------------------------
+// Text-shaping library (FriBiDi)
+// ---------------------------------------------------------------------------
+//
+// `resources/bin-mac/libfribidi.dylib` (+ its `COPYING`, LGPL-2.1) is built by
+// `.github/workflows/build-fribidi.yml` and dropped here by hand like ffmpeg;
+// it is signed with the rest of the bundle. python-manager.js copies it into
+// `<pythonDir>/lib/` — the interpreter's rpath, the only place the hardened
+// Python resolves a bare `dlopen("libfribidi.dylib")` — so Pillow shapes text
+// through HarfBuzz (OpenType features, issue #73). See electron/text-shaping.js.
+
+// ---------------------------------------------------------------------------
 // Python runtime bootstrapping
 // ---------------------------------------------------------------------------
 
