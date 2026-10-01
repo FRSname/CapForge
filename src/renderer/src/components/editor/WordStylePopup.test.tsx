@@ -94,3 +94,21 @@ describe('WordStylePopup — onTextCommit text field', () => {
     expect(html.indexOf('>Text<')).toBeLessThan(html.indexOf('>Text color<'))
   })
 })
+
+describe('WordStylePopup — animation choices', () => {
+  test('a single word can take the Progressive Color style', () => {
+    const html = renderToStaticMarkup(
+      <WordStylePopup
+        word="hello"
+        overrides={{}}
+        anchorRect={fakeRect()}
+        defaults={DEFAULTS}
+        onApply={vi.fn()}
+        onReset={vi.fn()}
+        onClose={vi.fn()}
+      />
+    )
+
+    expect(html).toContain('<option value="progressive">Progressive Color</option>')
+  })
+})

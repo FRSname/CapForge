@@ -691,6 +691,17 @@ export function computeBounceAmount(textH: number, strength: number, wordProg: n
   return textH * strength * Math.sin(wordProg * Math.PI)
 }
 
+/**
+ * The 'progressive' word_transition's one rule: a word flips to the active
+ * colour when it STARTS and keeps it for the rest of the group. It reads the
+ * start alone, never `isActive`, so a spoken word does not drop back to the
+ * base colour in the silence before the next one. Twin of Pillow's
+ * `current_time >= wm["start"]` in `_draw_word_list`.
+ */
+export function hasWordStarted(currentTime: number, start: number): boolean {
+  return currentTime >= start
+}
+
 // ── Color helpers (canvas-free) ─────────────────────────────────
 
 export function hexToRgb(hex: string): [number, number, number] {
