@@ -58,6 +58,7 @@ export function AnimationCard({ s, defaults, filter, set, cardProps }: StudioSec
             <option value="scale">Scale Up</option>
             <option value="karaoke">Karaoke Fill</option>
             <option value="reveal">Reveal</option>
+            <option value="progressive">Progressive Color</option>
           </Select>
         </div>
       </Row>
@@ -218,6 +219,39 @@ export function AnimationCard({ s, defaults, filter, set, cardProps }: StudioSec
               label="Color"
               value={s.underlineColor || s.activeColor}
               onChange={(v) => set('underlineColor', v)}
+            />
+          </Row>
+        </>
+      )}
+
+      {s.wordStyle === 'progressive' && (
+        <>
+          {!filter && (
+            <>
+              <div className="divider" />
+              <span
+                className="text-2xs uppercase tracking-wider"
+                style={{ color: 'var(--color-text-3)' }}
+              >
+                Progressive Options
+              </span>
+            </>
+          )}
+          {/* No settings of its own: these are the Colors card's Text and
+              Active, under the names this effect gives them. */}
+          <Row label="Unspoken" filter={filter}>
+            <ColorSwatch
+              label="Unspoken"
+              value={s.textColor}
+              onChange={(v) => set('textColor', v)}
+              allowGradient
+            />
+          </Row>
+          <Row label="Spoken" filter={filter}>
+            <ColorSwatch
+              label="Spoken"
+              value={s.activeColor}
+              onChange={(v) => set('activeColor', v)}
             />
           </Row>
         </>

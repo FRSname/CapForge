@@ -36,6 +36,7 @@ import {
   computeWordProgress,
   computeCrossfadeFactors,
   computeBounceAmount,
+  hasWordStarted,
   computeRsvpPositions,
   computeRsvpReticleRects,
   computeRsvpStatic,
@@ -873,6 +874,12 @@ export function useSubtitleOverlay({
               ctx.fillStyle = isActive ? wActiveColor : wTextFill
               drawW(m.word, x, wy)
             }
+            break
+          case 'progressive':
+            // Every word visible from the first frame; a word takes the active
+            // colour once it starts and keeps it until the group ends.
+            ctx.fillStyle = hasWordStarted(currentTime, m.start) ? wActiveColor : wTextFill
+            drawW(m.word, x, wy)
             break
           case 'none':
             ctx.fillStyle = wTextFill

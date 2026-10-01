@@ -47,7 +47,7 @@ On first launch a setup wizard downloads the embedded Python runtime and the Whi
 ### Styling and rendering
 
 - **Presets and dials** — typography, colours (flat or gradient), background box, layout, animation, reading mode; per-word and per-group overrides by right-click
-- **Word styles** — Highlight, Underline, Bounce, Scale, Karaoke, Reveal, with Fade / Slide / Pop entrances; **RSVP** speed-reading mode
+- **Word styles** — Highlight, Underline, Bounce, Scale, Karaoke, Reveal, Progressive Color, with Fade / Slide / Pop entrances; **RSVP** speed-reading mode
 - **Captions held across short gaps**, with the last caption held past its final word
 - **Preview = render** — the live Canvas preview, the Pillow renderer and the HyperFrames HTML renderer are pinned to each other by parity tests
 - **Quick Render** (MP4 baked or MOV overlay at source resolution) and **Custom Render** (resolution, fps, format, bitrate); **HyperFrames** engine for GSAP-animated captions
