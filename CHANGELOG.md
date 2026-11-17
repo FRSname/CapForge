@@ -2,7 +2,36 @@
 
 ▶ **[Watch the tutorial — how to use CapForge](https://www.youtube.com/watch?v=7xxLt5FEq1E)**
 
-**Latest release — v3.0.1:** fonts keep their OpenType alternates and ligatures in the exported video · Claude's caption-track tools page long videos and refuse a stale batch cleanly · the translate skill reworked from a live run. **If you are on 2.6 or older, update.**
+**Latest release — v3.1.0:** the Progressive Color word style · faster burned-in renders · an MP4 quality choice for quick renders · the timeline no longer goes blank when the waveform fails · first-run setup fixed on macOS with a broken font record. **If you are on 2.6 or older, update.**
+
+## CapForge v3.1.0
+
+One new word style, faster burned-in renders and three fixes from your reports. Nothing to migrate; projects, presets and fonts carry over.
+
+### New Features
+
+**Progressive Color word style** (#76)
+The whole caption is visible from the first frame in the text colour. Each word switches to the active colour the moment it is said and stays that way until the caption ends. Pick it under Animation → Word style, where two swatches, *Unspoken* and *Spoken*, set the two colours; it also works as a per-word override. The preview, the rendered video and HyperFrames draw it the same way.
+
+**MP4 quality for quick renders** (#79)
+The two quick render buttons always encoded at 40 Mbps, which made large files. An **MP4 quality** list under them offers 8, 15, 25 or 40 Mbps and remembers your choice. The default is still 40 Mbps. It applies to MP4 only; the transparent MOV overlay is ProRes 4444 and has no bitrate setting.
+
+### Improvements
+
+- **Faster burned-in renders** (#83). The baked MP4 render composited frames one at a time on a single core. Compositing now runs on every core while the decoder reads ahead. A 20-second 1080×1920, 60 fps test clip went from 10.5 s to 7.8 s, and the output is identical frame for frame.
+- **Where the render was saved** (#79). After a render, the Export card shows the folder as text ("Saved in …") with a button to copy the full file path, instead of only a tooltip on the Reveal link.
+
+### Fixes
+
+- **A blank timeline when the waveform cannot be decoded** (#80). The waveform decodes the audio on its own, apart from playback. When that failed, for example on a video with no audio track, the caption timeline waited on it forever and showed nothing, with no error. CapForge now retries the decode a second way that needs no audio device. If that also fails, only the waveform is missing: the timeline and playback work, and a message says why.
+- **First-run setup and transcription on macOS with a broken font record** (#77). Matplotlib 3.11.2 and older crash at import when macOS reports a font without the fields it expects, and WhisperX imports Matplotlib. CapForge now patches that one line in its own Python runtime after setup and before every backend start, so an existing install is repaired without downloading anything again.
+- **The "setup failed" dialog says what failed** (#77). It advised checking the internet connection for every error. It now does that only for a connection error, and otherwise points to the log and the issue tracker.
+
+### Internal
+
+- `electron/matplotlib-fonts.js` (the font guard) and `electron/setup-failure.js` (the dialog advice) have `node --test` suites; `lib/waveformFallback.ts` and `lib/quickRender.ts` hold the pure parts of the two renderer fixes.
+- `SCAFFOLD_VERSION` 11 → 12, so cached HyperFrames scaffolds rebuild with the Progressive Color runtime branch.
+- `backend/tests/test_baked_composite.py` pins the parallel composite against the serial one.
 
 ## CapForge v3.0.1
 
