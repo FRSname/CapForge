@@ -7,11 +7,19 @@
  * ExportPanel, and CustomRenderPanel all share one controller so progress is
  * consistent regardless of which button triggered the render. Render status
  * (done/error) is displayed here, next to the actions that triggered it.
+ *
+ * Issue #79: the MP4 quality is a choice here (it used to be a fixed 40 Mbps),
+ * and a finished render says which folder it was saved in rather than hiding
+ * the path in a tooltip.
  */
 
 import { dirname } from '../../lib/render'
 import type { VideoInfo } from '../../lib/api'
 import type { RenderController } from '../../hooks/useRender'
+import { useQuickRenderBitrate } from '../../hooks/useQuickRenderBitrate'
+import { BITRATE_OPTIONS } from '../../lib/quickRender'
+import { CopyButton } from '../ui/CopyButton'
+import { Select } from '../ui/Select'
 
 interface ExportFooterProps {
   audioPath: string
@@ -22,6 +30,7 @@ interface ExportFooterProps {
 
 export function ExportFooter({ audioPath, sourceVideoInfo, render, outputDir }: ExportFooterProps) {
   const { busy, startRender } = render
+  const [bitrate, setBitrate] = useQuickRenderBitrate()
 
   // Empty outputDir means "Same as source" — derive the source file's folder.
   const effectiveOutputDir = outputDir || dirname(audioPath)
@@ -38,20 +47,21 @@ export function ExportFooter({ audioPath, sourceVideoInfo, render, outputDir }: 
 
   function quickBaked() {
     startRender(
-      { renderMode: 'baked', format: 'mp4', resolution: srcRes, fps: srcFps, bitrate: '40M' },
+      { renderMode: 'baked', format: 'mp4', resolution: srcRes, fps: srcFps, bitrate },
       effectiveOutputDir
     )
   }
   function quickOverlay() {
     startRender(
-      { renderMode: 'overlay', format: 'mov', resolution: srcRes, fps: srcFps, bitrate: '40M' },
+      // ProRes 4444 has no bitrate; the field only satisfies the request shape.
+      { renderMode: 'overlay', format: 'mov', resolution: srcRes, fps: srcFps, bitrate },
       effectiveOutputDir
     )
   }
 
   return (
     <div data-tour="export-footer" className="flex flex-col gap-1.5">
-      {/* Quick render buttons — source resolution/fps + max bitrate. */}
+      {/* Quick render buttons — source resolution/fps, MP4 at the quality below. */}
       <div className="grid grid-cols-2 gap-2">
         <QuickRenderBtn
           icon={<VideoIcon />}
@@ -72,6 +82,27 @@ export function ExportFooter({ audioPath, sourceVideoInfo, render, outputDir }: 
           onClick={quickOverlay}
         />
       </div>
+
+      {hasVideo && (
+        <label className="flex items-center gap-1.5 min-w-0">
+          <span className="shrink-0 text-2xs" style={{ color: 'var(--color-text-3)' }}>
+            MP4 quality
+          </span>
+          <Select
+            className="flex-1 min-w-0 text-xs"
+            value={bitrate}
+            onChange={(e) => setBitrate(e.target.value)}
+            disabled={busy}
+            title="Bitrate of Render Video. Lower means a smaller file."
+          >
+            {BITRATE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </Select>
+        </label>
+      )}
 
       {render.status === 'done' && (
         <div className="flex items-center gap-2 min-w-0">
@@ -95,6 +126,18 @@ export function ExportFooter({ audioPath, sourceVideoInfo, render, outputDir }: 
               Reveal {render.lastOutputFile.split(/[\\/]/).pop()}
             </button>
           )}
+        </div>
+      )}
+      {render.status === 'done' && render.lastOutputFile && (
+        <div className="flex items-center gap-1 min-w-0">
+          <span
+            className="flex-1 min-w-0 truncate text-2xs select-text"
+            style={{ color: 'var(--color-text-3)' }}
+            title={render.lastOutputFile}
+          >
+            Saved in {dirname(render.lastOutputFile)}
+          </span>
+          <CopyButton text={render.lastOutputFile} what="the file path" className="shrink-0" />
         </div>
       )}
       {render.status === 'error' && (
