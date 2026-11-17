@@ -5,11 +5,18 @@
  * For audio-only: pass audioUrl — WaveSurfer handles the HTMLAudioElement itself.
  *
  * Returns imperative controls (play/pause/seek) and reactive state (playing, currentTime).
+ *
+ * A waveform that cannot be drawn must not take the player down with it (issue
+ * #80): on WaveSurfer's `error` the audio is decoded once more without an audio
+ * device (`lib/waveformFallback.ts`); if that fails too the hook still reports
+ * `ready` with the media element's duration, so the caption timeline and the
+ * transport work, and `onError` says why the waveform is missing.
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import WaveSurfer from 'wavesurfer.js'
 import { WAVEFORM_OPTIONS } from '../lib/waveformOptions'
+import { decodeOffline, waveformFailureMessage } from '../lib/waveformFallback'
 
 export interface WaveSurferControls {
   playing: boolean
@@ -34,6 +41,8 @@ interface UseWaveSurferOptions {
   onSeek?: (time: number) => void
   /** Called when the waveform is scrolled; receives the visible start time in seconds. */
   onScroll?: (visibleStartTime: number) => void
+  /** Called with a ready-to-show message when the waveform cannot be drawn. */
+  onError?: (message: string) => void
 }
 
 export function useWaveSurfer({
@@ -43,6 +52,7 @@ export function useWaveSurfer({
   onTimeUpdate,
   onSeek,
   onScroll,
+  onError,
 }: UseWaveSurferOptions): WaveSurferControls {
   const wsRef = useRef<WaveSurfer | null>(null)
   const [playing, setPlaying]         = useState(false)
@@ -56,9 +66,11 @@ export function useWaveSurfer({
   const onTimeUpdateRef = useRef(onTimeUpdate)
   const onSeekRef       = useRef(onSeek)
   const onScrollRef     = useRef(onScroll)
+  const onErrorRef      = useRef(onError)
   useEffect(() => { onTimeUpdateRef.current = onTimeUpdate }, [onTimeUpdate])
   useEffect(() => { onSeekRef.current = onSeek },             [onSeek])
   useEffect(() => { onScrollRef.current = onScroll },         [onScroll])
+  useEffect(() => { onErrorRef.current = onError },           [onError])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -104,7 +116,50 @@ export function useWaveSurfer({
       onScrollRef.current?.(visibleStartTime)
     })
 
+    // ── Waveform failure ────────────────────────────────────────
+    let disposed = false
+    let recovery: 'idle' | 'running' | 'done' = 'idle'
+
+    /** Give up on the waveform only: the timeline needs a duration, not peaks. */
+    const playWithoutWaveform = (err: unknown) => {
+      const becomeReady = () => {
+        if (disposed) return
+        setDuration(ws.getDuration())
+        setReady(true)
+      }
+      if (ws.getDuration() > 0) becomeReady()
+      else ws.getMediaElement().addEventListener('loadedmetadata', becomeReady, { once: true })
+      onErrorRef.current?.(waveformFailureMessage(err))
+    }
+
+    /** One more decode, this time without an audio device. */
+    const recoverWaveform = async (firstError: unknown) => {
+      recovery = 'running'
+      const media = ws.getMediaElement()
+      const url = media.currentSrc || media.src
+      try {
+        const response = await fetch(url)
+        if (!response.ok) throw new Error(`HTTP ${response.status}`)
+        const data = await decodeOffline(await response.arrayBuffer(), OfflineAudioContext)
+        if (disposed) return
+        // Same URL, so the media element is left alone; 'ready' fires as usual.
+        await ws.load(url, data.channelData, data.duration)
+      } catch {
+        // The first error is the cause; the retry failing only confirms it.
+        if (!disposed) playWithoutWaveform(firstError)
+      } finally {
+        recovery = 'done'
+      }
+    }
+
+    ws.on('error', (err: unknown) => {
+      if (disposed || recovery === 'running') return // the retry reports its own failure
+      if (recovery === 'idle') void recoverWaveform(err)
+      else onErrorRef.current?.(waveformFailureMessage(err))
+    })
+
     return () => {
+      disposed = true
       ws.destroy()
       wsRef.current = null
     }
