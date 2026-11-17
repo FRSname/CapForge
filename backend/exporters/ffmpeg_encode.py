@@ -20,13 +20,15 @@ from __future__ import annotations
 import json
 import logging
 import os
+import queue
 import shutil
 import subprocess
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Callable, Optional
 
-from PIL import Image, ImageFont
+from PIL import ImageFont
 
 from backend.exporters.video_render import _FrameSource, _check_cancel
 from backend.models.schemas import JobStatus, ProgressUpdate, VideoRenderConfig
@@ -52,6 +54,12 @@ _BT709_TAGS: list[str] = [
     "-color_trc", "bt709",
     "-color_range", "tv",
 ]
+
+# The baked path holds a batch of decoded frames in memory while the pool
+# composites them. Bound that batch by BYTES, not frame count: an RGB frame is
+# 6.2 MB at 1080p but 24.9 MB at 4K, so a frame-count batch that is
+# comfortable at 1080p would hold ~1 GB of raw + composited frames at 4K.
+_BAKED_BATCH_MAX_BYTES = 256 * 1024 * 1024
 
 
 def _render_overlay(
@@ -174,9 +182,6 @@ def _render_overlay(
     stderr_thread.start()
 
     report("Rendering frames…", 5)
-
-    import os
-    from concurrent.futures import ThreadPoolExecutor
 
     # Frame source: owns the frame→group lookup, blank-frame fast path and the
     # frame-dedup LRU cache (see _FrameSource / _frame_state_key above).
@@ -366,33 +371,98 @@ def _render_baked(
     # highlight changes / outside animation windows) are rendered once.
     source = _FrameSource(config, font, groups, total_frames)
 
+    # Same worker heuristic as the overlay path: Pillow is CPU-bound but
+    # releases the GIL for the heavy pixel work, so half the cores gives a
+    # 2-3x speedup without thrashing against the two ffmpeg processes.
+    n_workers = max(1, min(os.cpu_count() or 2, 8) // 2)
+    # Half the budget each for the queued-but-uncomposited frames and the batch
+    # in flight, so peak decoded-frame memory stays inside the budget.
+    batch_size = max(
+        1, min(n_workers * 4, (_BAKED_BATCH_MAX_BYTES // 2) // frame_size)
+    )
+
+    # Decoding must overlap compositing, not alternate with it. Reading a whole
+    # batch on this thread leaves the decoder stalled on a full pipe buffer for
+    # as long as the batch takes to composite, which costs more than the
+    # parallel composite wins. A reader thread keeps the decoder draining while
+    # the pool works; the bounded queue applies the backpressure.
+    frame_queue: "queue.Queue[Optional[tuple[int, bytes]]]" = queue.Queue(
+        maxsize=batch_size
+    )
+
+    # Set on cancel/failure so the reader cannot sit blocked on a full queue
+    # forever after the consumer is gone — this runs inside a long-lived
+    # server process, where that would leak the thread and its queued frames.
+    stop_reading = threading.Event()
+
+    def _put(item: Optional[tuple[int, bytes]]) -> bool:
+        """Queue `item`, giving up if the consumer has stopped. True if queued."""
+        while not stop_reading.is_set():
+            try:
+                frame_queue.put(item, timeout=0.5)
+                return True
+            except queue.Full:
+                continue
+        return False
+
+    def _read_frames() -> None:
+        try:
+            for fn in range(total_frames):
+                raw = decode_proc.stdout.read(frame_size)
+                if not raw or len(raw) < frame_size:
+                    # Source video ended before expected duration
+                    break
+                if not _put((fn, raw)):
+                    return
+        except Exception:
+            logger.exception("Baked render: decoder read thread failed")
+        finally:
+            _put(None)  # sentinel: no more frames
+
+    reader = threading.Thread(target=_read_frames, daemon=True)
+    reader.start()
+
     try:
-        for frame_num in range(total_frames):
-            _check_cancel()
-            raw = decode_proc.stdout.read(frame_size)
-            if not raw or len(raw) < frame_size:
-                # Source video ended before expected duration
-                break
+        with ThreadPoolExecutor(max_workers=n_workers) as pool:
+            source_ended = False
+            while not source_ended:
+                _check_cancel()
 
-            # Build source frame as PIL image
-            src_frame = Image.frombytes("RGB", (out_w, out_h), raw)
+                batch: list[tuple[int, bytes]] = []
+                while len(batch) < batch_size:
+                    try:
+                        item = frame_queue.get(timeout=0.5)
+                    except queue.Empty:
+                        # Nothing decoded yet. Composite what has arrived; with
+                        # an empty batch, keep waiting — but stay responsive to
+                        # Cancel while a stalled decoder produces nothing.
+                        if batch:
+                            break
+                        _check_cancel()
+                        continue
+                    if item is None:
+                        source_ended = True
+                        break
+                    batch.append(item)
+                    if frame_queue.empty():
+                        # Don't wait to fill the batch — composite what has
+                        # arrived so the pool and the decoder stay busy.
+                        break
 
-            # Subtitle overlay (RGBA, cached) — None during gaps
-            sub_frame = source.overlay_image(frame_num)
-            if sub_frame is not None:
-                # Composite: paste subtitle on source using alpha
-                src_frame.paste(sub_frame, (0, 0), sub_frame)
+                if not batch:
+                    break
 
-            # Write composited RGB frame to encoder
-            encode_proc.stdin.write(src_frame.tobytes())
+                composited = source.composite_batch(pool, batch)
+                for fn, _raw in batch:
+                    encode_proc.stdin.write(composited[fn])
+                    if fn % report_interval == 0:
+                        pct = 5 + (fn / total_frames) * 90
+                        report(
+                            f"Rendering frame {fn}/{total_frames}…",
+                            min(pct, 95),
+                        )
 
-            if frame_num % report_interval == 0:
-                pct = 5 + (frame_num / total_frames) * 90
-                report(
-                    f"Rendering frame {frame_num}/{total_frames}…",
-                    min(pct, 95),
-                )
-
+        reader.join(timeout=30)
         decode_proc.stdout.close()
         encode_proc.stdin.close()
         logger.info(
@@ -408,6 +478,14 @@ def _render_baked(
             raise RuntimeError(f"FFmpeg encode failed (code {encode_proc.returncode}): {stderr_text[:500]}")
 
     except Exception:
+        # Release the reader before killing ffmpeg: it may be blocked putting a
+        # frame onto a queue nobody will drain again.
+        stop_reading.set()
+        while not frame_queue.empty():
+            try:
+                frame_queue.get_nowait()
+            except queue.Empty:
+                break
         decode_proc.kill()
         encode_proc.kill()
         raise
