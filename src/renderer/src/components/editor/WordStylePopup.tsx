@@ -81,6 +81,7 @@ const TRANSITIONS: Array<[WordTransition | '', string]> = [
   ['scale', 'Scale Up'],
   ['karaoke', 'Karaoke'],
   ['reveal', 'Reveal'],
+  ['progressive', 'Progressive Color'],
 ]
 
 // Popup dimensions used for viewport clamping (approximate).

@@ -13,6 +13,7 @@ import {
   computeWordProgress,
   computeCrossfadeFactors,
   computeBounceAmount,
+  hasWordStarted,
   hexToRgb,
   lerpColor,
 } from './overlayGeometry'
@@ -365,6 +366,22 @@ describe('computeBounceAmount', () => {
     const result = computeBounceAmount(20, 0.18, 0.5)
 
     expect(result).toBeCloseTo(20 * 0.18, 10)
+  })
+})
+
+// ── hasWordStarted ───────────────────────────────────────────────
+
+describe('hasWordStarted', () => {
+  test('is false before the word starts', () => {
+    expect(hasWordStarted(0.99, 1)).toBe(false)
+  })
+
+  test('is true at exactly the start — Pillow tests current_time >= start', () => {
+    expect(hasWordStarted(1, 1)).toBe(true)
+  })
+
+  test('stays true after the word has ended (it never reads the end)', () => {
+    expect(hasWordStarted(42, 1)).toBe(true)
   })
 })
 

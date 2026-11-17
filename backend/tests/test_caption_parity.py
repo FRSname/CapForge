@@ -173,7 +173,7 @@ def _render_both(result, config, source_video, custom_groups=None, t=T) -> tuple
 @_run
 @pytest.mark.parametrize("mode", [
     "instant", "crossfade", "highlight", "underline", "bounce", "scale", "karaoke", "reveal",
-    "none",
+    "progressive", "none",
 ])
 def test_word_transition_parity(mode, source_video):
     pillow_png, hf_png = _render_both(_result(), _config(word_transition=mode), source_video)
@@ -227,6 +227,47 @@ def test_gradient_parity(name, over, source_video):
     assert mean < MEAN_MAX, f"gradient {name}: mean diff {mean:.2f} >= {MEAN_MAX}"
     assert notable < NOTABLE_FRAC_MAX, (
         f"gradient {name}: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+
+_PROGRESSIVE_SPOKEN_COLOR = "#F5C842"  # = _config()'s active_word_color
+
+
+@_run
+def test_progressive_flips_gradient_words_to_flat(source_video):
+    """Gradient text UNDER the progressive transition.
+
+    At T the first two words ("Hello", "brave") have flipped to the flat active
+    colour and the third is still gradient-filled. In the HTML layer a
+    gradient-filled span paints through `background-clip: text` with a
+    transparent text fill, which hides a plain `color` change — so a runtime that
+    only sets `color` leaves the spoken words gradient while Pillow draws them
+    flat. Thin glyphs are a few percent of the frame, far below what the
+    mean/notable budgets see (verified by mutation: dropping the runtime's
+    `webkitTextFillColor` write passes `_diff` and fails the counts below), so
+    the flat colour's visibility is asserted directly.
+    """
+    pillow_png, hf_png = _render_both(
+        _result(),
+        _config(word_transition="progressive", bg_opacity=0.0, text_color=GRADIENT_TEXT),
+        source_video,
+    )
+    mean, notable = _diff(pillow_png, hf_png)
+    assert mean < MEAN_MAX, f"gradient progressive: mean diff {mean:.2f} >= {MEAN_MAX}"
+    assert notable < NOTABLE_FRAC_MAX, (
+        f"gradient progressive: {notable:.2f}% pixels differ > {NOTABLE_FRAC_MAX}%"
+    )
+
+    counts = {}
+    for label, png in (("pillow", pillow_png), ("hyperframes", hf_png)):
+        img = Image.open(io.BytesIO(png)).convert("RGB")
+        counts[label] = _color_pixel_count(img, _PROGRESSIVE_SPOKEN_COLOR)
+    assert counts["pillow"] > 1000, (
+        f"pillow shows only {counts['pillow']} spoken-colour pixels — the spoken "
+        f"words did not flip to the active colour"
+    )
+    assert counts["hyperframes"] >= counts["pillow"] * 0.5, (
+        f"spoken words are still gradient-filled in the HTML layer: {counts}"
     )
 
 

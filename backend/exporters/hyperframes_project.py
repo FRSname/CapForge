@@ -58,7 +58,10 @@ GSAP_CDN = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
 # post-merge groups and would already invalidate on its own; the bump is belt and
 # braces for the case this constant exists for — an old cache serving a preview
 # built by yesterday's generator.
-SCAFFOLD_VERSION = 11
+# 12: the caption runtime gained the ``progressive`` word transition (a word
+# flips to the active colour at its start and keeps it). An old cached scaffold
+# has no branch for it and would draw it as ``instant``.
+SCAFFOLD_VERSION = 12
 
 # Fingerprint sidecar written next to ``index.html`` after a successful scaffold.
 # ``ensure_hyperframes_project`` reads it to decide whether the existing scaffold

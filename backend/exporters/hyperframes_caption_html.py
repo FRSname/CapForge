@@ -9,8 +9,9 @@ caption) silently changes the look the user configured.
 
 This module emits that third renderer. It reproduces the Canvas logic — every
 `word_transition` mode (instant, crossfade, highlight, underline, bounce, scale,
-karaoke, reveal, none), the group entrance/exit animations (none/fade/slide/pop), text
-stroke, drop shadow, tracking, alignment, multi-line grouping and positioning —
+karaoke, reveal, progressive, none), the group entrance/exit animations
+(none/fade/slide/pop), text stroke, drop shadow, tracking, alignment, multi-line
+grouping and positioning —
 from the same `VideoRenderConfig` the other two renderers consume.
 
 Design:
@@ -791,6 +792,17 @@ function __capBuild(tl, CFG, GROUPS){
         w.style.opacity = '0';
         tl.set(w, { opacity: 1, color: wActive }, m.s);
         tl.set(w, { color: wBase }, m.e);
+      } else if(m.mode === 'progressive'){
+        // Every word is visible from the first frame; a word flips to the
+        // active colour at its START and keeps it until the group ends, so
+        // there is deliberately no event at m.e (Pillow: current_time >= start).
+        // A gradient-filled span paints through `background-clip: text` with a
+        // transparent text fill, which would hide the `color` change — so the
+        // flip also makes the fill opaque, the flat colour Pillow's
+        // `_word_target` gives a word that is no longer base-coloured.
+        var spoken = { color: wActive };
+        if(gradEligible(m)) spoken.webkitTextFillColor = wActive;
+        tl.set(w, spoken, m.s);
       } else if(m.mode === 'none'){
         // static: base color for the whole group lifetime, no timeline events.
       } else {

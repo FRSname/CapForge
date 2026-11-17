@@ -922,6 +922,13 @@ def _draw_word_list(
                     x += effective_space_w
                 continue
             color = w_active_color if is_active else w_text_color
+        elif w_word_trans == "progressive":
+            # Every word is on screen from the first frame; a word flips to the
+            # active colour when it STARTS and keeps it for the rest of the
+            # group — `reveal` without the hiding, `karaoke` without the wipe.
+            # Keyed on `start` alone (not `is_active`), so the silence between
+            # two words never drops a spoken word back to the base colour.
+            color = w_active_color if current_time >= wm["start"] else w_text_color
         elif w_word_trans == "none":
             color = w_text_color
         else:  # instant
@@ -1555,7 +1562,8 @@ def _frame_state_key(
     # --- per-word discrete state: Future / Active / Past ---
     # This captures everything the steady-state draw reads from t:
     # is_active (instant/highlight/underline/scale colour + pill position),
-    # is_past (karaoke), "already started" (reveal), crossfade plateau value.
+    # is_past (karaoke), "already started" (reveal, progressive), crossfade
+    # plateau value.
     # A word whose effective transition is "none" always draws in the base
     # text colour regardless of A/P/F, so it gets a constant state char ("N")
     # instead — this lets an all-"none" group collapse to a single cached
@@ -1586,6 +1594,11 @@ def _frame_state_key(
                 return None
         if w_trans == "none":
             states.append("N")
+        elif w_trans == "progressive":
+            # Reads `start` only: a spoken word looks the same whether it is
+            # still being said or already over, so Active and Past share one
+            # state ("S") and the silence between words costs no re-render.
+            states.append("S" if t >= w["start"] else "F")
         else:
             states.append("A" if is_active else ("P" if t >= w["end"] else "F"))
 

@@ -347,6 +347,11 @@ def set_style(patch: dict, track_id: Optional[str] = None) -> dict:
     e.g. {"fontSize": 84}, {"posY": 70}, {"textColor": "#FFFFFF"},
     {"wordStyle": "highlight"}, {"animationType": "pop"}. Unknown keys are ignored.
 
+    `wordStyle` is one of `none`, `instant`, `crossfade`, `highlight`, `underline`,
+    `bounce`, `scale`, `karaoke`, `reveal`, `progressive`. `progressive` shows the
+    whole caption in `textColor` and turns each word to `activeColor` as it is
+    said, keeping it there (dim-to-bright read-along); set those two colours with it.
+
     UNITS ARE NOT UNIFORM. Read the current value from `get_ui_state().settings`
     first and match its scale:
 

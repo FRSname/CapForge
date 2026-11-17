@@ -90,6 +90,7 @@ SCENARIOS = {
     "none_underline":      dict(animation="none", word_transition="underline"),
     "none_scale":          dict(animation="none", word_transition="scale"),
     "none_reveal":         dict(animation="none", word_transition="reveal"),
+    "none_progressive":    dict(animation="none", word_transition="progressive"),
     "fade_shadow_bg":      dict(animation="fade", word_transition="instant",
                                 shadow_enabled=True, bg_opacity=0.85),
     # RSVP keys on the line's anchor, not on the per-word states — and the line
