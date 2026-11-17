@@ -13,6 +13,7 @@ const crypto = require('crypto')
 const { getRuntimePaths, isRuntimeReady } = require('./runtime-setup')
 const { getNodeRuntimePaths } = require('./node-runtime')
 const { ensureShapingLib } = require('./text-shaping')
+const { ensureMatplotlibFontGuard } = require('./matplotlib-fonts')
 const platform = require('./platform')
 
 const PROJECT_ROOT = path.join(__dirname, '..')
@@ -345,6 +346,14 @@ class PythonBackend {
         ensureShapingLib({
           platformName: process.platform,
           binDir,
+          pythonDir: getRuntimePaths().pythonDir,
+          fs,
+          path,
+        })
+        // Same idea for Matplotlib's macOS font listing (matplotlib-fonts.js):
+        // repairs a runtime installed before the guard existed.
+        ensureMatplotlibFontGuard({
+          platformName: process.platform,
           pythonDir: getRuntimePaths().pythonDir,
           fs,
           path,
