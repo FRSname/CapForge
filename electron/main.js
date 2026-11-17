@@ -22,6 +22,7 @@ const { firstMediaArg } = require('./single-instance')
 const { assertTrashable, libraryRoot } = require('./library-fs')
 const { registerLibraryDialogs, mediaFileFilters } = require('./library-dialogs')
 const { isAllowedExternalUrl } = require('./external-links')
+const { setupFailureAdvice } = require('./setup-failure')
 
 let mainWindow = null
 let setupWindow = null
@@ -416,9 +417,7 @@ async function runFirstTimeSetup() {
         }
         dialog.showErrorBox(
           'CapForge — Setup Failed',
-          `First-run setup failed:\n\n${err.message}\n\n` +
-            `You can retry by launching CapForge again. If the problem persists, ` +
-            `check your internet connection and antivirus settings.`
+          `First-run setup failed:\n\n${err.message}\n\n${setupFailureAdvice(err.message)}`
         )
         app.quit()
         reject(err)

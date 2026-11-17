@@ -36,6 +36,7 @@ const os = require('os')
 
 const platform = require('./platform')
 const { WHISPER_MODELS, formatModelSize, RECOMMENDED_MODEL } = require('./whisper-models')
+const { ensureMatplotlibFontGuard } = require('./matplotlib-fonts')
 
 // Bump this whenever the install recipe changes (python version, package set,
 // platform module logic, etc.) — a mismatch forces a clean reinstall on next
@@ -390,6 +391,14 @@ async function ensureRuntime({ onProgress, force = false, model } = {}) {
   platform.patchPythonConfig(getRuntimePaths().pythonDir)
   await installPip(report)
   const torchVariant = await installPackages(accelerator, report)
+  // The model download below is the first thing to import WhisperX, and that
+  // import dies on a broken macOS font record (issue #77, matplotlib-fonts.js).
+  ensureMatplotlibFontGuard({
+    platformName: process.platform,
+    pythonDir: getRuntimePaths().pythonDir,
+    fs,
+    path,
+  })
   const installedModel = await downloadModel(report, model)
 
   const state = {
