@@ -69,6 +69,7 @@ export type WordTransition =
   | 'scale'
   | 'karaoke'
   | 'reveal'
+  | 'progressive'
 
 /**
  * Per-group caption position override — fractions of output resolution (0–1),

@@ -2,7 +2,22 @@
 
 ▶ **[Watch the tutorial — how to use CapForge](https://www.youtube.com/watch?v=7xxLt5FEq1E)**
 
-**Latest release — v3.0.0:** a library for your videos, with folders · the Publish workspace, with a post per channel · caption tracks in other languages · seven Claude skills and 61 tools · an interactive startup guide · one accent, AA contrast, Light / Dark / System · more than two dozen fixes. **If you are on 2.6 or older, update.**
+**Latest release — v3.0.1:** fonts keep their OpenType alternates and ligatures in the exported video · Claude's caption-track tools page long videos and refuse a stale batch cleanly · the translate skill reworked from a live run. **If you are on 2.6 or older, update.**
+
+## CapForge v3.0.1
+
+Two fixes on top of 3.0. **Update if you render with a display font**: fonts were losing their OpenType alternates and ligatures in the exported video. Nothing to migrate; projects, presets and fonts carry over. If you are on 2.6 or older, update for everything in 3.0 below as well.
+
+### Fixes
+
+- **Fonts render as the preview shows them** (#73). The exported video and the captions-only overlay loaded fonts without OpenType shaping, so the contextual alternates, ligatures and kerning pairs a font defines (Pricedown's extended letters, any ligature font) were dropped while the preview kept them. The render engine now shapes text through HarfBuzz, as the preview does. On the first launch after updating, CapForge places a small text-shaping library (FriBiDi 1.0.16, LGPL; `FRIBIDI-COPYING` ships beside it) next to its Python runtime; nothing to do on your side. The backend log's `Text shaping:` line reads `RAQM` when it is on.
+- **Claude's caption-track tools on long videos** (#72). `get_ui_state` sent the whole active track with word timings (700k characters on a long video) and `create_track` inlined every caption. Captions are now opt-in and text-only in `get_ui_state`; `create_track` and `get_track` page with `max_groups` and `offset` / `limit`; `set_track_text` returns the caption count. A *Words per group* change on a translated tab re-cuts its captions and re-mints their ids, which nothing flagged, so an agent kept writing to ids that no longer existed: that batch is now refused with a "re-read with `get_track`" hint instead of fifty errors, and the tool docs say when ids expire.
+- **The capforge-translate skill, reworked from a live run.** It reads the record before offering the metadata half, asks both blocking questions in one round trip, decides caption size before translating, never caches ids across batches, keeps a scratch map for long videos and names a run-on source caption rather than compressing it. `capforge-style` learned the new `include_groups` flag. Settings → Claude & Skills flags the bundled change against your copy and never overwrites your edits.
+
+### Internal
+
+- `.github/workflows/build-fribidi.yml` builds the shaping library for macOS arm64 and Windows x64 from the checksum-verified FriBiDi source; the bundled copies live beside ffmpeg in `resources/bin-*` and `electron/text-shaping.js` places them before each backend start. The CI backend job installs FriBiDi so the golden frames run on the engine the app ships with, and `backend/tests/test_text_shaping.py` pins it.
+- README rewritten for 3.0.
 
 ## CapForge v3.0.0
 

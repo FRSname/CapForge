@@ -12,8 +12,8 @@ CapForge transcribes a video with word-level timing, lets you correct and style 
 
 | Platform | Installer |
 |----------|-----------|
-| **Windows** | [CapForge-Setup-3.0.0.exe](https://github.com/FRSname/CapForge/releases/download/v3.0.0/CapForge-Setup-3.0.0.exe) |
-| **macOS** (Apple Silicon) | [CapForge-3.0.0.dmg](https://github.com/FRSname/CapForge/releases/download/v3.0.0/CapForge-3.0.0.dmg) |
+| **Windows** | [CapForge-Setup-3.0.1.exe](https://github.com/FRSname/CapForge/releases/download/v3.0.1/CapForge-Setup-3.0.1.exe) |
+| **macOS** (Apple Silicon) | [CapForge-3.0.1.dmg](https://github.com/FRSname/CapForge/releases/download/v3.0.1/CapForge-3.0.1.dmg) |
 
 See the [changelog](CHANGELOG.md) for what's new, or [all releases](https://github.com/FRSname/CapForge/releases) for older builds. The app checks GitHub for a newer version at startup and tells you when there is one.
 
@@ -47,7 +47,7 @@ On first launch a setup wizard downloads the embedded Python runtime and the Whi
 ### Styling and rendering
 
 - **Presets and dials** — typography, colours (flat or gradient), background box, layout, animation, reading mode; per-word and per-group overrides by right-click
-- **Word styles** — Highlight, Underline, Bounce, Scale, Karaoke, Reveal, with Fade / Slide / Pop entrances; **RSVP** speed-reading mode
+- **Word styles** — Highlight, Underline, Bounce, Scale, Karaoke, Reveal, Progressive Color, with Fade / Slide / Pop entrances; **RSVP** speed-reading mode
 - **Captions held across short gaps**, with the last caption held past its final word
 - **Preview = render** — the live Canvas preview, the Pillow renderer and the HyperFrames HTML renderer are pinned to each other by parity tests
 - **Quick Render** (MP4 baked or MOV overlay at source resolution) and **Custom Render** (resolution, fps, format, bitrate); **HyperFrames** engine for GSAP-animated captions

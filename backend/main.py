@@ -82,6 +82,7 @@ from backend.exporters.video_render import (
     cancel_render,
     groups_for_render,
     render_subtitle_video,
+    shaping_status,
 )
 from backend.models.schemas import (
     ExportFormat,
@@ -318,6 +319,12 @@ async def _write_agent_discovery() -> None:
             "CAPFORGE_LOCAL_TOKEN missing though launched by Electron; "
             "the renderer will be unable to authenticate media requests"
         )
+    # Which layout engine Pillow got. RAQM (HarfBuzz) honours a font's OpenType
+    # features; BASIC means FriBiDi was not found beside the interpreter and
+    # contextual alternates / ligatures will be missing from every render
+    # (issue #73) — the one line to look for in backend.log when a font's
+    # special glyphs show in the preview but not in the file.
+    logger.info("Text shaping: %s", shaping_status())
     # Pre-warm the hardware probe off the event loop. It imports torch and
     # shells out to sysctl (~700 ms) and is cached for the process lifetime, so
     # paying for it here keeps it off the first /api/system-info and the first

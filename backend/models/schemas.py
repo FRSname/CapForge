@@ -228,7 +228,7 @@ class VideoRenderConfig(BaseModel):
     video_bitrate: str = Field("8M", description="Bitrate for MP4 output (e.g. 8M, 15M)")
     animation: str = Field("none", description="Group entry animation: none, fade, slide, pop")
     animation_duration: float = Field(0.12, ge=0.0, description="Animation in/out duration in seconds")
-    word_transition: str = Field("instant", description="Word highlight style: instant, crossfade, highlight, underline, bounce, scale, karaoke, reveal, none")
+    word_transition: str = Field("instant", description="Word highlight style: instant, crossfade, highlight, underline, bounce, scale, karaoke, reveal, progressive, none")
     crossfade_duration: float = Field(0.06, ge=0.0, description="Crossfade ramp seconds (shared by Canvas/Pillow/HTML renderers; mirrors renderConstants.CROSSFADE_DUR)")
     # RSVP ("speed reading") options. reading_mode is a LAYOUT axis orthogonal to
     # word_transition: 'rsvp' replaces wrapping with one unwrapped line that slides

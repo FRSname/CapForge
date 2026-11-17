@@ -12,6 +12,8 @@ const crypto = require('crypto')
 
 const { getRuntimePaths, isRuntimeReady } = require('./runtime-setup')
 const { getNodeRuntimePaths } = require('./node-runtime')
+const { ensureShapingLib } = require('./text-shaping')
+const { ensureMatplotlibFontGuard } = require('./matplotlib-fonts')
 const platform = require('./platform')
 
 const PROJECT_ROOT = path.join(__dirname, '..')
@@ -337,6 +339,26 @@ class PythonBackend {
       const binDir = findBundledBinDir()
       const ffmpegExe = path.join(binDir, platform.ffmpegExeName)
       const ffprobeExe = path.join(binDir, platform.ffprobeExeName)
+      // Put the bundled text-shaping library where Pillow's FriBiDi loader
+      // looks (see text-shaping.js) — only the managed runtime is ours to
+      // touch; a dev venv keeps whatever its own Pillow can find.
+      if (isRuntimeReady()) {
+        ensureShapingLib({
+          platformName: process.platform,
+          binDir,
+          pythonDir: getRuntimePaths().pythonDir,
+          fs,
+          path,
+        })
+        // Same idea for Matplotlib's macOS font listing (matplotlib-fonts.js):
+        // repairs a runtime installed before the guard existed.
+        ensureMatplotlibFontGuard({
+          platformName: process.platform,
+          pythonDir: getRuntimePaths().pythonDir,
+          fs,
+          path,
+        })
+      }
 
       // Point the backend at the managed model dir populated during first-run setup.
       const { modelDir } = getRuntimePaths()

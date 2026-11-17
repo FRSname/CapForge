@@ -101,6 +101,16 @@ describe('filterSettings', () => {
     expect(result!.matchedCards.has('layout')).toBe(true)
     expect(result!.matchedLabels.has('Safe zones')).toBe(true)
   })
+
+  test('keyword "progressive" surfaces the Word style row and its two colours', () => {
+    const result = filterSettings('progressive')
+
+    expect(result).not.toBeNull()
+    expect(result!.matchedCards.has('animation')).toBe(true)
+    expect(result!.matchedLabels.has('Word style')).toBe(true)
+    expect(result!.matchedLabels.has('Unspoken')).toBe(true)
+    expect(result!.matchedLabels.has('Spoken')).toBe(true)
+  })
 })
 
 describe('registry / card-keys consistency', () => {

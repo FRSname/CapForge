@@ -14,6 +14,7 @@ import { useTimeline, TIMELINE_HEIGHT, TIMELINE_HEIGHT_EXPANDED } from '../../ho
 import { useSubtitleOverlay } from '../../hooks/useSubtitleOverlay'
 import { useVideoZoom } from '../../hooks/useVideoZoom'
 import { useTransientHint } from '../../hooks/useTransientHint'
+import { useToast } from '../../hooks/useToast'
 import { SafeZoneOverlay } from './SafeZoneOverlay'
 import { VolumeControl } from './VolumeControl'
 import type { Segment } from '../../types/app'
@@ -130,6 +131,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   const tlScrollSyncRef = useRef<((visibleStartTime: number) => void) | null>(null)
 
   // ── WaveSurfer ──────────────────────────────────────────────────
+  const { toast } = useToast()
   const {
     playing,
     currentTime,
@@ -157,6 +159,7 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
     onScroll: useCallback((visibleStartTime: number) => {
       tlScrollSyncRef.current?.(visibleStartTime)
     }, []),
+    onError: useCallback((message: string) => toast(message, 'error'), [toast]),
   })
 
   // ── Imperative handle for keyboard shortcuts ─────────────────
@@ -191,7 +194,9 @@ export const AudioPlayer = forwardRef<AudioPlayerHandle, AudioPlayerProps>(funct
   syncWaveformRef.current = (zoom: number, scrollT: number) => {
     const canvas = canvasRef.current
     const ws = wsRef.current
-    if (!canvas || !ws || !duration) return
+    // No decoded data means the waveform was given up on (useWaveSurfer), and
+    // WaveSurfer's zoom() throws without it; the timeline carries on alone.
+    if (!canvas || !ws || !duration || !ws.getDecodedData()) return
     const pxPerSec = (canvas.clientWidth * zoom) / duration
     ws.zoom(pxPerSec)
     ws.setScroll(scrollT * pxPerSec)

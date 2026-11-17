@@ -7,6 +7,7 @@
 import { StudioCard } from './StudioCard'
 import { Button } from '../ui/Button'
 import { Select } from '../ui/Select'
+import { BITRATE_OPTIONS } from '../../lib/quickRender'
 import { dirname } from '../../lib/render'
 import type { StudioSettings } from './StudioPanel'
 import type { RenderController } from '../../hooks/useRender'
@@ -178,10 +179,11 @@ export function CustomRenderPanel({
             value={s.bitrate}
             onChange={(e) => set('bitrate', e.target.value)}
           >
-            <option value="8M">8 Mbps (Good)</option>
-            <option value="15M">15 Mbps (High)</option>
-            <option value="25M">25 Mbps (Very High)</option>
-            <option value="40M">40 Mbps (Maximum)</option>
+            {BITRATE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </Select>
         </div>
       )}
