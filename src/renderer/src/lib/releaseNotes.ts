@@ -27,6 +27,33 @@ export const RELEASES_URL = 'https://github.com/FRSname/CapForge/releases'
 /** Newest first. One entry per shipped version, six highlights at most. */
 export const RELEASE_NOTES: readonly ReleaseNotes[] = [
   {
+    version: '3.1.0',
+    headline:
+      'A new word style, faster burned-in renders, a quality choice for quick renders, and fixes for a blank timeline and a first-run setup failure on macOS.',
+    highlights: [
+      {
+        title: 'Progressive Color',
+        body: 'A new word style: the whole caption is on screen from the start, and each word takes the active colour as it is said and keeps it. Pick it in the Animation card, or per word.',
+      },
+      {
+        title: 'Faster burned-in renders',
+        body: 'Baked MP4 renders now use every core for compositing instead of one. The output is the same, frame for frame.',
+      },
+      {
+        title: 'Quality for quick renders',
+        body: 'The quick render buttons were fixed at 40 Mbps. An MP4 quality list under them now offers 8, 15, 25 or 40 Mbps and remembers your choice. After a render, the folder is shown with a button to copy the path.',
+      },
+      {
+        title: 'The timeline no longer goes blank',
+        body: 'When the waveform could not be decoded, the whole timeline stayed empty with no message. CapForge now retries another way, and if that fails too, the timeline and playback still work and a message says why.',
+      },
+      {
+        title: 'First-run setup on macOS',
+        body: 'Setup and transcription could fail on a Mac with a broken font record. CapForge now repairs that before the backend starts, and a failed setup says what went wrong instead of blaming the connection.',
+      },
+    ],
+  },
+  {
     version: '3.0.1',
     headline:
       "Two fixes on top of 3.0: fonts keep their alternates and ligatures in the exported video, and Claude's caption-track tools handle long videos.",
