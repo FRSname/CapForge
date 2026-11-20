@@ -53,7 +53,8 @@ const BACKEND_PACKAGES = [
   'pydantic>=2.0',
   // MCP control layer: the bundled runtime also launches mcp_server.server,
   // so the agent integration works with zero extra install for the customer.
-  'mcp>=1.2',
+  // Below 2: mcp 2.0 removed `mcp.server.fastmcp`, which mcp_server/ imports.
+  'mcp>=1.2,<2',
   'httpx>=0.27',
 ]
 
